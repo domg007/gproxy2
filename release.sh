@@ -66,7 +66,7 @@ git push
 
 tag_note_file="$(mktemp)"
 {
-    echo "Release v$VERSION"
+    echo "v$VERSION"
     echo
     extract_release_note_section
 } >"$tag_note_file"
@@ -79,9 +79,9 @@ if command -v gh >/dev/null 2>&1; then
     release_note_tmp="$(mktemp)"
     extract_release_note_section >"$release_note_tmp"
     if gh release view "$TAG" >/dev/null 2>&1; then
-        gh release edit "$TAG" --title "Release $TAG" --notes-file "$release_note_tmp"
+        gh release edit "$TAG" --title "$TAG" --notes-file "$release_note_tmp"
     else
-        gh release create "$TAG" --title "Release $TAG" --notes-file "$release_note_tmp"
+        gh release create "$TAG" --title "$TAG" --notes-file "$release_note_tmp"
     fi
     rm -f "$release_note_tmp"
 else
