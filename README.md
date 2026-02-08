@@ -1,6 +1,6 @@
 # gproxy
 
-[简体中文](README_zh.md)
+[English](README.MD) | [简体中文](README.zh.md)
 
 A high-performance multi-provider LLM gateway in Rust, with an embedded admin SPA.
 
@@ -138,7 +138,7 @@ On bootstrap, `user0` is created and one user key is inserted using the same adm
 
 ## API overview
 
-See `route.md` for complete routes.
+See [`route.md`](route.md) for complete routes.
 
 Main route groups:
 - Aggregate proxy routes without provider prefix (e.g. `/v1/chat/completions`, `/v1/models`)

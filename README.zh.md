@@ -1,6 +1,6 @@
 # gproxy
 
-[English](README.md)
+[English](README.MD) | [简体中文](README.zh.md)
 
 一个用 Rust 编写的高性能多渠道 LLM 网关，内嵌管理 SPA。
 
@@ -138,7 +138,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 
 ## API 概览
 
-完整路由请看 `route.md`。
+完整路由请看 [`route.md`](route.zh.md)。
 
 主要分组：
 - 无渠道前缀的聚合代理路由（如 `/v1/chat/completions`、`/v1/models`）
