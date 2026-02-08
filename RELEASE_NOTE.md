@@ -30,3 +30,8 @@
 
 ### Fixed
 - Release script now uses clean tag/release title formatting for GitHub Release updates.
+
+## v0.2.5
+
+### Added
+ - feat: update axum dependency to include http2 support
