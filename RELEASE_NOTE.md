@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.2.4
+
+### Changed
+- Updated Render blueprint (`render.yaml`) to official Blueprint style (`runtime: docker`, preview generation enabled, `autoDeployTrigger`), and removed default managed PostgreSQL creation.
+- Render deployment now keeps `GPROXY_DSN` optional by default for external DB wiring.
+- Updated README/README.zh deployment docs to reflect current Render behavior and ephemeral default data directory usage.
+- Minor code cleanup and refactor simplification in provider implementation internals.
+
+### Fixed
+- Fixed Zeabur template defaults to avoid passing literal placeholder strings like `${GPROXY_PORT}` into runtime envs.
+- Hardened Docker startup command with defensive env normalization and safe fallbacks (`host`, `port`, `data_dir`, `admin_key`) to prevent crash loops from malformed platform-injected values.
+
 ## v0.2.3
 
 ### Added
