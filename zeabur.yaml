@@ -67,19 +67,19 @@ spec:
             type: HTTP
         env:
           GPROXY_ADMIN_KEY:
-            default: ${GPROXY_ADMIN_KEY}
+            default: ""
           GPROXY_HOST:
-            default: ${GPROXY_HOST}
+            default: 0.0.0.0
           GPROXY_PORT:
-            default: ${GPROXY_PORT}
+            default: "8787"
           GPROXY_DATA_DIR:
-            default: ${GPROXY_DATA_DIR}
+            default: /app/data
           GPROXY_DSN:
-            default: ${GPROXY_DSN}
+            default: "sqlite:///app/data/db/gproxy.db?mode=rwc"
           GPROXY_PROXY:
-            default: ${GPROXY_PROXY}
+            default: ""
           RUST_LOG:
-            default: ${RUST_LOG}
+            default: info
         volumes:
           - id: data
             dir: /app/data

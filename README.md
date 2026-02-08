@@ -18,8 +18,8 @@ gproxy provides:
 
 - Zeabur template source: `zeabur.yaml`
 - Render blueprint source: `render.yaml`
-- Render blueprint defaults to PostgreSQL (`databases.gproxy-postgres`) and wires `GPROXY_DSN` from that DB connection string.
-- Render blueprint does not attach a persistent disk by default (Render standard behavior). Local `GPROXY_DATA_DIR` is ephemeral.
+- Render blueprint does not create a managed PostgreSQL by default. `GPROXY_DSN` is left optional for external DB wiring.
+- Render blueprint does not attach a persistent disk by default. `GPROXY_DATA_DIR` is ephemeral (`/tmp/gproxy-data`) unless you provide external persistence.
 
 ## Built-in providers
 

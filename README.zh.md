@@ -18,8 +18,8 @@ gproxy 提供：
 
 - Zeabur 模板文件：`zeabur.yaml`
 - Render Blueprint 文件：`render.yaml`
-- Render Blueprint 默认创建 PostgreSQL（`databases.gproxy-postgres`），并自动把连接串注入 `GPROXY_DSN`。
-- Render Blueprint 默认不挂载持久磁盘（Render 常规行为）；本地 `GPROXY_DATA_DIR` 为临时目录。
+- Render Blueprint 默认不创建托管 PostgreSQL；`GPROXY_DSN` 保留为可选项，便于接入外部数据库。
+- Render Blueprint 默认不挂载持久磁盘；`GPROXY_DATA_DIR` 默认为临时目录（`/tmp/gproxy-data`），如需持久化请使用外部存储。
 
 ## 内置渠道
 
