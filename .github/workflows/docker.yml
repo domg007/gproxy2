@@ -58,6 +58,8 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=gproxy-docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=gproxy-docker-${{ matrix.arch }}
 
   manifest:
     name: Create multi-arch manifests
