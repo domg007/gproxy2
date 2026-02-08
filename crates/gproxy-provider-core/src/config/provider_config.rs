@@ -114,6 +114,8 @@ pub struct CustomProviderConfig {
     pub model_table: Option<ModelTable>,
     #[serde(default)]
     pub count_tokens: CountTokensMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub json_param_mask: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

@@ -53,6 +53,7 @@ type CustomConfigDraft = {
   proto: CustomProto;
   baseUrl: string;
   countTokens: CountTokensMode;
+  jsonParamMaskText: string;
   dispatchRows: DispatchRowDraft[];
   useModelTable: boolean;
   models: CustomModelDraft[];
@@ -226,6 +227,24 @@ function parseCountTokensMode(value: unknown): CountTokensMode {
   return "upstream";
 }
 
+function parseJsonParamMaskText(value: unknown): string {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter((item) => item.length > 0)
+    .join("\n");
+}
+
+function parseJsonParamMaskList(text: string): string[] {
+  const values = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return Array.from(new Set(values));
+}
+
 function oauthUiDefaults(providerName: string): OAuthUiDefaults {
   switch (providerName) {
     case "claudecode":
@@ -331,6 +350,7 @@ function extractCustomDraft(configJson: unknown, providerEnabled: boolean): Cust
     proto,
     baseUrl: String(settings.base_url ?? ""),
     countTokens: parseCountTokensMode(settings.count_tokens),
+    jsonParamMaskText: parseJsonParamMaskText(settings.json_param_mask),
     dispatchRows: parseDispatchRows(settings.dispatch, proto),
     useModelTable: modelTableRaw !== undefined,
     models: modelRows
@@ -352,6 +372,7 @@ function toDispatchJson(rows: DispatchRowDraft[]): Record<string, unknown> {
 }
 
 function buildCustomConfigJson(draft: CustomConfigDraft): Record<string, unknown> {
+  const jsonParamMask = parseJsonParamMaskList(draft.jsonParamMaskText);
   const models = draft.models
     .map((row) => ({
       id: row.id.trim(),
@@ -366,6 +387,9 @@ function buildCustomConfigJson(draft: CustomConfigDraft): Record<string, unknown
     dispatch: toDispatchJson(draft.dispatchRows),
     count_tokens: draft.countTokens
   };
+  if (jsonParamMask.length > 0) {
+    channelSettings.json_param_mask = jsonParamMask;
+  }
   if (draft.useModelTable) {
     channelSettings.model_table = { models };
   }
@@ -388,6 +412,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customProto, setCustomProto] = useState<CustomProto>("openai_response");
   const [customCountTokens, setCustomCountTokens] = useState<CountTokensMode>("upstream");
+  const [customJsonParamMaskText, setCustomJsonParamMaskText] = useState("");
   const [customDispatchRows, setCustomDispatchRows] = useState<DispatchRowDraft[]>(
     buildDefaultDispatchRows("openai_response")
   );
@@ -963,6 +988,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
         proto: customProto,
         baseUrl,
         countTokens: customCountTokens,
+        jsonParamMaskText: customJsonParamMaskText,
         dispatchRows: customDispatchRows,
         useModelTable: customUseModelTable,
         models: customModels
@@ -984,6 +1010,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
       setCustomBaseUrl("");
       setCustomProto("openai_response");
       setCustomCountTokens("upstream");
+      setCustomJsonParamMaskText("");
       setCustomDispatchRows(buildDefaultDispatchRows("openai_response"));
       setCustomUseModelTable(false);
       setCustomModels([]);
@@ -1237,6 +1264,20 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                 <option value="tokenizers">tokenizers</option>
                 <option value="tiktoken">tiktoken</option>
               </select>
+            </div>
+            <div className="md:col-span-2">
+              <FieldLabel>{t("providers.json_param_mask")}</FieldLabel>
+              <div className="mt-2">
+                <TextArea
+                  value={customDraft.jsonParamMaskText}
+                  onChange={(next) =>
+                    updateSelectedCustomDraft((draft) => ({ ...draft, jsonParamMaskText: next }))
+                  }
+                  rows={4}
+                  placeholder={t("providers.json_param_mask_placeholder")}
+                />
+              </div>
+              <div className="mt-1 text-xs text-slate-500">{t("providers.json_param_mask_hint")}</div>
             </div>
           </div>
 
@@ -1998,6 +2039,18 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                   <option value="tokenizers">tokenizers</option>
                   <option value="tiktoken">tiktoken</option>
                 </select>
+              </div>
+              <div className="md:col-span-2">
+                <FieldLabel>{t("providers.json_param_mask")}</FieldLabel>
+                <div className="mt-2">
+                  <TextArea
+                    value={customJsonParamMaskText}
+                    onChange={setCustomJsonParamMaskText}
+                    rows={4}
+                    placeholder={t("providers.json_param_mask_placeholder")}
+                  />
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{t("providers.json_param_mask_hint")}</div>
               </div>
             </div>
             <div className="mt-4">

@@ -81,6 +81,42 @@ Notes:
 - If `admin_key` is not provided and DB has none, gproxy generates one and prints it once on startup.
 - Built-in providers are auto-seeded when missing.
 
+### `custom` provider JSON parameter mask
+
+`custom` providers support `channel_settings.json_param_mask` to null out selected JSON fields right before upstream dispatch.
+
+- Applies only to requests with JSON body (`content-type: application/json`)
+- Non-JSON requests are not affected
+- Non-existing paths are ignored
+
+Supported path formats (one line per entry):
+
+- Top-level key: `temperature`
+- Dot/bracket path: `messages[1].content`
+- Wildcard: `messages[*].content`
+- JSON Pointer: `/messages/0/content`
+
+Example:
+
+```json
+{
+  "kind": "custom",
+  "channel_settings": {
+    "id": "custom-openai",
+    "enabled": true,
+    "proto": "openai_response",
+    "base_url": "https://api.example.com",
+    "dispatch": { "ops": [] },
+    "count_tokens": "upstream",
+    "json_param_mask": [
+      "temperature",
+      "top_p",
+      "messages[*].content"
+    ]
+  }
+}
+```
+
 ## Authentication model
 
 ### Admin (`/admin/...`)

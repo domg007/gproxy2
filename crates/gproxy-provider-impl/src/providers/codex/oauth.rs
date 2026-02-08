@@ -208,8 +208,10 @@ pub(super) fn oauth_callback(
                 poll_device_authorization(DEFAULT_ISSUER, &device_auth_id, &user_code)?;
             let poll_success = match poll_status {
                 DeviceAuthPollStatus::Pending => {
-                    let message =
-                        format!("authorization_pending: retry after {}s", interval_secs.max(1));
+                    let message = format!(
+                        "authorization_pending: retry after {}s",
+                        interval_secs.max(1)
+                    );
                     return Ok(OAuthCallbackResult {
                         response: json_error(409, &message),
                         credential: None,

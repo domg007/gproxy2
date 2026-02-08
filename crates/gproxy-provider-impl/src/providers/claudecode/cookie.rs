@@ -95,7 +95,9 @@ fn keepalive_session_cookie_if_due(config: &ProviderConfig, session_key: &str) {
 
     // Keep sessionKey cookie warm on Claude side. Failure is best-effort and
     // should not block normal request flow.
-    let Ok(claude_ai_base) = claudecode_ai_base_url(config).map(|value| value.trim_end_matches('/').to_string()) else {
+    let Ok(claude_ai_base) =
+        claudecode_ai_base_url(config).map(|value| value.trim_end_matches('/').to_string())
+    else {
         return;
     };
     let result: ProviderResult<()> = crate::providers::oauth_common::block_on(async move {

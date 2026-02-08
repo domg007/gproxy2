@@ -418,14 +418,14 @@ impl ProxyEngine {
                             if let Err(resp) = self
                                 .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
                                 .await
-                        {
-                            return resp;
+                            {
+                                return resp;
+                            }
+                            fixed_credential = (cred_id, (*new_cred).clone());
+                            provider_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
                         }
-                        fixed_credential = (cred_id, (*new_cred).clone());
-                        provider_retry_used = Some(cred_id);
-                        attempt_no += 1;
-                        continue;
-                    }
                         AuthRetryAction::None => {}
                     }
                 }
@@ -445,14 +445,14 @@ impl ProxyEngine {
                             if let Err(resp) = self
                                 .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
                                 .await
-                        {
-                            return resp;
+                            {
+                                return resp;
+                            }
+                            fixed_credential = (cred_id, (*new_cred).clone());
+                            auth_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
                         }
-                        fixed_credential = (cred_id, (*new_cred).clone());
-                        auth_retry_used = Some(cred_id);
-                        attempt_no += 1;
-                        continue;
-                    }
                         AuthRetryAction::None => {}
                     }
                 }
@@ -528,9 +528,8 @@ impl ProxyEngine {
         if !row.enabled {
             return Err(json_error(409, "credential_disabled"));
         }
-        serde_json::from_value(row.secret_json.clone()).map_err(|err| {
-            json_error_with(500, "credential_decode_failed", err.to_string())
-        })
+        serde_json::from_value(row.secret_json.clone())
+            .map_err(|err| json_error_with(500, "credential_decode_failed", err.to_string()))
     }
 
     async fn handle_oauth_start(

@@ -4,6 +4,7 @@ use serde_json::json;
 use tiktoken_rs::{get_bpe_from_model, o200k_base};
 
 use gproxy_provider_core::config::{CustomProviderConfig, ModelRecord};
+use gproxy_provider_core::header_get;
 use gproxy_provider_core::{
     CountTokensMode, Credential, DispatchTable, HttpMethod, ProviderConfig, ProviderError,
     ProviderResult, UpstreamBody, UpstreamCtx, UpstreamHttpRequest, UpstreamHttpResponse,
@@ -15,6 +16,13 @@ use crate::auth_extractor;
 
 const PROVIDER_NAME: &str = "custom";
 const CLAUDE_CREATED_AT: &str = "2026-01-01T00:00:00Z";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum JsonMaskSegment {
+    Key(String),
+    Index(usize),
+    Wildcard,
+}
 
 #[derive(Debug, Default)]
 pub struct CustomProvider;
@@ -55,13 +63,15 @@ impl UpstreamProvider for CustomProvider {
         auth_extractor::set_accept_json(&mut headers);
         auth_extractor::set_content_type_json(&mut headers);
         apply_anthropic_headers(&mut headers, &req.headers)?;
-        Ok(UpstreamHttpRequest {
+        let mut upstream = UpstreamHttpRequest {
             method: HttpMethod::Post,
             url,
             headers,
             body: Some(Bytes::from(body)),
             is_stream: req.body.stream.unwrap_or(false),
-        })
+        };
+        finalize_json_request(cfg, &mut upstream)?;
+        Ok(upstream)
     }
 
     async fn build_claude_count_tokens(
@@ -83,13 +93,15 @@ impl UpstreamProvider for CustomProvider {
                 auth_extractor::set_accept_json(&mut headers);
                 auth_extractor::set_content_type_json(&mut headers);
                 apply_anthropic_headers(&mut headers, &req.headers)?;
-                Ok(UpstreamHttpRequest {
+                let mut upstream = UpstreamHttpRequest {
                     method: HttpMethod::Post,
                     url,
                     headers,
                     body: Some(Bytes::from(body)),
                     is_stream: false,
-                })
+                };
+                finalize_json_request(cfg, &mut upstream)?;
+                Ok(upstream)
             }
             CountTokensMode::Tokenizers | CountTokensMode::Tiktoken => {
                 let model =
@@ -279,13 +291,15 @@ impl UpstreamProvider for CustomProvider {
         auth_extractor::set_bearer(&mut headers, api_key);
         auth_extractor::set_accept_json(&mut headers);
         auth_extractor::set_content_type_json(&mut headers);
-        Ok(UpstreamHttpRequest {
+        let mut upstream = UpstreamHttpRequest {
             method: HttpMethod::Post,
             url,
             headers,
             body: Some(Bytes::from(body)),
             is_stream: req.body.stream.unwrap_or(false),
-        })
+        };
+        finalize_json_request(cfg, &mut upstream)?;
+        Ok(upstream)
     }
 
     async fn build_openai_responses(
@@ -304,13 +318,15 @@ impl UpstreamProvider for CustomProvider {
         auth_extractor::set_bearer(&mut headers, api_key);
         auth_extractor::set_accept_json(&mut headers);
         auth_extractor::set_content_type_json(&mut headers);
-        Ok(UpstreamHttpRequest {
+        let mut upstream = UpstreamHttpRequest {
             method: HttpMethod::Post,
             url,
             headers,
             body: Some(Bytes::from(body)),
             is_stream: req.body.stream.unwrap_or(false),
-        })
+        };
+        finalize_json_request(cfg, &mut upstream)?;
+        Ok(upstream)
     }
 
     async fn build_openai_input_tokens(
@@ -331,13 +347,15 @@ impl UpstreamProvider for CustomProvider {
                 auth_extractor::set_bearer(&mut headers, api_key);
                 auth_extractor::set_accept_json(&mut headers);
                 auth_extractor::set_content_type_json(&mut headers);
-                Ok(UpstreamHttpRequest {
+                let mut upstream = UpstreamHttpRequest {
                     method: HttpMethod::Post,
                     url,
                     headers,
                     body: Some(Bytes::from(body)),
                     is_stream: false,
-                })
+                };
+                finalize_json_request(cfg, &mut upstream)?;
+                Ok(upstream)
             }
             CountTokensMode::Tokenizers | CountTokensMode::Tiktoken => {
                 let text = serde_json::to_string(&req.body)
@@ -538,13 +556,217 @@ fn build_gemini_request<T: serde::Serialize>(
     auth_extractor::set_header(&mut headers, "x-goog-api-key", api_key);
     auth_extractor::set_accept_json(&mut headers);
     auth_extractor::set_content_type_json(&mut headers);
-    Ok(UpstreamHttpRequest {
+    let mut upstream = UpstreamHttpRequest {
         method: HttpMethod::Post,
         url,
         headers,
         body: Some(Bytes::from(body)),
         is_stream,
-    })
+    };
+    finalize_json_request(cfg, &mut upstream)?;
+    Ok(upstream)
+}
+
+fn finalize_json_request(
+    cfg: &CustomProviderConfig,
+    req: &mut UpstreamHttpRequest,
+) -> ProviderResult<()> {
+    if cfg.json_param_mask.is_empty() || req.body.is_none() {
+        return Ok(());
+    }
+    if !is_json_content_type(req) {
+        return Ok(());
+    }
+    apply_json_param_mask(&cfg.json_param_mask, req)
+}
+
+fn is_json_content_type(req: &UpstreamHttpRequest) -> bool {
+    header_get(&req.headers, "content-type")
+        .map(|v| v.to_ascii_lowercase().contains("application/json"))
+        .unwrap_or(false)
+}
+
+fn apply_json_param_mask(
+    mask_table: &[String],
+    req: &mut UpstreamHttpRequest,
+) -> ProviderResult<()> {
+    let mask_paths = parse_json_mask_paths(mask_table)?;
+    if mask_paths.is_empty() {
+        return Ok(());
+    }
+
+    let Some(body) = req.body.as_ref() else {
+        return Ok(());
+    };
+    let mut value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|err| ProviderError::Other(err.to_string()))?;
+    for path in &mask_paths {
+        mask_json_value_by_path(&mut value, path);
+    }
+    let bytes = serde_json::to_vec(&value).map_err(|err| ProviderError::Other(err.to_string()))?;
+    req.body = Some(Bytes::from(bytes));
+    Ok(())
+}
+
+fn parse_json_mask_paths(mask_table: &[String]) -> ProviderResult<Vec<Vec<JsonMaskSegment>>> {
+    let mut out = Vec::new();
+    for raw in mask_table {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let path = parse_json_mask_path(line).map_err(|msg| {
+            ProviderError::InvalidConfig(format!(
+                "invalid custom json_param_mask entry `{line}`: {msg}"
+            ))
+        })?;
+        out.push(path);
+    }
+    Ok(out)
+}
+
+fn parse_json_mask_path(line: &str) -> Result<Vec<JsonMaskSegment>, &'static str> {
+    if line.starts_with('/') {
+        return parse_json_pointer_path(line);
+    }
+    parse_dot_bracket_path(line)
+}
+
+fn parse_json_pointer_path(line: &str) -> Result<Vec<JsonMaskSegment>, &'static str> {
+    let mut segments = Vec::new();
+    for token in line.split('/').skip(1) {
+        if token.is_empty() {
+            return Err("empty pointer segment");
+        }
+        let decoded = token.replace("~1", "/").replace("~0", "~");
+        segments.push(parse_json_mask_segment(&decoded)?);
+    }
+    if segments.is_empty() {
+        return Err("empty path");
+    }
+    Ok(segments)
+}
+
+fn parse_dot_bracket_path(line: &str) -> Result<Vec<JsonMaskSegment>, &'static str> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0usize;
+    let mut current = String::new();
+    let mut segments = Vec::new();
+    while i < chars.len() {
+        let ch = chars[i];
+        match ch {
+            '.' => {
+                if current.is_empty() {
+                    return Err("empty segment");
+                }
+                segments.push(parse_json_mask_segment(&current)?);
+                current.clear();
+                if i + 1 >= chars.len() {
+                    return Err("trailing dot");
+                }
+                i += 1;
+            }
+            '[' => {
+                if !current.is_empty() {
+                    segments.push(parse_json_mask_segment(&current)?);
+                    current.clear();
+                }
+                i += 1;
+                let mut inner = String::new();
+                while i < chars.len() && chars[i] != ']' {
+                    inner.push(chars[i]);
+                    i += 1;
+                }
+                if i >= chars.len() || chars[i] != ']' {
+                    return Err("missing closing ]");
+                }
+                let inner = inner.trim();
+                if inner.is_empty() {
+                    return Err("empty bracket segment");
+                }
+                let quoted = (inner.starts_with('"') && inner.ends_with('"'))
+                    || (inner.starts_with('\'') && inner.ends_with('\''));
+                let token = if quoted && inner.len() >= 2 {
+                    &inner[1..inner.len() - 1]
+                } else {
+                    inner
+                };
+                if token.is_empty() {
+                    return Err("empty bracket segment");
+                }
+                segments.push(parse_json_mask_segment(token)?);
+                i += 1;
+                if i < chars.len() && chars[i] == '.' {
+                    if i + 1 >= chars.len() {
+                        return Err("trailing dot");
+                    }
+                    i += 1;
+                }
+            }
+            ']' => return Err("unexpected ]"),
+            _ => {
+                current.push(ch);
+                i += 1;
+            }
+        }
+    }
+    if !current.is_empty() {
+        segments.push(parse_json_mask_segment(&current)?);
+    }
+    if segments.is_empty() {
+        return Err("empty path");
+    }
+    Ok(segments)
+}
+
+fn parse_json_mask_segment(token: &str) -> Result<JsonMaskSegment, &'static str> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("empty segment");
+    }
+    if token == "*" {
+        return Ok(JsonMaskSegment::Wildcard);
+    }
+    if let Ok(index) = token.parse::<usize>() {
+        return Ok(JsonMaskSegment::Index(index));
+    }
+    Ok(JsonMaskSegment::Key(token.to_string()))
+}
+
+fn mask_json_value_by_path(value: &mut serde_json::Value, path: &[JsonMaskSegment]) {
+    if path.is_empty() {
+        *value = serde_json::Value::Null;
+        return;
+    }
+    match &path[0] {
+        JsonMaskSegment::Wildcard => match value {
+            serde_json::Value::Object(map) => {
+                for child in map.values_mut() {
+                    mask_json_value_by_path(child, &path[1..]);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    mask_json_value_by_path(child, &path[1..]);
+                }
+            }
+            _ => {}
+        },
+        JsonMaskSegment::Key(key) => {
+            if let serde_json::Value::Object(map) = value
+                && let Some(child) = map.get_mut(key)
+            {
+                mask_json_value_by_path(child, &path[1..]);
+            }
+        }
+        JsonMaskSegment::Index(index) => {
+            if let serde_json::Value::Array(items) = value
+                && let Some(child) = items.get_mut(*index)
+            {
+                mask_json_value_by_path(child, &path[1..]);
+            }
+        }
+    }
 }
 
 fn apply_anthropic_headers(
@@ -708,4 +930,100 @@ fn gemini_model_json(model: &ModelRecord) -> serde_json::Value {
         "version": "custom",
         "displayName": model.display_name.clone().unwrap_or(normalized),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_json_value_by_path_keeps_top_level_compatibility() {
+        let mut value = json!({
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "nested": {
+                "temperature": 0.2
+            }
+        });
+        mask_json_value_by_path(
+            &mut value,
+            &[JsonMaskSegment::Key("temperature".to_string())],
+        );
+        mask_json_value_by_path(&mut value, &[JsonMaskSegment::Key("top_p".to_string())]);
+        assert_eq!(value["temperature"], serde_json::Value::Null);
+        assert_eq!(value["top_p"], serde_json::Value::Null);
+        assert_eq!(value["nested"]["temperature"], json!(0.2));
+    }
+
+    #[test]
+    fn mask_json_value_by_path_supports_nested_array_path() {
+        let mut value = json!({
+            "messages": [
+                { "content": "a", "role": "user" },
+                { "content": "b", "role": "assistant" }
+            ]
+        });
+        let path = parse_json_mask_path("messages[1].content").unwrap();
+        mask_json_value_by_path(&mut value, &path);
+        assert_eq!(value["messages"][0]["content"], json!("a"));
+        assert_eq!(value["messages"][1]["content"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn mask_json_value_by_path_supports_wildcard() {
+        let mut value = json!({
+            "messages": [
+                { "content": "a" },
+                { "content": "b" }
+            ]
+        });
+        let path = parse_json_mask_path("messages[*].content").unwrap();
+        mask_json_value_by_path(&mut value, &path);
+        assert_eq!(value["messages"][0]["content"], serde_json::Value::Null);
+        assert_eq!(value["messages"][1]["content"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn apply_json_param_mask_rewrites_request_body() {
+        let mut req = UpstreamHttpRequest {
+            method: HttpMethod::Post,
+            url: "https://example.com/v1/chat/completions".to_string(),
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
+            body: Some(Bytes::from(
+                serde_json::to_vec(&json!({
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        { "content": "a" },
+                        { "content": "b" }
+                    ],
+                    "temperature": 0.5
+                }))
+                .unwrap(),
+            )),
+            is_stream: false,
+        };
+        apply_json_param_mask(
+            &["temperature".to_string(), "messages[*].content".to_string()],
+            &mut req,
+        )
+        .unwrap();
+        let body = serde_json::from_slice::<serde_json::Value>(req.body.unwrap().as_ref()).unwrap();
+        assert_eq!(body["temperature"], serde_json::Value::Null);
+        assert_eq!(body["messages"][0]["content"], serde_json::Value::Null);
+        assert_eq!(body["messages"][1]["content"], serde_json::Value::Null);
+        assert_eq!(body["model"], json!("gpt-4o-mini"));
+    }
+
+    #[test]
+    fn parse_json_mask_path_supports_json_pointer() {
+        let path = parse_json_mask_path("/messages/0/content").unwrap();
+        assert_eq!(
+            path,
+            vec![
+                JsonMaskSegment::Key("messages".to_string()),
+                JsonMaskSegment::Index(0),
+                JsonMaskSegment::Key("content".to_string())
+            ]
+        );
+    }
 }

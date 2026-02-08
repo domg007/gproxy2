@@ -81,6 +81,42 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 - 若未提供 `admin_key` 且 DB 中也不存在，启动时会自动生成并打印一次。
 - 若缺失内置渠道，会在启动时自动补种子。
 
+### `custom` 渠道 JSON 参数屏蔽
+
+`custom` 渠道支持 `channel_settings.json_param_mask`，可在请求发往上游前，将指定 JSON 字段强制置为 `null`。
+
+- 仅对 JSON 请求体生效（`content-type: application/json`）
+- 非 JSON 请求不受影响
+- 路径不存在时会忽略，不报错
+
+支持的路径写法（每行/每项一个）：
+
+- 顶层字段：`temperature`
+- 点路径/索引：`messages[1].content`
+- 通配符：`messages[*].content`
+- JSON Pointer：`/messages/0/content`
+
+示例：
+
+```json
+{
+  "kind": "custom",
+  "channel_settings": {
+    "id": "custom-openai",
+    "enabled": true,
+    "proto": "openai_response",
+    "base_url": "https://api.example.com",
+    "dispatch": { "ops": [] },
+    "count_tokens": "upstream",
+    "json_param_mask": [
+      "temperature",
+      "top_p",
+      "messages[*].content"
+    ]
+  }
+}
+```
+
 ## 认证模型
 
 ### 管理端（`/admin/...`）

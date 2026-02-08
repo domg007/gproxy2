@@ -328,7 +328,11 @@ async fn list_provider_credentials(
 
     let runtime = state.app.providers.load().get(&name).cloned();
     let mut creds = Vec::new();
-    for c in snapshot.credentials.iter().filter(|c| c.provider_id == provider.id) {
+    for c in snapshot
+        .credentials
+        .iter()
+        .filter(|c| c.provider_id == provider.id)
+    {
         let runtime_status = build_runtime_status(runtime.as_ref(), c.id, c.enabled).await;
         creds.push(serde_json::json!({
             "id": c.id,

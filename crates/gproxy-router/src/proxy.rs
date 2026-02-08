@@ -73,10 +73,7 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
         .route("/v1/models/{*model}", post(gemini_post_aggregate))
         .route("/v1beta/models", get(gemini_models_list_aggregate))
         .route("/v1beta/models/{*name}", get(gemini_models_get_aggregate))
-        .route(
-            "/v1beta/models/{*name}",
-            post(gemini_post_aggregate),
-        )
+        .route("/v1beta/models/{*name}", post(gemini_post_aggregate))
         // Claude
         .route("/{provider}/v1/messages", post(claude_messages))
         .route(

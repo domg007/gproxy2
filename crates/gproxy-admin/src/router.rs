@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
+use axum::Json;
+use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Json;
-use axum::Router;
 use tokio::select;
 
 use gproxy_core::state::AppState;
@@ -26,7 +26,10 @@ pub fn router(app: Arc<AppState>, storage: Arc<dyn Storage>) -> Router {
         .route("/health", get(health))
         .route("/global", get(get_global))
         .route("/providers", get(list_providers))
-        .route("/providers/{name}/credentials", get(list_provider_credentials))
+        .route(
+            "/providers/{name}/credentials",
+            get(list_provider_credentials),
+        )
         .route("/events/ws", get(events_ws))
         .layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state)
@@ -118,7 +121,10 @@ async fn list_provider_credentials(
     let snapshot = state.app.snapshot.load();
     let provider = snapshot.providers.iter().find(|p| p.name == name);
     let Some(provider) = provider else {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "provider_not_found" })))
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "provider_not_found" })),
+        )
             .into_response();
     };
 
@@ -137,13 +143,14 @@ async fn list_provider_credentials(
         })
         .collect();
 
-    (StatusCode::OK, Json(serde_json::json!({ "credentials": creds }))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "credentials": creds })),
+    )
+        .into_response()
 }
 
-async fn events_ws(
-    ws: WebSocketUpgrade,
-    State(state): State<AdminState>,
-) -> impl IntoResponse {
+async fn events_ws(ws: WebSocketUpgrade, State(state): State<AdminState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_events_ws(socket, state.app.clone()))
 }
 

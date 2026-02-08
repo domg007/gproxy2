@@ -24,8 +24,10 @@ const DEFAULT_CLAUDE_AI_BASE_URL: &str = "https://claude.ai";
 const DEFAULT_PLATFORM_BASE_URL: &str = "https://platform.claude.com";
 const DEFAULT_OAUTH_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const CLAUDE_CODE_UA: &str = "claude-code/2.1.27";
-const CLAUDE_CODE_SYSTEM_PRELUDE: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
-const CLAUDE_AGENT_SDK_PRELUDE: &str = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+const CLAUDE_CODE_SYSTEM_PRELUDE: &str =
+    "You are Claude Code, Anthropic's official CLI for Claude.";
+const CLAUDE_AGENT_SDK_PRELUDE: &str =
+    "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 const TOKEN_UA: &str = "claude-cli/2.1.27 (external, cli)";
 const COOKIE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const HEADER_BETA: &str = "anthropic-beta";
@@ -697,7 +699,10 @@ mod tests {
         else {
             panic!("expected blocks system");
         };
-        assert_eq!(blocks.first().map(|b| b.text.as_str()), Some(CLAUDE_CODE_SYSTEM_PRELUDE));
+        assert_eq!(
+            blocks.first().map(|b| b.text.as_str()),
+            Some(CLAUDE_CODE_SYSTEM_PRELUDE)
+        );
     }
 
     #[test]
@@ -709,11 +714,14 @@ mod tests {
 
     #[test]
     fn apply_claude_code_system_does_not_duplicate_existing_known_prelude() {
-        let mut system = Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(
-            CLAUDE_AGENT_SDK_PRELUDE.to_string(),
-        ));
+        let mut system = Some(
+            gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(
+                CLAUDE_AGENT_SDK_PRELUDE.to_string(),
+            ),
+        );
         apply_claude_code_system(&mut system, Some("curl/8.6.0"));
-        let Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(text)) = system
+        let Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(text)) =
+            system
         else {
             panic!("expected text system");
         };
@@ -835,13 +843,13 @@ fn apply_claude_code_system(
                 },
             ])
         }
-        Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(
-            mut blocks,
-        )) => {
+        Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(mut blocks)) => {
             blocks.insert(0, prelude);
             gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(blocks)
         }
-        None => gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(vec![prelude]),
+        None => {
+            gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(vec![prelude])
+        }
     });
 }
 
