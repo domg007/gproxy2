@@ -40,3 +40,8 @@
 
 ### Fixed
 - update Docker workflow to enable latest tag for releases and modify .gitignore for gproxy.db
+
+## v0.2.7
+
+### Fixed
+- update CMD in Dockerfile to correctly handle GPROXY_DSN variable
