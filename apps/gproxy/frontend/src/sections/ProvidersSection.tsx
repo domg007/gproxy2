@@ -187,6 +187,11 @@ function oauthUiDefaults(providerName: string): OAuthUiDefaults {
         redirectUri: "http://localhost:51121/oauth-callback",
         scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"
       };
+    case "codex":
+      return {
+        redirectUri: "http://localhost:1455/auth/callback",
+        scope: "openid profile email offline_access"
+      };
     default:
       return {};
   }
@@ -690,7 +695,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
     }
   };
 
-  const runOAuthStart = async () => {
+  const runOAuthStart = async (mode?: string) => {
     if (!selected) {
       return;
     }
@@ -698,6 +703,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
       const data = await request<OAuthStartResponse>(`/${selected.name}/oauth`, {
         userKey: adminKey,
         query: {
+          mode: mode?.trim() || undefined,
           redirect_uri: oauthStartParams.redirect_uri.trim() || undefined,
           scope: oauthStartParams.scope.trim() || undefined,
           project_id: oauthStartParams.project_id.trim() || undefined
@@ -1562,12 +1568,8 @@ export function ProvidersSection({ adminKey, notify }: Props) {
       return <div className="text-sm text-slate-500">{t("oauth.unsupported")}</div>;
     }
     const oauthDefaults = oauthUiDefaults(selected.name);
-    const defaultRedirectUri =
-      oauthDefaults.redirectUri ??
-      (selected.name === "codex" ? t("oauth.default_not_required") : undefined);
-    const defaultScope =
-      oauthDefaults.scope ??
-      (selected.name === "codex" ? t("oauth.default_not_required") : undefined);
+    const defaultRedirectUri = oauthDefaults.redirectUri ?? undefined;
+    const defaultScope = oauthDefaults.scope ?? undefined;
     const defaultProjectId =
       selected.name === "geminicli"
         ? t("oauth.default_project_auto_detect")
@@ -1638,7 +1640,18 @@ export function ProvidersSection({ adminKey, notify }: Props) {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void runOAuthStart()}>{t("oauth.start")}</Button>
+          {selected.name === "codex" ? (
+            <>
+              <Button onClick={() => void runOAuthStart("device_auth")}>
+                {t("oauth.start_device_auth")}
+              </Button>
+              <Button variant="neutral" onClick={() => void runOAuthStart("authorization_code")}>
+                {t("oauth.start_authorization_code")}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => void runOAuthStart()}>{t("oauth.start")}</Button>
+          )}
           {oauthStartResult?.auth_url ? (
             <Button
               variant="neutral"

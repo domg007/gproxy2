@@ -181,6 +181,8 @@
     "subtitle": "为支持的渠道发起 OAuth 并完成回调",
     "unsupported": "该渠道不支持 OAuth。",
     "start": "发起 OAuth",
+    "start_device_auth": "发起设备码模式",
+    "start_authorization_code": "发起浏览器授权码模式",
     "callback": "执行回调",
     "open_auth": "打开认证链接",
     "auth_url": "认证链接",

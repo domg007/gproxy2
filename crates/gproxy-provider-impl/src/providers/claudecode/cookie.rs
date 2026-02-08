@@ -12,6 +12,8 @@ use wreq::header::{
 use super::*;
 
 static SESSION_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedTokens>>> = OnceLock::new();
+static SESSION_COOKIE_KEEPALIVE_CACHE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+const SESSION_COOKIE_KEEPALIVE_INTERVAL_SECS: i64 = 5 * 60;
 
 #[derive(Debug, Clone)]
 pub(super) struct CachedTokens {
@@ -26,6 +28,7 @@ pub(super) fn ensure_session_tokens_full(
     config: &ProviderConfig,
     session_key: &str,
 ) -> ProviderResult<CachedTokens> {
+    keepalive_session_cookie_if_due(config, session_key);
     if let Some(cached) = get_cached_session_tokens(session_key) {
         return Ok(cached);
     }
@@ -62,6 +65,9 @@ pub(super) fn clear_session_cache(session_key: &str) {
     if let Ok(mut guard) = session_cache().lock() {
         guard.remove(session_key);
     }
+    if let Ok(mut guard) = session_cookie_keepalive_cache().lock() {
+        guard.remove(session_key);
+    }
 }
 
 fn get_cached_session_tokens(session_key: &str) -> Option<CachedTokens> {
@@ -75,6 +81,53 @@ fn get_cached_session_tokens(session_key: &str) -> Option<CachedTokens> {
 
 fn session_cache() -> &'static Mutex<HashMap<String, CachedTokens>> {
     SESSION_TOKEN_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn session_cookie_keepalive_cache() -> &'static Mutex<HashMap<String, i64>> {
+    SESSION_COOKIE_KEEPALIVE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn keepalive_session_cookie_if_due(config: &ProviderConfig, session_key: &str) {
+    let now = chrono_now();
+    if !session_cookie_keepalive_due(session_key, now) {
+        return;
+    }
+
+    // Keep sessionKey cookie warm on Claude side. Failure is best-effort and
+    // should not block normal request flow.
+    let Ok(claude_ai_base) = claudecode_ai_base_url(config).map(|value| value.trim_end_matches('/').to_string()) else {
+        return;
+    };
+    let result: ProviderResult<()> = crate::providers::oauth_common::block_on(async move {
+        let client = wreq::Client::builder()
+            .build()
+            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        fetch_org_info(&client, session_key, &claude_ai_base).await?;
+        Ok(())
+    });
+    if result.is_ok() {
+        mark_session_cookie_keepalive(session_key, now);
+    }
+}
+
+fn session_cookie_keepalive_due(session_key: &str, now: i64) -> bool {
+    let guard = match session_cookie_keepalive_cache().lock() {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    match guard.get(session_key).copied() {
+        Some(next_at) => now >= next_at,
+        None => true,
+    }
+}
+
+fn mark_session_cookie_keepalive(session_key: &str, now: i64) {
+    if let Ok(mut guard) = session_cookie_keepalive_cache().lock() {
+        guard.insert(
+            session_key.to_string(),
+            now.saturating_add(SESSION_COOKIE_KEEPALIVE_INTERVAL_SECS),
+        );
+    }
 }
 
 fn is_expired(expires_at: Option<i64>) -> bool {

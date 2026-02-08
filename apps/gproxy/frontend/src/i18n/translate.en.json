@@ -181,6 +181,8 @@
     "subtitle": "Start OAuth and finish callback for supported providers",
     "unsupported": "OAuth is not supported for this provider.",
     "start": "Start OAuth",
+    "start_device_auth": "Start device-auth mode",
+    "start_authorization_code": "Start browser auth-code mode",
     "callback": "Run callback",
     "open_auth": "Open auth URL",
     "auth_url": "Auth URL",

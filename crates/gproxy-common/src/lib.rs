@@ -59,7 +59,7 @@ impl GlobalConfigPatch {
     pub fn into_config(self) -> Result<GlobalConfig, GlobalConfigError> {
         Ok(GlobalConfig {
             host: self.host.unwrap_or_else(|| "0.0.0.0".to_string()),
-            port: self.port.unwrap_or(8080),
+            port: self.port.unwrap_or(8787),
             admin_key_hash: self
                 .admin_key_hash
                 .ok_or(GlobalConfigError::MissingField("admin_key_hash"))?,

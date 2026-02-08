@@ -60,9 +60,9 @@ cargo run -p gproxy -- --admin-key your-admin-key
 
 3. 打开管理界面
 
-- 管理端：`http://127.0.0.1:8080/`
+- 管理端：`http://127.0.0.1:8787/`
 
-默认监听 `0.0.0.0:8080`，可通过 CLI/环境变量/DB 合并配置覆盖。
+默认监听 `0.0.0.0:8787`，可通过 CLI/环境变量/DB 合并配置覆盖。
 
 ## 配置说明
 
@@ -72,7 +72,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 
 - `--dsn` / `GPROXY_DSN`（默认：`sqlite://gproxy.db?mode=rwc`）
 - `--host` / `GPROXY_HOST`（合并后默认：`0.0.0.0`）
-- `--port` / `GPROXY_PORT`（合并后默认：`8080`）
+- `--port` / `GPROXY_PORT`（合并后默认：`8787`）
 - `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，存储时会 hash）
 - `--proxy` / `GPROXY_PROXY`（可选，上游出口代理）
 - `--event-redact-sensitive` / `GPROXY_EVENT_REDACT_SENSITIVE`（默认：`true`）

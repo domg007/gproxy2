@@ -3,14 +3,35 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::providers::oauth_common::parse_query_value;
+use sha2::Digest;
+
+use crate::providers::oauth_common::{
+    extract_code_state_from_callback_url, parse_query_value, resolve_manual_code_and_state,
+};
+
+const DEFAULT_BROWSER_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+const OAUTH_SCOPE: &str = "openid profile email offline_access";
+const OAUTH_ORIGINATOR: &str = "codex_vscode";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OAuthMode {
+    DeviceAuth,
+    AuthorizationCode,
+}
 
 #[derive(Debug, Clone)]
-struct OAuthState {
-    device_auth_id: String,
-    user_code: String,
-    interval_secs: u64,
-    created_at: Instant,
+enum OAuthState {
+    DeviceAuth {
+        device_auth_id: String,
+        user_code: String,
+        interval_secs: u64,
+        created_at: Instant,
+    },
+    AuthorizationCode {
+        code_verifier: String,
+        redirect_uri: String,
+        created_at: Instant,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,35 +63,80 @@ static OAUTH_STATES: OnceLock<Mutex<HashMap<String, OAuthState>>> = OnceLock::ne
 pub(super) fn oauth_start(
     _ctx: &UpstreamCtx,
     _config: &ProviderConfig,
-    _req: &OAuthStartRequest,
+    req: &OAuthStartRequest,
 ) -> ProviderResult<UpstreamHttpResponse> {
-    let user_code = request_device_user_code(DEFAULT_ISSUER)?;
+    let mode = parse_oauth_mode(parse_query_value(req.query.as_deref(), "mode").as_deref());
     let state_id = generate_oauth_state();
-    let verification_uri = format!("{}/codex/device", DEFAULT_ISSUER.trim_end_matches('/'));
 
     let mut guard = oauth_states()
         .lock()
         .map_err(|_| ProviderError::Other("oauth state lock failed".to_string()))?;
     prune_oauth_states(&mut guard);
-    guard.insert(
-        state_id.clone(),
-        OAuthState {
-            device_auth_id: user_code.device_auth_id.clone(),
-            user_code: user_code.user_code.clone(),
-            interval_secs: user_code.interval.max(1),
-            created_at: Instant::now(),
-        },
-    );
 
-    Ok(json_response(serde_json::json!({
-        "auth_url": verification_uri,
-        "verification_uri": format!("{}/codex/device", DEFAULT_ISSUER.trim_end_matches('/')),
-        "user_code": user_code.user_code,
-        "interval": user_code.interval.max(1),
-        "state": state_id,
-        "mode": "device",
-        "instructions": "Open verification_uri, enter user_code, then call /oauth/callback with state.",
-    })))
+    match mode {
+        OAuthMode::DeviceAuth => {
+            let user_code = request_device_user_code(DEFAULT_ISSUER)?;
+            let verification_uri = format!("{}/codex/device", DEFAULT_ISSUER.trim_end_matches('/'));
+            guard.insert(
+                state_id.clone(),
+                OAuthState::DeviceAuth {
+                    device_auth_id: user_code.device_auth_id.clone(),
+                    user_code: user_code.user_code.clone(),
+                    interval_secs: user_code.interval.max(1),
+                    created_at: Instant::now(),
+                },
+            );
+
+            Ok(json_response(serde_json::json!({
+                "auth_url": verification_uri,
+                "verification_uri": format!("{}/codex/device", DEFAULT_ISSUER.trim_end_matches('/')),
+                "user_code": user_code.user_code,
+                "interval": user_code.interval.max(1),
+                "state": state_id,
+                "mode": "device_auth",
+                "instructions": "Open verification_uri, enter user_code, then call /oauth/callback with state.",
+            })))
+        }
+        OAuthMode::AuthorizationCode => {
+            let code_verifier = generate_code_verifier();
+            let code_challenge = generate_code_challenge(&code_verifier);
+            let redirect_uri = parse_query_value(req.query.as_deref(), "redirect_uri")
+                .unwrap_or_else(|| DEFAULT_BROWSER_REDIRECT_URI.to_string());
+            let scope = parse_query_value(req.query.as_deref(), "scope")
+                .unwrap_or_else(|| OAUTH_SCOPE.to_string());
+            let originator = parse_query_value(req.query.as_deref(), "originator")
+                .unwrap_or_else(|| OAUTH_ORIGINATOR.to_string());
+            let allowed_workspace_id =
+                parse_query_value(req.query.as_deref(), "allowed_workspace_id");
+            let auth_url = build_authorize_url(
+                DEFAULT_ISSUER,
+                &redirect_uri,
+                &scope,
+                &originator,
+                &code_challenge,
+                &state_id,
+                allowed_workspace_id.as_deref(),
+            );
+
+            guard.insert(
+                state_id.clone(),
+                OAuthState::AuthorizationCode {
+                    code_verifier,
+                    redirect_uri: redirect_uri.clone(),
+                    created_at: Instant::now(),
+                },
+            );
+
+            Ok(json_response(serde_json::json!({
+                "auth_url": auth_url,
+                "state": state_id,
+                "redirect_uri": redirect_uri,
+                "scope": scope,
+                "mode": "authorization_code",
+                "instructions": "Open auth_url, then call /oauth/callback with code/state (or callback_url).",
+            })))
+        }
+    }
 }
 
 pub(super) fn oauth_callback(
@@ -86,7 +152,10 @@ pub(super) fn oauth_callback(
         });
     }
 
-    let state_param = parse_query_value(req.query.as_deref(), "state");
+    let state_param = parse_query_value(req.query.as_deref(), "state").or_else(|| {
+        parse_query_value(req.query.as_deref(), "callback_url")
+            .and_then(|url| extract_code_state_from_callback_url(&url).1)
+    });
     let (state_id, oauth_state, ambiguous_state) = {
         let mut guard = oauth_states()
             .lock()
@@ -128,94 +197,81 @@ pub(super) fn oauth_callback(
         });
     };
 
-    let poll_status = poll_device_authorization(
-        DEFAULT_ISSUER,
-        &oauth_state.device_auth_id,
-        &oauth_state.user_code,
-    )?;
-    let poll_success = match poll_status {
-        DeviceAuthPollStatus::Pending => {
-            let message = format!(
-                "authorization_pending: retry after {}s",
-                oauth_state.interval_secs.max(1)
+    match oauth_state {
+        OAuthState::DeviceAuth {
+            device_auth_id,
+            user_code,
+            interval_secs,
+            ..
+        } => {
+            let poll_status =
+                poll_device_authorization(DEFAULT_ISSUER, &device_auth_id, &user_code)?;
+            let poll_success = match poll_status {
+                DeviceAuthPollStatus::Pending => {
+                    let message =
+                        format!("authorization_pending: retry after {}s", interval_secs.max(1));
+                    return Ok(OAuthCallbackResult {
+                        response: json_error(409, &message),
+                        credential: None,
+                    });
+                }
+                DeviceAuthPollStatus::Authorized(data) => data,
+            };
+
+            {
+                let mut guard = oauth_states()
+                    .lock()
+                    .map_err(|_| ProviderError::Other("oauth state lock failed".to_string()))?;
+                guard.remove(&state_id);
+            }
+
+            let redirect_uri = format!(
+                "{}/deviceauth/callback",
+                DEFAULT_ISSUER.trim_end_matches('/')
             );
-            return Ok(OAuthCallbackResult {
-                response: json_error(409, &message),
-                credential: None,
-            });
+            let tokens = exchange_code_for_tokens(
+                DEFAULT_ISSUER,
+                &redirect_uri,
+                &poll_success.code_verifier,
+                &poll_success.authorization_code,
+            )?;
+            build_callback_result(tokens)
         }
-        DeviceAuthPollStatus::Authorized(data) => data,
-    };
+        OAuthState::AuthorizationCode {
+            code_verifier,
+            redirect_uri,
+            ..
+        } => {
+            let (code, callback_state) = match resolve_manual_code_and_state(req.query.as_deref()) {
+                Ok(value) => value,
+                Err(message) => {
+                    return Ok(OAuthCallbackResult {
+                        response: json_error(400, message),
+                        credential: None,
+                    });
+                }
+            };
+            if let Some(callback_state) = callback_state
+                && callback_state != state_id
+            {
+                return Ok(OAuthCallbackResult {
+                    response: json_error(400, "state_mismatch"),
+                    credential: None,
+                });
+            }
 
-    {
-        let mut guard = oauth_states()
-            .lock()
-            .map_err(|_| ProviderError::Other("oauth state lock failed".to_string()))?;
-        guard.remove(&state_id);
+            {
+                let mut guard = oauth_states()
+                    .lock()
+                    .map_err(|_| ProviderError::Other("oauth state lock failed".to_string()))?;
+                guard.remove(&state_id);
+            }
+
+            let tokens =
+                exchange_code_for_tokens(DEFAULT_ISSUER, &redirect_uri, &code_verifier, &code)?;
+            build_callback_result(tokens)
+        }
     }
-
-    let redirect_uri = format!(
-        "{}/deviceauth/callback",
-        DEFAULT_ISSUER.trim_end_matches('/')
-    );
-    let tokens = exchange_code_for_tokens(
-        DEFAULT_ISSUER,
-        &redirect_uri,
-        &poll_success.code_verifier,
-        &poll_success.authorization_code,
-    )?;
-    let Some(refresh_token) = tokens.refresh_token.clone() else {
-        return Ok(OAuthCallbackResult {
-            response: json_error(400, "missing_refresh_token"),
-            credential: None,
-        });
-    };
-    let Some(id_token) = tokens.id_token.clone() else {
-        return Ok(OAuthCallbackResult {
-            response: json_error(400, "missing_id_token"),
-            credential: None,
-        });
-    };
-
-    let claims = tokens
-        .id_token
-        .as_deref()
-        .map(parse_id_token_claims)
-        .unwrap_or_default();
-    let Some(account_id) = claims.account_id.clone() else {
-        return Ok(OAuthCallbackResult {
-            response: json_error(400, "missing_account_id"),
-            credential: None,
-        });
-    };
-
-    let credential = OAuthCredential {
-        name: claims
-            .email
-            .clone()
-            .or_else(|| Some(format!("codex:{account_id}"))),
-        settings_json: None,
-        credential: Credential::Codex(CodexCredential {
-            access_token: tokens.access_token.clone(),
-            refresh_token: refresh_token.clone(),
-            id_token: id_token.clone(),
-            user_email: claims.email.clone(),
-            account_id: account_id.clone(),
-            expires_at: 0,
-        }),
-    };
-
-    Ok(OAuthCallbackResult {
-        response: json_response(serde_json::json!({
-            "access_token": tokens.access_token,
-            "refresh_token": refresh_token,
-            "id_token": id_token,
-            "account_id": account_id,
-            "email": claims.email,
-            "plan": claims.plan,
-        })),
-        credential: Some(credential),
-    })
 }
 
 pub(super) fn on_auth_failure<'a>(
@@ -278,6 +334,118 @@ pub(super) async fn enrich_credential_profile_if_missing(
     let mut updated = secret.clone();
     updated.user_email = Some(email);
     Ok(Some(Credential::Codex(updated)))
+}
+
+fn parse_oauth_mode(value: Option<&str>) -> OAuthMode {
+    let Some(raw) = value else {
+        return OAuthMode::DeviceAuth;
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "authorization_code" | "auth_code" | "pkce" | "browser" | "browser_auth" => {
+            OAuthMode::AuthorizationCode
+        }
+        _ => OAuthMode::DeviceAuth,
+    }
+}
+
+fn generate_code_verifier() -> String {
+    let mut bytes = [0u8; 64];
+    rand::rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn generate_code_challenge(code_verifier: &str) -> String {
+    let digest = sha2::Sha256::digest(code_verifier.as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
+}
+
+fn build_authorize_url(
+    issuer: &str,
+    redirect_uri: &str,
+    scope: &str,
+    originator: &str,
+    code_challenge: &str,
+    state: &str,
+    allowed_workspace_id: Option<&str>,
+) -> String {
+    let mut query = vec![
+        ("response_type".to_string(), "code".to_string()),
+        ("client_id".to_string(), CLIENT_ID.to_string()),
+        ("redirect_uri".to_string(), redirect_uri.to_string()),
+        ("scope".to_string(), scope.to_string()),
+        ("code_challenge".to_string(), code_challenge.to_string()),
+        ("code_challenge_method".to_string(), "S256".to_string()),
+        ("id_token_add_organizations".to_string(), "true".to_string()),
+        ("codex_cli_simplified_flow".to_string(), "true".to_string()),
+        ("state".to_string(), state.to_string()),
+        ("originator".to_string(), originator.to_string()),
+    ];
+    if let Some(workspace_id) = allowed_workspace_id
+        && !workspace_id.trim().is_empty()
+    {
+        query.push(("allowed_workspace_id".to_string(), workspace_id.to_string()));
+    }
+    let qs = query
+        .into_iter()
+        .map(|(key, value)| format!("{key}={}", urlencoding::encode(&value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{}/oauth/authorize?{qs}", issuer.trim_end_matches('/'))
+}
+
+fn build_callback_result(tokens: TokenResponse) -> ProviderResult<OAuthCallbackResult> {
+    let Some(refresh_token) = tokens.refresh_token.clone() else {
+        return Ok(OAuthCallbackResult {
+            response: json_error(400, "missing_refresh_token"),
+            credential: None,
+        });
+    };
+    let Some(id_token) = tokens.id_token.clone() else {
+        return Ok(OAuthCallbackResult {
+            response: json_error(400, "missing_id_token"),
+            credential: None,
+        });
+    };
+
+    let claims = tokens
+        .id_token
+        .as_deref()
+        .map(parse_id_token_claims)
+        .unwrap_or_default();
+    let Some(account_id) = claims.account_id.clone() else {
+        return Ok(OAuthCallbackResult {
+            response: json_error(400, "missing_account_id"),
+            credential: None,
+        });
+    };
+
+    let credential = OAuthCredential {
+        name: claims
+            .email
+            .clone()
+            .or_else(|| Some(format!("codex:{account_id}"))),
+        settings_json: None,
+        credential: Credential::Codex(CodexCredential {
+            access_token: tokens.access_token.clone(),
+            refresh_token: refresh_token.clone(),
+            id_token: id_token.clone(),
+            user_email: claims.email.clone(),
+            account_id: account_id.clone(),
+            expires_at: 0,
+        }),
+    };
+
+    Ok(OAuthCallbackResult {
+        response: json_response(serde_json::json!({
+            "access_token": tokens.access_token,
+            "refresh_token": refresh_token,
+            "id_token": id_token,
+            "account_id": account_id,
+            "email": claims.email,
+            "plan": claims.plan,
+        })),
+        credential: Some(credential),
+    })
 }
 
 fn default_poll_interval_secs() -> u64 {
@@ -390,8 +558,11 @@ fn oauth_states() -> &'static Mutex<HashMap<String, OAuthState>> {
 
 fn prune_oauth_states(states: &mut HashMap<String, OAuthState>) {
     let now = Instant::now();
-    states.retain(|_, entry| {
-        now.duration_since(entry.created_at) <= Duration::from_secs(OAUTH_STATE_TTL_SECS)
+    states.retain(|_, entry| match entry {
+        OAuthState::DeviceAuth { created_at, .. }
+        | OAuthState::AuthorizationCode { created_at, .. } => {
+            now.duration_since(*created_at) <= Duration::from_secs(OAUTH_STATE_TTL_SECS)
+        }
     });
 }
 

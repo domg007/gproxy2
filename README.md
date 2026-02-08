@@ -60,9 +60,9 @@ cargo run -p gproxy -- --admin-key your-admin-key
 
 3. Open UI
 
-- Admin UI: `http://127.0.0.1:8080/`
+- Admin UI: `http://127.0.0.1:8787/`
 
-Default bind is `0.0.0.0:8080` unless changed by CLI/env/DB merged config.
+Default bind is `0.0.0.0:8787` unless changed by CLI/env/DB merged config.
 
 ## Configuration
 
@@ -72,7 +72,7 @@ CLI / ENV (from `gproxy_core::bootstrap::CliArgs`):
 
 - `--dsn` / `GPROXY_DSN` (default: `sqlite://gproxy.db?mode=rwc`)
 - `--host` / `GPROXY_HOST` (default after merge: `0.0.0.0`)
-- `--port` / `GPROXY_PORT` (default after merge: `8080`)
+- `--port` / `GPROXY_PORT` (default after merge: `8787`)
 - `--admin-key` / `GPROXY_ADMIN_KEY` (plaintext input; stored as hash)
 - `--proxy` / `GPROXY_PROXY` (optional upstream egress proxy)
 - `--event-redact-sensitive` / `GPROXY_EVENT_REDACT_SENSITIVE` (default: `true`)
