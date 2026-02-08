@@ -65,3 +65,8 @@
 ### Fixed
 - align Docker default SQLite DSN path to `sqlite://app/data/gproxy.db?mode=rwc` (remove outdated `/app/data/db/...` default).
 - sync Zeabur template/readme DSN defaults with current Docker runtime path (`/app/data/gproxy.db`).
+
+## v0.2.11
+
+### Fixed
+- fix the path problem
