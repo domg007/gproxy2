@@ -10,6 +10,6 @@ tokio = { workspace = true, features = ["full"] }
 anyhow.workspace = true
 gproxy-core = { path = "../../crates/gproxy-core" }
 gproxy-router = { path = "../../crates/gproxy-router" }
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "http2"] }
 rust-embed = "8"
 mime_guess = "2"

@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws","http2"] }
 blake3 = "1"
 bytes.workspace = true
 futures-util = "0.3"
