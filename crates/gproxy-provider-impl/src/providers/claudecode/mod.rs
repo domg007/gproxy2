@@ -136,6 +136,8 @@ impl UpstreamProvider for ClaudeCodeProvider {
         let url = build_url(Some(base_url), DEFAULT_API_BASE_URL, "/v1/messages");
         let mut body_obj = req.body.clone();
         apply_claude_code_system(&mut body_obj.system, ctx.user_agent.as_deref());
+        let model = model_to_string(&body_obj.model);
+        normalize_claude_code_sampling(model.as_deref(), body_obj.temperature, &mut body_obj.top_p);
         let is_stream = body_obj.stream.unwrap_or(false);
         let body =
             serde_json::to_vec(&body_obj).map_err(|err| ProviderError::Other(err.to_string()))?;
@@ -145,7 +147,6 @@ impl UpstreamProvider for ClaudeCodeProvider {
         auth_extractor::set_content_type_json(&mut headers);
         auth_extractor::set_user_agent(&mut headers, CLAUDE_CODE_UA);
         apply_anthropic_headers(&mut headers, &req.headers)?;
-        let model = model_to_string(&body_obj.model);
         let use_context_1m = should_use_context_1m(credential, model.as_deref());
         ensure_oauth_beta(&mut headers, use_context_1m);
         Ok(UpstreamHttpRequest {
@@ -173,6 +174,7 @@ impl UpstreamProvider for ClaudeCodeProvider {
         );
         let mut body_obj = req.body.clone();
         apply_claude_code_system(&mut body_obj.system, ctx.user_agent.as_deref());
+        let model = model_to_string(&body_obj.model);
         let body =
             serde_json::to_vec(&body_obj).map_err(|err| ProviderError::Other(err.to_string()))?;
         let mut headers = Vec::new();
@@ -181,7 +183,6 @@ impl UpstreamProvider for ClaudeCodeProvider {
         auth_extractor::set_content_type_json(&mut headers);
         auth_extractor::set_user_agent(&mut headers, CLAUDE_CODE_UA);
         apply_anthropic_headers(&mut headers, &req.headers)?;
-        let model = model_to_string(&body_obj.model);
         let use_context_1m = should_use_context_1m(credential, model.as_deref());
         ensure_oauth_beta(&mut headers, use_context_1m);
         Ok(UpstreamHttpRequest {
@@ -718,6 +719,27 @@ mod tests {
         };
         assert_eq!(text, CLAUDE_AGENT_SDK_PRELUDE);
     }
+
+    #[test]
+    fn normalize_claude_code_sampling_clears_top_p_for_supported_models() {
+        let mut top_p = Some(0.95);
+        normalize_claude_code_sampling(Some("claude-opus-4-6"), Some(0.7), &mut top_p);
+        assert_eq!(top_p, None);
+    }
+
+    #[test]
+    fn normalize_claude_code_sampling_keeps_top_p_when_temperature_missing() {
+        let mut top_p = Some(0.95);
+        normalize_claude_code_sampling(Some("claude-opus-4-6"), None, &mut top_p);
+        assert_eq!(top_p, Some(0.95));
+    }
+
+    #[test]
+    fn normalize_claude_code_sampling_keeps_top_p_for_other_models() {
+        let mut top_p = Some(0.95);
+        normalize_claude_code_sampling(Some("claude-haiku-4-5"), Some(0.7), &mut top_p);
+        assert_eq!(top_p, Some(0.95));
+    }
 }
 
 fn request_model_for_1m(req: &Request) -> Option<String> {
@@ -736,6 +758,24 @@ fn model_to_string(model: &gproxy_protocol::claude::count_tokens::types::Model) 
     serde_json::to_value(model)
         .ok()
         .and_then(|v| v.as_str().map(|s| s.to_string()))
+}
+
+fn requires_claude_code_sampling_guard(model: Option<&str>) -> bool {
+    let model = model.unwrap_or_default().to_ascii_lowercase();
+    model.contains("opus-4-1")
+        || model.contains("opus-4-5")
+        || model.contains("opus-4-6")
+        || model.contains("sonnet-4-5")
+}
+
+fn normalize_claude_code_sampling(
+    model: Option<&str>,
+    temperature: Option<f64>,
+    top_p: &mut Option<f64>,
+) {
+    if temperature.is_some() && top_p.is_some() && requires_claude_code_sampling_guard(model) {
+        *top_p = None;
+    }
 }
 
 fn is_claude_code_user_agent(value: &str) -> bool {
