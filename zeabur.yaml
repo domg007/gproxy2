@@ -49,7 +49,7 @@ spec:
     - GPROXY_DATA_DIR=/app/data
 
     Optional:
-    - GPROXY_DSN=sqlite:///app/data/gproxy.db
+    - GPROXY_DSN=sqlite://app/data/gproxy.db
     - GPROXY_PROXY=http://proxy:port
 
     Persist `/app/data` to keep database and usage data.
@@ -75,7 +75,7 @@ spec:
           GPROXY_DATA_DIR:
             default: /app/data
           GPROXY_DSN:
-            default: "sqlite:///app/data/gproxy.db?mode=rwc"
+            default: "sqlite://app/data/gproxy.db?mode=rwc"
           GPROXY_PROXY:
             default: ""
           RUST_LOG:

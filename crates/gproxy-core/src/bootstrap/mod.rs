@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -65,6 +66,8 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
         args.event_redact_sensitive.clone(),
         "GPROXY_EVENT_REDACT_SENSITIVE",
     )?;
+
+    ensure_sqlite_parent_dir(&dsn)?;
 
     // 1) connect DB from CLI/ENV DSN (required).
     let storage = Arc::new(
@@ -196,6 +199,42 @@ fn default_dsn() -> String {
     "sqlite://gproxy.db?mode=rwc".to_string()
 }
 
+fn ensure_sqlite_parent_dir(dsn: &str) -> anyhow::Result<()> {
+    let Some(db_path) = sqlite_file_path_from_dsn(dsn) else {
+        return Ok(());
+    };
+    let Some(parent) = db_path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("create sqlite parent dir {}", parent.display()))?;
+    Ok(())
+}
+
+fn sqlite_file_path_from_dsn(dsn: &str) -> Option<PathBuf> {
+    let rest = dsn.strip_prefix("sqlite:")?;
+    let path_part = rest.split(['?', '#']).next()?.trim();
+    if path_part.is_empty() {
+        return None;
+    }
+
+    let mut normalized = path_part;
+    if let Some(stripped) = normalized.strip_prefix("//") {
+        normalized = stripped;
+    }
+
+    let memory = normalized.to_ascii_lowercase();
+    if memory == ":memory:" {
+        return None;
+    }
+
+    Some(PathBuf::from(normalized))
+}
+
 fn parse_u16_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<u16>> {
     let Some(raw) = sanitize_optional_env_value(value) else {
         return Ok(None);
@@ -204,6 +243,29 @@ fn parse_u16_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<
         .parse::<u16>()
         .with_context(|| format!("invalid {env_name} value: {raw}"))?;
     Ok(Some(parsed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sqlite_file_path_from_dsn;
+
+    #[test]
+    fn sqlite_dsn_resolves_relative_path() {
+        let path = sqlite_file_path_from_dsn("sqlite://gproxy.db?mode=rwc").unwrap();
+        assert_eq!(path.to_string_lossy(), "gproxy.db");
+    }
+
+    #[test]
+    fn sqlite_dsn_resolves_absolute_path() {
+        let path = sqlite_file_path_from_dsn("sqlite:///app/data/gproxy.db?mode=rwc").unwrap();
+        assert_eq!(path.to_string_lossy(), "/app/data/gproxy.db");
+    }
+
+    #[test]
+    fn sqlite_memory_dsn_is_ignored() {
+        assert!(sqlite_file_path_from_dsn("sqlite::memory:").is_none());
+        assert!(sqlite_file_path_from_dsn("sqlite://:memory:").is_none());
+    }
 }
 
 fn parse_bool_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<bool>> {

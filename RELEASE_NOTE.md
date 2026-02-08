@@ -59,5 +59,5 @@
 ### Fixed
 - sanitize unresolved proxy placeholders (for example `${GPROXY_PROXY}`) in bootstrap config to avoid startup failure (`relative URL without a base`) on PaaS environments.
 - sanitize unresolved placeholder env values across bootstrap config (`host`, `port`, `admin key`, `dsn`, `proxy`, `event_redact_sensitive`) so malformed platform-injected values are treated as unset.
-- align Docker default SQLite DSN path to `sqlite:///app/data/gproxy.db?mode=rwc` (remove outdated `/app/data/db/...` default).
+- align Docker default SQLite DSN path to `sqlite://app/data/gproxy.db?mode=rwc` (remove outdated `/app/data/db/...` default).
 - sync Zeabur template/readme DSN defaults with current Docker runtime path (`/app/data/gproxy.db`).
