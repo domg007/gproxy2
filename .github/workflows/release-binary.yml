@@ -216,7 +216,9 @@ jobs:
       - name: Run -h check (windows)
         if: ${{ runner.os == 'Windows' && matrix.run_check }}
         shell: pwsh
-        run: .\target\$env:TARGET\release\gproxy$env:BIN_EXT -h
+        run: |
+          $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
+          & $bin -h
 
       - name: Install UPX (linux)
         if: ${{ runner.os == 'Linux' }}
@@ -259,9 +261,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Path target\$env:TARGET\release\gproxy$env:BIN_EXT -Destination dist\gproxy$env:BIN_EXT
+          $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
+          $outBin = Join-Path -Path "dist" -ChildPath "gproxy$env:BIN_EXT"
+          Copy-Item -Path $bin -Destination $outBin
           Copy-Item -Path LICENSE,README.md,route.md -Destination dist\
-          Compress-Archive -Path dist\gproxy$env:BIN_EXT,dist\LICENSE,dist\README.md,dist\route.md -DestinationPath $env:ARTIFACT -Force
+          Compress-Archive -Path $outBin,dist\LICENSE,dist\README.md,dist\route.md -DestinationPath $env:ARTIFACT -Force
           $hash = (Get-FileHash $env:ARTIFACT -Algorithm SHA256).Hash.ToLower()
           "${hash}  $env:ARTIFACT" | Out-File -Encoding ASCII "$env:ARTIFACT.sha256"
 
