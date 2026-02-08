@@ -162,6 +162,10 @@ export const credentialFieldMap: Record<ProviderKind, FieldSpec[]> = {
     { key: "subscription_type", type: "text", required: true },
     { key: "rate_limit_tier", type: "text", required: true },
     { key: "session_key", type: "text" },
+    { key: "enable_claude_1m_sonnet", type: "boolean" },
+    { key: "enable_claude_1m_opus", type: "boolean" },
+    { key: "supports_claude_1m_sonnet", type: "boolean" },
+    { key: "supports_claude_1m_opus", type: "boolean" },
     { key: "user_email", type: "text" }
   ],
   codex: [
@@ -235,6 +239,13 @@ export function buildCredentialSecret(kind: ProviderKind, fields: Record<string,
     }
     if (spec.type === "number") {
       payload[spec.key] = Number(text);
+      continue;
+    }
+    if (spec.type === "boolean") {
+      const lower = text.toLowerCase();
+      if (lower === "true" || lower === "false") {
+        payload[spec.key] = lower === "true";
+      }
       continue;
     }
     payload[spec.key] = text;

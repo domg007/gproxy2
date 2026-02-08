@@ -61,6 +61,17 @@ type OAuthUiDefaults = {
   redirectUri?: string;
   scope?: string;
 };
+type ClaudeCodeOneMField =
+  | "enable_claude_1m_sonnet"
+  | "enable_claude_1m_opus"
+  | "supports_claude_1m_sonnet"
+  | "supports_claude_1m_opus";
+type ClaudeCodeOneMFlags = {
+  enable_claude_1m_sonnet?: boolean;
+  enable_claude_1m_opus?: boolean;
+  supports_claude_1m_sonnet?: boolean;
+  supports_claude_1m_opus?: boolean;
+};
 
 function asJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -88,6 +99,51 @@ function unwrapCredentialSecretForDisplay(secret: Record<string, unknown>): {
     wrapperKey: null,
     payload: secret
   };
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+  return undefined;
+}
+
+function extractClaudeCodeOneMFlags(secret: Record<string, unknown>): ClaudeCodeOneMFlags {
+  const { payload } = unwrapCredentialSecretForDisplay(secret);
+  return {
+    enable_claude_1m_sonnet: asBoolean(payload.enable_claude_1m_sonnet),
+    enable_claude_1m_opus: asBoolean(payload.enable_claude_1m_opus),
+    supports_claude_1m_sonnet: asBoolean(payload.supports_claude_1m_sonnet),
+    supports_claude_1m_opus: asBoolean(payload.supports_claude_1m_opus)
+  };
+}
+
+function patchClaudeCodeOneMFlag(
+  secret: Record<string, unknown>,
+  key: ClaudeCodeOneMField,
+  value: boolean
+): Record<string, unknown> {
+  const display = unwrapCredentialSecretForDisplay(secret);
+  const nextPayload: Record<string, unknown> = {
+    ...display.payload,
+    [key]: value
+  };
+  if (display.wrapperKey) {
+    return {
+      ...secret,
+      [display.wrapperKey]: nextPayload
+    };
+  }
+  return nextPayload;
 }
 
 function runtimeSummaryClass(summary: string): string {
@@ -358,6 +414,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
   const [credentialEditName, setCredentialEditName] = useState("");
   const [credentialEditSecretJson, setCredentialEditSecretJson] = useState("");
   const [credentialSavingId, setCredentialSavingId] = useState<number | null>(null);
+  const [credentialOneMSavingId, setCredentialOneMSavingId] = useState<number | null>(null);
   const [credentialCopiedId, setCredentialCopiedId] = useState<number | null>(null);
   const [quotaLoadingId, setQuotaLoadingId] = useState<number | null>(null);
   const [quotaRowsByCredentialId, setQuotaRowsByCredentialId] = useState<
@@ -496,6 +553,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
     setCredentialEditName("");
     setCredentialEditSecretJson("");
     setCredentialSavingId(null);
+    setCredentialOneMSavingId(null);
     setCredentialCopiedId(null);
     setOauthStartResult(null);
     setOauthCallbackResult(null);
@@ -679,6 +737,44 @@ export function ProvidersSection({ adminKey, notify }: Props) {
       notify("error", formatApiError(error));
     } finally {
       setCredentialSavingId(null);
+    }
+  };
+
+  const oneMSupportLabel = (value: boolean | undefined) => {
+    if (value === true) {
+      return t("credentials.one_m_support_yes");
+    }
+    if (value === false) {
+      return t("credentials.one_m_support_no");
+    }
+    return t("credentials.one_m_support_unknown");
+  };
+
+  const toggleClaudeCodeOneM = async (
+    row: CredentialRow,
+    key: ClaudeCodeOneMField,
+    nextValue: boolean
+  ) => {
+    if (!selected) {
+      return;
+    }
+    setCredentialOneMSavingId(row.id);
+    try {
+      const nextSecret = patchClaudeCodeOneMFlag(row.secret_json, key, nextValue);
+      await request(`/admin/credentials/${row.id}`, {
+        method: "PUT",
+        adminKey,
+        body: {
+          name: row.name ?? null,
+          secret_json: nextSecret
+        }
+      });
+      notify("success", t("credentials.update_ok"));
+      await loadCredentials(selected.name);
+    } catch (error) {
+      notify("error", formatApiError(error));
+    } finally {
+      setCredentialOneMSavingId(null);
     }
   };
 
@@ -1237,6 +1333,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
     if (!selected) {
       return null;
     }
+    const isClaudeCodeProvider = selected.name === "claudecode";
     return (
       <div className="space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-white/60 p-4">
@@ -1314,6 +1411,11 @@ export function ProvidersSection({ adminKey, notify }: Props) {
             credentials.map((row) => {
               const displaySecret = unwrapCredentialSecretForDisplay(row.secret_json);
               const displaySecretText = JSON.stringify(displaySecret.payload, null, 2);
+              const oneMFlags = isClaudeCodeProvider
+                ? extractClaudeCodeOneMFlags(row.secret_json)
+                : null;
+              const oneMSonnetEnabled = oneMFlags?.enable_claude_1m_sonnet ?? true;
+              const oneMOpusEnabled = oneMFlags?.enable_claude_1m_opus ?? true;
               const runtimeSummary =
                 row.runtime_status?.summary ?? (row.enabled ? "active" : "disabled");
               const modelUnavailable = row.runtime_status?.model_unavailable ?? [];
@@ -1350,6 +1452,81 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                     </span>
                   </div>
                 </div>
+                {isClaudeCodeProvider && oneMFlags ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      {t("credentials.one_m_title")}
+                    </div>
+                    <div className="mt-2 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="text-sm font-medium text-slate-900">
+                          {t("credentials.one_m_sonnet")}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <Badge active={oneMSonnetEnabled}>
+                            {oneMSonnetEnabled ? t("common.enabled") : t("common.disabled")}
+                          </Badge>
+                          <span>
+                            {t("credentials.one_m_support")}:{" "}
+                            {oneMSupportLabel(oneMFlags.supports_claude_1m_sonnet)}
+                          </span>
+                        </div>
+                        <div className="mt-2">
+                          <Button
+                            variant="neutral"
+                            disabled={credentialOneMSavingId === row.id}
+                            onClick={() =>
+                              void toggleClaudeCodeOneM(
+                                row,
+                                "enable_claude_1m_sonnet",
+                                !oneMSonnetEnabled
+                              )
+                            }
+                          >
+                            {credentialOneMSavingId === row.id
+                              ? t("common.loading")
+                              : oneMSonnetEnabled
+                                ? t("credentials.one_m_disable")
+                                : t("credentials.one_m_enable")}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="text-sm font-medium text-slate-900">
+                          {t("credentials.one_m_opus")}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <Badge active={oneMOpusEnabled}>
+                            {oneMOpusEnabled ? t("common.enabled") : t("common.disabled")}
+                          </Badge>
+                          <span>
+                            {t("credentials.one_m_support")}:{" "}
+                            {oneMSupportLabel(oneMFlags.supports_claude_1m_opus)}
+                          </span>
+                        </div>
+                        <div className="mt-2">
+                          <Button
+                            variant="neutral"
+                            disabled={credentialOneMSavingId === row.id}
+                            onClick={() =>
+                              void toggleClaudeCodeOneM(
+                                row,
+                                "enable_claude_1m_opus",
+                                !oneMOpusEnabled
+                              )
+                            }
+                          >
+                            {credentialOneMSavingId === row.id
+                              ? t("common.loading")
+                              : oneMOpusEnabled
+                                ? t("credentials.one_m_disable")
+                                : t("credentials.one_m_enable")}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 {(credentialUnavailable || modelUnavailable.length > 0) ? (
                   <div className="mt-2 space-y-1 text-xs text-slate-600">
                     {credentialUnavailable ? (
@@ -1473,6 +1650,31 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                     </Button>
                   ) : null}
                 </div>
+                {Object.prototype.hasOwnProperty.call(quotaRowsByCredentialId, row.id) ? (
+                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(120px,1fr)_minmax(160px,1fr)] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      <span>{t("usage.live_limit")}</span>
+                      <span>{t("usage.live_percent")}</span>
+                      <span>{t("usage.live_reset")}</span>
+                    </div>
+                    {quotaRowsByCredentialId[row.id].length > 0 ? (
+                      <div className="divide-y divide-slate-100">
+                        {quotaRowsByCredentialId[row.id].map((quotaRow) => (
+                          <div
+                            key={`${row.id}-${quotaRow.name}`}
+                            className="grid grid-cols-[minmax(0,2fr)_minmax(120px,1fr)_minmax(160px,1fr)] gap-2 px-4 py-3 text-sm text-slate-700"
+                          >
+                            <span className="truncate font-medium text-slate-900">{quotaRow.name}</span>
+                            <span>{formatUsagePercent(quotaRow.percent)}</span>
+                            <span>{formatDateTime(quotaRow.resetAt)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-4 py-3 text-sm text-slate-500">{t("usage.live_no_limits")}</div>
+                    )}
+                  </div>
+                ) : null}
                 {credentialViewOpenIds[row.id] ? (
                   <div className="mt-3 max-w-full rounded-xl border border-slate-200 bg-white p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1524,31 +1726,6 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                         </Button>
                       </div>
                     </div>
-                  </div>
-                ) : null}
-                {Object.prototype.hasOwnProperty.call(quotaRowsByCredentialId, row.id) ? (
-                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(120px,1fr)_minmax(160px,1fr)] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      <span>{t("usage.live_limit")}</span>
-                      <span>{t("usage.live_percent")}</span>
-                      <span>{t("usage.live_reset")}</span>
-                    </div>
-                    {quotaRowsByCredentialId[row.id].length > 0 ? (
-                      <div className="divide-y divide-slate-100">
-                        {quotaRowsByCredentialId[row.id].map((quotaRow) => (
-                          <div
-                            key={`${row.id}-${quotaRow.name}`}
-                            className="grid grid-cols-[minmax(0,2fr)_minmax(120px,1fr)_minmax(160px,1fr)] gap-2 px-4 py-3 text-sm text-slate-700"
-                          >
-                            <span className="truncate font-medium text-slate-900">{quotaRow.name}</span>
-                            <span>{formatUsagePercent(quotaRow.percent)}</span>
-                            <span>{formatDateTime(quotaRow.resetAt)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-4 py-3 text-sm text-slate-500">{t("usage.live_no_limits")}</div>
-                    )}
                   </div>
                 ) : null}
                 </div>

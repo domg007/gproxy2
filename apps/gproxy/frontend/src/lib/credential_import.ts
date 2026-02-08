@@ -192,7 +192,7 @@ export function buildImportedCredentialFromJson(
 export function buildJsonCredentialTemplate(kind: ProviderKind): string {
   const template: Record<string, string> = {};
   for (const spec of credentialFieldMap[kind]) {
-    const suffix = spec.type === "number" ? ":number" : "";
+    const suffix = spec.type === "number" ? ":number" : spec.type === "boolean" ? ":boolean" : "";
     template[spec.key] = spec.required ? `<required${suffix}>` : `<optional${suffix}>`;
   }
   return JSON.stringify(template, null, 2);
