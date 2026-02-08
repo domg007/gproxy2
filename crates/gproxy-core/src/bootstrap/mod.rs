@@ -20,12 +20,8 @@ use crate::state::AppState;
 )]
 pub struct CliArgs {
     /// Database DSN (required to bootstrap the rest of config).
-    #[arg(
-        long,
-        env = "GPROXY_DSN",
-        default_value = "sqlite://gproxy.db?mode=rwc"
-    )]
-    pub dsn: String,
+    #[arg(long, env = "GPROXY_DSN")]
+    pub dsn: Option<String>,
 
     /// Bind host.
     #[arg(long, env = "GPROXY_HOST")]
@@ -33,7 +29,7 @@ pub struct CliArgs {
 
     /// Bind port.
     #[arg(long, env = "GPROXY_PORT")]
-    pub port: Option<u16>,
+    pub port: Option<String>,
 
     /// Admin key (plaintext). Stored as hash in DB and memory.
     #[arg(long, env = "GPROXY_ADMIN_KEY")]
@@ -45,7 +41,7 @@ pub struct CliArgs {
 
     /// Redact sensitive headers/body fields in emitted events.
     #[arg(long, env = "GPROXY_EVENT_REDACT_SENSITIVE")]
-    pub event_redact_sensitive: Option<bool>,
+    pub event_redact_sensitive: Option<String>,
 }
 
 pub struct Bootstrap {
@@ -60,9 +56,19 @@ pub async fn bootstrap_from_env() -> anyhow::Result<Bootstrap> {
 }
 
 pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
+    let dsn = sanitize_dsn_value(args.dsn.clone());
+    let host = sanitize_optional_env_value(args.host.clone());
+    let port = parse_u16_env_value(args.port.clone(), "GPROXY_PORT")?;
+    let admin_key = sanitize_optional_env_value(args.admin_key.clone());
+    let proxy = sanitize_optional_env_value(args.proxy.clone());
+    let event_redact_sensitive = parse_bool_env_value(
+        args.event_redact_sensitive.clone(),
+        "GPROXY_EVENT_REDACT_SENSITIVE",
+    )?;
+
     // 1) connect DB from CLI/ENV DSN (required).
     let storage = Arc::new(
-        SeaOrmStorage::connect(&args.dsn)
+        SeaOrmStorage::connect(&dsn)
             .await
             .context("connect storage")?,
     );
@@ -83,7 +89,7 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
     // - CLI/ENV provided key wins and overwrites DB (hash stored)
     // - else, if DB missing admin_key_hash, generate one and persist (print plaintext once)
     let mut admin_key_hash_override: Option<String> = None;
-    if let Some(key_plain) = args.admin_key.as_deref() {
+    if let Some(key_plain) = admin_key.as_deref() {
         admin_key_hash_override = Some(hash_admin_key(key_plain));
     } else if merged.admin_key_hash.is_none() {
         let key_plain = generate_admin_key();
@@ -92,12 +98,12 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
     }
 
     let cli_patch = GlobalConfigPatch {
-        host: args.host.clone(),
-        port: args.port,
+        host,
+        port,
         admin_key_hash: admin_key_hash_override,
-        proxy: args.proxy.clone(),
-        dsn: Some(args.dsn.clone()),
-        event_redact_sensitive: args.event_redact_sensitive,
+        proxy,
+        dsn: Some(dsn),
+        event_redact_sensitive,
     };
     merged.overlay(cli_patch);
 
@@ -163,6 +169,53 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
             r
         }),
     })
+}
+
+fn sanitize_optional_env_value(value: Option<String>) -> Option<String> {
+    let trimmed = value?.trim().to_string();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Some PaaS systems may inject unresolved placeholders like `${VAR}`.
+    // Treat them as "not set" so startup doesn't fail on URL parsing.
+    if trimmed.starts_with("${") && trimmed.ends_with('}') {
+        return None;
+    }
+    Some(trimmed)
+}
+
+fn sanitize_dsn_value(value: Option<String>) -> String {
+    sanitize_optional_env_value(value).unwrap_or_else(default_dsn)
+}
+
+fn default_dsn() -> String {
+    if let Some(data_dir) = sanitize_optional_env_value(std::env::var("GPROXY_DATA_DIR").ok()) {
+        let dir = data_dir.trim_end_matches('/');
+        return format!("sqlite://{dir}/gproxy.db?mode=rwc");
+    }
+    "sqlite://gproxy.db?mode=rwc".to_string()
+}
+
+fn parse_u16_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<u16>> {
+    let Some(raw) = sanitize_optional_env_value(value) else {
+        return Ok(None);
+    };
+    let parsed = raw
+        .parse::<u16>()
+        .with_context(|| format!("invalid {env_name} value: {raw}"))?;
+    Ok(Some(parsed))
+}
+
+fn parse_bool_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<bool>> {
+    let Some(raw) = sanitize_optional_env_value(value) else {
+        return Ok(None);
+    };
+    let parsed = match raw.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        "0" | "false" | "no" | "off" => false,
+        _ => return Err(anyhow::anyhow!("invalid {env_name} value: {raw}")),
+    };
+    Ok(Some(parsed))
 }
 
 fn hash_admin_key(key: &str) -> String {

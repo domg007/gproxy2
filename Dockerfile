@@ -53,7 +53,9 @@ COPY --from=builder /app/target/release/gproxy /usr/local/bin/gproxy
 ENV GPROXY_HOST=0.0.0.0
 ENV GPROXY_PORT=8787
 ENV GPROXY_DATA_DIR=/app/data
+ENV GPROXY_DSN=sqlite:///app/data/gproxy.db?mode=rwc
+ENV GPROXY_ADMIN_KEY=pwd
 
 EXPOSE 8787
 
-CMD ["/bin/sh", "-c", "set -eu; host=\"${GPROXY_HOST:-0.0.0.0}\"; port=\"${GPROXY_PORT:-8787}\"; data_dir=\"${GPROXY_DATA_DIR:-/app/data}\"; admin_key=\"${GPROXY_ADMIN_KEY:-pwd}\"; proxy=\"${GPROXY_PROXY:-}\"; case \"$host\" in '${GPROXY_HOST}'|'') host='0.0.0.0' ;; esac; case \"$port\" in '${GPROXY_PORT}'|'') port='8787' ;; esac; case \"$data_dir\" in '${GPROXY_DATA_DIR}'|'') data_dir='/app/data' ;; esac; case \"$admin_key\" in '${GPROXY_ADMIN_KEY}'|'') admin_key='pwd' ;; esac; dsn=\"${GPROXY_DSN:-sqlite://${data_dir}/db/gproxy.db?mode=rwc}\"; case \"$dsn\" in '${GPROXY_DSN}') dsn='' ;; esac; case \"$proxy\" in '${GPROXY_PROXY}') proxy='' ;; esac; set -- /usr/local/bin/gproxy --host \"$host\" --port \"$port\" --admin-key \"$admin_key\"; [ -n \"$dsn\" ] && set -- \"$@\" --dsn \"$dsn\"; [ -n \"$proxy\" ] && set -- \"$@\" --proxy \"$proxy\"; exec \"$@\""]
+CMD ["/usr/local/bin/gproxy"]

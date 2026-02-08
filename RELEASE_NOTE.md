@@ -50,3 +50,14 @@
 
 ### Fixed
 - update Docker workflow to correctly enable latest tag for releases
+
+## v0.2.9
+
+### Changed
+- simplify container startup by switching Docker runtime command to direct binary execution (`CMD ["/usr/local/bin/gproxy"]`) and rely on environment-variable configuration.
+
+### Fixed
+- sanitize unresolved proxy placeholders (for example `${GPROXY_PROXY}`) in bootstrap config to avoid startup failure (`relative URL without a base`) on PaaS environments.
+- sanitize unresolved placeholder env values across bootstrap config (`host`, `port`, `admin key`, `dsn`, `proxy`, `event_redact_sensitive`) so malformed platform-injected values are treated as unset.
+- align Docker default SQLite DSN path to `sqlite:///app/data/gproxy.db?mode=rwc` (remove outdated `/app/data/db/...` default).
+- sync Zeabur template/readme DSN defaults with current Docker runtime path (`/app/data/gproxy.db`).
