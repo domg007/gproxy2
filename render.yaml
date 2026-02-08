@@ -1,0 +1,30 @@
+databases:
+  - name: gproxy-postgres
+    databaseName: gproxy
+    user: gproxy
+    postgresMajorVersion: "17"
+    ipAllowList: []
+
+services:
+  - type: web
+    name: gproxy
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: GPROXY_HOST
+        value: 0.0.0.0
+      - key: GPROXY_PORT
+        value: "8787"
+      - key: GPROXY_DATA_DIR
+        value: /tmp/gproxy-data
+      - key: GPROXY_DSN
+        fromDatabase:
+          name: gproxy-postgres
+          property: connectionString
+      - key: GPROXY_ADMIN_KEY
+        sync: false
+      - key: RUST_LOG
+        value: info

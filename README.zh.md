@@ -11,6 +11,16 @@ gproxy 提供：
 - Usage 聚合统计 + 部分渠道实时用量查询
 - 内置管理 API + React 19 + Tailwind 4 管理界面（`/`）
 
+## 一键部署
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/68HULI)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeenHawk/gproxy)
+
+- Zeabur 模板文件：`zeabur.yaml`
+- Render Blueprint 文件：`render.yaml`
+- Render Blueprint 默认创建 PostgreSQL（`databases.gproxy-postgres`），并自动把连接串注入 `GPROXY_DSN`。
+- Render Blueprint 默认不挂载持久磁盘（Render 常规行为）；本地 `GPROXY_DATA_DIR` 为临时目录。
+
 ## 内置渠道
 
 首次启动会自动写入以下内置渠道：

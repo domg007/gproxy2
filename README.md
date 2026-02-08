@@ -11,6 +11,16 @@ gproxy provides:
 - Usage aggregation + provider live usage querying
 - Built-in admin API + React 19 + Tailwind 4 admin UI at `/`
 
+## One-click deploy
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/68HULI)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeenHawk/gproxy)
+
+- Zeabur template source: `zeabur.yaml`
+- Render blueprint source: `render.yaml`
+- Render blueprint defaults to PostgreSQL (`databases.gproxy-postgres`) and wires `GPROXY_DSN` from that DB connection string.
+- Render blueprint does not attach a persistent disk by default (Render standard behavior). Local `GPROXY_DATA_DIR` is ephemeral.
+
 ## Built-in providers
 
 Current built-ins (seeded on first bootstrap):
