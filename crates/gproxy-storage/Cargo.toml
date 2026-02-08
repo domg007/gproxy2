@@ -1,15 +1,17 @@
 [package]
 name = "gproxy-storage"
-version = "0.2.2"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
 gproxy-common = { path = "../gproxy-common" }
 gproxy-provider-core = { path = "../gproxy-provider-core" }
 sea-orm = { version = "2.0.0-rc.30", features = ["macros", "runtime-tokio-rustls", "sqlx-sqlite", "sqlx-mysql", "sqlx-postgres", "with-time", "with-uuid", "with-json", "schema-sync", "entity-registry"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 thiserror = "2"
-time = "0.3"
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+time.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

@@ -287,6 +287,9 @@
     "owner_title": "维护者",
     "owner_nickname_label": "网名",
     "owner_email_label": "邮箱",
+    "build_title": "构建信息",
+    "version_label": "版本",
+    "commit_label": "Git 提交",
     "owner_nickname": "leenhawk",
     "owner_email": "leenhawk@leenhawk.com"
   },

@@ -287,6 +287,9 @@
     "owner_title": "Maintainer",
     "owner_nickname_label": "Nickname",
     "owner_email_label": "Email",
+    "build_title": "Build info",
+    "version_label": "Version",
+    "commit_label": "Git commit",
     "owner_nickname": "leenhawk",
     "owner_email": "leenhawk@leenhawk.com"
   },

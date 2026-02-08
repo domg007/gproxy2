@@ -1,11 +1,13 @@
 [package]
 name = "gproxy"
-version = "0.2.2"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-anyhow = "1"
+tokio = { workspace = true, features = ["full"] }
+anyhow.workspace = true
 gproxy-core = { path = "../../crates/gproxy-core" }
 gproxy-router = { path = "../../crates/gproxy-router" }
 axum = { version = "0.8", features = ["ws"] }

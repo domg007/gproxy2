@@ -1,13 +1,15 @@
 [package]
 name = "gproxy-core"
-version = "0.2.2"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
-anyhow = "1"
+anyhow.workspace = true
 arc-swap = "1"
 blake3 = "1"
-bytes = "1"
+bytes.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 gproxy-common = { path = "../gproxy-common" }
 gproxy-protocol = { path = "../gproxy-protocol" }
@@ -18,10 +20,10 @@ gproxy-transform = { path = "../gproxy-transform" }
 http = "1"
 futures-util = "0.3"
 rand = "0.9"
-serde_json = "1"
+serde_json.workspace = true
 serde_urlencoded = "0.7"
-time = "0.3"
-tokio = { version = "1", features = ["net", "rt", "sync", "time"] }
+time.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 wreq = { version = "6.0.0-rc.27", features = ["stream"] }
 wreq-util = "3.0.0-rc.9"

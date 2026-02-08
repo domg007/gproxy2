@@ -4,6 +4,8 @@ import { useI18n } from "../i18n";
 
 export function AboutSection() {
   const { t } = useI18n();
+  const appVersion = __APP_VERSION__;
+  const appCommit = __APP_COMMIT__;
 
   return (
     <Card title={t("about.title")} subtitle={t("about.subtitle")}>
@@ -33,6 +35,24 @@ export function AboutSection() {
             <div>
               {t("about.owner_email_label")}:{" "}
               <span className="font-semibold text-slate-800">{t("about.owner_email")}</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <h4 className="text-sm font-semibold text-slate-900">{t("about.build_title")}</h4>
+          <div className="mt-2 text-xs leading-6 text-slate-600">
+            <div>
+              {t("about.version_label")}:{" "}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
+                {appVersion}
+              </code>
+            </div>
+            <div>
+              {t("about.commit_label")}:{" "}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
+                {appCommit}
+              </code>
             </div>
           </div>
         </section>
