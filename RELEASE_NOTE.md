@@ -35,3 +35,8 @@
 
 ### Added
  - feat: update axum dependency to include http2 support
+
+## v0.2.6
+
+### Fixed
+- update Docker workflow to enable latest tag for releases and modify .gitignore for gproxy.db
