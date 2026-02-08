@@ -80,7 +80,7 @@ Global config merge order at startup: `CLI > ENV > DB`, then persisted back to D
 
 CLI / ENV (from `gproxy_core::bootstrap::CliArgs`):
 
-- `--dsn` / `GPROXY_DSN` (default: `sqlite:///gproxy.db?mode=rwc`)
+- `--dsn` / `GPROXY_DSN` (default: `sqlite://gproxy.db?mode=rwc`)
 - `--host` / `GPROXY_HOST` (default after merge: `0.0.0.0`)
 - `--port` / `GPROXY_PORT` (default after merge: `8787`)
 - `--admin-key` / `GPROXY_ADMIN_KEY` (plaintext input; stored as hash)
@@ -197,7 +197,7 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
-  -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
+  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   gproxy:local
 ```

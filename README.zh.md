@@ -80,7 +80,7 @@ cargo run -p gproxy -- --admin-key your-admin-key
 
 CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 
-- `--dsn` / `GPROXY_DSN`（默认：`sqlite:///gproxy.db?mode=rwc`）
+- `--dsn` / `GPROXY_DSN`（默认：`sqlite://gproxy.db?mode=rwc`）
 - `--host` / `GPROXY_HOST`（合并后默认：`0.0.0.0`）
 - `--port` / `GPROXY_PORT`（合并后默认：`8787`）
 - `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，存储时会 hash）
@@ -90,6 +90,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 说明：
 - 若未提供 `admin_key` 且 DB 中也不存在，启动时会自动生成并打印一次。
 - 若缺失内置渠道，会在启动时自动补种子。
+- 对文件型 SQLite DSN，gproxy 启动时会自动创建缺失的父目录；当使用 `mode=rwc` 时，数据库文件不存在也会自动创建。
 
 ### `custom` 渠道 JSON 参数屏蔽
 
@@ -189,17 +190,16 @@ cargo build --release -p gproxy
 docker build -t gproxy:local .
 ```
 
-运行（显式命令形式）：
+运行：
 
 ```bash
 docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
-  -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
+  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
-  gproxy:local \
-  /usr/local/bin/gproxy --host 0.0.0.0 --port 8787 --admin-key your-admin-key --dsn 'sqlite:///app/data/gproxy.db?mode=rwc'
+  gproxy:local
 ```
 
 ### GitHub Actions
