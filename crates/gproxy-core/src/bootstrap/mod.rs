@@ -196,7 +196,7 @@ fn default_dsn() -> String {
         let dir = data_dir.trim_end_matches('/');
         return format!("sqlite://{dir}/gproxy.db?mode=rwc");
     }
-    "sqlite://gproxy.db?mode=rwc".to_string()
+    "sqlite:///gproxy.db?mode=rwc".to_string()
 }
 
 fn ensure_sqlite_parent_dir(dsn: &str) -> anyhow::Result<()> {
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn sqlite_dsn_resolves_relative_path() {
-        let path = sqlite_file_path_from_dsn("sqlite://gproxy.db?mode=rwc").unwrap();
+        let path = sqlite_file_path_from_dsn("sqlite:///gproxy.db?mode=rwc").unwrap();
         assert_eq!(path.to_string_lossy(), "gproxy.db");
     }
 

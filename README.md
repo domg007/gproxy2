@@ -80,7 +80,7 @@ Global config merge order at startup: `CLI > ENV > DB`, then persisted back to D
 
 CLI / ENV (from `gproxy_core::bootstrap::CliArgs`):
 
-- `--dsn` / `GPROXY_DSN` (default: `sqlite://gproxy.db?mode=rwc`)
+- `--dsn` / `GPROXY_DSN` (default: `sqlite:///gproxy.db?mode=rwc`)
 - `--host` / `GPROXY_HOST` (default after merge: `0.0.0.0`)
 - `--port` / `GPROXY_PORT` (default after merge: `8787`)
 - `--admin-key` / `GPROXY_ADMIN_KEY` (plaintext input; stored as hash)
@@ -90,6 +90,7 @@ CLI / ENV (from `gproxy_core::bootstrap::CliArgs`):
 Notes:
 - If `admin_key` is not provided and DB has none, gproxy generates one and prints it once on startup.
 - Built-in providers are auto-seeded when missing.
+- For file-based SQLite DSNs, gproxy auto-creates missing parent directories at startup. With `mode=rwc`, the DB file is created automatically if absent.
 
 ### `custom` provider JSON parameter mask
 
@@ -189,17 +190,16 @@ Build:
 docker build -t gproxy:local .
 ```
 
-Run (explicit command form):
+Run:
 
 ```bash
 docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
-  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
+  -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
-  gproxy:local \
-  /usr/local/bin/gproxy --host 0.0.0.0 --port 8787 --admin-key your-admin-key --dsn 'sqlite://app/data/gproxy.db?mode=rwc'
+  gproxy:local
 ```
 
 ### GitHub Actions

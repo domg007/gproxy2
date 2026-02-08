@@ -80,7 +80,7 @@ cargo run -p gproxy -- --admin-key your-admin-key
 
 CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 
-- `--dsn` / `GPROXY_DSN`（默认：`sqlite://gproxy.db?mode=rwc`）
+- `--dsn` / `GPROXY_DSN`（默认：`sqlite:///gproxy.db?mode=rwc`）
 - `--host` / `GPROXY_HOST`（合并后默认：`0.0.0.0`）
 - `--port` / `GPROXY_PORT`（合并后默认：`8787`）
 - `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，存储时会 hash）
@@ -196,10 +196,10 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
-  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
+  -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   gproxy:local \
-  /usr/local/bin/gproxy --host 0.0.0.0 --port 8787 --admin-key your-admin-key --dsn 'sqlite://app/data/gproxy.db?mode=rwc'
+  /usr/local/bin/gproxy --host 0.0.0.0 --port 8787 --admin-key your-admin-key --dsn 'sqlite:///app/data/gproxy.db?mode=rwc'
 ```
 
 ### GitHub Actions
