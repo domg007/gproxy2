@@ -45,3 +45,8 @@
 
 ### Fixed
 - update CMD in Dockerfile to correctly handle GPROXY_DSN variable
+
+## v0.2.8
+
+### Fixed
+- update Docker workflow to correctly enable latest tag for releases
