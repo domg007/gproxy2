@@ -34,7 +34,7 @@ impl UpstreamClientConfig {
         Self {
             proxy: global.proxy.clone(),
             connect_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(120),
+            request_timeout: Duration::from_secs(86400),
             stream_idle_timeout: Duration::from_secs(30),
         }
     }
@@ -45,7 +45,7 @@ impl Default for UpstreamClientConfig {
         Self {
             proxy: None,
             connect_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(120),
+            request_timeout: Duration::from_secs(86400),
             stream_idle_timeout: Duration::from_secs(30),
         }
     }

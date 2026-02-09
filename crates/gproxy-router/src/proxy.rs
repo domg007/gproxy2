@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
 use axum::extract::{Extension, Path, Query, RawQuery, State};
@@ -48,6 +48,9 @@ struct ProviderRouteCtx {
     provider: String,
     response_model_prefix_provider: Option<String>,
 }
+
+const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+const SSE_HEARTBEAT_FRAME: &[u8] = b": keep-alive\n\n";
 
 pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
     let state = ProxyState { engine };
@@ -1523,6 +1526,7 @@ async fn gemini_post_impl(
 // ---- Helpers ----
 
 fn to_axum_response(resp: UpstreamHttpResponse) -> Response {
+    let sse_stream = has_sse_content_type(&resp.headers) && matches!(&resp.body, UpstreamBody::Stream(_));
     let mut builder = Response::builder().status(resp.status);
     if let Some(h) = builder.headers_mut() {
         for (k, v) in resp.headers {
@@ -1537,11 +1541,23 @@ fn to_axum_response(resp: UpstreamHttpResponse) -> Response {
                 h.append(name, value);
             }
         }
+        if sse_stream {
+            // Hint common reverse proxies to avoid buffering SSE responses.
+            h.entry(header::CACHE_CONTROL)
+                .or_insert(HeaderValue::from_static("no-cache"));
+            h.entry(HeaderName::from_static("x-accel-buffering"))
+                .or_insert(HeaderValue::from_static("no"));
+        }
     }
 
     let body = match resp.body {
         UpstreamBody::Bytes(b) => Body::from(b),
         UpstreamBody::Stream(rx) => {
+            let rx = if sse_stream {
+                wrap_sse_stream_with_heartbeat(rx)
+            } else {
+                rx
+            };
             let stream = ReceiverStream::new(rx).map(Ok::<_, Infallible>);
             Body::from_stream(stream)
         }
@@ -1550,6 +1566,45 @@ fn to_axum_response(resp: UpstreamHttpResponse) -> Response {
     builder.body(body).unwrap_or_else(|_| {
         (StatusCode::INTERNAL_SERVER_ERROR, "response_build_failed").into_response()
     })
+}
+
+fn has_sse_content_type(headers: &Headers) -> bool {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.to_ascii_lowercase().contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+fn wrap_sse_stream_with_heartbeat(
+    mut upstream_rx: tokio::sync::mpsc::Receiver<Bytes>,
+) -> tokio::sync::mpsc::Receiver<Bytes> {
+    let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(32);
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(SSE_HEARTBEAT_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Skip immediate tick; first heartbeat should be sent after the interval.
+        ticker.tick().await;
+
+        loop {
+            tokio::select! {
+                maybe_chunk = upstream_rx.recv() => {
+                    let Some(chunk) = maybe_chunk else {
+                        break;
+                    };
+                    if tx.send(chunk).await.is_err() {
+                        break;
+                    }
+                }
+                _ = ticker.tick() => {
+                    if tx.send(Bytes::from_static(SSE_HEARTBEAT_FRAME)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    rx
 }
 
 fn is_hop_by_hop_or_framing_header(name: &str) -> bool {
