@@ -1,12 +1,21 @@
 import type { ProviderKind } from "./types";
 
-export type FieldType = "text" | "password" | "number" | "textarea" | "boolean";
+export type FieldType = "text" | "password" | "number" | "textarea" | "boolean" | "select";
+
+export type FieldOption = {
+  value: string;
+  labelKey?: string;
+};
 
 export type FieldSpec = {
   key: string;
   type: FieldType;
   required?: boolean;
+  options?: FieldOption[];
 };
+
+export const CLAUDE_CODE_SYSTEM_PRELUDE = "claude_code_system";
+export const CLAUDE_AGENT_SDK_PRELUDE = "claude_agent_sdk";
 
 export const providerKinds: ProviderKind[] = [
   "openai",
@@ -58,7 +67,21 @@ export const configFieldMap: Record<ProviderKind, FieldSpec[]> = {
   claudecode: [
     { key: "base_url", type: "text" },
     { key: "claude_ai_base_url", type: "text" },
-    { key: "platform_base_url", type: "text" }
+    { key: "platform_base_url", type: "text" },
+    {
+      key: "prelude_text",
+      type: "select",
+      options: [
+        {
+          value: CLAUDE_CODE_SYSTEM_PRELUDE,
+          labelKey: "providers.prelude_option_claude_code_system"
+        },
+        {
+          value: CLAUDE_AGENT_SDK_PRELUDE,
+          labelKey: "providers.prelude_option_claude_agent_sdk"
+        }
+      ]
+    }
   ],
   codex: [{ key: "base_url", type: "text" }],
   antigravity: [{ key: "base_url", type: "text" }],
@@ -102,7 +125,8 @@ const configDefaultFieldMap: Partial<Record<ProviderKind, Record<string, string>
   claudecode: {
     base_url: "https://api.anthropic.com",
     claude_ai_base_url: "https://claude.ai",
-    platform_base_url: "https://platform.claude.com"
+    platform_base_url: "https://platform.claude.com",
+    prelude_text: CLAUDE_CODE_SYSTEM_PRELUDE
   },
   codex: {
     base_url: "https://chatgpt.com/backend-api/codex"
@@ -282,6 +306,14 @@ export function extractConfigFields(kind: ProviderKind, configJson: unknown): Re
     if (legacy !== null && legacy !== undefined && channelSettings.platform_base_url == null) {
       channelSettings.platform_base_url = legacy;
     }
+    const legacyPrelude =
+      channelSettings.prelude_txt ??
+      channelSettings.prelude_text;
+    if (legacyPrelude !== null && legacyPrelude !== undefined && channelSettings.prelude_text == null) {
+      channelSettings.prelude_text = mapClaudeCodePrelude(String(legacyPrelude));
+    } else if (channelSettings.prelude_text != null) {
+      channelSettings.prelude_text = mapClaudeCodePrelude(String(channelSettings.prelude_text));
+    }
   }
   for (const spec of configFieldMap[kind]) {
     const value = channelSettings[spec.key];
@@ -292,4 +324,20 @@ export function extractConfigFields(kind: ProviderKind, configJson: unknown): Re
     result[spec.key] = String(value);
   }
   return result;
+}
+
+function mapClaudeCodePrelude(value: string): string {
+  const text = value.trim();
+  if (!text) {
+    return CLAUDE_CODE_SYSTEM_PRELUDE;
+  }
+  if (
+    text === "You are a Claude agent, built on Anthropic's Claude Agent SDK." ||
+    text.toLowerCase() === "claude_agent_sdk" ||
+    text.toLowerCase() === "claude_agent" ||
+    text.toLowerCase() === "agent_sdk"
+  ) {
+    return CLAUDE_AGENT_SDK_PRELUDE;
+  }
+  return CLAUDE_CODE_SYSTEM_PRELUDE;
 }

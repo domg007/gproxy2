@@ -6,10 +6,10 @@ use sha2::{Digest, Sha256};
 
 use gproxy_provider_core::credential::ClaudeCodeCredential;
 use gproxy_provider_core::{
-    AuthRetryAction, Credential, DispatchRule, DispatchTable, HttpMethod, OAuthCallbackRequest,
-    OAuthCallbackResult, OAuthCredential, OAuthStartRequest, Proto, ProviderConfig, ProviderError,
-    ProviderResult, Request, UpstreamCtx, UpstreamHttpRequest, UpstreamHttpResponse,
-    UpstreamProvider, header_get, header_set,
+    AuthRetryAction, ClaudeCodePreludeText, Credential, DispatchRule, DispatchTable, HttpMethod,
+    OAuthCallbackRequest, OAuthCallbackResult, OAuthCredential, OAuthStartRequest, Proto,
+    ProviderConfig, ProviderError, ProviderResult, Request, UpstreamCtx, UpstreamHttpRequest,
+    UpstreamHttpResponse, UpstreamProvider, header_get, header_set,
 };
 
 use crate::auth_extractor;
@@ -135,9 +135,14 @@ impl UpstreamProvider for ClaudeCodeProvider {
     ) -> ProviderResult<UpstreamHttpRequest> {
         let base_url = claudecode_api_base_url(config)?;
         let access_token = claudecode_access_token(config, credential)?;
+        let system_prelude = claudecode_system_prelude(config)?;
         let url = build_url(Some(base_url), DEFAULT_API_BASE_URL, "/v1/messages");
         let mut body_obj = req.body.clone();
-        apply_claude_code_system(&mut body_obj.system, ctx.user_agent.as_deref());
+        apply_claude_code_system(
+            &mut body_obj.system,
+            ctx.user_agent.as_deref(),
+            system_prelude,
+        );
         let model = model_to_string(&body_obj.model);
         normalize_claude_code_sampling(model.as_deref(), body_obj.temperature, &mut body_obj.top_p);
         let is_stream = body_obj.stream.unwrap_or(false);
@@ -169,13 +174,18 @@ impl UpstreamProvider for ClaudeCodeProvider {
     ) -> ProviderResult<UpstreamHttpRequest> {
         let base_url = claudecode_api_base_url(config)?;
         let access_token = claudecode_access_token(config, credential)?;
+        let system_prelude = claudecode_system_prelude(config)?;
         let url = build_url(
             Some(base_url),
             DEFAULT_API_BASE_URL,
             "/v1/messages/count_tokens",
         );
         let mut body_obj = req.body.clone();
-        apply_claude_code_system(&mut body_obj.system, ctx.user_agent.as_deref());
+        apply_claude_code_system(
+            &mut body_obj.system,
+            ctx.user_agent.as_deref(),
+            system_prelude,
+        );
         let model = model_to_string(&body_obj.model);
         let body =
             serde_json::to_vec(&body_obj).map_err(|err| ProviderError::Other(err.to_string()))?;
@@ -422,6 +432,18 @@ fn claudecode_platform_base_url(config: &ProviderConfig) -> ProviderResult<&str>
             .platform_base_url
             .as_deref()
             .unwrap_or(DEFAULT_PLATFORM_BASE_URL)),
+        _ => Err(ProviderError::InvalidConfig(
+            "expected ProviderConfig::ClaudeCode".to_string(),
+        )),
+    }
+}
+
+fn claudecode_system_prelude(config: &ProviderConfig) -> ProviderResult<&'static str> {
+    match config {
+        ProviderConfig::ClaudeCode(cfg) => Ok(match cfg.prelude_text.unwrap_or_default() {
+            ClaudeCodePreludeText::ClaudeCodeSystem => CLAUDE_CODE_SYSTEM_PRELUDE,
+            ClaudeCodePreludeText::ClaudeAgentSdk => CLAUDE_AGENT_SDK_PRELUDE,
+        }),
         _ => Err(ProviderError::InvalidConfig(
             "expected ProviderConfig::ClaudeCode".to_string(),
         )),
@@ -693,7 +715,7 @@ mod tests {
     #[test]
     fn apply_claude_code_system_injects_default_prelude_for_non_cc_ua() {
         let mut system = None;
-        apply_claude_code_system(&mut system, Some("curl/8.6.0"));
+        apply_claude_code_system(&mut system, Some("curl/8.6.0"), CLAUDE_CODE_SYSTEM_PRELUDE);
         let Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(blocks)) =
             system
         else {
@@ -708,7 +730,11 @@ mod tests {
     #[test]
     fn apply_claude_code_system_skips_for_claude_code_ua() {
         let mut system = None;
-        apply_claude_code_system(&mut system, Some("claude-code/2.1.27"));
+        apply_claude_code_system(
+            &mut system,
+            Some("claude-code/2.1.27"),
+            CLAUDE_CODE_SYSTEM_PRELUDE,
+        );
         assert!(system.is_none());
     }
 
@@ -719,13 +745,40 @@ mod tests {
                 CLAUDE_AGENT_SDK_PRELUDE.to_string(),
             ),
         );
-        apply_claude_code_system(&mut system, Some("curl/8.6.0"));
+        apply_claude_code_system(&mut system, Some("curl/8.6.0"), CLAUDE_CODE_SYSTEM_PRELUDE);
         let Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(text)) =
             system
         else {
             panic!("expected text system");
         };
         assert_eq!(text, CLAUDE_AGENT_SDK_PRELUDE);
+    }
+
+    #[test]
+    fn apply_claude_code_system_injects_agent_sdk_prelude_when_selected() {
+        let mut system = None;
+        apply_claude_code_system(&mut system, Some("curl/8.6.0"), CLAUDE_AGENT_SDK_PRELUDE);
+        let Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Blocks(blocks)) =
+            system
+        else {
+            panic!("expected blocks system");
+        };
+        assert_eq!(
+            blocks.first().map(|b| b.text.as_str()),
+            Some(CLAUDE_AGENT_SDK_PRELUDE)
+        );
+    }
+
+    #[test]
+    fn claudecode_system_prelude_uses_config_option() {
+        let cfg = ProviderConfig::ClaudeCode(gproxy_provider_core::config::ClaudeCodeConfig {
+            prelude_text: Some(ClaudeCodePreludeText::ClaudeAgentSdk),
+            ..Default::default()
+        });
+        assert_eq!(
+            claudecode_system_prelude(&cfg).unwrap(),
+            CLAUDE_AGENT_SDK_PRELUDE
+        );
     }
 
     #[test]
@@ -816,6 +869,7 @@ fn has_known_claude_code_prelude(
 fn apply_claude_code_system(
     system: &mut Option<gproxy_protocol::claude::count_tokens::types::BetaSystemParam>,
     user_agent: Option<&str>,
+    prelude_text: &str,
 ) {
     if user_agent.map(is_claude_code_user_agent).unwrap_or(false) {
         return;
@@ -825,7 +879,7 @@ fn apply_claude_code_system(
     }
 
     let prelude = gproxy_protocol::claude::count_tokens::types::BetaTextBlockParam {
-        text: CLAUDE_CODE_SYSTEM_PRELUDE.to_string(),
+        text: prelude_text.to_string(),
         r#type: gproxy_protocol::claude::count_tokens::types::BetaTextBlockType::Text,
         cache_control: None,
         citations: None,

@@ -1334,24 +1334,47 @@ export function ProvidersSection({ adminKey, notify }: Props) {
             const fieldKey = field.key;
             const value = drafts[selected.name]?.[fieldKey] ?? "";
             const defaultValue = getConfigFieldDefault(kind, fieldKey);
+            const displayValue = value || defaultValue || "";
             return (
               <div key={field.key} className={field.type === "textarea" ? "md:col-span-2" : ""}>
                 <FieldLabel>{t(`providers.${fieldKey}`) || field.key}</FieldLabel>
                 <div className="mt-2">
-                  <TextInput
-                    value={value}
-                    placeholder={!value && defaultValue ? defaultValue : undefined}
-                    type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
-                    onChange={(next) =>
-                      setDrafts((prev) => ({
-                        ...prev,
-                        [selected.name]: {
-                          ...(prev[selected.name] ?? {}),
-                          [fieldKey]: next
-                        }
-                      }))
-                    }
-                  />
+                  {field.type === "select" && field.options ? (
+                    <select
+                      className="select"
+                      value={displayValue}
+                      onChange={(event) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [selected.name]: {
+                            ...(prev[selected.name] ?? {}),
+                            [fieldKey]: event.target.value
+                          }
+                        }))
+                      }
+                    >
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.labelKey ? t(option.labelKey) : option.value}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <TextInput
+                      value={value}
+                      placeholder={!value && defaultValue ? defaultValue : undefined}
+                      type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
+                      onChange={(next) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [selected.name]: {
+                            ...(prev[selected.name] ?? {}),
+                            [fieldKey]: next
+                          }
+                        }))
+                      }
+                    />
+                  )}
                 </div>
                 {!value && defaultValue ? (
                   <div className="mt-1 text-xs text-slate-500">

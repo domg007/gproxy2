@@ -13,7 +13,8 @@ pub mod provider;
 pub mod registry;
 
 pub use config::{
-    CountTokensMode, DispatchRule, DispatchTable, ModelTable, OperationKind, ProviderConfig,
+    ClaudeCodePreludeText, CountTokensMode, DispatchRule, DispatchTable, ModelTable, OperationKind,
+    ProviderConfig,
 };
 pub use credential::{
     AcquireError, Credential, CredentialId, CredentialPool, CredentialState, UnavailableReason,

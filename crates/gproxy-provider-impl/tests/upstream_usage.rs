@@ -58,6 +58,7 @@ async fn claudecode_upstream_usage_request_shape() {
         base_url: None,
         claude_ai_base_url: None,
         platform_base_url: Some("https://console.anthropic.com/".to_string()),
+        prelude_text: None,
     });
     let cred = Credential::ClaudeCode(ClaudeCodeCredential {
         access_token: "t".to_string(),
