@@ -169,3 +169,12 @@
 
 ### Changed
 - simplified frontend Usage page by removing the live provider usage panel (`/{provider}/usage`) and related local state/actions.
+
+## v0.2.23
+
+### Changed
+- Introduced a new module `http_client` to manage shared HTTP client instances.
+- Replaced direct client instantiation with `client_for_ctx` function to utilize shared clients based on context.
+- Updated various provider implementations (ClaudeCode, Codex, GeminiCli, Nvidia, Vertex) to use the new client management approach.
+- Modified OAuth handling to ensure consistent client usage across authentication flows.
+- Enhanced self-update functionality to support proxy configuration.
