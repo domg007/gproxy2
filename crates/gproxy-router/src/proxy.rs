@@ -51,6 +51,7 @@ struct ProviderRouteCtx {
 
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const SSE_HEARTBEAT_FRAME: &[u8] = b": keep-alive\n\n";
+const MAX_DOWNSTREAM_LOG_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
     let state = ProxyState { engine };
@@ -203,26 +204,81 @@ async fn proxy_auth(
     let status = resp.status().as_u16();
     let response_headers = maybe_redact_headers(headers_to_vec(resp.headers()), redact_sensitive);
 
-    state
-        .engine
-        .events()
-        .emit(Event::Downstream(DownstreamEvent {
-            trace_id: trace_id_opt,
-            at: SystemTime::now(),
-            user_id: Some(auth.user_id),
-            user_key_id: Some(auth.user_key_id),
-            request_method,
-            request_headers,
-            request_path,
-            request_query,
-            request_body: None,
-            response_status: Some(status),
-            response_headers,
-            response_body: None,
-        }))
-        .await;
+    if redact_sensitive {
+        state
+            .engine
+            .events()
+            .emit(Event::Downstream(DownstreamEvent {
+                trace_id: trace_id_opt,
+                at: SystemTime::now(),
+                user_id: Some(auth.user_id),
+                user_key_id: Some(auth.user_key_id),
+                request_method,
+                request_headers,
+                request_path,
+                request_query,
+                request_body: None,
+                response_status: Some(status),
+                response_headers,
+                response_body: None,
+            }))
+            .await;
+        return Ok(resp);
+    }
 
+    let (parts, body) = resp.into_parts();
+    let (tx_out, rx_out) = tokio::sync::mpsc::channel::<Bytes>(32);
+    let events = state.engine.events();
+
+    tokio::spawn(async move {
+        let mut stream = body.into_data_stream();
+        let mut response_body = Vec::new();
+        while let Some(item) = stream.next().await {
+            let chunk = match item {
+                Ok(chunk) => chunk,
+                Err(_) => break,
+            };
+            append_capped(
+                &mut response_body,
+                chunk.as_ref(),
+                MAX_DOWNSTREAM_LOG_BODY_BYTES,
+            );
+            if tx_out.send(chunk).await.is_err() {
+                break;
+            }
+        }
+
+        events
+            .emit(Event::Downstream(DownstreamEvent {
+                trace_id: trace_id_opt,
+                at: SystemTime::now(),
+                user_id: Some(auth.user_id),
+                user_key_id: Some(auth.user_key_id),
+                request_method,
+                request_headers,
+                request_path,
+                request_query,
+                request_body: None,
+                response_status: Some(status),
+                response_headers,
+                response_body: Some(response_body),
+            }))
+            .await;
+    });
+
+    let stream = ReceiverStream::new(rx_out).map(Ok::<_, Infallible>);
+    let resp = Response::from_parts(parts, Body::from_stream(stream));
     Ok(resp)
+}
+
+fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
+    if buf.len() >= cap {
+        return true;
+    }
+    let remaining = cap.saturating_sub(buf.len());
+    let take = remaining.min(chunk.len());
+    buf.extend_from_slice(&chunk[..take]);
+    take < chunk.len()
 }
 
 fn strip_downstream_auth_headers(headers: &mut HeaderMap) {
@@ -1526,7 +1582,8 @@ async fn gemini_post_impl(
 // ---- Helpers ----
 
 fn to_axum_response(resp: UpstreamHttpResponse) -> Response {
-    let sse_stream = has_sse_content_type(&resp.headers) && matches!(&resp.body, UpstreamBody::Stream(_));
+    let sse_stream =
+        has_sse_content_type(&resp.headers) && matches!(&resp.body, UpstreamBody::Stream(_));
     let mut builder = Response::builder().status(resp.status);
     if let Some(h) = builder.headers_mut() {
         for (k, v) in resp.headers {

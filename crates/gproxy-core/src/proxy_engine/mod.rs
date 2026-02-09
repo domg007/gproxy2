@@ -68,6 +68,8 @@ struct UpstreamEventInput<'a> {
     operation: String,
     upstream_req: &'a UpstreamHttpRequest,
     response_status: Option<u16>,
+    response_headers: Option<Headers>,
+    response_body: Option<Vec<u8>>,
     usage: Option<UsageSummary>,
     error_kind: Option<String>,
     error_message: Option<String>,
@@ -79,6 +81,8 @@ struct ProtocolRouteCtx {
     provider: String,
     response_model_prefix_provider: Option<String>,
 }
+
+const MAX_UPSTREAM_LOG_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 macro_rules! emit_upstream_event {
     (
@@ -107,6 +111,8 @@ macro_rules! emit_upstream_event {
             operation: $operation.into(),
             upstream_req: $upstream_req,
             response_status: $response_status,
+            response_headers: None,
+            response_body: None,
             usage: $usage,
             error_kind: $error_kind,
             error_message: $error_message,
@@ -1207,23 +1213,114 @@ impl ProxyEngine {
                 return resp;
             }
 
-            emit_upstream_event!(
-                self,
-                trace_id.clone(),
-                auth.clone(),
-                provider.clone(),
-                Some(cred_id),
-                false,
-                attempt_no,
-                format!("{op:?}"),
-                &upstream_req,
-                Some(resp.status),
-                None,
-                None,
-                None,
-                None,
-            )
-            .await;
+            let UpstreamHttpResponse {
+                status: resp_status,
+                headers: resp_headers,
+                body: resp_body,
+            } = resp;
+            let resp = match resp_body {
+                UpstreamBody::Bytes(body) => {
+                    self.emit_upstream_event(UpstreamEventInput {
+                        trace_id: trace_id.clone(),
+                        auth: auth.clone(),
+                        provider: provider.clone(),
+                        credential_id: Some(cred_id),
+                        internal: false,
+                        attempt_no,
+                        operation: format!("{op:?}"),
+                        upstream_req: &upstream_req,
+                        response_status: Some(resp_status),
+                        response_headers: Some(resp_headers.clone()),
+                        response_body: Some(body.to_vec()),
+                        usage: None,
+                        error_kind: None,
+                        error_message: None,
+                        transport_kind: None,
+                    })
+                    .await;
+                    UpstreamHttpResponse {
+                        status: resp_status,
+                        headers: resp_headers,
+                        body: UpstreamBody::Bytes(body),
+                    }
+                }
+                UpstreamBody::Stream(rx_in) => {
+                    let (tx_out, rx_out) = tokio::sync::mpsc::channel::<Bytes>(32);
+                    let events = self.state.events.clone();
+                    let trace_id2 = trace_id.clone();
+                    let auth2 = auth.clone();
+                    let provider2 = provider.clone();
+                    let upstream_req2 = upstream_req.clone();
+                    let (upstream_path, upstream_query) = split_path_query(&upstream_req.url);
+                    let upstream_resp_headers = resp_headers.clone();
+                    let status = resp_status;
+                    let redact_sensitive = self.state.global.load().event_redact_sensitive;
+
+                    tokio::spawn(async move {
+                        let mut rx_in = rx_in;
+                        let mut response_body = Vec::new();
+                        let mut error_kind: Option<String> = None;
+                        let mut error_message: Option<String> = None;
+                        while let Some(chunk) = rx_in.recv().await {
+                            append_capped(
+                                &mut response_body,
+                                chunk.as_ref(),
+                                MAX_UPSTREAM_LOG_BODY_BYTES,
+                            );
+                            if tx_out.send(chunk).await.is_err() {
+                                error_kind = Some("stream_forward_error".to_string());
+                                error_message = Some("downstream_stream_closed".to_string());
+                                break;
+                            }
+                        }
+                        events
+                            .emit(Event::Upstream(UpstreamEvent {
+                                trace_id: trace_id2,
+                                at: SystemTime::now(),
+                                user_id: Some(auth2.user_id),
+                                user_key_id: Some(auth2.user_key_id),
+                                provider: provider2,
+                                credential_id: Some(cred_id),
+                                internal: false,
+                                attempt_no,
+                                operation: format!("{op:?}"),
+                                request_method: upstream_req2.method.as_str().to_string(),
+                                request_headers: maybe_redact_headers(
+                                    upstream_req2.headers.clone(),
+                                    redact_sensitive,
+                                ),
+                                request_path: upstream_path,
+                                request_query: maybe_redact_query(upstream_query, redact_sensitive),
+                                request_body: if redact_sensitive {
+                                    None
+                                } else {
+                                    upstream_req2.body.clone().map(|b| b.to_vec())
+                                },
+                                response_status: Some(status),
+                                response_headers: maybe_redact_headers(
+                                    upstream_resp_headers,
+                                    redact_sensitive,
+                                ),
+                                response_body: if redact_sensitive {
+                                    None
+                                } else {
+                                    Some(response_body)
+                                },
+                                usage: None,
+                                error_kind,
+                                error_message,
+                                transport_kind: None,
+                            }))
+                            .await;
+                    });
+
+                    UpstreamHttpResponse {
+                        status: resp_status,
+                        headers: resp_headers,
+                        body: UpstreamBody::Stream(rx_out),
+                    }
+                }
+            };
 
             match provider_impl
                 .on_upstream_success(&ctx, &config, &cred, &shadow_req, &resp)
@@ -1891,22 +1988,23 @@ impl ProxyEngine {
             None
         };
 
-        emit_upstream_event!(
-            self,
-            trace_id.clone(),
+        self.emit_upstream_event(UpstreamEventInput {
+            trace_id: trace_id.clone(),
             auth,
-            provider.clone(),
-            Some(cred_id),
-            false,
+            provider: provider.clone(),
+            credential_id: Some(cred_id),
+            internal: false,
             attempt_no,
-            format!("{provider_op:?}"),
-            &upstream_req,
-            Some(upstream_resp.status),
-            usage.clone(),
-            None,
-            None,
-            None,
-        )
+            operation: format!("{provider_op:?}"),
+            upstream_req: &upstream_req,
+            response_status: Some(upstream_resp.status),
+            response_headers: Some(upstream_resp.headers.clone()),
+            response_body: Some(body.to_vec()),
+            usage: usage.clone(),
+            error_kind: None,
+            error_message: None,
+            transport_kind: None,
+        })
         .await;
 
         let to_user = TransformContext {
@@ -1994,9 +2092,19 @@ impl ProxyEngine {
 
             tokio::spawn(async move {
                 let mut rx_in = rx_in;
+                let mut response_body = Vec::new();
+                let mut error_kind: Option<String> = None;
+                let mut error_message: Option<String> = None;
                 while let Some(chunk) = rx_in.recv().await {
+                    append_capped(
+                        &mut response_body,
+                        chunk.as_ref(),
+                        MAX_UPSTREAM_LOG_BODY_BYTES,
+                    );
                     if tx_out.send(chunk).await.is_err() {
-                        return;
+                        error_kind = Some("stream_forward_error".to_string());
+                        error_message = Some("downstream_stream_closed".to_string());
+                        break;
                     }
                 }
                 events
@@ -2027,10 +2135,14 @@ impl ProxyEngine {
                             upstream_resp_headers.clone(),
                             redact_sensitive,
                         ),
-                        response_body: None,
+                        response_body: if redact_sensitive {
+                            None
+                        } else {
+                            Some(response_body)
+                        },
                         usage: None,
-                        error_kind: None,
-                        error_message: None,
+                        error_kind,
+                        error_message,
                         transport_kind: None,
                     }))
                     .await;
@@ -2065,6 +2177,9 @@ impl ProxyEngine {
             let mut decoder = StreamDecoder::new(provider_proto, format);
             let mut usage_acc = UsageAccumulator::new(provider_proto);
             let mut out_acc = OutputAccumulator::new(provider_proto);
+            let mut response_body = Vec::new();
+            let mut error_kind: Option<String> = None;
+            let mut error_message: Option<String> = None;
 
             let mut transformer = if provider_proto == user_proto {
                 None
@@ -2099,7 +2214,12 @@ impl ProxyEngine {
             };
 
             let mut rx_in = rx_in;
-            while let Some(chunk) = rx_in.recv().await {
+            'stream_loop: while let Some(chunk) = rx_in.recv().await {
+                append_capped(
+                    &mut response_body,
+                    chunk.as_ref(),
+                    MAX_UPSTREAM_LOG_BODY_BYTES,
+                );
                 for ev in decoder.push_bytes(&chunk) {
                     let _ = usage_acc.push(&ev);
                     out_acc.push(&ev);
@@ -2108,7 +2228,11 @@ impl ProxyEngine {
                     if let Some(t) = transformer.as_mut() {
                         match t.push(ev) {
                             Ok(mut v) => out_events.append(&mut v),
-                            Err(_) => return,
+                            Err(err) => {
+                                error_kind = Some("stream_transform_error".to_string());
+                                error_message = Some(format!("{err:?}"));
+                                break 'stream_loop;
+                            }
                         }
                     } else {
                         out_events.push(ev);
@@ -2120,44 +2244,62 @@ impl ProxyEngine {
                         if let Some(bytes) = encode_stream_event(user_proto, &out_ev)
                             && tx_out.send(bytes).await.is_err()
                         {
-                            return;
+                            error_kind = Some("stream_forward_error".to_string());
+                            error_message = Some("downstream_stream_closed".to_string());
+                            break 'stream_loop;
                         }
                     }
                 }
             }
 
-            for ev in decoder.finish() {
-                let _ = usage_acc.push(&ev);
-                out_acc.push(&ev);
+            if error_kind.is_none() {
+                for ev in decoder.finish() {
+                    let _ = usage_acc.push(&ev);
+                    out_acc.push(&ev);
 
-                let mut out_events: Vec<StreamEvent> = Vec::new();
-                if let Some(t) = transformer.as_mut() {
-                    match t.push(ev) {
-                        Ok(mut v) => out_events.append(&mut v),
-                        Err(_) => return,
+                    let mut out_events: Vec<StreamEvent> = Vec::new();
+                    if let Some(t) = transformer.as_mut() {
+                        match t.push(ev) {
+                            Ok(mut v) => out_events.append(&mut v),
+                            Err(err) => {
+                                error_kind = Some("stream_transform_error".to_string());
+                                error_message = Some(format!("{err:?}"));
+                                break;
+                            }
+                        }
+                    } else {
+                        out_events.push(ev);
                     }
-                } else {
-                    out_events.push(ev);
-                }
 
-                for out_ev in out_events {
-                    let out_ev =
-                        maybe_prefix_model_in_stream_event(out_ev, prefix_provider.as_deref());
-                    if let Some(bytes) = encode_stream_event(user_proto, &out_ev)
-                        && tx_out.send(bytes).await.is_err()
-                    {
-                        return;
+                    for out_ev in out_events {
+                        let out_ev =
+                            maybe_prefix_model_in_stream_event(out_ev, prefix_provider.as_deref());
+                        if let Some(bytes) = encode_stream_event(user_proto, &out_ev)
+                            && tx_out.send(bytes).await.is_err()
+                        {
+                            error_kind = Some("stream_forward_error".to_string());
+                            error_message = Some("downstream_stream_closed".to_string());
+                            break;
+                        }
+                    }
+                    if error_kind.is_some() {
+                        break;
                     }
                 }
             }
 
-            if user_proto == Proto::OpenAIChat {
-                let _ = tx_out.send(encode_openai_chat_done()).await;
+            if error_kind.is_none()
+                && user_proto == Proto::OpenAIChat
+                && tx_out.send(encode_openai_chat_done()).await.is_err()
+            {
+                error_kind = Some("stream_forward_error".to_string());
+                error_message = Some("downstream_stream_closed".to_string());
             }
 
             // Finalize usage (provider-native).
             let mut usage = usage_acc.finalize();
             if usage.is_none()
+                && error_kind.is_none()
                 && let Some(input_req) = input_req
             {
                 let count_fn = EngineCountTokensFn {
@@ -2212,10 +2354,14 @@ impl ProxyEngine {
                         upstream_resp_headers.clone(),
                         redact_sensitive,
                     ),
-                    response_body: None,
+                    response_body: if redact_sensitive {
+                        None
+                    } else {
+                        Some(response_body)
+                    },
                     usage,
-                    error_kind: None,
-                    error_message: None,
+                    error_kind,
+                    error_message,
                     transport_kind: None,
                 }))
                 .await;
@@ -2264,6 +2410,7 @@ impl ProxyEngine {
         let mut decoder = StreamDecoder::new(provider_proto, format);
         let mut usage_acc = UsageAccumulator::new(provider_proto);
         let mut out_acc = OutputAccumulator::new(provider_proto);
+        let mut response_body = Vec::new();
         let mut completed_resp: Option<Response> = None;
 
         let ctx = TransformContext {
@@ -2280,6 +2427,11 @@ impl ProxyEngine {
         };
 
         while let Some(chunk) = rx.recv().await {
+            append_capped(
+                &mut response_body,
+                chunk.as_ref(),
+                MAX_UPSTREAM_LOG_BODY_BYTES,
+            );
             for ev in decoder.push_bytes(&chunk) {
                 let _ = usage_acc.push(&ev);
                 out_acc.push(&ev);
@@ -2352,22 +2504,23 @@ impl ProxyEngine {
             }
         }
 
-        emit_upstream_event!(
-            self,
+        self.emit_upstream_event(UpstreamEventInput {
             trace_id,
             auth,
             provider,
-            Some(cred_id),
-            false,
+            credential_id: Some(cred_id),
+            internal: false,
             attempt_no,
-            format!("{:?}", Op::StreamGenerateContent),
-            &upstream_req,
-            Some(upstream_resp.status),
-            usage.clone(),
-            None,
-            None,
-            None,
-        )
+            operation: format!("{:?}", Op::StreamGenerateContent),
+            upstream_req: &upstream_req,
+            response_status: Some(upstream_resp.status),
+            response_headers: Some(upstream_resp.headers.clone()),
+            response_body: Some(response_body),
+            usage: usage.clone(),
+            error_kind: None,
+            error_message: None,
+            transport_kind: None,
+        })
         .await;
 
         let mut headers = upstream_resp.headers;
@@ -2408,22 +2561,23 @@ impl ProxyEngine {
 
         // Extract usage from provider non-stream response if present.
         let usage = resp_native_generate_usage(provider_proto, &resp_native);
-        emit_upstream_event!(
-            self,
-            trace_id.clone(),
+        self.emit_upstream_event(UpstreamEventInput {
+            trace_id: trace_id.clone(),
             auth,
-            provider.clone(),
-            Some(cred_id),
-            false,
+            provider: provider.clone(),
+            credential_id: Some(cred_id),
+            internal: false,
             attempt_no,
-            format!("{:?}", Op::GenerateContent),
-            &upstream_req,
-            Some(upstream_resp.status),
-            usage.clone(),
-            None,
-            None,
-            None,
-        )
+            operation: format!("{:?}", Op::GenerateContent),
+            upstream_req: &upstream_req,
+            response_status: Some(upstream_resp.status),
+            response_headers: Some(upstream_resp.headers.clone()),
+            response_body: Some(body.to_vec()),
+            usage: usage.clone(),
+            error_kind: None,
+            error_message: None,
+            transport_kind: None,
+        })
         .await;
 
         let ctx = TransformContext {
@@ -2681,8 +2835,15 @@ impl ProxyEngine {
                     input.upstream_req.body.clone().map(|b| b.to_vec())
                 },
                 response_status: input.response_status,
-                response_headers: Vec::new(),
-                response_body: None,
+                response_headers: maybe_redact_headers(
+                    input.response_headers.unwrap_or_default(),
+                    redact_sensitive,
+                ),
+                response_body: if redact_sensitive {
+                    None
+                } else {
+                    input.response_body
+                },
                 usage: input.usage,
                 error_kind: input.error_kind,
                 error_message: input.error_message,
@@ -3090,6 +3251,16 @@ fn resp_native_generate_usage(proto: Proto, resp: &Response) -> Option<UsageSumm
         Response::GenerateContent(r) => usage_from_response(proto, r),
         _ => None,
     }
+}
+
+fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
+    if buf.len() >= cap {
+        return true;
+    }
+    let remaining = cap.saturating_sub(buf.len());
+    let take = remaining.min(chunk.len());
+    buf.extend_from_slice(&chunk[..take]);
+    take < chunk.len()
 }
 
 fn resp_body_bytes(body: &UpstreamBody) -> Option<Bytes> {
@@ -3518,7 +3689,11 @@ fn failure_to_http(failure: UpstreamFailure) -> UpstreamHttpResponse {
     }
 }
 
-fn normalize_upstream_http_failure(status: u16, headers: Headers, body: Bytes) -> UpstreamHttpResponse {
+fn normalize_upstream_http_failure(
+    status: u16,
+    headers: Headers,
+    body: Bytes,
+) -> UpstreamHttpResponse {
     // Preserve native upstream JSON errors as-is.
     if upstream_http_error_is_json(&headers, &body) {
         return UpstreamHttpResponse {
