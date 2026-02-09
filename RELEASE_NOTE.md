@@ -158,3 +158,9 @@
 - kept credential injection/auth handling in passthrough flow, and preserved codex upstream request normalization (`instructions` fallback, compact stream handling, input normalization).
 - fixed ClaudeCode 1M beta header behavior: when 1M is disabled or entitlement is unavailable, `context-1m-*` beta is now stripped from outgoing headers.
 - fixed ClaudeCode 1M gating logic: 1M beta is sent only when both `enable_claude_1m_* == true` and `supports_claude_1m_* == true`.
+
+## v0.2.21
+
+### Fixed
+- claudecode beta header normalization now actively removes downstream-provided `context-1m-*` entries when current credential/model is not eligible for 1M context.
+- preserved non-1M beta entries while still appending required OAuth beta flag, and added unit tests for disabled/enabled context-1m header behavior.
