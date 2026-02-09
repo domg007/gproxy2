@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
-use axum::extract::{Extension, Path, Query, RawQuery, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, RawQuery, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
@@ -117,6 +117,7 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
         .route("/{provider}/oauth", get(oauth_start))
         .route("/{provider}/oauth/callback", get(oauth_callback))
         .route("/{provider}/usage", get(upstream_usage))
+        .layer(DefaultBodyLimit::max(MAX_DOWNSTREAM_LOG_BODY_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), proxy_auth))
         .with_state(state)
 }
