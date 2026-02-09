@@ -70,3 +70,13 @@
 
 ### Fixed
 - fix the path problem
+## v0.2.12
+
+### Changed
+- codex provider now fetches model metadata online from upstream `/models` for both `ModelList` and `ModelGet`.
+- `ModelGet` no longer calls `/models/{id}`; it reuses `/models` response and resolves the target model by `id`.
+- added `client_version=0.99.0` query parameter when calling upstream codex `/models` to satisfy server-side validation.
+
+### Fixed
+- normalized codex upstream model payloads to OpenAI-compatible shapes for both list (`object=list,data=[...]`) and get (`object=model`).
+- extended provider non-stream normalization hook to include original request context, enabling provider-side model selection for `ModelGet`.
