@@ -23,8 +23,6 @@ export function UsageSection({ adminKey, providers, notify }: Props) {
   const [from, setFrom] = useState(beforeHoursRfc3339(24));
   const [to, setTo] = useState(nowRfc3339());
   const [result, setResult] = useState<UsageResponse | null>(null);
-  const [liveProvider, setLiveProvider] = useState("");
-  const [liveData, setLiveData] = useState<Record<string, unknown> | null>(null);
   const [credentials, setCredentials] = useState<CredentialListRow[]>([]);
 
   const loadCredentials = useCallback(async () => {
@@ -44,10 +42,7 @@ export function UsageSection({ adminKey, providers, notify }: Props) {
     if (!provider && providers.length > 0) {
       setProvider(providers[0].name);
     }
-    if (!liveProvider && providers.length > 0) {
-      setLiveProvider(providers[0].name);
-    }
-  }, [liveProvider, provider, providers]);
+  }, [provider, providers]);
 
   const credentialOptions = useMemo(
     () => credentials.map((item) => ({ value: String(item.id), label: `#${item.id} ${item.name ?? ""}` })),
@@ -79,17 +74,6 @@ export function UsageSection({ adminKey, providers, notify }: Props) {
         query: { from, to }
       });
       setResult(data);
-    } catch (error) {
-      notify("error", formatApiError(error));
-    }
-  };
-
-  const fetchLive = async () => {
-    try {
-      const data = await request<Record<string, unknown>>(`/${liveProvider}/usage`, {
-        userKey: adminKey
-      });
-      setLiveData(data);
     } catch (error) {
       notify("error", formatApiError(error));
     }
@@ -182,38 +166,6 @@ export function UsageSection({ adminKey, providers, notify }: Props) {
                 <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
               </div>
             ))}
-          </div>
-        ) : null}
-      </Card>
-
-      <Card title={t("usage.live_usage")} subtitle="/{provider}/usage">
-        <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-          <div>
-            <FieldLabel>{t("common.provider")}</FieldLabel>
-            <select className="mt-2 select" value={liveProvider} onChange={(event) => setLiveProvider(event.target.value)}>
-              {providers.map((item) => (
-                <option key={item.name} value={item.name}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-end">
-            <Button onClick={() => void fetchLive()}>{t("usage.live_fetch")}</Button>
-          </div>
-        </div>
-
-        {liveData ? (
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="grid gap-2 md:grid-cols-2">
-              {Object.entries(liveData)
-                .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value))
-                .map(([key, value]) => (
-                  <div key={key} className="text-sm text-slate-700">
-                    <span className="font-semibold">{key}:</span> {String(value)}
-                  </div>
-                ))}
-            </div>
           </div>
         ) : null}
       </Card>
