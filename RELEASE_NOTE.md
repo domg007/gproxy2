@@ -125,5 +125,11 @@
 - codex upstream compatibility: when downstream request omits `instructions`, gproxy now sends an explicit empty string (`"instructions": ""`) to avoid upstream validation error (`Instructions are required`).
 
 ## v0.2.17
+
 ### Fixed
 - do nothing but commit 0.2.16 change
+
+## v0.2.18
+
+### Changed
+- refactor admin key handling to store as plaintext and update related components
