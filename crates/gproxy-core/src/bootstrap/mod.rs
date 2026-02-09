@@ -245,6 +245,27 @@ fn parse_u16_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<
     Ok(Some(parsed))
 }
 
+fn parse_bool_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<bool>> {
+    let Some(raw) = sanitize_optional_env_value(value) else {
+        return Ok(None);
+    };
+    let parsed = match raw.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        "0" | "false" | "no" | "off" => false,
+        _ => return Err(anyhow::anyhow!("invalid {env_name} value: {raw}")),
+    };
+    Ok(Some(parsed))
+}
+
+fn hash_admin_key(key: &str) -> String {
+    blake3::hash(key.as_bytes()).to_hex().to_string()
+}
+
+fn generate_admin_key() -> String {
+    // Random enough for a bootstrap key; stored only in memory/printed once.
+    uuid::Uuid::new_v4().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::sqlite_file_path_from_dsn;
@@ -266,25 +287,4 @@ mod tests {
         assert!(sqlite_file_path_from_dsn("sqlite::memory:").is_none());
         assert!(sqlite_file_path_from_dsn("sqlite://:memory:").is_none());
     }
-}
-
-fn parse_bool_env_value(value: Option<String>, env_name: &str) -> anyhow::Result<Option<bool>> {
-    let Some(raw) = sanitize_optional_env_value(value) else {
-        return Ok(None);
-    };
-    let parsed = match raw.to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => true,
-        "0" | "false" | "no" | "off" => false,
-        _ => return Err(anyhow::anyhow!("invalid {env_name} value: {raw}")),
-    };
-    Ok(Some(parsed))
-}
-
-fn hash_admin_key(key: &str) -> String {
-    blake3::hash(key.as_bytes()).to_hex().to_string()
-}
-
-fn generate_admin_key() -> String {
-    // Random enough for a bootstrap key; stored only in memory/printed once.
-    uuid::Uuid::new_v4().to_string()
 }

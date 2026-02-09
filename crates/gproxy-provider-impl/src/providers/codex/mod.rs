@@ -573,21 +573,21 @@ fn normalize_codex_model_get(value: &JsonValue) -> Option<JsonValue> {
         return Some(model);
     }
 
-    if let Some(data) = value.get("data").and_then(|v| v.as_array()) {
-        if data.len() == 1 {
-            if is_openai_model_value(&data[0]) {
-                return Some(data[0].clone());
-            }
-            if let Some(model) = normalize_codex_model_value(&data[0]) {
-                return Some(model);
-            }
+    if let Some(data) = value.get("data").and_then(|v| v.as_array())
+        && data.len() == 1
+    {
+        if is_openai_model_value(&data[0]) {
+            return Some(data[0].clone());
+        }
+        if let Some(model) = normalize_codex_model_value(&data[0]) {
+            return Some(model);
         }
     }
 
-    if let Some(models) = value.get("models").and_then(|v| v.as_array()) {
-        if models.len() == 1 {
-            return normalize_codex_model_value(&models[0]);
-        }
+    if let Some(models) = value.get("models").and_then(|v| v.as_array())
+        && models.len() == 1
+    {
+        return normalize_codex_model_value(&models[0]);
     }
 
     None

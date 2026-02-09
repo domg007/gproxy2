@@ -503,6 +503,7 @@ pub trait UpstreamProvider: Send + Sync {
     /// Providers can rewrite upstream JSON body shapes before core decodes
     /// into protocol structs. This is useful for provider-specific REST
     /// envelopes that differ from protocol DTOs.
+    #[allow(clippy::too_many_arguments)]
     fn normalize_nonstream_response(
         &self,
         _ctx: &UpstreamCtx,

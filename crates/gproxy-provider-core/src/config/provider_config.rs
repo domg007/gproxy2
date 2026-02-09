@@ -75,17 +75,12 @@ pub struct ClaudeCodeConfig {
     pub prelude_text: Option<ClaudeCodePreludeText>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudeCodePreludeText {
+    #[default]
     ClaudeCodeSystem,
     ClaudeAgentSdk,
-}
-
-impl Default for ClaudeCodePreludeText {
-    fn default() -> Self {
-        Self::ClaudeCodeSystem
-    }
 }
 
 impl ClaudeCodePreludeText {
