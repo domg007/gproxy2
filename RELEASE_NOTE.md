@@ -203,3 +203,32 @@
 ### Fixed
 - codex responses passthrough compatibility: strip unsupported sampling params (`temperature`, `top_p`) for `/v1/responses` and `/v1/responses/compact` upstream calls.
 - upstream non-JSON HTTP error normalization: HTML/error pages (for example Cloudflare 4xx pages) are now converted to stable JSON error payloads for downstream clients, while native JSON upstream errors are preserved as-is.
+
+
+## v0.2.25
+
+### Added
+- admin API: added `GET /admin/logs` to query persisted upstream/downstream request logs with time range filters, kind selection, status range, and pagination.
+- frontend: added a new non-realtime log query page with filter form + table view, replacing the old terminal-style WS stream page in sidebar entry.
+
+### Changed
+- credentials usage token APIs now support `model_contains` filter across provider/credential scopes.
+- usage responses now include `call_count` (same semantics as `matched_rows`) for easier frontend aggregation display.
+- log query route now uses a wider page max-width on frontend to improve table readability.
+
+### Fixed
+- downstream log query behavior: when `kind=downstream`, upstream-only filters no longer suppress downstream results unexpectedly.
+- admin time serialization in log query responses is normalized to RFC3339 output.
+
+## v0.2.26
+
+### Added
+- frontend logs page now supports row-level expand/collapse detail view for debugging.
+- `/admin/logs` now returns `request_body` and `response_body` for each row.
+
+### Changed
+- removed legacy admin WS log stream route (`/admin/events/ws`) and switched to table-based log query flow (`/admin/logs`).
+- logs page desktop layout is aligned with other admin pages and keeps horizontal scroll inside the table area.
+
+### Fixed
+- logs page no longer stretches overall desktop layout width due to wide table content.
