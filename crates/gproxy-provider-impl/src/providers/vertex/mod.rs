@@ -105,6 +105,7 @@ impl UpstreamProvider for VertexProvider {
         _credential: &Credential,
         proto: Proto,
         op: Op,
+        _req: &Request,
         body: Bytes,
     ) -> ProviderResult<Bytes> {
         if proto != Proto::Gemini {

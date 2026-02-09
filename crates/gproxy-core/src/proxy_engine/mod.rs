@@ -1521,6 +1521,7 @@ impl ProxyEngine {
             &cred,
             provider_proto,
             provider_op,
+            _req_native,
             body,
         ) {
             Ok(body) => body,

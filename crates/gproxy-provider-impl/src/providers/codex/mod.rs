@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use base64::Engine;
 use bytes::Bytes;
 use rand::RngCore;
@@ -9,10 +7,10 @@ use tiktoken_rs::{CoreBPE, get_bpe_from_model, o200k_base};
 
 use gproxy_provider_core::credential::CodexCredential;
 use gproxy_provider_core::{
-    AuthRetryAction, Credential, DispatchRule, DispatchTable, HttpMethod, ModelGetRequest,
-    ModelListRequest, OAuthCallbackRequest, OAuthCallbackResult, OAuthCredential,
-    OAuthStartRequest, Proto, ProviderConfig, ProviderError, ProviderResult, Request, UpstreamBody,
-    UpstreamCtx, UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider, header_set,
+    AuthRetryAction, Credential, DispatchRule, DispatchTable, HttpMethod, OAuthCallbackRequest,
+    OAuthCallbackResult, OAuthCredential, OAuthStartRequest, Op, Proto, ProviderConfig,
+    ProviderError, ProviderResult, Request, UpstreamBody, UpstreamCtx, UpstreamHttpRequest,
+    UpstreamHttpResponse, UpstreamProvider, header_set,
 };
 
 use gproxy_protocol::openai;
@@ -31,6 +29,7 @@ const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_ISSUER: &str = "https://auth.openai.com";
 const OAUTH_STATE_TTL_SECS: u64 = 600;
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CLIENT_VERSION: &str = "0.99.0";
 
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
@@ -220,38 +219,113 @@ impl UpstreamProvider for CodexProvider {
         Ok(local_json_request(body))
     }
 
-    fn local_response(
+    async fn build_openai_models_list(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        _req: &gproxy_protocol::openai::list_models::request::ListModelsRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = codex_base_url(config)?;
+        let (access_token, account_id) = codex_credential(credential)?;
+        let url = codex_models_url(base_url);
+
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, access_token);
+        auth_extractor::set_accept_json(&mut headers);
+        auth_extractor::set_header(&mut headers, "chatgpt-account-id", account_id);
+
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Get,
+            url,
+            headers,
+            body: None,
+            is_stream: false,
+        })
+    }
+
+    async fn build_openai_models_get(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &gproxy_protocol::openai::get_model::request::GetModelRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = codex_base_url(config)?;
+        let (access_token, account_id) = codex_credential(credential)?;
+        let _model = normalize_model_id(&req.path.model);
+        let url = codex_models_url(base_url);
+
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, access_token);
+        auth_extractor::set_accept_json(&mut headers);
+        auth_extractor::set_header(&mut headers, "chatgpt-account-id", account_id);
+
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Get,
+            url,
+            headers,
+            body: None,
+            is_stream: false,
+        })
+    }
+
+    fn normalize_nonstream_response(
         &self,
         _ctx: &UpstreamCtx,
         _config: &ProviderConfig,
-        credential: &Credential,
+        _credential: &Credential,
+        proto: Proto,
+        op: Op,
         req: &Request,
-    ) -> ProviderResult<Option<UpstreamHttpResponse>> {
-        match req {
-            Request::ModelList(ModelListRequest::OpenAI(_)) => {
-                let _ = codex_credential(credential)?;
-                let list = load_models_value()?;
-                let body = serde_json::to_vec(list)
-                    .map_err(|err| ProviderError::Other(err.to_string()))?;
-                Ok(Some(local_json_response(200, body)))
-            }
-            Request::ModelGet(ModelGetRequest::OpenAI(req)) => {
-                let _ = codex_credential(credential)?;
-                let list = load_models_value()?;
-                let model = normalize_model_id(&req.path.model);
-                let (status, body_json) = match find_model_value(list, &model) {
-                    Some(found) => (200, found),
-                    None => (
-                        404,
-                        serde_json::json!({ "error": { "message": "model not found" } }),
-                    ),
-                };
-                let body = serde_json::to_vec(&body_json)
-                    .map_err(|err| ProviderError::Other(err.to_string()))?;
-                Ok(Some(local_json_response(status, body)))
-            }
-            _ => Ok(None),
+        body: Bytes,
+    ) -> ProviderResult<Bytes> {
+        if proto != Proto::OpenAI {
+            return Ok(body);
         }
+
+        let Ok(value) = serde_json::from_slice::<JsonValue>(&body) else {
+            return Ok(body);
+        };
+
+        let normalized = match op {
+            Op::ModelList => {
+                if is_openai_model_list(&value) {
+                    value
+                } else if let Some(list) = normalize_codex_model_list(&value) {
+                    list
+                } else {
+                    return Ok(body);
+                }
+            }
+            Op::ModelGet => {
+                let Some(target_model) = model_get_target_model(req) else {
+                    return Ok(body);
+                };
+                if is_openai_model_value(&value) {
+                    value
+                } else if is_openai_model_list(&value) {
+                    match find_model_value(&value, &target_model) {
+                        Some(model) => model,
+                        None => return Ok(body),
+                    }
+                } else if let Some(list) = normalize_codex_model_list(&value) {
+                    match find_model_value(&list, &target_model) {
+                        Some(model) => model,
+                        None => return Ok(body),
+                    }
+                } else if let Some(model) = normalize_codex_model_get(&value) {
+                    model
+                } else {
+                    return Ok(body);
+                }
+            }
+            _ => return Ok(body),
+        };
+
+        serde_json::to_vec(&normalized)
+            .map(Bytes::from)
+            .map_err(|err| ProviderError::Other(err.to_string()))
     }
 }
 
@@ -273,6 +347,11 @@ fn codex_credential(credential: &Credential) -> ProviderResult<(&str, &str)> {
     }
 }
 
+fn codex_models_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    format!("{base}/models?client_version={CLIENT_VERSION}")
+}
+
 fn local_json_request(body: Vec<u8>) -> UpstreamHttpRequest {
     let mut headers = Vec::new();
     auth_extractor::set_accept_json(&mut headers);
@@ -283,16 +362,6 @@ fn local_json_request(body: Vec<u8>) -> UpstreamHttpRequest {
         headers,
         body: Some(Bytes::from(body)),
         is_stream: false,
-    }
-}
-
-fn local_json_response(status: u16, body: Vec<u8>) -> UpstreamHttpResponse {
-    let mut headers = Vec::new();
-    header_set(&mut headers, "content-type", "application/json");
-    UpstreamHttpResponse {
-        status,
-        headers,
-        body: UpstreamBody::Bytes(Bytes::from(body)),
     }
 }
 
@@ -423,22 +492,105 @@ fn count_text(text: &str, bpe: &CoreBPE) -> i64 {
     bpe.encode_ordinary(text).len() as i64
 }
 
-static MODELS_CACHE: OnceLock<JsonValue> = OnceLock::new();
+fn is_openai_model_list(value: &JsonValue) -> bool {
+    value
+        .get("object")
+        .and_then(|v| v.as_str())
+        .map(|v| v == "list")
+        .unwrap_or(false)
+        && value.get("data").and_then(|v| v.as_array()).is_some()
+}
 
-fn load_models_value() -> ProviderResult<&'static JsonValue> {
-    if let Some(value) = MODELS_CACHE.get() {
-        return Ok(value);
+fn is_openai_model_value(value: &JsonValue) -> bool {
+    value
+        .get("object")
+        .and_then(|v| v.as_str())
+        .map(|v| v == "model")
+        .unwrap_or(false)
+        && value.get("id").and_then(|v| v.as_str()).is_some()
+        && value.get("owned_by").and_then(|v| v.as_str()).is_some()
+}
+
+fn normalize_codex_model_list(value: &JsonValue) -> Option<JsonValue> {
+    let models = value.get("models")?.as_array()?;
+    let data = models
+        .iter()
+        .filter_map(normalize_codex_model_value)
+        .collect::<Vec<_>>();
+
+    Some(serde_json::json!({
+        "object": "list",
+        "data": data,
+    }))
+}
+
+fn normalize_codex_model_value(value: &JsonValue) -> Option<JsonValue> {
+    let object = value.as_object()?;
+    let id = object
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
+        .or_else(|| {
+            object
+                .get("slug")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string)
+        })?;
+
+    let created = object.get("created").and_then(|v| v.as_i64());
+    let owned_by = object
+        .get("owned_by")
+        .and_then(|v| v.as_str())
+        .unwrap_or("openai");
+    let display_name = object
+        .get("display_name")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+
+    let mut model = serde_json::Map::new();
+    model.insert("id".to_string(), JsonValue::String(id));
+    model.insert("object".to_string(), JsonValue::String("model".to_string()));
+    model.insert(
+        "owned_by".to_string(),
+        JsonValue::String(owned_by.to_string()),
+    );
+    if let Some(created) = created {
+        model.insert("created".to_string(), JsonValue::Number(created.into()));
     }
-    let raw = include_str!("models.json");
-    let parsed: JsonValue =
-        serde_json::from_str(raw).map_err(|err| ProviderError::Other(err.to_string()))?;
-    if parsed.get("data").and_then(|v| v.as_array()).is_none() {
-        return Err(ProviderError::Other(
-            "models.json missing data array".to_string(),
-        ));
+    if let Some(display_name) = display_name {
+        model.insert("display_name".to_string(), JsonValue::String(display_name));
     }
-    let _ = MODELS_CACHE.set(parsed);
-    Ok(MODELS_CACHE.get().expect("models cache"))
+
+    Some(JsonValue::Object(model))
+}
+
+fn normalize_codex_model_get(value: &JsonValue) -> Option<JsonValue> {
+    if let Some(model) = normalize_codex_model_value(value) {
+        return Some(model);
+    }
+
+    if let Some(model) = value.get("model").and_then(normalize_codex_model_value) {
+        return Some(model);
+    }
+
+    if let Some(data) = value.get("data").and_then(|v| v.as_array()) {
+        if data.len() == 1 {
+            if is_openai_model_value(&data[0]) {
+                return Some(data[0].clone());
+            }
+            if let Some(model) = normalize_codex_model_value(&data[0]) {
+                return Some(model);
+            }
+        }
+    }
+
+    if let Some(models) = value.get("models").and_then(|v| v.as_array()) {
+        if models.len() == 1 {
+            return normalize_codex_model_value(&models[0]);
+        }
+    }
+
+    None
 }
 
 fn find_model_value(list: &JsonValue, target: &str) -> Option<JsonValue> {
@@ -451,6 +603,15 @@ fn find_model_value(list: &JsonValue, target: &str) -> Option<JsonValue> {
                 .unwrap_or(false)
         })
         .cloned()
+}
+
+fn model_get_target_model(req: &Request) -> Option<String> {
+    match req {
+        Request::ModelGet(gproxy_provider_core::ModelGetRequest::OpenAI(inner)) => {
+            Some(normalize_model_id(&inner.path.model))
+        }
+        _ => None,
+    }
 }
 
 fn normalize_model_id(model: &str) -> String {
@@ -620,4 +781,107 @@ fn parse_id_token_claims(id_token: &str) -> IdTokenClaims {
     claims.plan = plan;
     claims.account_id = account_id;
     claims
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_codex_models_payload_into_openai_list() {
+        let input = serde_json::json!({
+            "models": [
+                {
+                    "slug": "gpt-5.3-codex",
+                    "display_name": "GPT 5.3 Codex",
+                    "created": 1770249600
+                },
+                {
+                    "id": "gpt-5.2-codex"
+                }
+            ]
+        });
+
+        let normalized = normalize_codex_model_list(&input).expect("should normalize");
+        let data = normalized
+            .get("data")
+            .and_then(|v| v.as_array())
+            .expect("data array");
+
+        assert_eq!(
+            normalized.get("object").and_then(|v| v.as_str()),
+            Some("list")
+        );
+        assert_eq!(data.len(), 2);
+        assert_eq!(
+            data[0].get("id").and_then(|v| v.as_str()),
+            Some("gpt-5.3-codex")
+        );
+        assert_eq!(
+            data[0].get("object").and_then(|v| v.as_str()),
+            Some("model")
+        );
+        assert_eq!(
+            data[0].get("owned_by").and_then(|v| v.as_str()),
+            Some("openai")
+        );
+        assert_eq!(
+            data[0].get("created").and_then(|v| v.as_i64()),
+            Some(1770249600)
+        );
+        assert_eq!(
+            data[0].get("display_name").and_then(|v| v.as_str()),
+            Some("GPT 5.3 Codex")
+        );
+        assert_eq!(
+            data[1].get("id").and_then(|v| v.as_str()),
+            Some("gpt-5.2-codex")
+        );
+    }
+
+    #[test]
+    fn accepts_openai_model_list_shape() {
+        let value = serde_json::json!({
+            "object": "list",
+            "data": [
+                { "id": "gpt-5", "object": "model", "owned_by": "openai" }
+            ]
+        });
+        assert!(is_openai_model_list(&value));
+    }
+
+    #[test]
+    fn normalizes_codex_model_get_payload() {
+        let input = serde_json::json!({
+            "slug": "gpt-5.3-codex",
+            "display_name": "GPT 5.3 Codex"
+        });
+        let normalized = normalize_codex_model_get(&input).expect("should normalize");
+        assert_eq!(
+            normalized.get("id").and_then(|v| v.as_str()),
+            Some("gpt-5.3-codex")
+        );
+        assert_eq!(
+            normalized.get("object").and_then(|v| v.as_str()),
+            Some("model")
+        );
+        assert_eq!(
+            normalized.get("owned_by").and_then(|v| v.as_str()),
+            Some("openai")
+        );
+    }
+
+    #[test]
+    fn normalizes_model_id_path_prefix() {
+        assert_eq!(normalize_model_id("models/gpt-5"), "gpt-5");
+        assert_eq!(normalize_model_id("/models/gpt-5"), "gpt-5");
+        assert_eq!(normalize_model_id("gpt-5"), "gpt-5");
+    }
+
+    #[test]
+    fn codex_models_url_appends_client_version() {
+        let url = codex_models_url("https://chatgpt.com/backend-api/codex/");
+        assert!(url.starts_with("https://chatgpt.com/backend-api/codex/models?client_version="));
+        assert!(url.ends_with(CLIENT_VERSION));
+    }
 }

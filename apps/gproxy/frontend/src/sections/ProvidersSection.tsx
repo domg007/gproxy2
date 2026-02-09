@@ -1883,11 +1883,12 @@ export function ProvidersSection({ adminKey, notify }: Props) {
         </div>
 
         {startRows.length > 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="max-w-full rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="grid gap-2 md:grid-cols-2">
               {startRows.map(([key, value]) => (
-                <div key={key} className="text-sm text-slate-700">
-                  <span className="font-semibold">{key}:</span> {value}
+                <div key={key} className="min-w-0 text-sm text-slate-700">
+                  <span className="font-semibold">{key}:</span>{" "}
+                  <span className="break-all">{value}</span>
                 </div>
               ))}
             </div>
@@ -1958,11 +1959,12 @@ export function ProvidersSection({ adminKey, notify }: Props) {
         </div>
 
         {callbackRows.length > 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="max-w-full rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="grid gap-2 md:grid-cols-2">
               {callbackRows.map(([key, value]) => (
-                <div key={key} className="text-sm text-slate-700">
-                  <span className="font-semibold">{key}:</span> {value}
+                <div key={key} className="min-w-0 text-sm text-slate-700">
+                  <span className="font-semibold">{key}:</span>{" "}
+                  <span className="break-all">{value}</span>
                 </div>
               ))}
             </div>

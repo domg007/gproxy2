@@ -510,6 +510,7 @@ pub trait UpstreamProvider: Send + Sync {
         _credential: &Credential,
         _proto: Proto,
         _op: Op,
+        _req: &Request,
         body: Bytes,
     ) -> ProviderResult<Bytes> {
         Ok(body)
