@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, fs, io::Read, path::PathBuf, time::Duration};
 
 use axum::Json;
 use axum::Router;
@@ -75,6 +76,7 @@ pub fn admin_router(app: Arc<AppState>, storage: Arc<dyn Storage>) -> Router {
             put(update_user_key).delete(delete_user_key),
         )
         .route("/events/ws", get(events_ws))
+        .route("/system/self_update", post(system_self_update))
         .layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state)
 }
@@ -1057,6 +1059,273 @@ async fn delete_user_key(
 
 async fn events_ws(ws: WebSocketUpgrade, State(state): State<AdminState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_events_ws(socket, state.app.clone()))
+}
+
+const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseInfo {
+    tag_name: String,
+    assets: Vec<GithubReleaseAsset>,
+}
+
+async fn system_self_update() -> impl IntoResponse {
+    match self_update_to_latest_release().await {
+        Ok(result) => match schedule_self_restart() {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "from_version": env!("CARGO_PKG_VERSION"),
+                    "release_tag": result.release_tag,
+                    "asset": result.asset_name,
+                    "installed_to": result.installed_to,
+                    "restart_required": false,
+                    "restart_scheduled": true,
+                    "note": "Binary replaced and process restart scheduled automatically."
+                })),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "self_restart_schedule_failed",
+                    "detail": err,
+                    "release_tag": result.release_tag,
+                    "asset": result.asset_name,
+                    "installed_to": result.installed_to
+                })),
+            )
+                .into_response(),
+        },
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": "self_update_failed",
+                "detail": err
+            })),
+        )
+            .into_response(),
+    }
+}
+
+struct SelfUpdateResult {
+    release_tag: String,
+    asset_name: String,
+    installed_to: String,
+}
+
+async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
+    #[cfg(windows)]
+    {
+        return Err("self_update_not_supported_on_windows_running_binary".to_string());
+    }
+
+    let target_asset = target_release_asset_name()?;
+    let client = wreq::Client::builder()
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("build_http_client: {e}"))?;
+
+    let release_resp = client
+        .get(GPROXY_REPO_API_LATEST)
+        .header("accept", "application/vnd.github+json")
+        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+        .send()
+        .await
+        .map_err(|e| format!("fetch_latest_release: {e}"))?;
+    if !release_resp.status().is_success() {
+        let status = release_resp.status();
+        let body = release_resp
+            .bytes()
+            .await
+            .map(|b| String::from_utf8_lossy(&b).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("fetch_latest_release_status_{status}: {body}"));
+    }
+    let release_body = release_resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read_latest_release_body: {e}"))?;
+    let release: GithubReleaseInfo = serde_json::from_slice(&release_body)
+        .map_err(|e| format!("parse_latest_release_json: {e}"))?;
+
+    let asset = release
+        .assets
+        .iter()
+        .find(|item| item.name == target_asset)
+        .ok_or_else(|| {
+            let names = release
+                .assets
+                .iter()
+                .map(|a| a.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("asset_not_found_for_target:{target_asset}; available=[{names}]")
+        })?;
+
+    let zip_resp = client
+        .get(&asset.browser_download_url)
+        .header("accept", "application/octet-stream")
+        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+        .send()
+        .await
+        .map_err(|e| format!("download_asset: {e}"))?;
+    if !zip_resp.status().is_success() {
+        let status = zip_resp.status();
+        let body = zip_resp
+            .bytes()
+            .await
+            .map(|b| String::from_utf8_lossy(&b).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("download_asset_status_{status}: {body}"));
+    }
+    let zip_bytes = zip_resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read_asset_body: {e}"))?;
+
+    let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
+    install_binary_bytes(binary_bytes)?;
+
+    let installed_to = env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    Ok(SelfUpdateResult {
+        release_tag: release.tag_name,
+        asset_name: asset.name.clone(),
+        installed_to,
+    })
+}
+
+fn target_release_asset_name() -> Result<String, String> {
+    let arch = match env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        other => return Err(format!("unsupported_arch:{other}")),
+    };
+    let os = env::consts::OS;
+    let name = match os {
+        "linux" => {
+            #[cfg(target_env = "musl")]
+            let libc_suffix = "-musl";
+            #[cfg(not(target_env = "musl"))]
+            let libc_suffix = "";
+            format!("gproxy-linux-{arch}{libc_suffix}.zip")
+        }
+        "macos" => format!("gproxy-macos-{arch}.zip"),
+        "windows" => format!("gproxy-windows-{arch}.zip"),
+        other => return Err(format!("unsupported_os:{other}")),
+    };
+    Ok(name)
+}
+
+fn extract_binary_from_zip(zip_bytes: &bytes::Bytes) -> Result<Vec<u8>, String> {
+    let cursor = std::io::Cursor::new(zip_bytes.to_vec());
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("open_zip_archive: {e}"))?;
+
+    let exe_name = if cfg!(windows) {
+        "gproxy.exe"
+    } else {
+        "gproxy"
+    };
+    let mut file = archive
+        .by_name(exe_name)
+        .map_err(|e| format!("zip_entry_not_found:{exe_name}:{e}"))?;
+
+    let mut out = Vec::new();
+    file.read_to_end(&mut out)
+        .map_err(|e| format!("read_zip_entry:{e}"))?;
+    if out.is_empty() {
+        return Err("zip_entry_empty".to_string());
+    }
+    Ok(out)
+}
+
+fn install_binary_bytes(binary: Vec<u8>) -> Result<(), String> {
+    let current = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "current_exe_parent_missing".to_string())?;
+    let temp = temp_update_path(parent);
+
+    fs::write(&temp, &binary).map_err(|e| format!("write_temp_binary:{}:{e}", temp.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&current)
+            .map(|m| m.permissions().mode())
+            .unwrap_or(0o755);
+        fs::set_permissions(&temp, fs::Permissions::from_mode(mode))
+            .map_err(|e| format!("set_temp_permissions:{}:{e}", temp.display()))?;
+    }
+
+    fs::rename(&temp, &current).map_err(|e| {
+        let _ = fs::remove_file(&temp);
+        format!(
+            "replace_binary_failed:{}->{}:{e}",
+            temp.display(),
+            current.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn temp_update_path(parent: &std::path::Path) -> PathBuf {
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    if cfg!(windows) {
+        parent.join(format!("gproxy-update-{pid}-{nanos}.exe.new"))
+    } else {
+        parent.join(format!(".gproxy-update-{pid}-{nanos}.new"))
+    }
+}
+
+fn schedule_self_restart() -> Result<(), String> {
+    let exe = env::current_exe().map_err(|e| format!("current_exe_for_restart: {e}"))?;
+    let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        restart_current_process(exe, args);
+    });
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.args(&args);
+    let err = cmd.exec();
+    eprintln!("self_update exec failed for {}: {err}", exe.display());
+    std::process::exit(1);
+}
+
+#[cfg(not(unix))]
+fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
+    match std::process::Command::new(&exe).args(&args).spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(err) => {
+            eprintln!(
+                "self_update spawn failed for {} with args {:?}: {err}",
+                exe.display(),
+                args
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn handle_events_ws(mut socket: WebSocket, app: Arc<AppState>) {

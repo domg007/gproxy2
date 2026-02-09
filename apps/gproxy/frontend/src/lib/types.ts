@@ -132,3 +132,14 @@ export type OAuthStartResponse = {
 export type OAuthCallbackResponse = {
   [key: string]: unknown;
 };
+
+export type SelfUpdateResponse = {
+  ok: boolean;
+  from_version: string;
+  release_tag: string;
+  asset: string;
+  installed_to: string;
+  restart_required: boolean;
+  restart_scheduled?: boolean;
+  note?: string;
+};

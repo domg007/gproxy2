@@ -175,7 +175,7 @@ export default function App() {
           {route === "users" ? <UsersSection adminKey={adminKey} notify={notify} /> : null}
           {route === "usage" ? <UsageSection adminKey={adminKey} providers={providers} notify={notify} /> : null}
           {route === "events" ? <EventStreamSection adminKey={adminKey} notify={notify} /> : null}
-          {route === "about" ? <AboutSection /> : null}
+          {route === "about" ? <AboutSection adminKey={adminKey} notify={notify} /> : null}
         </main>
       </div>
     </div>

@@ -1,11 +1,44 @@
 
+import { useState } from "react";
+
 import { Card } from "../components/ui";
 import { useI18n } from "../i18n";
+import { formatApiError, request } from "../lib/api";
+import type { SelfUpdateResponse } from "../lib/types";
 
-export function AboutSection() {
+type Props = {
+  adminKey: string;
+  notify: (kind: "success" | "error" | "info", message: string) => void;
+};
+
+export function AboutSection({ adminKey, notify }: Props) {
   const { t } = useI18n();
   const appVersion = __APP_VERSION__;
   const appCommit = __APP_COMMIT__;
+  const [updating, setUpdating] = useState(false);
+
+  const triggerSelfUpdate = async () => {
+    if (!window.confirm(t("about.self_update_confirm"))) {
+      return;
+    }
+    setUpdating(true);
+    try {
+      const result = await request<SelfUpdateResponse>("/admin/system/self_update", {
+        method: "POST",
+        adminKey
+      });
+      notify(
+        "success",
+        t("about.self_update_ok", {
+          tag: result.release_tag
+        })
+      );
+    } catch (error) {
+      notify("error", formatApiError(error));
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   return (
     <Card title={t("about.title")} subtitle={t("about.subtitle")}>
@@ -53,6 +86,19 @@ export function AboutSection() {
               <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
                 {appCommit}
               </code>
+            </div>
+          </div>
+          <div className="mt-3 border-t border-slate-200 pt-3">
+            <div className="text-xs text-slate-500">{t("about.self_update_hint")}</div>
+            <div className="mt-2">
+              <button
+                type="button"
+                className="btn btn-neutral"
+                disabled={updating}
+                onClick={() => void triggerSelfUpdate()}
+              >
+                {updating ? t("about.self_update_running") : t("about.self_update_button")}
+              </button>
             </div>
           </div>
         </section>
