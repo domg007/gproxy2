@@ -118,3 +118,8 @@
 ### Changed
 - removed local codex instruction patching/injection logic; downstream `instructions` are now passed through directly.
 - removed obsolete local codex prompt template bundle under `crates/gproxy-provider-impl/src/providers/codex/instructions/`.
+
+## v0.2.16
+
+### Fixed
+- codex upstream compatibility: when downstream request omits `instructions`, gproxy now sends an explicit empty string (`"instructions": ""`) to avoid upstream validation error (`Instructions are required`).
