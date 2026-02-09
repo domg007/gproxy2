@@ -22,9 +22,9 @@ use gproxy_protocol::openai::create_response::types::{
     ComputerEnvironment, ComputerUsePreviewTool, EasyInputMessage, EasyInputMessageContent,
     EasyInputMessageRole, EasyInputMessageType, FileSearchTool, FunctionShellTool, FunctionTool,
     InputContent, InputFileContent, InputImageContent, InputItem, InputMessage, InputMessageRole,
-    InputParam, InputTextContent, Instructions, MCPAllowedTools, MCPTool, Reasoning,
-    ReasoningEffort, ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceOptions,
-    ToolChoiceParam, WebSearchApproximateLocation, WebSearchFilters, WebSearchTool,
+    InputParam, InputTextContent, MCPAllowedTools, MCPTool, Reasoning, ReasoningEffort,
+    ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceOptions, ToolChoiceParam,
+    WebSearchApproximateLocation, WebSearchFilters, WebSearchTool,
 };
 use serde_json::Value as JsonValue;
 
@@ -89,7 +89,7 @@ pub fn transform_request(request: ClaudeCreateMessageRequest) -> OpenAIResponseR
 
 fn map_system_to_instructions(
     system: Option<gproxy_protocol::claude::count_tokens::types::BetaSystemParam>,
-) -> Option<Instructions> {
+) -> Option<String> {
     let text = match system {
         Some(gproxy_protocol::claude::count_tokens::types::BetaSystemParam::Text(text)) => {
             Some(text)
@@ -105,7 +105,7 @@ fn map_system_to_instructions(
         None => None,
     }?;
 
-    Some(Instructions::Text(text))
+    Some(text)
 }
 
 fn map_messages_to_input(messages: &[ClaudeMessageParam]) -> Option<InputParam> {

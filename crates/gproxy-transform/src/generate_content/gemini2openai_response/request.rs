@@ -15,7 +15,7 @@ use gproxy_protocol::openai::create_response::types::{
     ComputerEnvironment, ComputerUsePreviewTool, EasyInputMessage, EasyInputMessageContent,
     EasyInputMessageRole, EasyInputMessageType, FileSearchTool, FunctionTool, ImageGenSize,
     ImageGenTool, InputContent, InputFileContent, InputImageContent, InputItem, InputParam,
-    InputTextContent, Instructions, Reasoning, ReasoningEffort, ResponseTextParam,
+    InputTextContent, Reasoning, ReasoningEffort, ResponseTextParam,
     TextResponseFormatConfiguration, Tool, ToolChoiceAllowed, ToolChoiceAllowedMode,
     ToolChoiceAllowedType, ToolChoiceOptions, ToolChoiceParam, WebSearchTool,
 };
@@ -35,8 +35,7 @@ pub fn transform_request(request: GeminiGenerateContentRequest) -> OpenAIRespons
     let instructions = request
         .body
         .system_instruction
-        .and_then(map_system_instruction)
-        .map(Instructions::Text);
+        .and_then(map_system_instruction);
 
     let mut openai_tools = request.body.tools.map(map_tools).unwrap_or_default();
     if let Some(image_tool) = map_image_generation_tool(request.body.generation_config.as_ref()) {

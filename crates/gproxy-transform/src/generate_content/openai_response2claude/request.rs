@@ -30,10 +30,9 @@ use gproxy_protocol::openai::create_response::request::CreateResponseRequest as 
 use gproxy_protocol::openai::create_response::types::{
     AllowedTool, EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole, FunctionTool,
     InputContent, InputFileContent, InputItem, InputMessage, InputMessageRole, InputParam,
-    Instructions, MCPAllowedTools, MCPTool, OutputMessage, OutputMessageContent, Reasoning,
-    ReasoningEffort, ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceAllowed,
-    ToolChoiceAllowedMode, ToolChoiceBuiltInType, ToolChoiceOptions, ToolChoiceParam,
-    ToolChoiceTypes,
+    MCPAllowedTools, MCPTool, OutputMessage, OutputMessageContent, Reasoning, ReasoningEffort,
+    ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceAllowed,
+    ToolChoiceAllowedMode, ToolChoiceBuiltInType, ToolChoiceOptions, ToolChoiceParam, ToolChoiceTypes,
 };
 use serde_json::Value as JsonValue;
 
@@ -45,14 +44,7 @@ pub fn transform_request(request: OpenAIResponseRequest) -> ClaudeCreateMessageR
     let mut system_texts = Vec::new();
 
     if let Some(instructions) = request.body.instructions {
-        match instructions {
-            Instructions::Text(text) => push_system_text(&mut system_texts, text),
-            Instructions::Items(items) => {
-                for item in items {
-                    append_input_item(item, &mut messages, &mut system_texts);
-                }
-            }
-        }
+        push_system_text(&mut system_texts, instructions);
     }
 
     if let Some(input) = request.body.input {

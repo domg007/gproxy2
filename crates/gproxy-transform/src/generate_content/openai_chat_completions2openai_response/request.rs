@@ -12,11 +12,10 @@ use gproxy_protocol::openai::create_chat_completions::types::{
 };
 use gproxy_protocol::openai::create_response::request::CreateResponseRequest;
 use gproxy_protocol::openai::create_response::types::{
-    AllowedTool, CustomToolCall, CustomToolCallType, EasyInputMessage, EasyInputMessageContent,
-    EasyInputMessageRole, EasyInputMessageType, FunctionCallItemStatus,
+    AllowedTool, CustomToolCall, CustomToolCallType, FunctionCallItemStatus,
     FunctionCallOutputItemParam, FunctionCallOutputItemType, FunctionToolCall,
     FunctionToolCallType, InputContent, InputFileContent, InputImageContent, InputItem,
-    InputMessage, InputMessageRole, InputMessageType, InputParam, Instructions, MessageStatus,
+    InputMessage, InputMessageRole, InputMessageType, InputParam, MessageStatus,
     OutputMessage, OutputMessageContent, OutputMessageRole, OutputMessageType,
     ResponseStreamOptions, ResponseTextParam, TextResponseFormatConfiguration, Tool,
     ToolCallOutput, ToolChoiceAllowed, ToolChoiceAllowedMode, ToolChoiceAllowedType,
@@ -26,20 +25,20 @@ use gproxy_protocol::openai::create_response::types::{
 
 /// Convert an OpenAI chat-completions request into an OpenAI responses request.
 pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponseRequest {
-    let mut instruction_items = Vec::new();
+    let mut instruction_texts = Vec::new();
     let mut input_items = Vec::new();
     let mut tool_call_index = 0usize;
 
     for message in request.body.messages {
         match message {
             ChatCompletionRequestMessage::System(system) => {
-                if let Some(item) = map_system_message(system) {
-                    instruction_items.push(item);
+                if let Some(text) = map_system_message(system) {
+                    instruction_texts.push(text);
                 }
             }
             ChatCompletionRequestMessage::Developer(developer) => {
-                if let Some(item) = map_developer_message(developer) {
-                    instruction_items.push(item);
+                if let Some(text) = map_developer_message(developer) {
+                    instruction_texts.push(text);
                 }
             }
             ChatCompletionRequestMessage::User(user) => {
@@ -59,10 +58,10 @@ pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponse
         }
     }
 
-    let instructions = if instruction_items.is_empty() {
+    let instructions = if instruction_texts.is_empty() {
         None
     } else {
-        Some(Instructions::Items(instruction_items))
+        Some(instruction_texts.join("\n"))
     };
 
     let input = if input_items.is_empty() {
@@ -125,22 +124,12 @@ pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponse
     }
 }
 
-fn map_system_message(message: ChatCompletionRequestSystemMessage) -> Option<InputItem> {
-    let content = map_text_content_to_easy_content(message.content)?;
-    Some(InputItem::EasyMessage(EasyInputMessage {
-        r#type: EasyInputMessageType::Message,
-        role: EasyInputMessageRole::System,
-        content,
-    }))
+fn map_system_message(message: ChatCompletionRequestSystemMessage) -> Option<String> {
+    map_text_content_to_string(message.content)
 }
 
-fn map_developer_message(message: ChatCompletionRequestDeveloperMessage) -> Option<InputItem> {
-    let content = map_text_content_to_easy_content(message.content)?;
-    Some(InputItem::EasyMessage(EasyInputMessage {
-        r#type: EasyInputMessageType::Message,
-        role: EasyInputMessageRole::Developer,
-        content,
-    }))
+fn map_developer_message(message: ChatCompletionRequestDeveloperMessage) -> Option<String> {
+    map_text_content_to_string(message.content)
 }
 
 fn map_user_message(message: ChatCompletionRequestUserMessage) -> Option<InputItem> {
@@ -323,36 +312,6 @@ fn map_tool_call_item(
                 input: custom.input,
             }),
         ),
-    }
-}
-
-fn map_text_content_to_easy_content(
-    content: ChatCompletionTextContent,
-) -> Option<EasyInputMessageContent> {
-    match content {
-        ChatCompletionTextContent::Text(text) => {
-            if text.is_empty() {
-                None
-            } else {
-                Some(EasyInputMessageContent::Text(text))
-            }
-        }
-        ChatCompletionTextContent::Parts(parts) => {
-            let mut items = Vec::new();
-            for part in parts {
-                let ChatCompletionTextContentPart::Text { text } = part;
-                if !text.is_empty() {
-                    items.push(InputContent::InputText(
-                        gproxy_protocol::openai::create_response::types::InputTextContent { text },
-                    ));
-                }
-            }
-            if items.is_empty() {
-                None
-            } else {
-                Some(EasyInputMessageContent::Parts(items))
-            }
-        }
     }
 }
 

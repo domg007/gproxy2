@@ -41,7 +41,7 @@ use gproxy_protocol::openai::create_response::stream::{
     ResponseStreamEvent, ResponseTextDeltaEvent,
 };
 use gproxy_protocol::openai::create_response::types::{
-    InputParam, Instructions, OutputItem, OutputMessage, OutputMessageContent, ResponseUsage,
+    InputParam, OutputItem, OutputMessage, OutputMessageContent, ResponseUsage,
 };
 
 use super::types::{
@@ -530,11 +530,7 @@ fn build_openai_response_count_request(
         text: req.body.text.clone(),
         reasoning: req.body.reasoning.clone(),
         truncation: req.body.truncation,
-        instructions: match &req.body.instructions {
-            Some(Instructions::Text(text)) => Some(text.clone()),
-            Some(Instructions::Items(items)) => serde_json::to_string(items).ok(),
-            None => None,
-        },
+        instructions: req.body.instructions.clone(),
         conversation: req.body.conversation.clone(),
         tool_choice: req.body.tool_choice.clone(),
         parallel_tool_calls: req.body.parallel_tool_calls,

@@ -21,7 +21,7 @@ use gproxy_protocol::openai::create_response::request::CreateResponseRequest;
 use gproxy_protocol::openai::create_response::types::{
     AllowedTool, EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole, InputContent,
     InputFileContent, InputImageContent, InputItem, InputMessage, InputMessageRole, InputParam,
-    Instructions, ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceAllowed,
+    ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceAllowed,
     ToolChoiceAllowedMode, ToolChoiceOptions, ToolChoiceParam,
 };
 
@@ -108,26 +108,14 @@ pub fn transform_request(request: CreateResponseRequest) -> CreateChatCompletion
     }
 }
 
-fn append_instructions(
-    instructions: Instructions,
-    messages: &mut Vec<ChatCompletionRequestMessage>,
-) {
-    match instructions {
-        Instructions::Text(text) => {
-            if !text.is_empty() {
-                messages.push(ChatCompletionRequestMessage::System(
-                    ChatCompletionRequestSystemMessage {
-                        content: ChatCompletionTextContent::Text(text),
-                        name: None,
-                    },
-                ));
-            }
-        }
-        Instructions::Items(items) => {
-            for item in items {
-                append_input_item(item, messages);
-            }
-        }
+fn append_instructions(instructions: String, messages: &mut Vec<ChatCompletionRequestMessage>) {
+    if !instructions.is_empty() {
+        messages.push(ChatCompletionRequestMessage::System(
+            ChatCompletionRequestSystemMessage {
+                content: ChatCompletionTextContent::Text(instructions),
+                name: None,
+            },
+        ));
     }
 }
 

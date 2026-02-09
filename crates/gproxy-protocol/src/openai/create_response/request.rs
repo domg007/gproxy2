@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openai::create_response::types::{
-    ConversationParam, InputParam, Instructions, Metadata, Prompt, PromptCacheRetention, Reasoning,
+    ConversationParam, InputParam, Metadata, Prompt, PromptCacheRetention, Reasoning,
     ResponseInclude, ResponseStreamOptions, ResponseTextParam, ServiceTier, Tool, ToolChoiceParam,
     Truncation,
 };
@@ -22,7 +22,7 @@ pub struct CreateResponseRequestBody {
     pub store: Option<bool>,
     /// When used with `previous_response_id`, prior instructions are not carried over (not enforced here).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<Instructions>,
+    pub instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     /// Only valid when `stream` is true (not enforced here).

@@ -16,7 +16,7 @@ use gproxy_protocol::openai::create_response::request::CreateResponseRequest as 
 use gproxy_protocol::openai::create_response::types::{
     AllowedTool, CustomTool, EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole,
     FunctionTool, ImageGenSize, ImageGenTool, InputContent, InputFileContent, InputImageContent,
-    InputItem, InputMessage, InputMessageRole, InputParam, Instructions, OutputMessage,
+    InputItem, InputMessage, InputMessageRole, InputParam, OutputMessage,
     OutputMessageContent, Reasoning, ReasoningEffort, ResponseTextParam,
     TextResponseFormatConfiguration, Tool, ToolChoiceAllowed, ToolChoiceAllowedMode,
     ToolChoiceOptions, ToolChoiceParam,
@@ -31,7 +31,7 @@ pub fn transform_request(request: OpenAIResponseRequest) -> GeminiGenerateConten
     let mut contents = Vec::new();
 
     if let Some(instructions) = request.body.instructions {
-        push_system_texts_from_instructions(instructions, &mut contents, &mut system_texts);
+        push_system_text(&mut system_texts, instructions);
     }
 
     if let Some(input) = request.body.input {
@@ -72,21 +72,6 @@ pub fn transform_request(request: OpenAIResponseRequest) -> GeminiGenerateConten
             generation_config,
             cached_content: None,
         },
-    }
-}
-
-fn push_system_texts_from_instructions(
-    instructions: Instructions,
-    contents: &mut Vec<GeminiContent>,
-    system_texts: &mut Vec<String>,
-) {
-    match instructions {
-        Instructions::Text(text) => push_system_text(system_texts, text),
-        Instructions::Items(items) => {
-            for item in items {
-                append_input_item(item, contents, system_texts);
-            }
-        }
     }
 }
 

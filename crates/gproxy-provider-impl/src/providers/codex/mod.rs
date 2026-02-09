@@ -17,7 +17,7 @@ use gproxy_provider_core::{
 use gproxy_protocol::openai;
 use gproxy_protocol::openai::create_response::types::{
     EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole, EasyInputMessageType,
-    InputItem, InputParam, Instructions, Metadata,
+    InputItem, InputParam, Metadata,
 };
 
 use crate::auth_extractor;
@@ -488,7 +488,7 @@ fn normalize_codex_input_json(obj: &mut serde_json::Map<String, JsonValue>) {
 }
 
 fn ensure_codex_instructions_field_json(obj: &mut serde_json::Map<String, JsonValue>) {
-    if !obj.contains_key("instructions") {
+    if !matches!(obj.get("instructions"), Some(JsonValue::String(_))) {
         obj.insert("instructions".to_string(), JsonValue::String(String::new()));
     }
 }
@@ -894,7 +894,7 @@ fn ensure_codex_instructions_field(
     body: &mut openai::create_response::request::CreateResponseRequestBody,
 ) {
     if body.instructions.is_none() {
-        body.instructions = Some(Instructions::Text(String::new()));
+        body.instructions = Some(String::new());
     }
 }
 
@@ -1128,10 +1128,36 @@ mod tests {
 
         ensure_codex_instructions_field(&mut body);
 
-        match body.instructions {
-            Some(Instructions::Text(text)) => assert_eq!(text, ""),
-            _ => panic!("instructions should be empty text"),
-        }
+        assert_eq!(body.instructions.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn ensure_codex_instructions_field_json_coerces_non_string_to_empty() {
+        let mut obj = serde_json::json!({
+            "model": "gpt-5",
+            "instructions": ["not", "string"]
+        })
+        .as_object()
+        .expect("object")
+        .clone();
+
+        ensure_codex_instructions_field_json(&mut obj);
+        assert_eq!(
+            obj.get("instructions"),
+            Some(&JsonValue::String(String::new()))
+        );
+
+        let mut missing = serde_json::json!({
+            "model": "gpt-5"
+        })
+        .as_object()
+        .expect("object")
+        .clone();
+        ensure_codex_instructions_field_json(&mut missing);
+        assert_eq!(
+            missing.get("instructions"),
+            Some(&JsonValue::String(String::new()))
+        );
     }
 
     #[test]
