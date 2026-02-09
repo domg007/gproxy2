@@ -28,6 +28,7 @@ pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponse
     let mut instruction_texts = Vec::new();
     let mut input_items = Vec::new();
     let mut tool_call_index = 0usize;
+    let mut assistant_message_index = 0usize;
 
     for message in request.body.messages {
         match message {
@@ -47,7 +48,12 @@ pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponse
                 }
             }
             ChatCompletionRequestMessage::Assistant(assistant) => {
-                map_assistant_message(assistant, &mut input_items, &mut tool_call_index);
+                map_assistant_message(
+                    assistant,
+                    &mut input_items,
+                    &mut tool_call_index,
+                    &mut assistant_message_index,
+                );
             }
             ChatCompletionRequestMessage::Tool(tool) => {
                 input_items.push(map_tool_message(tool));
@@ -152,11 +158,13 @@ fn map_assistant_message(
     message: ChatCompletionRequestAssistantMessage,
     items: &mut Vec<InputItem>,
     tool_call_index: &mut usize,
+    assistant_message_index: &mut usize,
 ) {
-    if let Some(output) = map_assistant_output_message(&message) {
+    if let Some(output) = map_assistant_output_message(&message, *assistant_message_index) {
         items.push(InputItem::Item(
             gproxy_protocol::openai::create_response::types::Item::OutputMessage(output),
         ));
+        *assistant_message_index += 1;
     }
 
     if let Some(tool_calls) = message.tool_calls {
@@ -186,6 +194,7 @@ fn map_assistant_message(
 
 fn map_assistant_output_message(
     message: &ChatCompletionRequestAssistantMessage,
+    assistant_message_index: usize,
 ) -> Option<OutputMessage> {
     let mut content = Vec::new();
 
@@ -219,7 +228,7 @@ fn map_assistant_output_message(
     }
 
     Some(OutputMessage {
-        id: "assistant".to_string(),
+        id: format!("msg_assistant_{assistant_message_index}"),
         r#type: OutputMessageType::Message,
         role: OutputMessageRole::Assistant,
         content,
