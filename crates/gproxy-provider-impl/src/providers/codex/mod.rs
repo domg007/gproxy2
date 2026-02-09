@@ -184,6 +184,7 @@ impl UpstreamProvider for CodexProvider {
             body.max_output_tokens = None;
             // Codex upstream rejects OpenAI stream_options.
             body.stream_options = None;
+            // Codex upstream does not support temperature/top_p for non-compact.
             body.temperature = None;
             body.top_p = None;
         } else {

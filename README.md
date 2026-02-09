@@ -139,7 +139,7 @@ Example:
 Accepted admin key sources (first match):
 - `x-admin-key: <key>`
 - `Authorization: Bearer <key>`
-- Query `?admin_key=<key>` (useful for browser WebSocket `/admin/events/ws`)
+- Query `?admin_key=<key>`
 
 ### Downstream proxy (`/v1/...` or `/{provider}/...`)
 
@@ -162,7 +162,7 @@ Main route groups:
   - `GET /{provider}/oauth`
   - `GET /{provider}/oauth/callback`
   - `GET /{provider}/usage?credential_id=<id>`
-- Admin routes under `/admin/...` (providers, credentials, users, usage, ws events)
+- Admin routes under `/admin/...` (providers, credentials, users, usage, logs)
 
 ## Admin UI
 
@@ -175,7 +175,7 @@ Current UI modules include:
 - OAuth assistant for supported providers
 - Live usage / quota view per credential
 - User & API key management
-- Terminal event stream viewer (`/admin/events/ws`)
+- Log query table (`/admin/logs`)
 - i18n (`zh_cn` / `en`)
 
 ## Build and release

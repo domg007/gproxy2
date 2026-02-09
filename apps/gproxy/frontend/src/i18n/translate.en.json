@@ -25,7 +25,6 @@
     "users": "Users & Keys",
     "usage": "Usage",
     "logs": "Logs",
-    "events": "Terminal Logs",
     "about": "About"
   },
   "common": {
@@ -323,22 +322,6 @@
     "col_status": "Status",
     "col_trace": "Trace",
     "col_error": "Error"
-  },
-  "events": {
-    "title": "Terminal WS Log Stream",
-    "subtitle": "Connect to `/admin/events/ws` for real-time events. Disconnected by default.",
-    "connect": "Connect",
-    "disconnect": "Disconnect",
-    "clear": "Clear",
-    "status_label": "Connection status",
-    "status_connected": "Connected",
-    "status_connecting": "Connecting",
-    "status_disconnected": "Disconnected",
-    "status_error": "Error",
-    "connected_ok": "Log stream connected",
-    "connect_failed": "Failed to connect log stream",
-    "disconnected_unexpected": "Connection closed unexpectedly",
-    "empty": "No logs yet. Click Connect to start streaming."
   },
   "about": {
     "title": "About",

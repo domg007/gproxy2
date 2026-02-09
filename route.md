@@ -153,7 +153,7 @@ Disambiguation on `GET /v1/models` + `GET /v1/models/{model}`:
 Accepted admin key sources (first match wins):
 - `x-admin-key: <key>`
 - `Authorization: Bearer <key>`
-- Query `?admin_key=<key>` (useful for browser WebSocket `/admin/events/ws`)
+- Query `?admin_key=<key>`
 
 ### Routes
 - `GET /admin/health`
@@ -189,7 +189,7 @@ Accepted admin key sources (first match wins):
 - `DELETE /admin/user_keys/{id}`
 - `PUT /admin/user_keys/{id}/enabled`
 
-- `GET /admin/events/ws`
+- `GET /admin/logs`
 - `POST /admin/system/self_update`
 
 Note: usage records are persisted in DB table `upstream_usages` (not `upstream_requests.usage_json`).

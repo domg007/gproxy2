@@ -2,13 +2,11 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use tokio::select;
 
 use gproxy_core::state::AppState;
 use gproxy_storage::Storage;
@@ -30,7 +28,6 @@ pub fn router(app: Arc<AppState>, storage: Arc<dyn Storage>) -> Router {
             "/providers/{name}/credentials",
             get(list_provider_credentials),
         )
-        .route("/events/ws", get(events_ws))
         .layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state)
 }
@@ -148,32 +145,4 @@ async fn list_provider_credentials(
         Json(serde_json::json!({ "credentials": creds })),
     )
         .into_response()
-}
-
-async fn events_ws(ws: WebSocketUpgrade, State(state): State<AdminState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_events_ws(socket, state.app.clone()))
-}
-
-async fn handle_events_ws(mut socket: WebSocket, app: Arc<AppState>) {
-    let mut rx = app.events.subscribe();
-
-    loop {
-        select! {
-            msg = socket.recv() => {
-                // If peer disconnects or errors, stop.
-                if msg.is_none() {
-                    break;
-                }
-            }
-            evt = rx.recv() => {
-                let Ok(evt) = evt else {
-                    break;
-                };
-                if let Ok(text) = serde_json::to_string(&evt) &&
-                    socket.send(Message::Text(text.into())).await.is_err() {
-                    break;
-                }
-            }
-        }
-    }
 }

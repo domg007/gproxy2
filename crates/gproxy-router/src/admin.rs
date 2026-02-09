@@ -6,7 +6,6 @@ use std::{env, fs, io::Read, path::PathBuf, time::Duration};
 
 use axum::Json;
 use axum::Router;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -14,7 +13,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
 use time::{Duration as TimeDuration, OffsetDateTime, format_description::well_known::Rfc3339};
-use tokio::select;
 
 use gproxy_core::state::{AppState, CredentialInsertInput, ProviderRuntime};
 use gproxy_provider_core::{Credential, CredentialState, ProviderConfig, UnavailableReason};
@@ -78,7 +76,6 @@ pub fn admin_router(app: Arc<AppState>, storage: Arc<dyn Storage>) -> Router {
             "/user_keys/{id}",
             put(update_user_key).delete(delete_user_key),
         )
-        .route("/events/ws", get(events_ws))
         .route("/system/self_update", post(system_self_update))
         .layer(middleware::from_fn_with_state(state.clone(), admin_auth))
         .with_state(state)
@@ -1256,10 +1253,6 @@ async fn delete_user_key(
     (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
 }
 
-async fn events_ws(ws: WebSocketUpgrade, State(state): State<AdminState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_events_ws(socket, state.app.clone()))
-}
-
 const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1723,30 +1716,6 @@ fn build_windows_self_update_script(
 #[cfg(windows)]
 fn powershell_single_quote(input: &str) -> String {
     input.replace('\'', "''")
-}
-
-async fn handle_events_ws(mut socket: WebSocket, app: Arc<AppState>) {
-    let mut rx = app.events.subscribe();
-
-    loop {
-        select! {
-            msg = socket.recv() => {
-                // If peer disconnects or errors, stop.
-                if msg.is_none() {
-                    break;
-                }
-            }
-            evt = rx.recv() => {
-                let Ok(evt) = evt else {
-                    break;
-                };
-                if let Ok(text) = evt.to_log_json()
-                    && socket.send(Message::Text(text.into())).await.is_err() {
-                        break;
-                    }
-            }
-        }
-    }
 }
 
 fn credential_matches_provider(cred: &Credential, cfg: &ProviderConfig) -> bool {

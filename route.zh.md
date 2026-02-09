@@ -186,7 +186,7 @@
 - `DELETE /admin/user_keys/{id}`
 - `PUT /admin/user_keys/{id}/enabled`
 
-- `GET /admin/events/ws`
+- `GET /admin/logs`
 
 注意：usage 记录持久化在 DB 表 `upstream_usages`（不是 `upstream_requests.usage_json`）。  
 注意：`upstream_usages` 包含 `model` 列；模型维度 usage 路由按该列过滤。  

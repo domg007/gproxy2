@@ -139,7 +139,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 支持以下 admin key 来源（按顺序匹配）：
 - `x-admin-key: <key>`
 - `Authorization: Bearer <key>`
-- Query `?admin_key=<key>`（浏览器连接 `/admin/events/ws` 时有用）
+- Query `?admin_key=<key>`
 
 ### 代理下游（`/v1/...` 或 `/{provider}/...`）
 
@@ -162,7 +162,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
   - `GET /{provider}/oauth`
   - `GET /{provider}/oauth/callback`
   - `GET /{provider}/usage?credential_id=<id>`
-- 管理路由 `/admin/...`（渠道、凭证、用户、usage、事件流）
+- 管理路由 `/admin/...`（渠道、凭证、用户、usage、日志）
 
 ## 管理前端
 
@@ -175,7 +175,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 - OAuth 助手（支持的渠道）
 - 凭证级实时用量/额度视图
 - 用户与 API key 管理
-- 终端事件流查看（`/admin/events/ws`）
+- 日志表格查询（`/admin/logs`）
 - 多语言（`zh_cn` / `en`）
 
 ## 构建与发布
