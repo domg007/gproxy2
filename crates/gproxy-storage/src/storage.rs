@@ -74,7 +74,9 @@ pub struct LogRecord {
     pub operation: Option<String>,
     pub request_method: String,
     pub request_path: String,
+    pub request_body: Option<Vec<u8>>,
     pub response_status: Option<i32>,
+    pub response_body: Option<Vec<u8>>,
     pub error_kind: Option<String>,
     pub error_message: Option<String>,
 }

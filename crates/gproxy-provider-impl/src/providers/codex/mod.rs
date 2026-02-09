@@ -187,6 +187,7 @@ impl UpstreamProvider for CodexProvider {
             // Codex upstream does not support temperature/top_p for non-compact.
             body.temperature = None;
             body.top_p = None;
+            body.top_logprobs = None;
         } else {
             // Codex compact endpoint is unary JSON.
             body.stream = Some(false);
@@ -246,6 +247,7 @@ impl UpstreamProvider for CodexProvider {
                 obj.remove("stream_options");
                 obj.remove("temperature");
                 obj.remove("top_p");
+                obj.remove("top_logprobs");
                 is_stream = false;
             } else if upstream_path == "/responses" {
                 normalize_codex_input_json(obj);
@@ -254,6 +256,7 @@ impl UpstreamProvider for CodexProvider {
                 obj.remove("stream_options");
                 obj.remove("temperature");
                 obj.remove("top_p");
+                obj.remove("top_logprobs");
                 is_stream = obj
                     .get("stream")
                     .and_then(|v| v.as_bool())

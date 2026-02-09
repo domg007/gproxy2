@@ -321,7 +321,13 @@
     "col_path": "路径",
     "col_status": "状态码",
     "col_trace": "Trace",
-    "col_error": "错误"
+    "col_error": "错误",
+    "col_detail": "详情",
+    "expand": "展开",
+    "collapse": "收起",
+    "request_body": "请求体",
+    "response_body": "响应体",
+    "no_body": "无 body"
   },
   "about": {
     "title": "关于",

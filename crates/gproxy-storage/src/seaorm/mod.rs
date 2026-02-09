@@ -779,7 +779,9 @@ impl Storage for SeaOrmStorage {
                 operation: Some(row.operation),
                 request_method: row.request_method,
                 request_path: row.request_path,
+                request_body: row.request_body,
                 response_status: row.response_status,
+                response_body: row.response_body,
                 error_kind: row.error_kind,
                 error_message: row.error_message,
             }));
@@ -829,7 +831,9 @@ impl Storage for SeaOrmStorage {
                 operation: None,
                 request_method: row.request_method,
                 request_path: row.request_path,
+                request_body: row.request_body,
                 response_status: row.response_status,
+                response_body: row.response_body,
                 error_kind: None,
                 error_message: None,
             }));

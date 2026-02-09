@@ -321,7 +321,13 @@
     "col_path": "Path",
     "col_status": "Status",
     "col_trace": "Trace",
-    "col_error": "Error"
+    "col_error": "Error",
+    "col_detail": "Detail",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "request_body": "Request body",
+    "response_body": "Response body",
+    "no_body": "No body"
   },
   "about": {
     "title": "About",

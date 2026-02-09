@@ -113,7 +113,9 @@ export type LogQueryRow = {
   operation?: string | null;
   request_method: string;
   request_path: string;
+  request_body?: string | null;
   response_status?: number | null;
+  response_body?: string | null;
   error_kind?: string | null;
   error_message?: string | null;
 };

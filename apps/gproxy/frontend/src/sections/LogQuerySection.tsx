@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { Button, Card, FieldLabel, TextInput } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -41,6 +41,7 @@ export function LogQuerySection({ adminKey, notify }: Props) {
   const [statusMax, setStatusMax] = useState("");
   const [limit, setLimit] = useState("100");
   const [offset, setOffset] = useState(0);
+  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const [data, setData] = useState<LogQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -102,6 +103,7 @@ export function LogQuerySection({ adminKey, notify }: Props) {
       });
       setData(result);
       setOffset(result.offset);
+      setExpandedRowKey(null);
     } catch (error) {
       notify("error", formatApiError(error));
     } finally {
@@ -144,6 +146,7 @@ export function LogQuerySection({ adminKey, notify }: Props) {
             setStatusMax("");
             setLimit("100");
             setOffset(0);
+            setExpandedRowKey(null);
             setData(null);
           }}>
             {t("logs.reset")}
@@ -239,8 +242,8 @@ export function LogQuerySection({ adminKey, notify }: Props) {
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="min-w-[1450px] text-left text-sm">
+      <div className="mt-4 max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="min-w-[1220px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-600">
             <tr>
               <th className="px-3 py-2">{t("logs.col_time")}</th>
@@ -256,38 +259,83 @@ export function LogQuerySection({ adminKey, notify }: Props) {
               <th className="px-3 py-2">{t("logs.col_status")}</th>
               <th className="px-3 py-2">{t("logs.col_trace")}</th>
               <th className="px-3 py-2">{t("logs.col_error")}</th>
+              <th className="px-3 py-2">{t("logs.col_detail")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={14} className="px-4 py-8 text-center text-sm text-slate-500">
                   {loading ? t("common.loading") : t("logs.empty")}
                 </td>
               </tr>
             ) : (
               rows.map((row) => {
+                const rowKey = `${row.kind}-${row.id}`;
+                const expanded = rowKey === expandedRowKey;
                 const errorText = [row.error_kind, row.error_message].filter(Boolean).join(": ");
                 return (
-                  <tr key={`${row.kind}-${row.id}`} className="align-top hover:bg-slate-50/80">
-                    <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(row.at)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <span className={`badge ${row.kind === "upstream" ? "badge-active" : ""}`}>
-                        {row.kind === "upstream" ? t("logs.kind_upstream") : t("logs.kind_downstream")}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.provider ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.credential_id ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.user_id ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.user_key_id ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.attempt_no ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.operation ?? "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.request_method}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{row.request_path}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.response_status ?? "-"}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{row.trace_id ?? "-"}</td>
-                    <td className="px-3 py-2">{errorText || "-"}</td>
-                  </tr>
+                  <Fragment key={rowKey}>
+                    <tr className="align-top hover:bg-slate-50/80">
+                      <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(row.at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <span className={`badge ${row.kind === "upstream" ? "badge-active" : ""}`}>
+                          {row.kind === "upstream" ? t("logs.kind_upstream") : t("logs.kind_downstream")}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.provider ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.credential_id ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.user_id ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.user_key_id ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.attempt_no ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.operation ?? "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.request_method}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{row.request_path}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{row.response_status ?? "-"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{row.trace_id ?? "-"}</td>
+                      <td className="px-3 py-2">{errorText || "-"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <Button
+                          variant="neutral"
+                          onClick={() => setExpandedRowKey(expanded ? null : rowKey)}
+                        >
+                          {expanded ? t("logs.collapse") : t("logs.expand")}
+                        </Button>
+                      </td>
+                    </tr>
+                    {expanded ? (
+                      <tr className="bg-slate-50/70">
+                        <td colSpan={14} className="px-3 py-3">
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                {t("logs.request_body")}
+                              </div>
+                              {row.request_body ? (
+                                <pre className="max-h-[380px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-slate-950 p-2 text-xs text-emerald-100">
+                                  {row.request_body}
+                                </pre>
+                              ) : (
+                                <div className="text-xs text-slate-400">{t("logs.no_body")}</div>
+                              )}
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                {t("logs.response_body")}
+                              </div>
+                              {row.response_body ? (
+                                <pre className="max-h-[380px] overflow-auto whitespace-pre-wrap break-all rounded-md bg-slate-950 p-2 text-xs text-emerald-100">
+                                  {row.response_body}
+                                </pre>
+                              ) : (
+                                <div className="text-xs text-slate-400">{t("logs.no_body")}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })
             )}

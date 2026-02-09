@@ -12,6 +12,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
+use serde_json::Value as JsonValue;
 use time::{Duration as TimeDuration, OffsetDateTime, format_description::well_known::Rfc3339};
 
 use gproxy_core::state::{AppState, CredentialInsertInput, ProviderRuntime};
@@ -1057,7 +1058,9 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
                 "operation": row.operation,
                 "request_method": row.request_method,
                 "request_path": row.request_path,
+                "request_body": bytes_body_to_json(&row.request_body),
                 "response_status": row.response_status,
+                "response_body": bytes_body_to_json(&row.response_body),
                 "error_kind": row.error_kind,
                 "error_message": row.error_message,
             })
@@ -1793,6 +1796,13 @@ fn format_time_rfc3339(value: OffsetDateTime) -> String {
     value
         .format(&Rfc3339)
         .unwrap_or_else(|_| value.unix_timestamp().to_string())
+}
+
+fn bytes_body_to_json(body: &Option<Vec<u8>>) -> JsonValue {
+    match body {
+        Some(bytes) => JsonValue::String(String::from_utf8_lossy(bytes).to_string()),
+        None => JsonValue::Null,
+    }
 }
 
 fn storage_error(err: gproxy_storage::StorageError) -> (StatusCode, Json<serde_json::Value>) {
