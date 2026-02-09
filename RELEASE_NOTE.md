@@ -237,3 +237,8 @@
 
 - OpenAI Responses request compatibility: `instructions` request field is now treated as strict string across transform/provider flow, matching protocol definition (`Option<String>`).
 - codex upstream compatibility: when request `instructions` is missing or provided as non-string in passthrough JSON, it is normalized to empty string (`""`) to avoid upstream validation errors such as `{"detail":"Instructions must be a string"}`.
+
+## v0.2.28
+
+### Fixed
+- enhance assistant message handling by adding index tracking for output messages
