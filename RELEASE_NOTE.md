@@ -96,3 +96,12 @@
 ### Docs
 - updated route documentation for `/admin/system/self_update` and admin query-key auth note.
 - added Star History chart section in `README.md` and `README.zh.md`.
+
+## v0.2.14
+
+### Fixed
+- self-update download now follows HTTP redirects for release assets (for example GitHub `302`) instead of failing on the first redirect response.
+- frontend About build metadata now reads app version from workspace `Cargo.toml` and improves commit hash fallback handling in CI/runtime environments.
+
+### Changed
+- claudecode prelude selector options in frontend now display the two full preset sentences directly while still keeping stable stored enum values (`claude_code_system` / `claude_agent_sdk`).
