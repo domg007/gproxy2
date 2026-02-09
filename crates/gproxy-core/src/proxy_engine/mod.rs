@@ -3514,12 +3514,62 @@ fn failure_to_http(failure: UpstreamFailure) -> UpstreamHttpResponse {
             status,
             headers,
             body,
-        } => UpstreamHttpResponse {
+        } => normalize_upstream_http_failure(status, headers, body),
+    }
+}
+
+fn normalize_upstream_http_failure(status: u16, headers: Headers, body: Bytes) -> UpstreamHttpResponse {
+    // Preserve native upstream JSON errors as-is.
+    if upstream_http_error_is_json(&headers, &body) {
+        return UpstreamHttpResponse {
             status,
             headers,
             body: UpstreamBody::Bytes(body),
-        },
+        };
     }
+
+    // Normalize non-JSON upstream error pages (for example Cloudflare HTML)
+    // to a stable machine-readable payload for downstream clients.
+    let detail = upstream_http_error_detail(&body);
+    json_error_with(
+        status,
+        "upstream_http_error",
+        serde_json::json!({
+            "status": status,
+            "detail": detail,
+        }),
+    )
+}
+
+fn upstream_http_error_is_json(headers: &Headers, body: &Bytes) -> bool {
+    let content_type_is_json = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| {
+            let value = value.to_ascii_lowercase();
+            value.contains("application/json") || value.contains("+json")
+        })
+        .unwrap_or(false);
+
+    if content_type_is_json {
+        return true;
+    }
+
+    serde_json::from_slice::<serde_json::Value>(body).is_ok()
+}
+
+fn upstream_http_error_detail(body: &Bytes) -> String {
+    let text = String::from_utf8_lossy(body);
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return "upstream returned non-json error response".to_string();
+    }
+    const MAX_LEN: usize = 512;
+    let mut out = compact.chars().take(MAX_LEN).collect::<String>();
+    if compact.chars().count() > MAX_LEN {
+        out.push_str("...");
+    }
+    out
 }
 
 fn failure_message(failure: &UpstreamFailure) -> String {

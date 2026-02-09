@@ -184,6 +184,8 @@ impl UpstreamProvider for CodexProvider {
             body.max_output_tokens = None;
             // Codex upstream rejects OpenAI stream_options.
             body.stream_options = None;
+            body.temperature = None;
+            body.top_p = None;
         } else {
             // Codex compact endpoint is unary JSON.
             body.stream = Some(false);
@@ -241,12 +243,16 @@ impl UpstreamProvider for CodexProvider {
             if upstream_path == "/responses/compact" {
                 obj.insert("stream".to_string(), JsonValue::Bool(false));
                 obj.remove("stream_options");
+                obj.remove("temperature");
+                obj.remove("top_p");
                 is_stream = false;
             } else if upstream_path == "/responses" {
                 normalize_codex_input_json(obj);
                 obj.insert("store".to_string(), JsonValue::Bool(false));
                 obj.remove("max_output_tokens");
                 obj.remove("stream_options");
+                obj.remove("temperature");
+                obj.remove("top_p");
                 is_stream = obj
                     .get("stream")
                     .and_then(|v| v.as_bool())
