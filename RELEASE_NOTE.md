@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.2.25
+
+### Added
+- admin API: added `GET /admin/logs` to query persisted upstream/downstream request logs with time range filters, kind selection, status range, and pagination.
+- frontend: added a new non-realtime log query page with filter form + table view, replacing the old terminal-style WS stream page in sidebar entry.
+
+### Changed
+- credentials usage token APIs now support `model_contains` filter across provider/credential scopes.
+- usage responses now include `call_count` (same semantics as `matched_rows`) for easier frontend aggregation display.
+- log query route now uses a wider page max-width on frontend to improve table readability.
+
+### Fixed
+- downstream log query behavior: when `kind=downstream`, upstream-only filters no longer suppress downstream results unexpectedly.
+- admin time serialization in log query responses is normalized to RFC3339 output.
+
 ## v0.2.4
 
 ### Changed
