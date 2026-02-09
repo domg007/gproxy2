@@ -88,9 +88,8 @@ async fn admin_auth(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let key = extract_admin_key(&headers, req.uri()).ok_or(StatusCode::UNAUTHORIZED)?;
-    let given_hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    let expected_hash = state.app.global.load().admin_key_hash.clone();
-    if given_hash != expected_hash {
+    let expected_key = state.app.global.load().admin_key.clone();
+    if key != expected_key {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(next.run(req).await)
@@ -137,6 +136,7 @@ async fn get_global(State(state): State<AdminState>) -> impl IntoResponse {
     Json(serde_json::json!({
         "host": global.host,
         "port": global.port,
+        "admin_key": global.admin_key,
         "proxy": global.proxy,
         "dsn": global.dsn,
         "event_redact_sensitive": global.event_redact_sensitive,
@@ -147,6 +147,7 @@ async fn get_global(State(state): State<AdminState>) -> impl IntoResponse {
 struct PutGlobalBody {
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub admin_key: Option<String>,
     pub proxy: Option<String>,
     pub event_redact_sensitive: Option<bool>,
 }
@@ -158,7 +159,14 @@ async fn put_global(
     let patch = gproxy_common::GlobalConfigPatch {
         host: body.host,
         port: body.port,
-        admin_key_hash: None,
+        admin_key: body.admin_key.and_then(|key| {
+            let trimmed = key.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }),
         proxy: body.proxy,
         dsn: None,
         event_redact_sensitive: body.event_redact_sensitive,
@@ -968,11 +976,10 @@ async fn insert_user_key(
     Json(body): Json<InsertUserKeyBody>,
 ) -> impl IntoResponse {
     let key_plain = body.key.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let key_hash = blake3::hash(key_plain.as_bytes()).to_hex().to_string();
 
     let id = match state
         .storage
-        .insert_user_key(user_id, &key_hash, body.label.as_deref(), body.enabled)
+        .insert_user_key(user_id, &key_plain, body.label.as_deref(), body.enabled)
         .await
     {
         Ok(id) => id,
@@ -981,7 +988,7 @@ async fn insert_user_key(
 
     state
         .app
-        .apply_user_key_insert(id, user_id, key_hash, body.label, body.enabled);
+        .apply_user_key_insert(id, user_id, key_plain.clone(), body.label, body.enabled);
 
     (
         StatusCode::OK,

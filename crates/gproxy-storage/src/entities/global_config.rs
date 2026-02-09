@@ -9,7 +9,8 @@ pub struct Model {
     pub id: i64,
     pub host: String,
     pub port: i32,
-    pub admin_key_hash: String,
+    #[sea_orm(column_name = "admin_key_hash")]
+    pub admin_key: String,
     pub proxy: Option<String>,
     pub dsn: String,
     pub event_redact_sensitive: Option<bool>,

@@ -42,9 +42,8 @@ async fn admin_auth(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let key = extract_admin_key(&headers, req.uri()).ok_or(StatusCode::UNAUTHORIZED)?;
-    let given_hash = blake3::hash(key.as_bytes()).to_hex().to_string();
-    let expected_hash = state.app.global.load().admin_key_hash.clone();
-    if given_hash != expected_hash {
+    let expected_key = state.app.global.load().admin_key.clone();
+    if key != expected_key {
         return Err(StatusCode::UNAUTHORIZED);
     }
     Ok(next.run(req).await)
@@ -92,6 +91,7 @@ async fn get_global(State(state): State<AdminState>) -> impl IntoResponse {
     Json(serde_json::json!({
         "host": global.host,
         "port": global.port,
+        "admin_key": global.admin_key,
         "proxy": global.proxy,
         "dsn": global.dsn,
     }))

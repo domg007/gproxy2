@@ -351,7 +351,7 @@ impl AppState {
         &self,
         id: i64,
         user_id: i64,
-        key_hash: String,
+        api_key: String,
         label: Option<String>,
         enabled: bool,
     ) {
@@ -361,7 +361,7 @@ impl AppState {
         snap.user_keys.push(UserKeyRow {
             id,
             user_id,
-            key_hash,
+            api_key,
             label,
             enabled,
             created_at: now,

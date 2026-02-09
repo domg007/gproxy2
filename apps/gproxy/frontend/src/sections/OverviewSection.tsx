@@ -7,15 +7,17 @@ import { useI18n } from "../i18n";
 
 type Props = {
   adminKey: string;
+  onAdminKeyChange: (nextAdminKey: string) => void;
   notify: (kind: "success" | "error" | "info", message: string) => void;
 };
 
-export function OverviewSection({ adminKey, notify }: Props) {
+export function OverviewSection({ adminKey, onAdminKeyChange, notify }: Props) {
   const { t } = useI18n();
   const [globalConfig, setGlobalConfig] = useState<AdminGlobalConfig | null>(null);
   const [draft, setDraft] = useState({
     host: "",
     port: "",
+    adminKey: "",
     proxy: "",
     eventRedactSensitive: false
   });
@@ -25,21 +27,21 @@ export function OverviewSection({ adminKey, notify }: Props) {
   const [keyCount, setKeyCount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (authKey: string = adminKey) => {
     setLoading(true);
     try {
       const [global, providerResp, credentialResp, userResp] = await Promise.all([
-        request<AdminGlobalConfig>("/admin/global_config", { adminKey }),
-        request<{ providers: ProviderSummary[] }>("/admin/providers", { adminKey }),
-        request<{ credentials: CredentialListRow[] }>("/admin/credentials", { adminKey }),
-        request<{ users: UserRow[] }>("/admin/users", { adminKey })
+        request<AdminGlobalConfig>("/admin/global_config", { adminKey: authKey }),
+        request<{ providers: ProviderSummary[] }>("/admin/providers", { adminKey: authKey }),
+        request<{ credentials: CredentialListRow[] }>("/admin/credentials", { adminKey: authKey }),
+        request<{ users: UserRow[] }>("/admin/users", { adminKey: authKey })
       ]);
 
       const usersData = userResp.users ?? [];
       const keysByUser = await Promise.all(
         usersData.map((user) =>
           request<{ keys: Array<{ id: number }> }>(`/admin/users/${user.id}/keys`, {
-            adminKey
+            adminKey: authKey
           })
         )
       );
@@ -49,6 +51,7 @@ export function OverviewSection({ adminKey, notify }: Props) {
       setDraft({
         host: global.host,
         port: String(global.port),
+        adminKey: global.admin_key,
         proxy: global.proxy ?? "",
         eventRedactSensitive: Boolean(global.event_redact_sensitive)
       });
@@ -73,18 +76,27 @@ export function OverviewSection({ adminKey, notify }: Props) {
       if (Number.isNaN(port)) {
         throw new Error(t("errors.invalid_number"));
       }
+      const nextAdminKey = draft.adminKey.trim();
+      if (!nextAdminKey) {
+        throw new Error(t("auth.required"));
+      }
+      const changedAdminKey = nextAdminKey !== adminKey;
       await request("/admin/global_config", {
         method: "PUT",
         adminKey,
         body: {
           host: draft.host.trim(),
           port,
+          admin_key: nextAdminKey,
           proxy: draft.proxy.trim() || null,
           event_redact_sensitive: draft.eventRedactSensitive
         }
       });
+      if (changedAdminKey) {
+        onAdminKeyChange(nextAdminKey);
+      }
       notify("success", t("overview.global_saved"));
-      await load();
+      await load(changedAdminKey ? nextAdminKey : adminKey);
     } catch (error) {
       notify("error", formatApiError(error));
     }
@@ -143,6 +155,16 @@ export function OverviewSection({ adminKey, notify }: Props) {
             <FieldLabel>{t("overview.proxy")}</FieldLabel>
             <div className="mt-2">
               <TextInput value={draft.proxy} onChange={(value) => setDraft((prev) => ({ ...prev, proxy: value }))} />
+            </div>
+          </div>
+          <div>
+            <FieldLabel>{t("overview.admin_key")}</FieldLabel>
+            <div className="mt-2">
+              <TextInput
+                type="password"
+                value={draft.adminKey}
+                onChange={(value) => setDraft((prev) => ({ ...prev, adminKey: value }))}
+              />
             </div>
           </div>
           <div>

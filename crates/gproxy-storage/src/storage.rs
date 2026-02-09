@@ -87,7 +87,7 @@ pub trait Storage: Send + Sync {
     async fn insert_user_key(
         &self,
         user_id: i64,
-        key_hash: &str,
+        api_key: &str,
         label: Option<&str>,
         enabled: bool,
     ) -> StorageResult<i64>;

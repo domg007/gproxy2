@@ -8,7 +8,6 @@ authors.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum = { version = "0.8", features = ["ws","http2"] }
-blake3 = "1"
 gproxy-core = { path = "../gproxy-core" }
 gproxy-storage = { path = "../gproxy-storage" }
 serde.workspace = true

@@ -87,12 +87,12 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 - `--dsn` / `GPROXY_DSN`（默认：`sqlite://gproxy.db?mode=rwc`）
 - `--host` / `GPROXY_HOST`（合并后默认：`0.0.0.0`）
 - `--port` / `GPROXY_PORT`（合并后默认：`8787`）
-- `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，存储时会 hash）
+- `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，明文存储）
 - `--proxy` / `GPROXY_PROXY`（可选，上游出口代理）
 - `--event-redact-sensitive` / `GPROXY_EVENT_REDACT_SENSITIVE`（默认：`true`）
 
 说明：
-- 若未提供 `admin_key` 且 DB 中也不存在，启动时会自动生成并打印一次。
+- 若未提供 `admin_key` 且 DB 中也不存在，启动时会自动生成；每次启动都会打印最终生效的 `admin_key`。
 - 若缺失内置渠道，会在启动时自动补种子。
 - 对文件型 SQLite DSN，gproxy 启动时会自动创建缺失的父目录；当使用 `mode=rwc` 时，数据库文件不存在也会自动创建。
 
@@ -149,7 +149,7 @@ CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
 - `x-goog-api-key: <key>`
 - Query `?key=<key>`
 
-启动时会自动创建 `user0`，并插入一条与 admin key 同 hash 的 user key，因此早期测试时可直接用同一明文 key 访问 proxy。
+启动时会自动创建 `user0`，并插入一条与 admin key 相同的 user key，因此早期测试时可直接用同一 key 访问 proxy。
 
 ## API 概览
 

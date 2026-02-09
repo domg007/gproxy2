@@ -43,7 +43,7 @@ pub struct UserRow {
 pub struct UserKeyRow {
     pub id: i64,
     pub user_id: i64,
-    pub key_hash: String,
+    pub api_key: String,
     pub label: Option<String>,
     pub enabled: bool,
     pub created_at: OffsetDateTime,

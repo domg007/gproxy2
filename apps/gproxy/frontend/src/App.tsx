@@ -170,7 +170,16 @@ export default function App() {
             </div>
           </header>
 
-          {route === "overview" ? <OverviewSection adminKey={adminKey} notify={notify} /> : null}
+          {route === "overview" ? (
+            <OverviewSection
+              adminKey={adminKey}
+              onAdminKeyChange={(nextAdminKey) => {
+                localStorage.setItem(KEY_STORAGE, nextAdminKey);
+                setAdminKey(nextAdminKey);
+              }}
+              notify={notify}
+            />
+          ) : null}
           {route === "providers" ? <ProvidersSection adminKey={adminKey} notify={notify} /> : null}
           {route === "users" ? <UsersSection adminKey={adminKey} notify={notify} /> : null}
           {route === "usage" ? <UsageSection adminKey={adminKey} providers={providers} notify={notify} /> : null}

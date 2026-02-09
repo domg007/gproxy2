@@ -56,6 +56,7 @@
     "subtitle": "全局配置与资源统计",
     "host": "主机",
     "port": "端口",
+    "admin_key": "管理密钥",
     "proxy": "代理",
     "dsn": "DSN",
     "event_redact_sensitive": "事件敏感信息脱敏",

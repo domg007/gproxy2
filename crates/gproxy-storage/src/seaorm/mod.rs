@@ -141,7 +141,7 @@ impl Storage for SeaOrmStorage {
             config: GlobalConfig {
                 host: m.host,
                 port: u16::try_from(m.port).unwrap_or(8787),
-                admin_key_hash: m.admin_key_hash,
+                admin_key: m.admin_key,
                 proxy: m.proxy,
                 dsn: m.dsn,
                 event_redact_sensitive: m.event_redact_sensitive.unwrap_or(true),
@@ -164,7 +164,7 @@ impl Storage for SeaOrmStorage {
                 let mut active: GlobalActive = model.into();
                 active.host = ActiveValue::Set(config.host.clone());
                 active.port = ActiveValue::Set(i32::from(config.port));
-                active.admin_key_hash = ActiveValue::Set(config.admin_key_hash.clone());
+                active.admin_key = ActiveValue::Set(config.admin_key.clone());
                 active.proxy = ActiveValue::Set(config.proxy.clone());
                 active.dsn = ActiveValue::Set(config.dsn.clone());
                 active.event_redact_sensitive =
@@ -177,7 +177,7 @@ impl Storage for SeaOrmStorage {
                     id: ActiveValue::Set(id),
                     host: ActiveValue::Set(config.host.clone()),
                     port: ActiveValue::Set(i32::from(config.port)),
-                    admin_key_hash: ActiveValue::Set(config.admin_key_hash.clone()),
+                    admin_key: ActiveValue::Set(config.admin_key.clone()),
                     proxy: ActiveValue::Set(config.proxy.clone()),
                     dsn: ActiveValue::Set(config.dsn.clone()),
                     event_redact_sensitive: ActiveValue::Set(Some(config.event_redact_sensitive)),
@@ -240,7 +240,7 @@ impl Storage for SeaOrmStorage {
             .map(|m| UserKeyRow {
                 id: m.id,
                 user_id: m.user_id,
-                key_hash: m.key_hash,
+                api_key: m.api_key,
                 label: m.label,
                 enabled: m.enabled,
                 created_at: m.created_at,
@@ -458,7 +458,7 @@ impl Storage for SeaOrmStorage {
     async fn insert_user_key(
         &self,
         user_id: i64,
-        key_hash: &str,
+        api_key: &str,
         label: Option<&str>,
         enabled: bool,
     ) -> StorageResult<i64> {
@@ -468,7 +468,7 @@ impl Storage for SeaOrmStorage {
         let active = UserKeyActive {
             id: ActiveValue::NotSet,
             user_id: ActiveValue::Set(user_id),
-            key_hash: ActiveValue::Set(key_hash.to_string()),
+            api_key: ActiveValue::Set(api_key.to_string()),
             label: ActiveValue::Set(label.map(|s| s.to_string())),
             enabled: ActiveValue::Set(enabled),
             created_at: ActiveValue::Set(now),

@@ -32,7 +32,7 @@ pub struct CliArgs {
     #[arg(long, env = "GPROXY_PORT")]
     pub port: Option<String>,
 
-    /// Admin key (plaintext). Stored as hash in DB and memory.
+    /// Admin key (plaintext). Stored in DB and memory.
     #[arg(long, env = "GPROXY_ADMIN_KEY")]
     pub admin_key: Option<String>,
 
@@ -89,21 +89,19 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
         .unwrap_or_default();
 
     // Select admin key source:
-    // - CLI/ENV provided key wins and overwrites DB (hash stored)
-    // - else, if DB missing admin_key_hash, generate one and persist (print plaintext once)
-    let mut admin_key_hash_override: Option<String> = None;
+    // - CLI/ENV provided key wins and overwrites DB
+    // - else, if DB missing admin_key, generate one and persist
+    let mut admin_key_override: Option<String> = None;
     if let Some(key_plain) = admin_key.as_deref() {
-        admin_key_hash_override = Some(hash_admin_key(key_plain));
-    } else if merged.admin_key_hash.is_none() {
-        let key_plain = generate_admin_key();
-        eprintln!("generated admin key: {key_plain}");
-        admin_key_hash_override = Some(hash_admin_key(&key_plain));
+        admin_key_override = Some(key_plain.to_string());
+    } else if merged.admin_key.is_none() {
+        admin_key_override = Some(generate_admin_key());
     }
 
     let cli_patch = GlobalConfigPatch {
         host,
         port,
-        admin_key_hash: admin_key_hash_override,
+        admin_key: admin_key_override,
         proxy,
         dsn: Some(dsn),
         event_redact_sensitive,
@@ -113,6 +111,7 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
     let global: GlobalConfig = merged
         .into_config()
         .context("finalize merged global config")?;
+    println!("admin key: {}", global.admin_key);
 
     // 3) persist merged global config back to DB.
     storage
@@ -129,7 +128,7 @@ pub async fn bootstrap(args: CliArgs) -> anyhow::Result<Bootstrap> {
     let user0_id = 0_i64;
     // If it already exists (unique constraint), ignore the error.
     let _ = storage
-        .insert_user_key(user0_id, &global.admin_key_hash, Some("bootstrap"), true)
+        .insert_user_key(user0_id, &global.admin_key, Some("bootstrap"), true)
         .await;
 
     // 3.2) seed builtin providers (bulletin list) into storage if missing.
@@ -257,12 +256,8 @@ fn parse_bool_env_value(value: Option<String>, env_name: &str) -> anyhow::Result
     Ok(Some(parsed))
 }
 
-fn hash_admin_key(key: &str) -> String {
-    blake3::hash(key.as_bytes()).to_hex().to_string()
-}
-
 fn generate_admin_key() -> String {
-    // Random enough for a bootstrap key; stored only in memory/printed once.
+    // Random enough for a bootstrap key.
     uuid::Uuid::new_v4().to_string()
 }
 

@@ -13,8 +13,7 @@ pub enum GlobalConfigError {
 pub struct GlobalConfig {
     pub host: String,
     pub port: u16,
-    /// Stored as a hash (not plaintext).
-    pub admin_key_hash: String,
+    pub admin_key: String,
     /// Optional outbound proxy (for upstream egress).
     pub proxy: Option<String>,
     /// Database DSN used for this process.
@@ -28,7 +27,7 @@ pub struct GlobalConfig {
 pub struct GlobalConfigPatch {
     pub host: Option<String>,
     pub port: Option<u16>,
-    pub admin_key_hash: Option<String>,
+    pub admin_key: Option<String>,
     pub proxy: Option<String>,
     pub dsn: Option<String>,
     pub event_redact_sensitive: Option<bool>,
@@ -42,8 +41,8 @@ impl GlobalConfigPatch {
         if other.port.is_some() {
             self.port = other.port;
         }
-        if other.admin_key_hash.is_some() {
-            self.admin_key_hash = other.admin_key_hash;
+        if other.admin_key.is_some() {
+            self.admin_key = other.admin_key;
         }
         if other.proxy.is_some() {
             self.proxy = other.proxy;
@@ -60,9 +59,9 @@ impl GlobalConfigPatch {
         Ok(GlobalConfig {
             host: self.host.unwrap_or_else(|| "0.0.0.0".to_string()),
             port: self.port.unwrap_or(8787),
-            admin_key_hash: self
-                .admin_key_hash
-                .ok_or(GlobalConfigError::MissingField("admin_key_hash"))?,
+            admin_key: self
+                .admin_key
+                .ok_or(GlobalConfigError::MissingField("admin_key"))?,
             proxy: self.proxy,
             dsn: self.dsn.ok_or(GlobalConfigError::MissingField("dsn"))?,
             event_redact_sensitive: self.event_redact_sensitive.unwrap_or(true),
@@ -75,7 +74,7 @@ impl From<GlobalConfig> for GlobalConfigPatch {
         Self {
             host: Some(value.host),
             port: Some(value.port),
-            admin_key_hash: Some(value.admin_key_hash),
+            admin_key: Some(value.admin_key),
             proxy: value.proxy,
             dsn: Some(value.dsn),
             event_redact_sensitive: Some(value.event_redact_sensitive),

@@ -87,12 +87,12 @@ CLI / ENV (from `gproxy_core::bootstrap::CliArgs`):
 - `--dsn` / `GPROXY_DSN` (default: `sqlite://gproxy.db?mode=rwc`)
 - `--host` / `GPROXY_HOST` (default after merge: `0.0.0.0`)
 - `--port` / `GPROXY_PORT` (default after merge: `8787`)
-- `--admin-key` / `GPROXY_ADMIN_KEY` (plaintext input; stored as hash)
+- `--admin-key` / `GPROXY_ADMIN_KEY` (plaintext input; stored as plaintext)
 - `--proxy` / `GPROXY_PROXY` (optional upstream egress proxy)
 - `--event-redact-sensitive` / `GPROXY_EVENT_REDACT_SENSITIVE` (default: `true`)
 
 Notes:
-- If `admin_key` is not provided and DB has none, gproxy generates one and prints it once on startup.
+- If `admin_key` is not provided and DB has none, gproxy generates one. gproxy prints the effective admin key on every startup.
 - Built-in providers are auto-seeded when missing.
 - For file-based SQLite DSNs, gproxy auto-creates missing parent directories at startup. With `mode=rwc`, the DB file is created automatically if absent.
 
@@ -149,7 +149,7 @@ Accepted user key sources (first match):
 - `x-goog-api-key: <key>`
 - Query `?key=<key>`
 
-On bootstrap, `user0` is created and one user key is inserted using the same admin key hash, so the same plaintext key can be used for early proxy testing.
+On bootstrap, `user0` is created and one user key is inserted using the same admin key, so the same key can be used for early proxy testing.
 
 ## API overview
 

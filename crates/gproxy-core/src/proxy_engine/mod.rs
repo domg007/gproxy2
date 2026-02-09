@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use blake3;
 use bytes::Bytes;
 
 use gproxy_provider_core::AcquireError;
@@ -148,13 +147,12 @@ impl ProxyEngine {
     }
 
     pub fn authenticate_user_key(&self, api_key: &str) -> Option<crate::proxy_engine::ProxyAuth> {
-        let hash = blake3::hash(api_key.as_bytes()).to_hex().to_string();
         let snapshot = self.state.snapshot.load();
 
         let key = snapshot
             .user_keys
             .iter()
-            .find(|k| k.enabled && k.key_hash == hash)?;
+            .find(|k| k.enabled && k.api_key == api_key)?;
         let user = snapshot
             .users
             .iter()

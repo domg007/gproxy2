@@ -1,6 +1,7 @@
 export type AdminGlobalConfig = {
   host: string;
   port: number;
+  admin_key: string;
   proxy?: string | null;
   dsn: string;
   event_redact_sensitive: boolean;
