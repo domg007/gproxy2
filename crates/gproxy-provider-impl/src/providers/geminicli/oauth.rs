@@ -9,6 +9,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 #[derive(Debug)]
 struct OAuthState {
@@ -57,7 +58,7 @@ pub(super) fn oauth_start(
 }
 
 pub(super) fn oauth_callback(
-    _ctx: &UpstreamCtx,
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     req: &OAuthCallbackRequest,
 ) -> ProviderResult<OAuthCallbackResult> {
@@ -110,6 +111,7 @@ pub(super) fn oauth_callback(
         .or_else(|| parse_query_value(req.query.as_deref(), "project_id"));
 
     let tokens = exchange_code_for_tokens(
+        ctx,
         &code,
         &redirect_uri,
         &oauth_state.code_verifier,
@@ -124,7 +126,7 @@ pub(super) fn oauth_callback(
     let base_url = geminicli_base_url(config)?;
     let project_id = match project_id {
         Some(value) => Some(value),
-        None => detect_project_id(&tokens.access_token, base_url)?,
+        None => detect_project_id(ctx, &tokens.access_token, base_url)?,
     };
     let Some(project_id) = project_id else {
         return Ok(OAuthCallbackResult {
@@ -132,7 +134,7 @@ pub(super) fn oauth_callback(
             credential: None,
         });
     };
-    let user_email = fetch_user_email(&tokens.access_token).ok().flatten();
+    let user_email = fetch_user_email(ctx, &tokens.access_token).ok().flatten();
     let credential = OAuthCredential {
         name: Some(format!("geminicli:{project_id}")),
         settings_json: None,
@@ -162,7 +164,7 @@ pub(super) fn oauth_callback(
 }
 
 pub(super) fn on_auth_failure<'a>(
-    _ctx: &'a UpstreamCtx,
+    ctx: &'a UpstreamCtx,
     _config: &'a ProviderConfig,
     credential: &'a Credential,
     _req: &'a Request,
@@ -174,7 +176,7 @@ pub(super) fn on_auth_failure<'a>(
             Credential::GeminiCli(cred) => cred.refresh_token.clone(),
             _ => return Ok(AuthRetryAction::None),
         };
-        let tokens = refresh_access_token(&refresh_token, DEFAULT_TOKEN_URL).await?;
+        let tokens = refresh_access_token(ctx, &refresh_token, DEFAULT_TOKEN_URL).await?;
         let mut updated = credential.clone();
         if let Credential::GeminiCli(cred) = &mut updated {
             cred.access_token = tokens.access_token.clone();
@@ -243,6 +245,7 @@ fn build_authorize_url(
 }
 
 fn exchange_code_for_tokens(
+    ctx: &UpstreamCtx,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -258,9 +261,7 @@ fn exchange_code_for_tokens(
     );
 
     crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let resp = client
             .post(token_url)
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -285,6 +286,7 @@ fn exchange_code_for_tokens(
 }
 
 async fn refresh_access_token(
+    ctx: &UpstreamCtx,
     refresh_token: &str,
     token_url: &str,
 ) -> ProviderResult<TokenResponse> {
@@ -294,9 +296,7 @@ async fn refresh_access_token(
         urlencoding::encode(CLIENT_ID),
         urlencoding::encode(CLIENT_SECRET),
     );
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let resp = client
         .post(token_url)
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -327,10 +327,11 @@ fn parse_user_email(payload: &serde_json::Value) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-async fn fetch_user_email_async(access_token: &str) -> ProviderResult<Option<String>> {
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+async fn fetch_user_email_async(
+    ctx: &UpstreamCtx,
+    access_token: &str,
+) -> ProviderResult<Option<String>> {
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let resp = client
         .get(USERINFO_URL)
         .header("Authorization", format!("Bearer {access_token}"))
@@ -354,11 +355,12 @@ async fn fetch_user_email_async(access_token: &str) -> ProviderResult<Option<Str
     Ok(parse_user_email(&payload))
 }
 
-fn fetch_user_email(access_token: &str) -> ProviderResult<Option<String>> {
-    crate::providers::oauth_common::block_on(fetch_user_email_async(access_token))
+fn fetch_user_email(ctx: &UpstreamCtx, access_token: &str) -> ProviderResult<Option<String>> {
+    crate::providers::oauth_common::block_on(fetch_user_email_async(ctx, access_token))
 }
 
 pub(super) async fn enrich_credential_profile_if_missing(
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     credential: &Credential,
 ) -> ProviderResult<Option<Credential>> {
@@ -378,14 +380,14 @@ pub(super) async fn enrich_credential_profile_if_missing(
     let mut changed = false;
     if project_missing {
         let base_url = geminicli_base_url(config)?;
-        if let Ok(Some(project_id)) = detect_project_id(&updated.access_token, base_url)
+        if let Ok(Some(project_id)) = detect_project_id(ctx, &updated.access_token, base_url)
             && !project_id.trim().is_empty()
         {
             updated.project_id = project_id;
             changed = true;
         }
     }
-    if email_missing && let Ok(Some(email)) = fetch_user_email_async(&updated.access_token).await {
+    if email_missing && let Ok(Some(email)) = fetch_user_email_async(ctx, &updated.access_token).await {
         updated.user_email = Some(email);
         changed = true;
     }

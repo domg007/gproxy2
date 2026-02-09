@@ -16,6 +16,7 @@ use gproxy_provider_core::{
 use gproxy_protocol::gemini;
 
 use crate::auth_extractor;
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 mod oauth;
 mod usage;
 
@@ -244,7 +245,7 @@ impl UpstreamProvider for GeminiCliProvider {
 
     fn upgrade_credential<'a>(
         &'a self,
-        _ctx: &'a UpstreamCtx,
+        ctx: &'a UpstreamCtx,
         config: &'a ProviderConfig,
         credential: &'a Credential,
         _req: &'a Request,
@@ -252,7 +253,7 @@ impl UpstreamProvider for GeminiCliProvider {
         Box<dyn std::future::Future<Output = ProviderResult<Option<Credential>>> + Send + 'a>,
     > {
         Box::pin(
-            async move { oauth::enrich_credential_profile_if_missing(config, credential).await },
+            async move { oauth::enrich_credential_profile_if_missing(ctx, config, credential).await },
         )
     }
 
@@ -280,7 +281,7 @@ impl UpstreamProvider for GeminiCliProvider {
 
     fn on_upstream_failure<'a>(
         &'a self,
-        _ctx: &'a UpstreamCtx,
+        ctx: &'a UpstreamCtx,
         config: &'a ProviderConfig,
         credential: &'a Credential,
         _req: &'a Request,
@@ -300,7 +301,7 @@ impl UpstreamProvider for GeminiCliProvider {
                 return Ok(AuthRetryAction::None);
             };
             let base_url = geminicli_base_url(config)?;
-            let detected = match detect_project_id(&cred.access_token, base_url) {
+            let detected = match detect_project_id(ctx, &cred.access_token, base_url) {
                 Ok(Some(project_id)) if !project_id.trim().is_empty() => Some(project_id),
                 _ => None,
             };
@@ -483,25 +484,28 @@ fn json_error(status: u16, message: &str) -> UpstreamHttpResponse {
     }
 }
 
-fn detect_project_id(access_token: &str, base_url: &str) -> ProviderResult<Option<String>> {
+fn detect_project_id(
+    ctx: &UpstreamCtx,
+    access_token: &str,
+    base_url: &str,
+) -> ProviderResult<Option<String>> {
     crate::providers::oauth_common::block_on(async move {
         if let Ok(Some(project_id)) =
-            try_load_code_assist(access_token, base_url, GEMINICLI_USER_AGENT).await
+            try_load_code_assist(ctx, access_token, base_url, GEMINICLI_USER_AGENT).await
         {
             return Ok(Some(project_id));
         }
-        try_onboard_user(access_token, base_url, GEMINICLI_USER_AGENT).await
+        try_onboard_user(ctx, access_token, base_url, GEMINICLI_USER_AGENT).await
     })
 }
 
 async fn try_load_code_assist(
+    ctx: &UpstreamCtx,
     access_token: &str,
     base_url: &str,
     user_agent: &str,
 ) -> ProviderResult<Option<String>> {
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let url = format!(
         "{}/v1internal:loadCodeAssist",
         base_url.trim_end_matches('/')
@@ -548,14 +552,13 @@ async fn try_load_code_assist(
 }
 
 async fn try_onboard_user(
+    ctx: &UpstreamCtx,
     access_token: &str,
     base_url: &str,
     user_agent: &str,
 ) -> ProviderResult<Option<String>> {
-    let tier_id = get_onboard_tier(access_token, base_url, user_agent).await?;
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let tier_id = get_onboard_tier(ctx, access_token, base_url, user_agent).await?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let url = format!("{}/v1internal:onboardUser", base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "tierId": tier_id,
@@ -610,13 +613,12 @@ async fn try_onboard_user(
 }
 
 async fn get_onboard_tier(
+    ctx: &UpstreamCtx,
     access_token: &str,
     base_url: &str,
     user_agent: &str,
 ) -> ProviderResult<String> {
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let url = format!(
         "{}/v1internal:loadCodeAssist",
         base_url.trim_end_matches('/')

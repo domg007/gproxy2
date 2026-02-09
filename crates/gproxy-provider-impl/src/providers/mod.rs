@@ -6,6 +6,7 @@ mod codex;
 mod custom;
 mod deepseek;
 mod geminicli;
+mod http_client;
 mod nvidia;
 mod oauth_common;
 mod openai;

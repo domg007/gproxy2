@@ -214,6 +214,8 @@
     "project_id": "项目 ID",
     "default_optional": "可选",
     "default_not_required": "无需填写（当前流程不会使用）",
+    "default_callback_url_browser_auth": "浏览器授权建议填写（回调 URL 含 state 和 code）",
+    "callback_hint_browser_auth": "浏览器授权：可粘贴回调 URL，或手动填写 State + 授权码。",
     "default_project_auto_detect": "自动探测",
     "default_project_auto_detect_or_random": "自动探测（失败时随机生成）",
     "interval": "轮询间隔",

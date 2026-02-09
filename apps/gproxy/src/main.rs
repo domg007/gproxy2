@@ -7,11 +7,13 @@ mod admin_ui;
 async fn main() -> Result<()> {
     let boot = gproxy_core::bootstrap::bootstrap_from_env().await?;
     let global = boot.state.global.load();
+    let state_for_proxy = boot.state.clone();
 
     let upstream_cfg = gproxy_core::upstream_client::UpstreamClientConfig::from_global(&global);
     let upstream_client: std::sync::Arc<dyn gproxy_core::upstream_client::UpstreamClient> =
-        std::sync::Arc::new(gproxy_core::upstream_client::WreqUpstreamClient::new(
+        std::sync::Arc::new(gproxy_core::upstream_client::WreqUpstreamClient::new_with_proxy_resolver(
             upstream_cfg,
+            move || state_for_proxy.global.load().proxy.clone(),
         )?);
     let engine = std::sync::Arc::new(gproxy_core::proxy_engine::ProxyEngine::new(
         boot.state.clone(),

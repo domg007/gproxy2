@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 #[derive(Debug)]
 struct OAuthState {
@@ -64,7 +65,7 @@ pub(super) fn oauth_start(
 }
 
 pub(super) fn oauth_callback(
-    _ctx: &UpstreamCtx,
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     req: &OAuthCallbackRequest,
 ) -> ProviderResult<OAuthCallbackResult> {
@@ -118,6 +119,7 @@ pub(super) fn oauth_callback(
     let api_base = claudecode_api_base_url(config)?;
     let claude_ai_base = claudecode_ai_base_url(config)?;
     let mut tokens = exchange_code_for_tokens(
+        ctx,
         api_base,
         claude_ai_base,
         &oauth_state.redirect_uri,
@@ -127,7 +129,7 @@ pub(super) fn oauth_callback(
     )?;
     let mut user_email = None;
     if (tokens.subscription_type.is_none() || tokens.rate_limit_tier.is_none())
-        && let Ok(profile) = fetch_oauth_profile(api_base, &tokens.access_token)
+        && let Ok(profile) = fetch_oauth_profile(ctx, api_base, &tokens.access_token)
     {
         if tokens.subscription_type.is_none() {
             tokens.subscription_type = profile.subscription_type;
@@ -189,7 +191,7 @@ pub(super) fn oauth_callback(
 }
 
 pub(super) fn on_auth_failure<'a>(
-    _ctx: &'a UpstreamCtx,
+    ctx: &'a UpstreamCtx,
     config: &'a ProviderConfig,
     credential: &'a Credential,
     _req: &'a Request,
@@ -204,7 +206,7 @@ pub(super) fn on_auth_failure<'a>(
                         if let Some(cached) = cookie::get_cached_session_tokens_any(session_key) {
                             let api_base = claudecode_api_base_url(config)?;
                             if let Ok(tokens) =
-                                refresh_access_token(api_base, &cached.refresh_token).await
+                                refresh_access_token(ctx, api_base, &cached.refresh_token).await
                             {
                                 let refreshed = cookie::CachedTokens {
                                     access_token: tokens.access_token.clone(),
@@ -238,7 +240,7 @@ pub(super) fn on_auth_failure<'a>(
                 };
                 let refresh_token = secret.refresh_token.clone();
                 let api_base = claudecode_api_base_url(config)?;
-                let tokens = refresh_access_token(api_base, &refresh_token).await?;
+                let tokens = refresh_access_token(ctx, api_base, &refresh_token).await?;
                 let mut updated = credential.clone();
                 if let Credential::ClaudeCode(secret) = &mut updated {
                     secret.access_token = tokens.access_token.clone();
@@ -292,6 +294,7 @@ fn build_authorize_url(
 }
 
 fn exchange_code_for_tokens(
+    ctx: &UpstreamCtx,
     api_base: &str,
     claude_ai_base: &str,
     redirect_uri: &str,
@@ -314,9 +317,7 @@ fn exchange_code_for_tokens(
     }
 
     crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::ClaudeCode)?;
         let origin = claude_ai_base.trim_end_matches('/');
         let resp = client
             .post(format!("{}/v1/oauth/token", api_base.trim_end_matches('/')))
@@ -381,12 +382,11 @@ fn parse_oauth_profile(payload: &serde_json::Value) -> OAuthProfile {
 }
 
 async fn fetch_oauth_profile_async(
+    ctx: &UpstreamCtx,
     api_base: &str,
     access_token: &str,
 ) -> ProviderResult<OAuthProfile> {
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::ClaudeCode)?;
     let resp = client
         .get(format!(
             "{}/api/oauth/profile",
@@ -415,11 +415,16 @@ async fn fetch_oauth_profile_async(
     Ok(parse_oauth_profile(&payload))
 }
 
-fn fetch_oauth_profile(api_base: &str, access_token: &str) -> ProviderResult<OAuthProfile> {
-    crate::providers::oauth_common::block_on(fetch_oauth_profile_async(api_base, access_token))
+fn fetch_oauth_profile(
+    ctx: &UpstreamCtx,
+    api_base: &str,
+    access_token: &str,
+) -> ProviderResult<OAuthProfile> {
+    crate::providers::oauth_common::block_on(fetch_oauth_profile_async(ctx, api_base, access_token))
 }
 
 pub(super) async fn enrich_credential_profile_if_missing(
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     credential: &Credential,
 ) -> ProviderResult<Option<Credential>> {
@@ -439,7 +444,7 @@ pub(super) async fn enrich_credential_profile_if_missing(
     }
     let api_base = claudecode_api_base_url(config)?;
     // Best effort: profile fetch failure should not fail requests.
-    let profile = match fetch_oauth_profile_async(api_base, &secret.access_token).await {
+    let profile = match fetch_oauth_profile_async(ctx, api_base, &secret.access_token).await {
         Ok(value) => value,
         Err(_) => return Ok(None),
     };
@@ -470,6 +475,7 @@ pub(super) async fn enrich_credential_profile_if_missing(
 }
 
 async fn refresh_access_token(
+    ctx: &UpstreamCtx,
     api_base: &str,
     refresh_token: &str,
 ) -> ProviderResult<TokenResponse> {
@@ -479,9 +485,7 @@ async fn refresh_access_token(
         "refresh_token": refresh_token,
     });
     let body = serde_json::to_vec(&payload).map_err(|err| ProviderError::Other(err.to_string()))?;
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::ClaudeCode)?;
     let resp = client
         .post(format!("{}/v1/oauth/token", api_base.trim_end_matches('/')))
         .header("Content-Type", "application/json")

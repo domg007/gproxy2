@@ -1084,8 +1084,9 @@ struct GithubReleaseInfo {
     assets: Vec<GithubReleaseAsset>,
 }
 
-async fn system_self_update() -> impl IntoResponse {
-    match self_update_to_latest_release().await {
+async fn system_self_update(State(state): State<AdminState>) -> impl IntoResponse {
+    let proxy = state.app.global.load().proxy.clone();
+    match self_update_to_latest_release(proxy).await {
         Ok(result) => match schedule_self_restart() {
             Ok(()) => (
                 StatusCode::OK,
@@ -1200,13 +1201,9 @@ async fn fetch_latest_release_asset(
 }
 
 #[cfg(windows)]
-async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
+async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpdateResult, String> {
     let target_asset = target_release_asset_name()?;
-    let client = wreq::Client::builder()
-        .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("build_http_client: {e}"))?;
+    let client = build_self_update_client(proxy)?;
 
     let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
     let zip_bytes = download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
@@ -1225,13 +1222,9 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
 }
 
 #[cfg(not(windows))]
-async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
+async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpdateResult, String> {
     let target_asset = target_release_asset_name()?;
-    let client = wreq::Client::builder()
-        .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("build_http_client: {e}"))?;
+    let client = build_self_update_client(proxy)?;
 
     let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
 
@@ -1248,6 +1241,21 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
         asset_name: asset.name,
         installed_to,
     })
+}
+
+fn build_self_update_client(proxy: Option<String>) -> Result<wreq::Client, String> {
+    let proxy = proxy
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let mut builder = wreq::Client::builder();
+    if let Some(proxy) = proxy.as_deref() {
+        let parsed = wreq::Proxy::all(proxy).map_err(|e| format!("invalid_proxy:{e}"))?;
+        builder = builder.proxy(parsed);
+    }
+    builder
+        .build()
+        .map_err(|e| format!("build_http_client: {e}"))
 }
 
 async fn download_bytes_with_redirects(

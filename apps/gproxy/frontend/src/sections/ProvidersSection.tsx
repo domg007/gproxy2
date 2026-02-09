@@ -62,6 +62,13 @@ type OAuthUiDefaults = {
   redirectUri?: string;
   scope?: string;
 };
+const CODEX_AUTHORIZATION_CODE_MODES = new Set([
+  "authorization_code",
+  "auth_code",
+  "pkce",
+  "browser",
+  "browser_auth"
+]);
 type ClaudeCodeOneMField =
   | "enable_claude_1m_sonnet"
   | "enable_claude_1m_opus"
@@ -270,6 +277,13 @@ function oauthUiDefaults(providerName: string): OAuthUiDefaults {
     default:
       return {};
   }
+}
+
+function isCodexAuthorizationCodeMode(mode: unknown): boolean {
+  if (typeof mode !== "string") {
+    return false;
+  }
+  return CODEX_AUTHORIZATION_CODE_MODES.has(mode.trim().toLowerCase());
 }
 
 function scalarEntries(source: Record<string, unknown>): Array<[string, string]> {
@@ -851,12 +865,31 @@ export function ProvidersSection({ adminKey, notify }: Props) {
       return;
     }
     try {
+      const state = oauthCallbackParams.state.trim();
+      const code = oauthCallbackParams.code.trim();
+      const callbackUrl = oauthCallbackParams.callback_url.trim();
+      if (selected.name === "codex") {
+        const browserAuthCodeMode = isCodexAuthorizationCodeMode(oauthStartResult?.mode);
+        if (browserAuthCodeMode) {
+          if (!code && !callbackUrl) {
+            throw new Error(t("errors.missing_code_or_callback"));
+          }
+          if (!state && !callbackUrl) {
+            throw new Error(t("errors.missing_state"));
+          }
+        } else if (!state) {
+          throw new Error(t("errors.missing_state"));
+        }
+      } else if (!code && !callbackUrl) {
+        throw new Error(t("errors.missing_code_or_callback"));
+      }
+
       const data = await request<OAuthCallbackResponse>(`/${selected.name}/oauth/callback`, {
         userKey: adminKey,
         query: {
-          state: oauthCallbackParams.state.trim() || undefined,
-          code: oauthCallbackParams.code.trim() || undefined,
-          callback_url: oauthCallbackParams.callback_url.trim() || undefined,
+          state: state || undefined,
+          code: code || undefined,
+          callback_url: callbackUrl || undefined,
           project_id: oauthCallbackParams.project_id.trim() || undefined
         }
       });
@@ -1819,8 +1852,14 @@ export function ProvidersSection({ adminKey, notify }: Props) {
           : selected.name === "codex"
             ? t("oauth.default_not_required")
             : undefined;
+    const codexAuthorizationCodeMode =
+      selected.name === "codex" && isCodexAuthorizationCodeMode(oauthStartResult?.mode);
     const defaultCallbackUrl =
-      selected.name === "codex" ? t("oauth.default_not_required") : t("oauth.default_optional");
+      selected.name === "codex"
+        ? codexAuthorizationCodeMode
+          ? t("oauth.default_callback_url_browser_auth")
+          : t("oauth.default_not_required")
+        : t("oauth.default_optional");
     const startRows = oauthStartResult ? scalarEntries(oauthStartResult) : [];
     const callbackRows = oauthCallbackResult ? scalarEntries(oauthCallbackResult) : [];
 
@@ -1956,6 +1995,9 @@ export function ProvidersSection({ adminKey, notify }: Props) {
               <div className="mt-1 text-xs text-slate-500 break-all">
                 {t("common.default_value")}: {defaultCallbackUrl}
               </div>
+            ) : null}
+            {codexAuthorizationCodeMode ? (
+              <div className="mt-1 text-xs text-slate-500 break-all">{t("oauth.callback_hint_browser_auth")}</div>
             ) : null}
           </div>
           <div>

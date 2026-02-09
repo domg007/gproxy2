@@ -298,7 +298,7 @@ impl UpstreamProvider for ClaudeCodeProvider {
 
     fn upgrade_credential<'a>(
         &'a self,
-        _ctx: &'a UpstreamCtx,
+        ctx: &'a UpstreamCtx,
         config: &'a ProviderConfig,
         credential: &'a Credential,
         _req: &'a Request,
@@ -310,7 +310,7 @@ impl UpstreamProvider for ClaudeCodeProvider {
                 Credential::ClaudeCode(secret) => {
                     let mut candidate: Option<Credential> = None;
                     if let Some(session_key) = secret.session_key.as_deref() {
-                        let tokens = cookie::ensure_session_tokens_full(config, session_key)?;
+                        let tokens = cookie::ensure_session_tokens_full(ctx, config, session_key)?;
                         let mut updated = secret.clone();
                         updated.access_token = tokens.access_token;
                         updated.refresh_token = tokens.refresh_token;
@@ -329,7 +329,7 @@ impl UpstreamProvider for ClaudeCodeProvider {
 
                     let enrich_base = candidate.as_ref().unwrap_or(credential);
                     if let Some(enriched) =
-                        oauth::enrich_credential_profile_if_missing(config, enrich_base).await?
+                        oauth::enrich_credential_profile_if_missing(ctx, config, enrich_base).await?
                     {
                         return Ok(Some(enriched));
                     }

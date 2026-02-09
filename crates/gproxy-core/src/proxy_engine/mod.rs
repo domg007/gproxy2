@@ -278,6 +278,7 @@ impl ProxyEngine {
                 user_id: Some(auth.user_id),
                 user_key_id: Some(auth.user_key_id),
                 user_agent: None,
+                outbound_proxy: self.state.global.load().proxy.clone(),
                 provider: provider.clone(),
                 credential_id: Some(cred_id),
                 // This is a provider-internal ability, but it still performs upstream IO.
@@ -563,6 +564,7 @@ impl ProxyEngine {
             user_id: Some(auth.user_id),
             user_key_id: Some(auth.user_key_id),
             user_agent: None,
+            outbound_proxy: self.state.global.load().proxy.clone(),
             provider: provider.clone(),
             credential_id: None,
             op: Op::ModelList,
@@ -639,6 +641,7 @@ impl ProxyEngine {
             user_id: Some(auth.user_id),
             user_key_id: Some(auth.user_key_id),
             user_agent: None,
+            outbound_proxy: self.state.global.load().proxy.clone(),
             provider: provider.clone(),
             credential_id: None,
             op: Op::ModelList,
@@ -954,6 +957,7 @@ impl ProxyEngine {
                 user_id: Some(auth.user_id),
                 user_key_id: Some(auth.user_key_id),
                 user_agent: auth.user_agent.clone(),
+                outbound_proxy: self.state.global.load().proxy.clone(),
                 provider: provider.clone(),
                 credential_id: Some(cred_id),
                 op,
@@ -1312,6 +1316,7 @@ impl ProxyEngine {
                 user_id: Some(auth.user_id),
                 user_key_id: Some(auth.user_key_id),
                 user_agent: auth.user_agent.clone(),
+                outbound_proxy: self.state.global.load().proxy.clone(),
                 provider: provider.clone(),
                 credential_id: Some(cred_id),
                 op: resolved.provider_op,
@@ -1854,6 +1859,7 @@ impl ProxyEngine {
             user_id: Some(auth.user_id),
             user_key_id: Some(auth.user_key_id),
             user_agent: auth.user_agent.clone(),
+            outbound_proxy: self.state.global.load().proxy.clone(),
             provider: provider.clone(),
             credential_id: Some(cred_id),
             op: provider_op,
@@ -2047,6 +2053,7 @@ impl ProxyEngine {
         let trace_id2 = trace_id.clone();
         let auth2 = auth;
         let provider2 = provider.clone();
+        let outbound_proxy2 = self.state.global.load().proxy.clone();
         let upstream_req2 = upstream_req.clone();
         let (upstream_path, upstream_query) = split_path_query(&upstream_req.url);
         let upstream_resp_headers = upstream_resp.headers.clone();
@@ -2158,6 +2165,7 @@ impl ProxyEngine {
                     config: config2,
                     credential: cred2,
                     trace_id: trace_id2.clone(),
+                    outbound_proxy: outbound_proxy2.clone(),
                     provider_name: provider2.clone(),
                     client,
                 };
@@ -2326,6 +2334,7 @@ impl ProxyEngine {
                 config: config.clone(),
                 credential: cred.clone(),
                 trace_id: trace_id.clone(),
+                outbound_proxy: self.state.global.load().proxy.clone(),
                 provider_name: provider.clone(),
                 client: self.client.clone(),
             };
@@ -2775,6 +2784,7 @@ struct EngineCountTokensFn {
     config: ProviderConfig,
     credential: Credential,
     trace_id: Option<String>,
+    outbound_proxy: Option<String>,
     provider_name: String,
     client: Arc<dyn UpstreamClient>,
 }
@@ -2793,6 +2803,7 @@ impl CountTokensFn for EngineCountTokensFn {
                 user_id: None,
                 user_key_id: None,
                 user_agent: None,
+                outbound_proxy: self.outbound_proxy.clone(),
                 provider: self.provider_name.clone(),
                 credential_id: None,
                 op: Op::CountTokens,

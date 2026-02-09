@@ -8,6 +8,7 @@ use sha2::Digest;
 use crate::providers::oauth_common::{
     extract_code_state_from_callback_url, parse_query_value, resolve_manual_code_and_state,
 };
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 const DEFAULT_BROWSER_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
@@ -61,7 +62,7 @@ enum DeviceAuthPollStatus {
 static OAUTH_STATES: OnceLock<Mutex<HashMap<String, OAuthState>>> = OnceLock::new();
 
 pub(super) fn oauth_start(
-    _ctx: &UpstreamCtx,
+    ctx: &UpstreamCtx,
     _config: &ProviderConfig,
     req: &OAuthStartRequest,
 ) -> ProviderResult<UpstreamHttpResponse> {
@@ -75,7 +76,7 @@ pub(super) fn oauth_start(
 
     match mode {
         OAuthMode::DeviceAuth => {
-            let user_code = request_device_user_code(DEFAULT_ISSUER)?;
+            let user_code = request_device_user_code(ctx, DEFAULT_ISSUER)?;
             let verification_uri = format!("{}/codex/device", DEFAULT_ISSUER.trim_end_matches('/'));
             guard.insert(
                 state_id.clone(),
@@ -140,7 +141,7 @@ pub(super) fn oauth_start(
 }
 
 pub(super) fn oauth_callback(
-    _ctx: &UpstreamCtx,
+    ctx: &UpstreamCtx,
     _config: &ProviderConfig,
     req: &OAuthCallbackRequest,
 ) -> ProviderResult<OAuthCallbackResult> {
@@ -205,7 +206,7 @@ pub(super) fn oauth_callback(
             ..
         } => {
             let poll_status =
-                poll_device_authorization(DEFAULT_ISSUER, &device_auth_id, &user_code)?;
+                poll_device_authorization(ctx, DEFAULT_ISSUER, &device_auth_id, &user_code)?;
             let poll_success = match poll_status {
                 DeviceAuthPollStatus::Pending => {
                     let message = format!(
@@ -232,6 +233,7 @@ pub(super) fn oauth_callback(
                 DEFAULT_ISSUER.trim_end_matches('/')
             );
             let tokens = exchange_code_for_tokens(
+                ctx,
                 DEFAULT_ISSUER,
                 &redirect_uri,
                 &poll_success.code_verifier,
@@ -270,14 +272,14 @@ pub(super) fn oauth_callback(
             }
 
             let tokens =
-                exchange_code_for_tokens(DEFAULT_ISSUER, &redirect_uri, &code_verifier, &code)?;
+                exchange_code_for_tokens(ctx, DEFAULT_ISSUER, &redirect_uri, &code_verifier, &code)?;
             build_callback_result(tokens)
         }
     }
 }
 
 pub(super) fn on_auth_failure<'a>(
-    _ctx: &'a UpstreamCtx,
+    ctx: &'a UpstreamCtx,
     _config: &'a ProviderConfig,
     credential: &'a Credential,
     _req: &'a Request,
@@ -289,7 +291,7 @@ pub(super) fn on_auth_failure<'a>(
             Credential::Codex(cred) => cred.refresh_token.clone(),
             _ => return Ok(AuthRetryAction::None),
         };
-        let tokens = refresh_access_token(DEFAULT_ISSUER, &refresh_token).await?;
+        let tokens = refresh_access_token(ctx, DEFAULT_ISSUER, &refresh_token).await?;
         let mut updated = credential.clone();
         if let Credential::Codex(cred) = &mut updated {
             cred.access_token = tokens.access_token.clone();
@@ -472,11 +474,9 @@ where
     }
 }
 
-fn request_device_user_code(issuer: &str) -> ProviderResult<DeviceUserCodeResponse> {
+fn request_device_user_code(ctx: &UpstreamCtx, issuer: &str) -> ProviderResult<DeviceUserCodeResponse> {
     crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let body = serde_json::to_vec(&serde_json::json!({ "client_id": CLIENT_ID }))
             .map_err(|err| ProviderError::Other(err.to_string()))?;
         let resp = client
@@ -506,14 +506,13 @@ fn request_device_user_code(issuer: &str) -> ProviderResult<DeviceUserCodeRespon
 }
 
 fn poll_device_authorization(
+    ctx: &UpstreamCtx,
     issuer: &str,
     device_auth_id: &str,
     user_code: &str,
 ) -> ProviderResult<DeviceAuthPollStatus> {
     crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let body = serde_json::to_vec(&serde_json::json!({
             "device_auth_id": device_auth_id,
             "user_code": user_code,
@@ -569,6 +568,7 @@ fn prune_oauth_states(states: &mut HashMap<String, OAuthState>) {
 }
 
 fn exchange_code_for_tokens(
+    ctx: &UpstreamCtx,
     issuer: &str,
     redirect_uri: &str,
     code_verifier: &str,
@@ -583,9 +583,7 @@ fn exchange_code_for_tokens(
     );
 
     crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let resp = client
             .post(format!("{}/oauth/token", issuer.trim_end_matches('/')))
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -609,15 +607,17 @@ fn exchange_code_for_tokens(
     })
 }
 
-async fn refresh_access_token(issuer: &str, refresh_token: &str) -> ProviderResult<TokenResponse> {
+async fn refresh_access_token(
+    ctx: &UpstreamCtx,
+    issuer: &str,
+    refresh_token: &str,
+) -> ProviderResult<TokenResponse> {
     let body = format!(
         "grant_type=refresh_token&refresh_token={}&client_id={}",
         urlencoding::encode(refresh_token),
         urlencoding::encode(CLIENT_ID),
     );
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let resp = client
         .post(format!("{}/oauth/token", issuer.trim_end_matches('/')))
         .header("Content-Type", "application/x-www-form-urlencoded")

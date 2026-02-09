@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 #[derive(Debug, serde::Serialize)]
 struct JwtClaims<'a> {
@@ -17,7 +18,7 @@ struct OAuthTokenResponse {
 }
 
 pub(super) fn on_auth_failure<'a>(
-    _ctx: &'a UpstreamCtx,
+    ctx: &'a UpstreamCtx,
     config: &'a ProviderConfig,
     credential: &'a Credential,
     _req: &'a Request,
@@ -38,7 +39,7 @@ pub(super) fn on_auth_failure<'a>(
             .as_deref()
             .or(cfg.token_uri.as_deref())
             .unwrap_or(DEFAULT_TOKEN_URI);
-        let (token, exp) = fetch_access_token(credential, token_uri, true)?;
+        let (token, exp) = fetch_access_token(ctx, credential, token_uri, true)?;
         let mut updated = credential.clone();
         if let Credential::Vertex(sa) = &mut updated {
             sa.access_token = token;
@@ -50,6 +51,7 @@ pub(super) fn on_auth_failure<'a>(
 }
 
 pub(super) fn fetch_access_token(
+    ctx: &UpstreamCtx,
     credential: &Credential,
     token_uri: &str,
     force_refresh: bool,
@@ -111,9 +113,7 @@ pub(super) fn fetch_access_token(
     );
 
     let (access_token, expires_at) = crate::providers::oauth_common::block_on(async {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let resp = client
             .post(token_uri)
             .header("Content-Type", "application/x-www-form-urlencoded")

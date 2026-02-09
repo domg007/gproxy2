@@ -214,6 +214,8 @@
     "project_id": "Project ID",
     "default_optional": "Optional",
     "default_not_required": "Not required (ignored in this flow)",
+    "default_callback_url_browser_auth": "Recommended for browser auth (contains state + code)",
+    "callback_hint_browser_auth": "Browser auth: paste callback URL, or fill both State and Code.",
     "default_project_auto_detect": "Auto-detect",
     "default_project_auto_detect_or_random": "Auto-detect (fallback to random)",
     "interval": "Polling interval",

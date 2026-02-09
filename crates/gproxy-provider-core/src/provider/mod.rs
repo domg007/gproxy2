@@ -122,6 +122,7 @@ pub struct UpstreamCtx {
     pub user_id: Option<i64>,
     pub user_key_id: Option<i64>,
     pub user_agent: Option<String>,
+    pub outbound_proxy: Option<String>,
     pub provider: String,
     pub credential_id: Option<i64>,
     pub op: Op,

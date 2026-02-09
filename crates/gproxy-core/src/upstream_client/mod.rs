@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -51,24 +53,71 @@ impl Default for UpstreamClientConfig {
 
 #[derive(Clone)]
 pub struct WreqUpstreamClient {
-    client: Client,
     config: UpstreamClientConfig,
+    proxy_resolver: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    clients: Arc<Mutex<HashMap<Option<String>, Client>>>,
 }
 
 impl WreqUpstreamClient {
     pub fn new(config: UpstreamClientConfig) -> Result<Self, wreq::Error> {
-        let mut builder = Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .read_timeout(config.stream_idle_timeout);
-
-        if let Some(proxy) = &config.proxy {
-            builder = builder.proxy(Proxy::all(proxy)?);
-        }
-
-        let client = builder.build()?;
-        Ok(Self { client, config })
+        let proxy = normalize_proxy(config.proxy.clone());
+        Self::new_with_proxy_resolver(config, move || proxy.clone())
     }
+
+    pub fn new_with_proxy_resolver<F>(
+        config: UpstreamClientConfig,
+        proxy_resolver: F,
+    ) -> Result<Self, wreq::Error>
+    where
+        F: Fn() -> Option<String> + Send + Sync + 'static,
+    {
+        let resolver: Arc<dyn Fn() -> Option<String> + Send + Sync> = Arc::new(proxy_resolver);
+        let initial_proxy = normalize_proxy(resolver());
+        let initial_client = build_client(&config, initial_proxy.as_deref())?;
+        let mut clients = HashMap::new();
+        clients.insert(initial_proxy, initial_client);
+        Ok(Self {
+            config,
+            proxy_resolver: resolver,
+            clients: Arc::new(Mutex::new(clients)),
+        })
+    }
+
+    fn current_proxy(&self) -> Option<String> {
+        normalize_proxy((self.proxy_resolver)())
+    }
+
+    fn client_for_proxy(&self, proxy: Option<String>) -> Result<Client, UpstreamFailure> {
+        let mut guard = self.clients.lock().map_err(|_| UpstreamFailure::Transport {
+            kind: UpstreamTransportErrorKind::Other,
+            message: "upstream client cache lock failed".to_string(),
+        })?;
+        if let Some(client) = guard.get(&proxy) {
+            return Ok(client.clone());
+        }
+        let client = build_client(&self.config, proxy.as_deref()).map_err(map_wreq_error)?;
+        guard.insert(proxy, client.clone());
+        Ok(client)
+    }
+}
+
+fn normalize_proxy(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+}
+
+fn build_client(config: &UpstreamClientConfig, proxy: Option<&str>) -> Result<Client, wreq::Error> {
+    let mut builder = Client::builder()
+        .connect_timeout(config.connect_timeout)
+        .timeout(config.request_timeout)
+        .read_timeout(config.stream_idle_timeout);
+
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(Proxy::all(proxy)?);
+    }
+
+    builder.build()
 }
 
 impl UpstreamClient for WreqUpstreamClient {
@@ -78,6 +127,7 @@ impl UpstreamClient for WreqUpstreamClient {
     ) -> Pin<Box<dyn Future<Output = Result<UpstreamHttpResponse, UpstreamFailure>> + Send + 'a>>
     {
         Box::pin(async move {
+            let client = self.client_for_proxy(self.current_proxy())?;
             if req.url.starts_with("local://") {
                 let body = req.body.unwrap_or_default();
                 return Ok(UpstreamHttpResponse {
@@ -87,7 +137,7 @@ impl UpstreamClient for WreqUpstreamClient {
                 });
             }
             let method = http_method_to_wreq(req.method);
-            let mut builder = self.client.request(method, &req.url);
+            let mut builder = client.request(method, &req.url);
 
             for (k, v) in &req.headers {
                 builder = builder.header(k, v);

@@ -7,14 +7,17 @@ use tokenizers::Tokenizer;
 
 use gproxy_provider_core::ProviderError;
 
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
+
 pub fn count_input_tokens(
+    ctx: &gproxy_provider_core::UpstreamCtx,
     model: &str,
     body: &gproxy_protocol::openai::count_tokens::request::InputTokenCountRequestBody,
     hf_token: Option<&str>,
     hf_url: Option<&str>,
     data_dir: Option<&str>,
 ) -> Result<i64, ProviderError> {
-    let tokenizer = load_tokenizer(model, hf_token, hf_url, data_dir)?;
+    let tokenizer = load_tokenizer(ctx, model, hf_token, hf_url, data_dir)?;
     let mut value =
         serde_json::to_value(body).map_err(|err| ProviderError::Other(err.to_string()))?;
     if let Some(map) = value.as_object_mut() {
@@ -29,6 +32,7 @@ pub fn count_input_tokens(
 }
 
 fn load_tokenizer(
+    ctx: &gproxy_provider_core::UpstreamCtx,
     model: &str,
     hf_token: Option<&str>,
     hf_url: Option<&str>,
@@ -61,7 +65,7 @@ fn load_tokenizer(
         .filter(|value| !value.is_empty())
         .unwrap_or("https://huggingface.co");
     let url = format!("{base}/{model}/resolve/main/tokenizer.json");
-    let bytes = crate::providers::oauth_common::block_on(fetch_tokenizer_bytes(url, hf_token))?;
+    let bytes = crate::providers::oauth_common::block_on(fetch_tokenizer_bytes(ctx, url, hf_token))?;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -106,12 +110,11 @@ fn sanitize_model_name(model: &str) -> String {
 }
 
 async fn fetch_tokenizer_bytes(
+    ctx: &gproxy_provider_core::UpstreamCtx,
     url: String,
     hf_token: Option<&str>,
 ) -> Result<Bytes, ProviderError> {
-    let client = wreq::Client::builder()
-        .build()
-        .map_err(|err| ProviderError::Other(err.to_string()))?;
+    let client = client_for_ctx(ctx, SharedClientKind::Global)?;
     let mut redirects = 0usize;
     let mut current_url = url;
     loop {

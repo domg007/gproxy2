@@ -10,6 +10,7 @@ use wreq::header::{
 };
 
 use super::*;
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 static SESSION_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedTokens>>> = OnceLock::new();
 static SESSION_COOKIE_KEEPALIVE_CACHE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
@@ -25,14 +26,15 @@ pub(super) struct CachedTokens {
 }
 
 pub(super) fn ensure_session_tokens_full(
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     session_key: &str,
 ) -> ProviderResult<CachedTokens> {
-    keepalive_session_cookie_if_due(config, session_key);
+    keepalive_session_cookie_if_due(ctx, config, session_key);
     if let Some(cached) = get_cached_session_tokens(session_key) {
         return Ok(cached);
     }
-    let tokens = oauth_with_session_key(config, session_key)?;
+    let tokens = oauth_with_session_key(ctx, config, session_key)?;
     let refresh_token = tokens
         .refresh_token
         .clone()
@@ -87,7 +89,7 @@ fn session_cookie_keepalive_cache() -> &'static Mutex<HashMap<String, i64>> {
     SESSION_COOKIE_KEEPALIVE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn keepalive_session_cookie_if_due(config: &ProviderConfig, session_key: &str) {
+fn keepalive_session_cookie_if_due(ctx: &UpstreamCtx, config: &ProviderConfig, session_key: &str) {
     let now = chrono_now();
     if !session_cookie_keepalive_due(session_key, now) {
         return;
@@ -101,9 +103,7 @@ fn keepalive_session_cookie_if_due(config: &ProviderConfig, session_key: &str) {
         return;
     };
     let result: ProviderResult<()> = crate::providers::oauth_common::block_on(async move {
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::ClaudeCode)?;
         fetch_org_info(&client, session_key, &claude_ai_base).await?;
         Ok(())
     });
@@ -140,6 +140,7 @@ fn is_expired(expires_at: Option<i64>) -> bool {
 }
 
 fn oauth_with_session_key(
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     session_key: &str,
 ) -> ProviderResult<TokenResponse> {
@@ -147,9 +148,7 @@ fn oauth_with_session_key(
         let api_base = claudecode_api_base_url(config)?.trim_end_matches('/');
         let claude_ai_base = claudecode_ai_base_url(config)?.trim_end_matches('/');
         let redirect_uri = claudecode_oauth_redirect_uri(config)?;
-        let client = wreq::Client::builder()
-            .build()
-            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let client = client_for_ctx(ctx, SharedClientKind::ClaudeCode)?;
 
         let org = fetch_org_info(&client, session_key, claude_ai_base).await?;
         let (code, code_verifier, _scope, state) = authorize_with_cookie(

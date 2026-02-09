@@ -114,7 +114,7 @@ impl UpstreamProvider for NvidiaProvider {
 
     async fn build_openai_input_tokens(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::openai::count_tokens::request::InputTokenCountRequest,
@@ -124,7 +124,7 @@ impl UpstreamProvider for NvidiaProvider {
         let hf_url = nvidia_hf_url(config);
         let data_dir = nvidia_data_dir(config);
         let tokens =
-            tokenizer::count_input_tokens(&req.body.model, &req.body, hf_token, hf_url, data_dir)
+            tokenizer::count_input_tokens(ctx, &req.body.model, &req.body, hf_token, hf_url, data_dir)
                 .map_err(|err| ProviderError::Other(err.to_string()))?;
         let response = gproxy_protocol::openai::count_tokens::response::InputTokenCountResponse {
             object: gproxy_protocol::openai::count_tokens::types::InputTokenObjectType::ResponseInputTokens,

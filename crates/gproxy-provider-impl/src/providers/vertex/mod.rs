@@ -125,7 +125,7 @@ impl UpstreamProvider for VertexProvider {
 
     async fn build_gemini_generate(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::gemini::generate_content::request::GenerateContentRequest,
@@ -136,12 +136,12 @@ impl UpstreamProvider for VertexProvider {
         let path = format!(
             "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models/{model_id}:generateContent"
         );
-        build_vertex_request(config, credential, &path, &body, false, &token_uri)
+        build_vertex_request(ctx, config, credential, &path, &body, false, &token_uri)
     }
 
     async fn build_gemini_generate_stream(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::gemini::stream_content::request::StreamGenerateContentRequest,
@@ -155,12 +155,12 @@ impl UpstreamProvider for VertexProvider {
             ),
             req.query.as_deref(),
         );
-        build_vertex_request(config, credential, &path, &body, true, &token_uri)
+        build_vertex_request(ctx, config, credential, &path, &body, true, &token_uri)
     }
 
     async fn build_gemini_count_tokens(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::gemini::count_tokens::request::CountTokensRequest,
@@ -171,12 +171,12 @@ impl UpstreamProvider for VertexProvider {
         let path = format!(
             "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models/{model_id}:countTokens"
         );
-        build_vertex_request(config, credential, &path, &body, false, &token_uri)
+        build_vertex_request(ctx, config, credential, &path, &body, false, &token_uri)
     }
 
     async fn build_gemini_models_list(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::gemini::list_models::request::ListModelsRequest,
@@ -187,7 +187,7 @@ impl UpstreamProvider for VertexProvider {
         if let Some(query) = build_gemini_query(&req.query) {
             url = format!("{url}?{query}");
         }
-        let (access_token, _) = oauth::fetch_access_token(credential, &token_uri, false)?;
+        let (access_token, _) = oauth::fetch_access_token(ctx, credential, &token_uri, false)?;
         let mut headers = Vec::new();
         auth_extractor::set_bearer(&mut headers, &access_token);
         auth_extractor::set_accept_json(&mut headers);
@@ -202,7 +202,7 @@ impl UpstreamProvider for VertexProvider {
 
     async fn build_gemini_models_get(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::gemini::get_model::request::GetModelRequest,
@@ -211,7 +211,7 @@ impl UpstreamProvider for VertexProvider {
         let model_id = normalize_model_name(&req.path.name);
         let path = format!("/v1beta1/publishers/google/models/{model_id}");
         let url = build_url(Some(vertex_base_url(config)?), DEFAULT_BASE_URL, &path);
-        let (access_token, _) = oauth::fetch_access_token(credential, &token_uri, false)?;
+        let (access_token, _) = oauth::fetch_access_token(ctx, credential, &token_uri, false)?;
         let mut headers = Vec::new();
         auth_extractor::set_bearer(&mut headers, &access_token);
         auth_extractor::set_accept_json(&mut headers);
@@ -226,7 +226,7 @@ impl UpstreamProvider for VertexProvider {
 
     async fn build_openai_chat(
         &self,
-        _ctx: &UpstreamCtx,
+        ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
         req: &gproxy_protocol::openai::create_chat_completions::request::CreateChatCompletionRequest,
@@ -237,7 +237,7 @@ impl UpstreamProvider for VertexProvider {
         let endpoint_path = format!("projects/{project_id}/locations/{location}/endpoints/openapi");
         let path = format!("/v1beta1/{endpoint_path}/chat/completions");
         let url = build_url(Some(vertex_base_url(config)?), DEFAULT_BASE_URL, &path);
-        let (access_token, _) = oauth::fetch_access_token(credential, &token_uri, false)?;
+        let (access_token, _) = oauth::fetch_access_token(ctx, credential, &token_uri, false)?;
         let body_bytes =
             serde_json::to_vec(&body).map_err(|err| ProviderError::Other(err.to_string()))?;
         let mut headers = Vec::new();
@@ -300,6 +300,7 @@ fn vertex_context(
 }
 
 fn build_vertex_request<T: serde::Serialize>(
+    ctx: &UpstreamCtx,
     config: &ProviderConfig,
     credential: &Credential,
     path: &str,
@@ -308,7 +309,7 @@ fn build_vertex_request<T: serde::Serialize>(
     token_uri: &str,
 ) -> ProviderResult<UpstreamHttpRequest> {
     let url = build_url(Some(vertex_base_url(config)?), DEFAULT_BASE_URL, path);
-    let (access_token, _) = oauth::fetch_access_token(credential, token_uri, false)?;
+    let (access_token, _) = oauth::fetch_access_token(ctx, credential, token_uri, false)?;
     let body = serde_json::to_vec(body).map_err(|err| ProviderError::Other(err.to_string()))?;
     let mut headers = Vec::new();
     auth_extractor::set_bearer(&mut headers, &access_token);
