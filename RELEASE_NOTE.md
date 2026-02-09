@@ -80,3 +80,19 @@
 ### Fixed
 - normalized codex upstream model payloads to OpenAI-compatible shapes for both list (`object=list,data=[...]`) and get (`object=model`).
 - extended provider non-stream normalization hook to include original request context, enabling provider-side model selection for `ModelGet`.
+
+## v0.2.13
+
+### Added
+- admin API: added `POST /admin/system/self_update` to download and install the latest GitHub Release binary in place.
+- self update now schedules an automatic process restart after successful binary replacement.
+- admin About page now provides one-click binary self-update action.
+
+### Changed
+- claudecode provider config now supports `prelude_text` enum selection (`claude_code_system` / `claude_agent_sdk`) instead of raw sentence input.
+- kept backward compatibility for legacy `prelude_txt` and full-sentence values by loose parsing/mapping.
+- provider config UI now renders claudecode prelude as a select field.
+
+### Docs
+- updated route documentation for `/admin/system/self_update` and admin query-key auth note.
+- added Star History chart section in `README.md` and `README.zh.md`.

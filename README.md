@@ -21,6 +21,10 @@ gproxy provides:
 - Render blueprint does not create a managed PostgreSQL by default. `GPROXY_DSN` is left optional for external DB wiring.
 - Render blueprint does not attach a persistent disk by default. `GPROXY_DATA_DIR` is ephemeral (`/tmp/gproxy-data`) unless you provide external persistence.
 
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LeenHawk/gproxy&type=Date)](https://star-history.com/#LeenHawk/gproxy&Date)
+
 ## Built-in providers
 
 Current built-ins (seeded on first bootstrap):

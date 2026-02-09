@@ -151,6 +151,7 @@ Disambiguation on `GET /v1/models` + `GET /v1/models/{model}`:
 Accepted admin key sources (first match wins):
 - `x-admin-key: <key>`
 - `Authorization: Bearer <key>`
+- Query `?admin_key=<key>` (useful for browser WebSocket `/admin/events/ws`)
 
 ### Routes
 - `GET /admin/health`
@@ -187,7 +188,20 @@ Accepted admin key sources (first match wins):
 - `PUT /admin/user_keys/{id}/enabled`
 
 - `GET /admin/events/ws`
+- `POST /admin/system/self_update`
 
 Note: usage records are persisted in DB table `upstream_usages` (not `upstream_requests.usage_json`).
 Note: `upstream_usages` includes a `model` column. Model-scoped usage routes filter by this column.
 Note: `model` can be `NULL` for historical rows when request body/path did not contain model info, or when `event_redact_sensitive=true` (request body not persisted, so model cannot be extracted/backfilled).
+
+### Self update (`POST /admin/system/self_update`)
+- Downloads the latest GitHub release metadata from `LeenHawk/gproxy`.
+- Selects release asset by current runtime target (`os` + `arch`, and `linux-musl` when applicable).
+- Replaces current executable in place.
+- Schedules automatic process restart (about 500ms) after successful replacement.
+
+Response notes:
+- Success response includes `ok=true`, `release_tag`, `asset`, `installed_to`, `restart_scheduled=true`.
+- If binary replacement succeeds but restart scheduling fails, returns `error=self_restart_schedule_failed`.
+- If update flow fails (release fetch/download/extract/install), returns `error=self_update_failed`.
+- Running-binary self update is currently rejected on Windows with `self_update_not_supported_on_windows_running_binary`.

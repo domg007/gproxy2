@@ -21,6 +21,10 @@ gproxy 提供：
 - Render Blueprint 默认不创建托管 PostgreSQL；`GPROXY_DSN` 保留为可选项，便于接入外部数据库。
 - Render Blueprint 默认不挂载持久磁盘；`GPROXY_DATA_DIR` 默认为临时目录（`/tmp/gproxy-data`），如需持久化请使用外部存储。
 
+## Star 增长趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LeenHawk/gproxy&type=Date)](https://star-history.com/#LeenHawk/gproxy&Date)
+
 ## 内置渠道
 
 首次启动会自动写入以下内置渠道：
