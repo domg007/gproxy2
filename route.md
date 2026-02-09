@@ -21,6 +21,7 @@ Note: `trace_id` is server-generated as UUIDv7 per downstream request and reused
 #### OpenAI
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `POST /v1/responses/input_tokens`
 
 #### Shared models
@@ -77,6 +78,7 @@ Disambiguation: `GET /v1/models` + `GET /v1/models/{model}` are treated as **Cla
 ### OpenAI
 - `POST /{provider}/v1/chat/completions`
 - `POST /{provider}/v1/responses`
+- `POST /{provider}/v1/responses/compact`
 - `POST /{provider}/v1/responses/input_tokens`
 - `GET /{provider}/v1/models`
 - `GET /{provider}/v1/models/{model}`

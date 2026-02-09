@@ -3,6 +3,7 @@ use bytes::Bytes;
 use rand::RngCore;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tiktoken_rs::{CoreBPE, get_bpe_from_model, o200k_base};
 
 use gproxy_provider_core::credential::CodexCredential;
@@ -16,11 +17,10 @@ use gproxy_provider_core::{
 use gproxy_protocol::openai;
 use gproxy_protocol::openai::create_response::types::{
     EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole, EasyInputMessageType,
-    InputItem, InputParam, Instructions, Metadata,
+    InputItem, InputParam, Metadata,
 };
 
 use crate::auth_extractor;
-mod instructions;
 mod oauth;
 mod usage;
 
@@ -30,6 +30,8 @@ const DEFAULT_ISSUER: &str = "https://auth.openai.com";
 const OAUTH_STATE_TTL_SECS: u64 = 600;
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CLIENT_VERSION: &str = "0.99.0";
+const GPROXY_COMPACT_METADATA_KEY: &str = "gproxy_internal_compact";
+const GPROXY_COMPACT_METADATA_VALUE: &str = "1";
 
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
@@ -173,16 +175,30 @@ impl UpstreamProvider for CodexProvider {
         let base_url = codex_base_url(config)?;
         let (access_token, account_id) = codex_credential(credential)?;
         let mut body = req.body.clone();
-        apply_non_codex_instructions(&mut body, extract_user_agent(_ctx));
-        normalize_codex_input(&mut body);
-        // Codex upstream requires explicit non-persistent responses.
-        body.store = Some(false);
-        // Codex upstream does not support max tokens parameter.
-        body.max_output_tokens = None;
-        // Codex upstream rejects OpenAI stream_options.
-        body.stream_options = None;
-        let is_stream = body.stream.unwrap_or(false);
-        let url = format!("{}/responses", base_url.trim_end_matches('/'));
+        let is_compact = take_compact_marker(&mut body.metadata);
+        if !is_compact {
+            normalize_codex_input(&mut body);
+            // Codex upstream requires explicit non-persistent responses.
+            body.store = Some(false);
+            // Codex upstream does not support max tokens parameter.
+            body.max_output_tokens = None;
+            // Codex upstream rejects OpenAI stream_options.
+            body.stream_options = None;
+        } else {
+            // Codex compact endpoint is unary JSON.
+            body.stream = Some(false);
+            body.stream_options = None;
+        }
+        let is_stream = if is_compact {
+            false
+        } else {
+            body.stream.unwrap_or(false)
+        };
+        let url = if is_compact {
+            format!("{}/responses/compact", base_url.trim_end_matches('/'))
+        } else {
+            format!("{}/responses", base_url.trim_end_matches('/'))
+        };
         let body =
             serde_json::to_vec(&body).map_err(|err| ProviderError::Other(err.to_string()))?;
 
@@ -280,6 +296,13 @@ impl UpstreamProvider for CodexProvider {
         req: &Request,
         body: Bytes,
     ) -> ProviderResult<Bytes> {
+        if proto == Proto::OpenAIResponse
+            && op == Op::GenerateContent
+            && request_has_compact_marker(req)
+        {
+            return normalize_codex_compact_response_for_decode(&body, req);
+        }
+
         if proto != Proto::OpenAI {
             return Ok(body);
         }
@@ -614,55 +637,118 @@ fn model_get_target_model(req: &Request) -> Option<String> {
     }
 }
 
+fn request_has_compact_marker(req: &Request) -> bool {
+    match req {
+        Request::GenerateContent(gproxy_provider_core::GenerateContentRequest::OpenAIResponse(
+            inner,
+        )) => has_compact_marker(inner.body.metadata.as_ref()),
+        _ => false,
+    }
+}
+
+fn request_model(req: &Request) -> Option<String> {
+    match req {
+        Request::GenerateContent(gproxy_provider_core::GenerateContentRequest::OpenAIResponse(
+            inner,
+        )) => Some(inner.body.model.clone()),
+        _ => None,
+    }
+}
+
+fn has_compact_marker(metadata: Option<&Metadata>) -> bool {
+    metadata
+        .and_then(|meta| meta.get(GPROXY_COMPACT_METADATA_KEY))
+        .map(|value| value == GPROXY_COMPACT_METADATA_VALUE)
+        .unwrap_or(false)
+}
+
+fn take_compact_marker(metadata: &mut Option<Metadata>) -> bool {
+    let Some(meta) = metadata.as_mut() else {
+        return false;
+    };
+    let is_compact = meta
+        .remove(GPROXY_COMPACT_METADATA_KEY)
+        .map(|value| value == GPROXY_COMPACT_METADATA_VALUE)
+        .unwrap_or(false);
+    if meta.is_empty() {
+        *metadata = None;
+    }
+    is_compact
+}
+
+fn normalize_codex_compact_response_for_decode(
+    body: &Bytes,
+    req: &Request,
+) -> ProviderResult<Bytes> {
+    let Ok(value) = serde_json::from_slice::<JsonValue>(body) else {
+        return Ok(body.clone());
+    };
+
+    if is_openai_response_value(&value) {
+        return Ok(body.clone());
+    }
+
+    let Some(output) = value.get("output") else {
+        return Ok(body.clone());
+    };
+
+    let id = value
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("resp_compact");
+    let created_at = value
+        .get("created_at")
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(current_unix_ts);
+    let model = request_model(req).unwrap_or_else(|| "unknown".to_string());
+
+    let mut wrapped = serde_json::Map::new();
+    wrapped.insert("id".to_string(), JsonValue::String(id.to_string()));
+    wrapped.insert(
+        "object".to_string(),
+        JsonValue::String("response".to_string()),
+    );
+    wrapped.insert(
+        "created_at".to_string(),
+        JsonValue::Number(serde_json::Number::from(created_at)),
+    );
+    wrapped.insert(
+        "status".to_string(),
+        JsonValue::String("completed".to_string()),
+    );
+    wrapped.insert("model".to_string(), JsonValue::String(model));
+    wrapped.insert("output".to_string(), output.clone());
+
+    if let Some(usage) = value.get("usage") {
+        wrapped.insert("usage".to_string(), usage.clone());
+    }
+
+    serde_json::to_vec(&JsonValue::Object(wrapped))
+        .map(Bytes::from)
+        .map_err(|err| ProviderError::Other(err.to_string()))
+}
+
+fn is_openai_response_value(value: &JsonValue) -> bool {
+    value
+        .get("object")
+        .and_then(|v| v.as_str())
+        .map(|v| v == "response")
+        .unwrap_or(false)
+        && value.get("id").and_then(|v| v.as_str()).is_some()
+        && value.get("model").and_then(|v| v.as_str()).is_some()
+        && value.get("created_at").and_then(|v| v.as_i64()).is_some()
+}
+
+fn current_unix_ts() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 fn normalize_model_id(model: &str) -> String {
     let model = model.trim_start_matches('/');
     model.strip_prefix("models/").unwrap_or(model).to_string()
-}
-
-fn apply_non_codex_instructions(
-    body: &mut openai::create_response::request::CreateResponseRequestBody,
-    user_agent: Option<&str>,
-) {
-    if is_codex_user_agent(user_agent) {
-        return;
-    }
-    let model = body.model.clone();
-    let personality = resolve_codex_personality(body.metadata.as_ref());
-    let extra = instructions::instructions_for_model(&model, personality);
-    apply_instruction_text(body, &extra);
-}
-
-fn apply_instruction_text(
-    body: &mut openai::create_response::request::CreateResponseRequestBody,
-    extra: &str,
-) {
-    let extra = extra.trim();
-    if extra.is_empty() {
-        return;
-    }
-    let extra_text = extra.to_string();
-    body.instructions = match body.instructions.take() {
-        Some(Instructions::Text(existing)) => {
-            if existing.trim().is_empty() {
-                Some(Instructions::Text(extra_text))
-            } else {
-                Some(Instructions::Text(format!("{existing}\n\n{extra}")))
-            }
-        }
-        Some(Instructions::Items(mut items)) => {
-            items.push(instruction_text_item(extra_text));
-            Some(Instructions::Items(items))
-        }
-        None => Some(Instructions::Text(extra_text)),
-    };
-}
-
-fn instruction_text_item(text: String) -> InputItem {
-    InputItem::EasyMessage(EasyInputMessage {
-        r#type: EasyInputMessageType::Message,
-        role: EasyInputMessageRole::System,
-        content: EasyInputMessageContent::Text(text),
-    })
 }
 
 fn normalize_codex_input(body: &mut openai::create_response::request::CreateResponseRequestBody) {
@@ -680,28 +766,6 @@ fn normalize_codex_input(body: &mut openai::create_response::request::CreateResp
         }
         InputParam::Items(items) => InputParam::Items(items),
     });
-}
-
-fn resolve_codex_personality(
-    metadata: Option<&Metadata>,
-) -> Option<instructions::CodexPersonality> {
-    metadata.and_then(|meta| {
-        meta.get("codex_personality")
-            .or_else(|| meta.get("personality"))
-            .and_then(|value| instructions::parse_personality(value))
-    })
-}
-
-fn is_codex_user_agent(user_agent: Option<&str>) -> bool {
-    user_agent
-        .map(|ua| ua.to_ascii_lowercase().contains("codex"))
-        .unwrap_or(false)
-}
-
-fn extract_user_agent(ctx: &UpstreamCtx) -> Option<&str> {
-    ctx.user_agent
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
 }
 
 fn json_response(body: serde_json::Value) -> UpstreamHttpResponse {
@@ -883,5 +947,88 @@ mod tests {
         let url = codex_models_url("https://chatgpt.com/backend-api/codex/");
         assert!(url.starts_with("https://chatgpt.com/backend-api/codex/models?client_version="));
         assert!(url.ends_with(CLIENT_VERSION));
+    }
+
+    #[test]
+    fn takes_compact_marker_and_cleans_metadata() {
+        let mut metadata = Metadata::new();
+        metadata.insert(
+            GPROXY_COMPACT_METADATA_KEY.to_string(),
+            GPROXY_COMPACT_METADATA_VALUE.to_string(),
+        );
+        let mut metadata = Some(metadata);
+
+        let taken = take_compact_marker(&mut metadata);
+        assert!(taken);
+        assert!(metadata.is_none());
+    }
+
+    #[test]
+    fn wraps_compact_response_for_openai_decode() {
+        let req = Request::GenerateContent(
+            gproxy_provider_core::GenerateContentRequest::OpenAIResponse(
+                openai::create_response::request::CreateResponseRequest {
+                    body: openai::create_response::request::CreateResponseRequestBody {
+                        model: "gpt-5".to_string(),
+                        input: None,
+                        include: None,
+                        parallel_tool_calls: None,
+                        store: None,
+                        instructions: None,
+                        stream: Some(false),
+                        stream_options: None,
+                        conversation: None,
+                        previous_response_id: None,
+                        reasoning: None,
+                        background: None,
+                        max_output_tokens: None,
+                        max_tool_calls: None,
+                        text: None,
+                        tools: None,
+                        tool_choice: None,
+                        prompt: None,
+                        truncation: None,
+                        top_logprobs: None,
+                        metadata: Some({
+                            let mut meta = Metadata::new();
+                            meta.insert(
+                                GPROXY_COMPACT_METADATA_KEY.to_string(),
+                                GPROXY_COMPACT_METADATA_VALUE.to_string(),
+                            );
+                            meta
+                        }),
+                        temperature: None,
+                        top_p: None,
+                        user: None,
+                        safety_identifier: None,
+                        prompt_cache_key: None,
+                        service_tier: None,
+                        prompt_cache_retention: None,
+                    },
+                },
+            ),
+        );
+        let compact = serde_json::json!({
+            "output": [
+                {
+                    "type": "message",
+                    "id": "m1",
+                    "role": "assistant",
+                    "content": []
+                }
+            ]
+        });
+        let normalized = normalize_codex_compact_response_for_decode(
+            &Bytes::from(serde_json::to_vec(&compact).unwrap()),
+            &req,
+        )
+        .expect("normalize compact");
+        let value: JsonValue = serde_json::from_slice(&normalized).expect("decode json");
+        assert_eq!(
+            value.get("object").and_then(|v| v.as_str()),
+            Some("response")
+        );
+        assert_eq!(value.get("model").and_then(|v| v.as_str()), Some("gpt-5"));
+        assert!(value.get("output").is_some());
     }
 }

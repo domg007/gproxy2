@@ -49,6 +49,9 @@ struct ProviderRouteCtx {
     response_model_prefix_provider: Option<String>,
 }
 
+const GPROXY_OPENAI_COMPACT_METADATA_KEY: &str = "gproxy_internal_compact";
+const GPROXY_OPENAI_COMPACT_METADATA_VALUE: &str = "1";
+
 pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
     let state = ProxyState { engine };
 
@@ -64,6 +67,10 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
             post(openai_chat_completions_aggregate),
         )
         .route("/v1/responses", post(openai_responses_aggregate))
+        .route(
+            "/v1/responses/compact",
+            post(openai_responses_compact_aggregate),
+        )
         .route(
             "/v1/responses/input_tokens",
             post(openai_input_tokens_aggregate),
@@ -86,6 +93,10 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
             post(openai_chat_completions),
         )
         .route("/{provider}/v1/responses", post(openai_responses))
+        .route(
+            "/{provider}/v1/responses/compact",
+            post(openai_responses_compact),
+        )
         .route(
             "/{provider}/v1/responses/input_tokens",
             post(openai_input_tokens),
@@ -431,6 +442,37 @@ async fn openai_responses_aggregate(
         )),
     };
     to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_responses_compact_aggregate(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Json(mut body): Json<openai::create_response::request::CreateResponseRequestBody>,
+) -> Response {
+    let Some((provider, model)) = split_provider_model(&body.model) else {
+        return (StatusCode::BAD_REQUEST, "missing_provider_prefix").into_response();
+    };
+    if provider != "codex" {
+        return (StatusCode::NOT_IMPLEMENTED, "unsupported_operation").into_response();
+    }
+    body.model = model;
+    mark_openai_compact_request(&mut body);
+    let req = openai::create_response::request::CreateResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider: provider.clone(),
+        response_model_prefix_provider: Some(provider),
+        user_proto: Proto::OpenAIResponse,
+        user_op: Op::GenerateContent,
+        req: Box::new(Request::GenerateContent(
+            MwGenerateContentRequest::OpenAIResponse(req),
+        )),
+    };
+    to_axum_response(compact_output_from_response(
+        state.engine.handle(call).await,
+    ))
 }
 
 async fn openai_input_tokens_aggregate(
@@ -815,10 +857,61 @@ fn claude_model_to_string_for_route(model: &claude::count_tokens::types::Model) 
     }
 }
 
+fn mark_openai_compact_request(
+    body: &mut openai::create_response::request::CreateResponseRequestBody,
+) {
+    body.stream = Some(false);
+    body.stream_options = None;
+    let metadata = body.metadata.get_or_insert_with(Default::default);
+    metadata.insert(
+        GPROXY_OPENAI_COMPACT_METADATA_KEY.to_string(),
+        GPROXY_OPENAI_COMPACT_METADATA_VALUE.to_string(),
+    );
+}
+
 fn response_body_bytes(body: &UpstreamBody) -> Option<Bytes> {
     match body {
         UpstreamBody::Bytes(b) => Some(b.clone()),
         UpstreamBody::Stream(_) => None,
+    }
+}
+
+fn compact_output_from_response(resp: UpstreamHttpResponse) -> UpstreamHttpResponse {
+    if !(200..300).contains(&resp.status) {
+        return resp;
+    }
+    let Some(bytes) = response_body_bytes(&resp.body) else {
+        return resp;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return resp;
+    };
+    let Some(output) = value.get("output") else {
+        return resp;
+    };
+
+    let body = serde_json::json!({ "output": output });
+    let Ok(body_bytes) = serde_json::to_vec(&body) else {
+        return resp;
+    };
+
+    let mut headers = resp.headers;
+    upsert_header(&mut headers, "content-type", "application/json");
+    UpstreamHttpResponse {
+        status: resp.status,
+        headers,
+        body: UpstreamBody::Bytes(Bytes::from(body_bytes)),
+    }
+}
+
+fn upsert_header(headers: &mut Headers, key: &str, value: &str) {
+    if let Some((_k, v)) = headers
+        .iter_mut()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+    {
+        *v = value.to_string();
+    } else {
+        headers.push((key.to_string(), value.to_string()));
     }
 }
 
@@ -1205,6 +1298,34 @@ async fn openai_responses(
     to_axum_response(state.engine.handle(call).await)
 }
 
+async fn openai_responses_compact(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path(provider): Path<String>,
+    Json(mut body): Json<openai::create_response::request::CreateResponseRequestBody>,
+) -> Response {
+    if provider != "codex" {
+        return (StatusCode::NOT_IMPLEMENTED, "unsupported_operation").into_response();
+    }
+    mark_openai_compact_request(&mut body);
+    let req = openai::create_response::request::CreateResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAIResponse,
+        user_op: Op::GenerateContent,
+        req: Box::new(Request::GenerateContent(
+            MwGenerateContentRequest::OpenAIResponse(req),
+        )),
+    };
+    to_axum_response(compact_output_from_response(
+        state.engine.handle(call).await,
+    ))
+}
+
 async fn openai_input_tokens(
     State(state): State<ProxyState>,
     Extension(auth): Extension<ProxyAuth>,
@@ -1532,4 +1653,84 @@ fn parse_anthropic_headers(headers: &HeaderMap) -> claude::types::AnthropicHeade
     }
 
     serde_json::from_value(serde_json::Value::Object(map)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mark_openai_compact_request_sets_internal_marker() {
+        let mut body = openai::create_response::request::CreateResponseRequestBody {
+            model: "gpt-5".to_string(),
+            input: None,
+            include: None,
+            parallel_tool_calls: None,
+            store: None,
+            instructions: None,
+            stream: Some(true),
+            stream_options: Some(openai::create_response::types::ResponseStreamOptions {
+                include_obfuscation: Some(true),
+            }),
+            conversation: None,
+            previous_response_id: None,
+            reasoning: None,
+            background: None,
+            max_output_tokens: None,
+            max_tool_calls: None,
+            text: None,
+            tools: None,
+            tool_choice: None,
+            prompt: None,
+            truncation: None,
+            top_logprobs: None,
+            metadata: None,
+            temperature: None,
+            top_p: None,
+            user: None,
+            safety_identifier: None,
+            prompt_cache_key: None,
+            service_tier: None,
+            prompt_cache_retention: None,
+        };
+
+        mark_openai_compact_request(&mut body);
+
+        assert_eq!(body.stream, Some(false));
+        assert!(body.stream_options.is_none());
+        assert_eq!(
+            body.metadata
+                .as_ref()
+                .and_then(|m| m.get(GPROXY_OPENAI_COMPACT_METADATA_KEY)),
+            Some(&GPROXY_OPENAI_COMPACT_METADATA_VALUE.to_string())
+        );
+    }
+
+    #[test]
+    fn compact_output_from_response_keeps_output_only() {
+        let full = serde_json::json!({
+            "id": "resp_123",
+            "object": "response",
+            "created_at": 123,
+            "model": "gpt-5",
+            "output": [{"type":"message","id":"m1","role":"assistant","content":[]}],
+            "usage": {"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}
+        });
+        let body = Bytes::from(serde_json::to_vec(&full).unwrap());
+        let resp = UpstreamHttpResponse {
+            status: 200,
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
+            body: UpstreamBody::Bytes(body),
+        };
+
+        let compacted = compact_output_from_response(resp);
+        let body = response_body_bytes(&compacted.body).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "output": [{"type":"message","id":"m1","role":"assistant","content":[]}]
+            })
+        );
+    }
 }
