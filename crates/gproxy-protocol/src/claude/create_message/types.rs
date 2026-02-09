@@ -54,6 +54,14 @@ pub enum BetaServiceTier {
     StandardOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BetaSpeed {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "fast")]
+    Fast,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BetaContainer {
     pub id: String,
@@ -245,6 +253,8 @@ pub enum BetaWebSearchToolResultErrorCode {
     TooManyRequests,
     #[serde(rename = "query_too_long")]
     QueryTooLong,
+    #[serde(rename = "request_too_large")]
+    RequestTooLarge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -784,6 +794,20 @@ pub struct BetaContainerUploadBlock {
     pub r#type: BetaContainerUploadBlockType,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BetaCompactionBlockType {
+    #[serde(rename = "compaction")]
+    Compaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BetaCompactionBlock {
+    /// Summary of compacted content, or null if compaction failed.
+    pub content: Option<String>,
+    #[serde(rename = "type")]
+    pub r#type: BetaCompactionBlockType,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BetaContentBlock {
@@ -801,6 +825,7 @@ pub enum BetaContentBlock {
     McpToolUse(BetaMcpToolUseBlock),
     McpToolResult(BetaMcpToolResultBlock),
     ContainerUpload(BetaContainerUploadBlock),
+    Compaction(BetaCompactionBlock),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -827,6 +852,8 @@ pub enum BetaStopReason {
     ToolUse,
     #[serde(rename = "pause_turn")]
     PauseTurn,
+    #[serde(rename = "compaction")]
+    Compaction,
     #[serde(rename = "refusal")]
     Refusal,
     #[serde(rename = "model_context_window_exceeded")]
@@ -855,16 +882,41 @@ pub enum BetaServiceTierUsed {
     Batch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BetaIterationUsageType {
+    #[serde(rename = "message")]
+    Message,
+    #[serde(rename = "compaction")]
+    Compaction,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BetaUsage {
+pub struct BetaIterationUsage {
     pub cache_creation: BetaCacheCreation,
     pub cache_creation_input_tokens: u32,
     pub cache_read_input_tokens: u32,
     pub input_tokens: u32,
     pub output_tokens: u32,
+    #[serde(rename = "type")]
+    pub r#type: BetaIterationUsageType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BetaUsage {
+    pub cache_creation: BetaCacheCreation,
+    pub cache_creation_input_tokens: u32,
+    pub cache_read_input_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
+    pub input_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<Vec<BetaIterationUsage>>,
+    pub output_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_tool_use: Option<BetaServerToolUsage>,
     pub service_tier: BetaServiceTierUsed,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<BetaSpeed>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

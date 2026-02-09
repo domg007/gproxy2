@@ -150,7 +150,9 @@ fn map_finish_reason(reason: Option<BetaStopReason>) -> ChatCompletionFinishReas
         Some(BetaStopReason::StopSequence) | Some(BetaStopReason::EndTurn) => {
             ChatCompletionFinishReason::Stop
         }
-        Some(BetaStopReason::PauseTurn) | None => ChatCompletionFinishReason::Stop,
+        Some(BetaStopReason::PauseTurn) | Some(BetaStopReason::Compaction) | None => {
+            ChatCompletionFinishReason::Stop
+        }
     }
 }
 

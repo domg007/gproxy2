@@ -489,7 +489,8 @@ fn map_reasoning(
         .and_then(map_output_effort)
         .or(match thinking {
             Some(ClaudeThinkingConfigParam::Disabled) => Some(ReasoningEffort::None),
-            Some(ClaudeThinkingConfigParam::Enabled { .. }) => Some(ReasoningEffort::Medium),
+            Some(ClaudeThinkingConfigParam::Enabled { .. })
+            | Some(ClaudeThinkingConfigParam::Adaptive) => Some(ReasoningEffort::Medium),
             None => None,
         });
 

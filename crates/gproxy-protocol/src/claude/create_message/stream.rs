@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use crate::claude::count_tokens::types::Model;
 use crate::claude::create_message::types::{
     BetaBashCodeExecutionToolResultBlock, BetaCacheCreation, BetaCodeExecutionToolResultBlock,
-    BetaContainer, BetaContainerUploadBlock, BetaContextManagementResponse, BetaMcpToolResultBlock,
-    BetaMcpToolUseBlock, BetaMessageRole, BetaMessageType, BetaRedactedThinkingBlock,
-    BetaServerToolName, BetaServerToolUsage, BetaServerToolUseBlockType, BetaStopReason,
-    BetaTextBlock, BetaTextCitation, BetaTextEditorCodeExecutionToolResultBlock,
+    BetaCompactionBlock, BetaContainer, BetaContainerUploadBlock, BetaContextManagementResponse,
+    BetaMcpToolResultBlock, BetaMcpToolUseBlock, BetaMessageRole, BetaMessageType,
+    BetaRedactedThinkingBlock, BetaServerToolName, BetaServerToolUsage, BetaServerToolUseBlockType,
+    BetaStopReason, BetaTextBlock, BetaTextCitation, BetaTextEditorCodeExecutionToolResultBlock,
     BetaThinkingBlockType, BetaToolCaller, BetaToolSearchToolResultBlock, BetaToolUseBlock,
     BetaWebFetchToolResultBlock, BetaWebSearchToolResultBlock, JsonObject, JsonValue,
 };
@@ -94,6 +94,7 @@ pub enum BetaStreamContentBlock {
     McpToolUse(BetaMcpToolUseBlock),
     McpToolResult(BetaMcpToolResultBlock),
     ContainerUpload(BetaContainerUploadBlock),
+    Compaction(BetaCompactionBlock),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

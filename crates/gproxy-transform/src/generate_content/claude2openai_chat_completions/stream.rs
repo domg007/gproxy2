@@ -339,7 +339,7 @@ fn map_finish_reason(reason: BetaStopReason) -> ChatCompletionFinishReason {
         BetaStopReason::ToolUse => ChatCompletionFinishReason::ToolCalls,
         BetaStopReason::Refusal => ChatCompletionFinishReason::ContentFilter,
         BetaStopReason::StopSequence | BetaStopReason::EndTurn => ChatCompletionFinishReason::Stop,
-        BetaStopReason::PauseTurn => ChatCompletionFinishReason::Stop,
+        BetaStopReason::PauseTurn | BetaStopReason::Compaction => ChatCompletionFinishReason::Stop,
     }
 }
 

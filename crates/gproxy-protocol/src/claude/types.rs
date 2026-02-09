@@ -93,6 +93,8 @@ pub enum AnthropicBetaKnown {
     ModelContextWindowExceeded20250826,
     #[serde(rename = "skills-2025-10-02")]
     Skills20251002,
+    #[serde(rename = "fast-mode-2026-02-01")]
+    FastMode20260201,
     #[serde(rename = "structured-outputs-2025-11-13")]
     StructuredOutputs20251113,
 }

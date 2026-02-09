@@ -244,10 +244,13 @@ fn usage_cache_mapping_claude() {
         },
         cache_creation_input_tokens: 4,
         cache_read_input_tokens: 3,
+        inference_geo: None,
         input_tokens: 1,
+        iterations: None,
         output_tokens: 2,
         server_tool_use: None,
         service_tier: BetaServiceTierUsed::Standard,
+        speed: None,
     };
     let resp = make_claude_response_with_usage(usage);
     let summary =

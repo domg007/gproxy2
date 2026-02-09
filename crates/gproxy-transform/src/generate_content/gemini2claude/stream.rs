@@ -477,9 +477,9 @@ fn map_stop_reason(reason: BetaStopReason) -> FinishReason {
         BetaStopReason::MaxTokens => FinishReason::MaxTokens,
         BetaStopReason::ToolUse => FinishReason::Stop,
         BetaStopReason::Refusal => FinishReason::Safety,
-        BetaStopReason::PauseTurn | BetaStopReason::ModelContextWindowExceeded => {
-            FinishReason::Other
-        }
+        BetaStopReason::PauseTurn
+        | BetaStopReason::Compaction
+        | BetaStopReason::ModelContextWindowExceeded => FinishReason::Other,
     }
 }
 

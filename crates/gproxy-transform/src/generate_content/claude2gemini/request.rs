@@ -603,6 +603,11 @@ fn map_thinking_config(
             thinking_budget: budget_tokens,
             thinking_level: effort,
         }),
+        Some(ClaudeThinkingConfigParam::Adaptive) => Some(ThinkingConfig {
+            include_thoughts: true,
+            thinking_budget: 0,
+            thinking_level: effort,
+        }),
         Some(ClaudeThinkingConfigParam::Disabled) => Some(ThinkingConfig {
             include_thoughts: false,
             thinking_budget: 0,

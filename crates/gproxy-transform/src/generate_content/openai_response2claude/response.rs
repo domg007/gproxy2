@@ -81,10 +81,13 @@ fn build_usage(response: &OpenAIResponse) -> BetaUsage {
         },
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        inference_geo: None,
         input_tokens,
+        iterations: None,
         output_tokens,
         server_tool_use: None,
         service_tier: BetaServiceTierUsed::Standard,
+        speed: None,
     }
 }
 

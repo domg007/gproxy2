@@ -166,9 +166,9 @@ fn map_stop_reason(reason: Option<BetaStopReason>) -> Option<FinishReason> {
         // Claude's tool_use is normal control flow; use STOP rather than an error finish reason.
         BetaStopReason::ToolUse => FinishReason::Stop,
         BetaStopReason::Refusal => FinishReason::Safety,
-        BetaStopReason::PauseTurn | BetaStopReason::ModelContextWindowExceeded => {
-            FinishReason::Other
-        }
+        BetaStopReason::PauseTurn
+        | BetaStopReason::Compaction
+        | BetaStopReason::ModelContextWindowExceeded => FinishReason::Other,
     })
 }
 

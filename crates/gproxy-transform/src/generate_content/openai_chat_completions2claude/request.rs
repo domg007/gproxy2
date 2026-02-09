@@ -124,11 +124,13 @@ pub fn transform_request(request: OpenAIChatCompletionRequest) -> ClaudeCreateMe
             model: ClaudeModel::Custom(request.body.model.clone()),
             container: None,
             context_management: None,
+            inference_geo: None,
             mcp_servers: None,
             metadata,
             output_config,
             output_format,
             service_tier: None,
+            speed: None,
             stop_sequences,
             stream: request.body.stream,
             system,
@@ -676,6 +678,7 @@ fn map_extra_body_thinking(extra_body: Option<&JsonValue>) -> Option<ClaudeThink
             };
             Some(ClaudeThinkingConfigParam::Enabled { budget_tokens })
         }
+        "adaptive" => Some(ClaudeThinkingConfigParam::Adaptive),
         "disabled" => Some(ClaudeThinkingConfigParam::Disabled),
         _ => None,
     }

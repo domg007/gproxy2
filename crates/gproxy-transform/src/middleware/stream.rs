@@ -638,6 +638,7 @@ fn map_block_passthrough(block: BetaContentBlock) -> BetaStreamContentBlock {
         BetaContentBlock::McpToolUse(block) => BetaStreamContentBlock::McpToolUse(block),
         BetaContentBlock::McpToolResult(block) => BetaStreamContentBlock::McpToolResult(block),
         BetaContentBlock::ContainerUpload(block) => BetaStreamContentBlock::ContainerUpload(block),
+        BetaContentBlock::Compaction(block) => BetaStreamContentBlock::Compaction(block),
     }
 }
 

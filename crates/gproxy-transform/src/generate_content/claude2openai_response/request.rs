@@ -490,7 +490,10 @@ fn map_reasoning(
     output_config: Option<ClaudeOutputConfig>,
 ) -> Option<Reasoning> {
     let effort = output_config.and_then(|config| config.effort);
-    let thinking_enabled = matches!(thinking, Some(ClaudeThinkingConfigParam::Enabled { .. }));
+    let thinking_enabled = matches!(
+        thinking,
+        Some(ClaudeThinkingConfigParam::Enabled { .. }) | Some(ClaudeThinkingConfigParam::Adaptive)
+    );
 
     let effort = if !thinking_enabled {
         ReasoningEffort::Medium

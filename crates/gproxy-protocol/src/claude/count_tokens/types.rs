@@ -417,6 +417,8 @@ pub enum BetaWebSearchToolResultErrorCode {
     TooManyRequests,
     #[serde(rename = "query_too_long")]
     QueryTooLong,
+    #[serde(rename = "request_too_large")]
+    RequestTooLarge,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -799,6 +801,22 @@ pub struct BetaContainerUploadBlockParam {
     pub cache_control: Option<BetaCacheControl>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BetaCompactionBlockType {
+    #[serde(rename = "compaction")]
+    Compaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BetaCompactionBlockParam {
+    /// Summary of compacted content, or null if compaction failed.
+    pub content: Option<String>,
+    #[serde(rename = "type")]
+    pub r#type: BetaCompactionBlockType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<BetaCacheControl>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BetaContentBlockParam {
@@ -820,6 +838,7 @@ pub enum BetaContentBlockParam {
     McpToolUse(BetaMCPToolUseBlockParam),
     McpToolResult(BetaRequestMCPToolResultBlockParam),
     ContainerUpload(BetaContainerUploadBlockParam),
+    Compaction(BetaCompactionBlockParam),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1177,6 +1196,7 @@ pub enum BetaThinkingConfigParam {
         budget_tokens: u32,
     },
     Disabled,
+    Adaptive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1295,6 +1315,19 @@ pub enum BetaClearThinkingKeep {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BetaInputTokensTrigger {
+    #[serde(rename = "type")]
+    pub r#type: BetaInputTokensTriggerType,
+    pub value: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BetaInputTokensTriggerType {
+    #[serde(rename = "input_tokens")]
+    InputTokens,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum BetaContextManagementEdit {
     #[serde(rename = "clear_tool_uses_20250919")]
@@ -1314,6 +1347,15 @@ pub enum BetaContextManagementEdit {
     ClearThinking20251015 {
         #[serde(skip_serializing_if = "Option::is_none")]
         keep: Option<BetaClearThinkingKeep>,
+    },
+    #[serde(rename = "compact_20260112")]
+    Compact20260112 {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pause_after_compaction: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        trigger: Option<BetaInputTokensTrigger>,
     },
 }
 
@@ -1351,6 +1393,8 @@ pub struct BetaRequestMCPServerURLDefinition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ModelKnown {
+    #[serde(rename = "claude-opus-4-6")]
+    ClaudeOpus46,
     #[serde(rename = "claude-opus-4-5-20251101")]
     ClaudeOpus4520251101,
     #[serde(rename = "claude-opus-4-5")]

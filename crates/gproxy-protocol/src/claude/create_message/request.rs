@@ -5,7 +5,9 @@ use crate::claude::count_tokens::types::{
     BetaRequestMCPServerURLDefinition, BetaSystemParam, BetaThinkingConfigParam, BetaTool,
     BetaToolChoice, Model,
 };
-use crate::claude::create_message::types::{BetaContainerParam, BetaMetadata, BetaServiceTier};
+use crate::claude::create_message::types::{
+    BetaContainerParam, BetaMetadata, BetaServiceTier, BetaSpeed,
+};
 use crate::claude::types::AnthropicHeaders;
 
 pub type CreateMessageHeaders = AnthropicHeaders;
@@ -22,6 +24,8 @@ pub struct CreateMessageRequestBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_management: Option<BetaContextManagementConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_servers: Option<Vec<BetaRequestMCPServerURLDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BetaMetadata>,
@@ -31,6 +35,8 @@ pub struct CreateMessageRequestBody {
     pub output_format: Option<BetaJSONOutputFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<BetaServiceTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<BetaSpeed>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
     /// If true, the response is streamed as SSE events instead of a single message.

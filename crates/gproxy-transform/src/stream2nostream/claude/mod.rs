@@ -247,6 +247,7 @@ fn map_stream_block(block: BetaStreamContentBlock) -> BetaContentBlock {
         BetaStreamContentBlock::McpToolUse(block) => BetaContentBlock::McpToolUse(block),
         BetaStreamContentBlock::McpToolResult(block) => BetaContentBlock::McpToolResult(block),
         BetaStreamContentBlock::ContainerUpload(block) => BetaContentBlock::ContainerUpload(block),
+        BetaStreamContentBlock::Compaction(block) => BetaContentBlock::Compaction(block),
     }
 }
 
@@ -258,7 +259,9 @@ fn map_usage(usage: &BetaStreamUsage) -> gproxy_protocol::claude::create_message
         }),
         cache_creation_input_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
         cache_read_input_tokens: usage.cache_read_input_tokens.unwrap_or(0),
+        inference_geo: None,
         input_tokens: usage.input_tokens.unwrap_or(0),
+        iterations: None,
         output_tokens: usage.output_tokens.unwrap_or(0),
         server_tool_use: Some(
             usage
@@ -271,5 +274,6 @@ fn map_usage(usage: &BetaStreamUsage) -> gproxy_protocol::claude::create_message
         ),
         // Stream usage doesn't include service tier; default to standard.
         service_tier: BetaServiceTierUsed::Standard,
+        speed: None,
     }
 }
