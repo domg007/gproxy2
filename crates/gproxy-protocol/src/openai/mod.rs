@@ -9,4 +9,5 @@ pub mod get_model;
 pub mod list_input_items;
 pub mod list_models;
 pub mod list_response_items;
+pub mod trace_summarize;
 pub mod types;
