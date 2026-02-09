@@ -105,3 +105,16 @@
 
 ### Changed
 - claudecode prelude selector options in frontend now display the two full preset sentences directly while still keeping stable stored enum values (`claude_code_system` / `claude_agent_sdk`).
+
+## v0.2.15
+
+### Added
+- codex compact proxy route support: `POST /v1/responses/compact` and `POST /{provider}/v1/responses/compact`.
+
+### Fixed
+- codex compact calls now target upstream `/responses/compact` and normalize response shape back to compact payload (`{ "output": [...] }`) for downstream compatibility.
+- codex compact route is explicitly restricted to `codex` provider and returns `unsupported_operation` for other providers.
+
+### Changed
+- removed local codex instruction patching/injection logic; downstream `instructions` are now passed through directly.
+- removed obsolete local codex prompt template bundle under `crates/gproxy-provider-impl/src/providers/codex/instructions/`.
