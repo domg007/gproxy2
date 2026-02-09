@@ -12,10 +12,10 @@ use gproxy_provider_core::provider::{ByteStream, UpstreamFailure};
 use gproxy_provider_core::{
     AuthRetryAction, CountTokensFn, CountTokensRequest, CountTokensResponse, Credential,
     GenerateContentRequest, GenerateContentResponse, Headers, HttpMethod, ModelGetResponse,
-    ModelListResponse, Op, OutputAccumulator, Proto, ProviderConfig, ProviderError,
-    ProviderRegistry, ProviderResult, Request, Response, StreamEvent, TransformContext,
-    TransformError, UpstreamBody, UpstreamCtx, UpstreamEvent, UpstreamHttpRequest,
-    UpstreamHttpResponse, UpstreamProvider, UsageAccumulator, UsageSummary,
+    ModelListResponse, Op, OpenAIResponsesPassthroughRequest, OutputAccumulator, Proto,
+    ProviderConfig, ProviderError, ProviderRegistry, ProviderResult, Request, Response,
+    StreamEvent, TransformContext, TransformError, UpstreamBody, UpstreamCtx, UpstreamEvent,
+    UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider, UsageAccumulator, UsageSummary,
     fallback_usage_with_count_tokens, header_set, usage_from_response,
 };
 
@@ -212,6 +212,15 @@ impl ProxyEngine {
                     *req,
                 )
                 .await
+            }
+            ProxyCall::OpenAIResponsesPassthrough {
+                trace_id,
+                auth,
+                provider,
+                req,
+            } => {
+                self.handle_openai_responses_passthrough(trace_id, auth, provider, req)
+                    .await
             }
         }
     }
@@ -891,6 +900,344 @@ impl ProxyEngine {
                 .await;
                 resp
             }
+        }
+    }
+
+    async fn handle_openai_responses_passthrough(
+        &self,
+        trace_id: Option<String>,
+        auth: crate::proxy_engine::ProxyAuth,
+        provider: String,
+        req: OpenAIResponsesPassthroughRequest,
+    ) -> UpstreamHttpResponse {
+        let (provider_impl, runtime, config) = match self.load_provider(&provider) {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+
+        let model_for_cooldown = model_from_openai_responses_passthrough_body(req.body.as_ref());
+        let shadow_req = openai_responses_passthrough_shadow_request();
+
+        let mut attempt_no: u32 = 1;
+        let mut auth_retry_used: Option<i64> = None;
+        let mut provider_retry_used: Option<i64> = None;
+
+        loop {
+            let (cred_id, cred) = match model_for_cooldown.as_deref() {
+                Some(model) => match runtime.pool.acquire_for_model(&provider, model).await {
+                    Ok(v) => v,
+                    Err(AcquireError::ProviderUnknown) => {
+                        return json_error(404, "provider_not_found");
+                    }
+                    Err(AcquireError::NoActiveCredentials) => {
+                        return json_error(503, "no_active_credentials");
+                    }
+                },
+                None => match runtime.pool.acquire(&provider).await {
+                    Ok(v) => v,
+                    Err(AcquireError::ProviderUnknown) => {
+                        return json_error(404, "provider_not_found");
+                    }
+                    Err(AcquireError::NoActiveCredentials) => {
+                        return json_error(503, "no_active_credentials");
+                    }
+                },
+            };
+
+            let op = if req.is_stream {
+                Op::StreamGenerateContent
+            } else {
+                Op::GenerateContent
+            };
+            let ctx = UpstreamCtx {
+                trace_id: trace_id.clone(),
+                user_id: Some(auth.user_id),
+                user_key_id: Some(auth.user_key_id),
+                user_agent: auth.user_agent.clone(),
+                provider: provider.clone(),
+                credential_id: Some(cred_id),
+                op,
+                internal: false,
+                attempt_no,
+            };
+
+            let mut cred = cred;
+            match provider_impl
+                .upgrade_credential(&ctx, &config, &cred, &shadow_req)
+                .await
+            {
+                Ok(Some(new_cred)) => {
+                    if let Err(resp) = self
+                        .persist_credential_update(cred_id, &new_cred, &runtime)
+                        .await
+                    {
+                        return resp;
+                    }
+                    cred = new_cred;
+                }
+                Ok(None) => {}
+                Err(err) => return error_response_from_provider_err(&err),
+            }
+
+            let upstream_req = match provider_impl
+                .build_openai_responses_passthrough(&ctx, &config, &cred, &req)
+                .await
+            {
+                Ok(r) => r,
+                Err(err) => return error_response_from_provider_err(&err),
+            };
+
+            let resp = match self.client.send(upstream_req.clone()).await {
+                Ok(r) => r,
+                Err(failure) => {
+                    emit_upstream_event!(
+                        self,
+                        trace_id.clone(),
+                        auth.clone(),
+                        provider.clone(),
+                        Some(cred_id),
+                        false,
+                        attempt_no,
+                        format!("{op:?}"),
+                        &upstream_req,
+                        None,
+                        None,
+                        Some("transport".to_string()),
+                        Some(failure_message(&failure)),
+                        transport_kind_from_failure(&failure),
+                    )
+                    .await;
+                    if provider_retry_used != Some(cred_id)
+                        && let Ok(action) = provider_impl
+                            .on_upstream_failure(&ctx, &config, &cred, &shadow_req, &failure)
+                            .await
+                    {
+                        match action {
+                            AuthRetryAction::RetrySame => {
+                                provider_retry_used = Some(cred_id);
+                                attempt_no += 1;
+                                continue;
+                            }
+                            AuthRetryAction::UpdateCredential(new_cred) => {
+                                if let Err(resp) = self
+                                    .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
+                                    .await
+                                {
+                                    return resp;
+                                }
+                                provider_retry_used = Some(cred_id);
+                                attempt_no += 1;
+                                continue;
+                            }
+                            AuthRetryAction::None => {}
+                        }
+                    }
+                    if is_auth_failure(&failure)
+                        && auth_retry_used != Some(cred_id)
+                        && let Ok(action) = provider_impl
+                            .on_auth_failure(&ctx, &config, &cred, &shadow_req, &failure)
+                            .await
+                    {
+                        match action {
+                            AuthRetryAction::RetrySame => {
+                                auth_retry_used = Some(cred_id);
+                                attempt_no += 1;
+                                continue;
+                            }
+                            AuthRetryAction::UpdateCredential(new_cred) => {
+                                if let Err(resp) = self
+                                    .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
+                                    .await
+                                {
+                                    return resp;
+                                }
+                                auth_retry_used = Some(cred_id);
+                                attempt_no += 1;
+                                continue;
+                            }
+                            AuthRetryAction::None => {}
+                        }
+                    }
+                    if let Some(decision) = provider_impl.decide_unavailable(
+                        &ctx,
+                        &config,
+                        &cred,
+                        &shadow_req,
+                        &failure,
+                    ) {
+                        self.apply_unavailable_decision(
+                            runtime.clone(),
+                            cred_id,
+                            op,
+                            model_for_cooldown.as_ref(),
+                            decision,
+                        )
+                        .await;
+                        if is_retryable_failure(&failure) {
+                            if !self
+                                .has_retry_candidate(
+                                    &runtime,
+                                    &provider,
+                                    model_for_cooldown.as_ref(),
+                                )
+                                .await
+                            {
+                                return failure_to_http(failure);
+                            }
+                            backoff_sleep(attempt_no).await;
+                            attempt_no += 1;
+                            continue;
+                        }
+                        return failure_to_http(failure);
+                    }
+                    return failure_to_http(failure);
+                }
+            };
+
+            let status = resp.status;
+            if !(200..300).contains(&status) {
+                let failure = match resp_body_bytes(&resp.body) {
+                    Some(body) => UpstreamFailure::Http {
+                        status,
+                        headers: resp.headers.clone(),
+                        body,
+                    },
+                    None => UpstreamFailure::Http {
+                        status,
+                        headers: resp.headers.clone(),
+                        body: Bytes::new(),
+                    },
+                };
+                emit_upstream_event!(
+                    self,
+                    trace_id.clone(),
+                    auth.clone(),
+                    provider.clone(),
+                    Some(cred_id),
+                    false,
+                    attempt_no,
+                    format!("{op:?}"),
+                    &upstream_req,
+                    Some(status),
+                    None,
+                    Some("http".to_string()),
+                    Some(format!("http_status_{status}")),
+                    None,
+                )
+                .await;
+                if provider_retry_used != Some(cred_id)
+                    && let Ok(action) = provider_impl
+                        .on_upstream_failure(&ctx, &config, &cred, &shadow_req, &failure)
+                        .await
+                {
+                    match action {
+                        AuthRetryAction::RetrySame => {
+                            provider_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
+                        }
+                        AuthRetryAction::UpdateCredential(new_cred) => {
+                            if let Err(resp) = self
+                                .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
+                                .await
+                            {
+                                return resp;
+                            }
+                            provider_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
+                        }
+                        AuthRetryAction::None => {}
+                    }
+                }
+                if is_auth_failure(&failure)
+                    && auth_retry_used != Some(cred_id)
+                    && let Ok(action) = provider_impl
+                        .on_auth_failure(&ctx, &config, &cred, &shadow_req, &failure)
+                        .await
+                {
+                    match action {
+                        AuthRetryAction::RetrySame => {
+                            auth_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
+                        }
+                        AuthRetryAction::UpdateCredential(new_cred) => {
+                            if let Err(resp) = self
+                                .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
+                                .await
+                            {
+                                return resp;
+                            }
+                            auth_retry_used = Some(cred_id);
+                            attempt_no += 1;
+                            continue;
+                        }
+                        AuthRetryAction::None => {}
+                    }
+                }
+                if let Some(decision) =
+                    provider_impl.decide_unavailable(&ctx, &config, &cred, &shadow_req, &failure)
+                {
+                    self.apply_unavailable_decision(
+                        runtime.clone(),
+                        cred_id,
+                        op,
+                        model_for_cooldown.as_ref(),
+                        decision,
+                    )
+                    .await;
+                    if is_retryable_failure(&failure) {
+                        if !self
+                            .has_retry_candidate(&runtime, &provider, model_for_cooldown.as_ref())
+                            .await
+                        {
+                            return resp;
+                        }
+                        backoff_sleep(attempt_no).await;
+                        attempt_no += 1;
+                        continue;
+                    }
+                    return resp;
+                }
+                return resp;
+            }
+
+            emit_upstream_event!(
+                self,
+                trace_id.clone(),
+                auth.clone(),
+                provider.clone(),
+                Some(cred_id),
+                false,
+                attempt_no,
+                format!("{op:?}"),
+                &upstream_req,
+                Some(resp.status),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+
+            match provider_impl
+                .on_upstream_success(&ctx, &config, &cred, &shadow_req, &resp)
+                .await
+            {
+                Ok(Some(new_cred)) => {
+                    if let Err(resp) = self
+                        .persist_credential_update(cred_id, &new_cred, &runtime)
+                        .await
+                    {
+                        return resp;
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => return error_response_from_provider_err(&err),
+            }
+
+            return resp;
         }
     }
 
@@ -2948,6 +3295,21 @@ fn extract_model_from_request(req: &Request) -> Option<String> {
         },
         _ => None,
     }
+}
+
+fn openai_responses_passthrough_shadow_request() -> Request {
+    Request::ModelList(gproxy_provider_core::ModelListRequest::OpenAI(
+        gproxy_protocol::openai::list_models::request::ListModelsRequest,
+    ))
+}
+
+fn model_from_openai_responses_passthrough_body(body: Option<&Bytes>) -> Option<String> {
+    let body = body?;
+    let value = serde_json::from_slice::<JsonValue>(body).ok()?;
+    value
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
 }
 
 fn claude_model_to_string(model: &ClaudeModel) -> String {

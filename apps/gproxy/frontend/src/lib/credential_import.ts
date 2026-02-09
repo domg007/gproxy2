@@ -145,9 +145,10 @@ export function buildImportedCredentialFromKey(
   key: string
 ): ImportedCredential {
   const trimmed = key.trim();
+  const lineKeyField = kind === "claudecode" ? "session_key" : "api_key";
   return {
     name: trimmed.slice(0, 16) || null,
-    secretJson: buildCredentialSecret(kind, { api_key: trimmed })
+    secretJson: buildCredentialSecret(kind, { [lineKeyField]: trimmed })
   };
 }
 

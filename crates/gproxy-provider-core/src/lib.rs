@@ -28,8 +28,8 @@ pub use events::{
 pub use headers::{Headers, header_get, header_remove, header_set};
 pub use provider::{
     AuthRetryAction, HttpMethod, OAuthCallbackRequest, OAuthCallbackResult, OAuthCredential,
-    OAuthStartRequest, UpstreamBody, UpstreamCtx, UpstreamHttpRequest, UpstreamHttpResponse,
-    UpstreamProvider,
+    OAuthStartRequest, OpenAIResponsesPassthroughRequest, UpstreamBody, UpstreamCtx,
+    UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider,
 };
 pub use registry::ProviderRegistry;
 

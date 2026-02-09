@@ -9,9 +9,9 @@ use tiktoken_rs::{CoreBPE, get_bpe_from_model, o200k_base};
 use gproxy_provider_core::credential::CodexCredential;
 use gproxy_provider_core::{
     AuthRetryAction, Credential, DispatchRule, DispatchTable, HttpMethod, OAuthCallbackRequest,
-    OAuthCallbackResult, OAuthCredential, OAuthStartRequest, Op, Proto, ProviderConfig,
-    ProviderError, ProviderResult, Request, UpstreamBody, UpstreamCtx, UpstreamHttpRequest,
-    UpstreamHttpResponse, UpstreamProvider, header_set,
+    OAuthCallbackResult, OAuthCredential, OAuthStartRequest, Op, OpenAIResponsesPassthroughRequest,
+    Proto, ProviderConfig, ProviderError, ProviderResult, Request, UpstreamBody, UpstreamCtx,
+    UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider, header_set,
 };
 
 use gproxy_protocol::openai;
@@ -218,6 +218,74 @@ impl UpstreamProvider for CodexProvider {
         })
     }
 
+    async fn build_openai_responses_passthrough(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &OpenAIResponsesPassthroughRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = codex_base_url(config)?;
+        let (access_token, account_id) = codex_credential(credential)?;
+        let upstream_path = codex_responses_upstream_path(&req.path)?;
+
+        let mut body = req.body.clone();
+        let mut is_stream = req.is_stream;
+        if matches!(
+            req.method,
+            HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch
+        ) && let Some(raw) = body.as_ref()
+            && let Ok(mut value) = serde_json::from_slice::<JsonValue>(raw)
+            && let Some(obj) = value.as_object_mut()
+        {
+            if upstream_path == "/responses/compact" {
+                obj.insert("stream".to_string(), JsonValue::Bool(false));
+                obj.remove("stream_options");
+                is_stream = false;
+            } else if upstream_path == "/responses" {
+                normalize_codex_input_json(obj);
+                obj.insert("store".to_string(), JsonValue::Bool(false));
+                obj.remove("max_output_tokens");
+                obj.remove("stream_options");
+                is_stream = obj
+                    .get("stream")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(req.is_stream);
+            }
+            ensure_codex_instructions_field_json(obj);
+            body = Some(Bytes::from(
+                serde_json::to_vec(&value).map_err(|err| ProviderError::Other(err.to_string()))?,
+            ));
+        }
+        if upstream_path == "/responses/compact" {
+            is_stream = false;
+        }
+
+        let mut url = format!("{}{}", base_url.trim_end_matches('/'), upstream_path);
+        if let Some(query) = req.query.as_deref().filter(|q| !q.trim().is_empty()) {
+            url.push('?');
+            url.push_str(query);
+        }
+
+        let mut headers = req.headers.clone();
+        auth_extractor::set_bearer(&mut headers, access_token);
+        auth_extractor::set_header(&mut headers, "chatgpt-account-id", account_id);
+        if !has_header(&headers, "accept") {
+            auth_extractor::set_accept_json(&mut headers);
+        }
+        if body.is_some() && !has_header(&headers, "content-type") {
+            auth_extractor::set_content_type_json(&mut headers);
+        }
+
+        Ok(UpstreamHttpRequest {
+            method: req.method,
+            url,
+            headers,
+            body,
+            is_stream,
+        })
+    }
+
     async fn build_openai_input_tokens(
         &self,
         _ctx: &UpstreamCtx,
@@ -374,6 +442,49 @@ fn codex_credential(credential: &Credential) -> ProviderResult<(&str, &str)> {
 fn codex_models_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     format!("{base}/models?client_version={CLIENT_VERSION}")
+}
+
+fn codex_responses_upstream_path(path: &str) -> ProviderResult<String> {
+    let normalized = path.trim_start_matches('/');
+    if let Some(rest) = normalized.strip_prefix("v1/responses") {
+        return Ok(format!("/responses{rest}"));
+    }
+    if normalized == "responses" || normalized.starts_with("responses/") {
+        return Ok(format!("/{normalized}"));
+    }
+    Err(ProviderError::Other(format!(
+        "invalid openai responses path: {path}"
+    )))
+}
+
+fn normalize_codex_input_json(obj: &mut serde_json::Map<String, JsonValue>) {
+    let Some(input) = obj.remove("input") else {
+        return;
+    };
+    if let Some(text) = input.as_str() {
+        obj.insert(
+            "input".to_string(),
+            serde_json::json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": text
+                }
+            ]),
+        );
+        return;
+    }
+    obj.insert("input".to_string(), input);
+}
+
+fn ensure_codex_instructions_field_json(obj: &mut serde_json::Map<String, JsonValue>) {
+    if !obj.contains_key("instructions") {
+        obj.insert("instructions".to_string(), JsonValue::String(String::new()));
+    }
+}
+
+fn has_header(headers: &[(String, String)], name: &str) -> bool {
+    headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name))
 }
 
 fn local_json_request(body: Vec<u8>) -> UpstreamHttpRequest {

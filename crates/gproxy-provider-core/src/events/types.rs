@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
 use crate::provider::UpstreamTransportErrorKind;
 use crate::{CredentialId, Headers, UnavailableReason, UsageSummary};
@@ -89,4 +90,52 @@ pub struct ModelUnavailableEndEvent {
     pub at: SystemTime,
     pub credential_id: CredentialId,
     pub model: String,
+}
+
+impl Event {
+    pub fn to_log_value(&self) -> Result<JsonValue, serde_json::Error> {
+        let mut value = serde_json::to_value(self)?;
+        match self {
+            Event::Downstream(evt) => {
+                if let Some(obj) = value
+                    .get_mut("Downstream")
+                    .and_then(JsonValue::as_object_mut)
+                {
+                    obj.insert(
+                        "request_body".to_string(),
+                        bytes_body_to_json(&evt.request_body),
+                    );
+                    obj.insert(
+                        "response_body".to_string(),
+                        bytes_body_to_json(&evt.response_body),
+                    );
+                }
+            }
+            Event::Upstream(evt) => {
+                if let Some(obj) = value.get_mut("Upstream").and_then(JsonValue::as_object_mut) {
+                    obj.insert(
+                        "request_body".to_string(),
+                        bytes_body_to_json(&evt.request_body),
+                    );
+                    obj.insert(
+                        "response_body".to_string(),
+                        bytes_body_to_json(&evt.response_body),
+                    );
+                }
+            }
+            Event::Operational(_) => {}
+        }
+        Ok(value)
+    }
+
+    pub fn to_log_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self.to_log_value()?)
+    }
+}
+
+fn bytes_body_to_json(body: &Option<Vec<u8>>) -> JsonValue {
+    match body {
+        Some(bytes) => JsonValue::String(String::from_utf8_lossy(bytes).to_string()),
+        None => JsonValue::Null,
+    }
 }

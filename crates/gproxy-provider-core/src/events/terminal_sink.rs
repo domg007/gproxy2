@@ -25,7 +25,7 @@ impl EventSink for TerminalEventSink {
     fn write<'a>(&'a self, event: &'a Event) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             // Avoid panicking in sinks.
-            match serde_json::to_string(event) {
+            match event.to_log_json() {
                 Ok(line) => {
                     // Use stderr to keep stdout clean for potential streaming responses.
                     eprintln!("{line}");

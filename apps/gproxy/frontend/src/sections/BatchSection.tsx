@@ -30,7 +30,10 @@ export function BatchSection({ adminKey, providers, notify, onImported }: Props)
     [providerName, providers]
   );
   const providerKind = provider ? kindFromConfig(provider.config_json) : null;
-  const jsonCredentialKind = providerKind ? isJsonCredentialKind(providerKind) : false;
+  const sessionKeyLineKind = providerKind === "claudecode";
+  const jsonCredentialKind = providerKind
+    ? isJsonCredentialKind(providerKind) && !sessionKeyLineKind
+    : false;
 
   useEffect(() => {
     if (!providerName && providers.length > 0) {
@@ -51,7 +54,17 @@ export function BatchSection({ adminKey, providers, notify, onImported }: Props)
     try {
       const payloads: Array<{ name: string | null; secretJson: Record<string, unknown> }> = [];
 
-      if (jsonCredentialKind) {
+      if (sessionKeyLineKind) {
+        if (importText.trim()) {
+          const lines = importText
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          for (const line of lines) {
+            payloads.push(buildImportedCredentialFromKey(providerKind, line));
+          }
+        }
+      } else if (jsonCredentialKind) {
         if (importText.trim()) {
           const parsed = parseJsonCredentialText(importText);
           for (const item of parsed) {
@@ -125,7 +138,11 @@ export function BatchSection({ adminKey, providers, notify, onImported }: Props)
             ))}
           </select>
           <div className="mt-2 text-xs text-slate-500">
-            {jsonCredentialKind ? t("credentials.import_mode_json") : t("credentials.import_mode_key")}
+            {sessionKeyLineKind
+              ? t("credentials.import_mode_session_key")
+              : jsonCredentialKind
+                ? t("credentials.import_mode_json")
+                : t("credentials.import_mode_key")}
           </div>
         </div>
         {jsonCredentialKind ? (
@@ -143,14 +160,22 @@ export function BatchSection({ adminKey, providers, notify, onImported }: Props)
           </div>
         ) : null}
         <div className="md:col-span-2">
-          <FieldLabel>{jsonCredentialKind ? t("credentials.import_json_text") : t("credentials.import_keys")}</FieldLabel>
+          <FieldLabel>
+            {sessionKeyLineKind
+              ? t("credentials.import_session_keys")
+              : jsonCredentialKind
+                ? t("credentials.import_json_text")
+                : t("credentials.import_keys")}
+          </FieldLabel>
           <div className="mt-2">
             <TextArea
               value={importText}
               onChange={setImportText}
               rows={8}
               placeholder={
-                jsonCredentialKind
+                sessionKeyLineKind
+                  ? t("credentials.import_session_keys_placeholder")
+                  : jsonCredentialKind
                   ? t("credentials.import_json_placeholder")
                   : t("credentials.import_keys_placeholder")
               }

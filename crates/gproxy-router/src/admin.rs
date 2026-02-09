@@ -1390,7 +1390,7 @@ async fn handle_events_ws(mut socket: WebSocket, app: Arc<AppState>) {
                 let Ok(evt) = evt else {
                     break;
                 };
-                if let Ok(text) = serde_json::to_string(&evt)
+                if let Ok(text) = evt.to_log_json()
                     && socket.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }

@@ -43,6 +43,7 @@ export function CredentialsSection({ adminKey, notify }: Props) {
   );
   const providerKind = provider ? kindFromConfig(provider.config_json) : null;
   const fieldSpecs: FieldSpec[] = providerKind ? credentialFieldMap[providerKind] : [];
+  const lineImportFieldKey = providerKind === "claudecode" ? "session_key" : "api_key";
 
   const loadProviders = useCallback(async () => {
     try {
@@ -186,7 +187,7 @@ export function CredentialsSection({ adminKey, notify }: Props) {
           .map((line) => line.trim())
           .filter(Boolean);
         for (const line of lines) {
-          payloads.push(buildCredentialSecret(providerKind, { api_key: line }));
+          payloads.push(buildCredentialSecret(providerKind, { [lineImportFieldKey]: line }));
         }
       }
 
@@ -323,13 +324,21 @@ export function CredentialsSection({ adminKey, notify }: Props) {
       <Card title={t("credentials.import_hint")} subtitle={t("credentials.import_files")}>
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <FieldLabel>{t("credentials.import_keys")}</FieldLabel>
+            <FieldLabel>
+              {providerKind === "claudecode"
+                ? t("credentials.import_session_keys")
+                : t("credentials.import_keys")}
+            </FieldLabel>
             <div className="mt-2">
               <TextArea
                 value={importKeys}
                 onChange={setImportKeys}
                 rows={6}
-                placeholder={t("credentials.import_keys_placeholder")}
+                placeholder={
+                  providerKind === "claudecode"
+                    ? t("credentials.import_session_keys_placeholder")
+                    : t("credentials.import_keys_placeholder")
+                }
               />
             </div>
           </div>

@@ -133,3 +133,16 @@
 
 ### Changed
 - refactor admin key handling to store as plaintext and update related components
+
+## v0.2.19
+
+### Added
+- frontend credential import now supports `claudecode` session key line import (`one session key per line`) in both Credentials and Batch sections.
+
+### Changed
+- `claudecode` line-based import mapping now writes to `session_key` instead of `api_key`.
+- updated i18n copy for session key import mode and placeholders (`zh_cn` / `en`).
+
+### Fixed
+- admin event stream (`/admin/events/ws`) now serializes `request_body` / `response_body` as readable strings instead of raw byte arrays.
+- terminal event sink logging now uses the same readable string serialization for request/response bodies.

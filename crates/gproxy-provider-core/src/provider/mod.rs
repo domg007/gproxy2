@@ -73,6 +73,18 @@ pub struct UpstreamHttpRequest {
     pub is_stream: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct OpenAIResponsesPassthroughRequest {
+    pub method: HttpMethod,
+    /// Downstream path, e.g. `/v1/responses` or `/v1/responses/{id}`.
+    pub path: String,
+    /// Raw downstream query string without leading `?`.
+    pub query: Option<String>,
+    pub headers: Headers,
+    pub body: Option<Bytes>,
+    pub is_stream: bool,
+}
+
 /// Downstream request for provider-managed OAuth start.
 ///
 /// This is *not* part of protocol transform; it is a provider internal ability.
@@ -358,6 +370,16 @@ pub trait UpstreamProvider: Send + Sync {
         _req: &OpenAIResponseRequest,
     ) -> ProviderResult<UpstreamHttpRequest> {
         Err(ProviderError::Unsupported("openai.responses"))
+    }
+
+    async fn build_openai_responses_passthrough(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIResponsesPassthroughRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported("openai.responses_passthrough"))
     }
 
     async fn build_openai_input_tokens(
