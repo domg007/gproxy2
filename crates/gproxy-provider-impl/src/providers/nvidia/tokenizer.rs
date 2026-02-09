@@ -65,7 +65,8 @@ fn load_tokenizer(
         .filter(|value| !value.is_empty())
         .unwrap_or("https://huggingface.co");
     let url = format!("{base}/{model}/resolve/main/tokenizer.json");
-    let bytes = crate::providers::oauth_common::block_on(fetch_tokenizer_bytes(ctx, url, hf_token))?;
+    let bytes =
+        crate::providers::oauth_common::block_on(fetch_tokenizer_bytes(ctx, url, hf_token))?;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

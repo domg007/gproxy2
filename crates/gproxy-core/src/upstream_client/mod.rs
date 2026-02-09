@@ -88,10 +88,13 @@ impl WreqUpstreamClient {
     }
 
     fn client_for_proxy(&self, proxy: Option<String>) -> Result<Client, UpstreamFailure> {
-        let mut guard = self.clients.lock().map_err(|_| UpstreamFailure::Transport {
-            kind: UpstreamTransportErrorKind::Other,
-            message: "upstream client cache lock failed".to_string(),
-        })?;
+        let mut guard = self
+            .clients
+            .lock()
+            .map_err(|_| UpstreamFailure::Transport {
+                kind: UpstreamTransportErrorKind::Other,
+                message: "upstream client cache lock failed".to_string(),
+            })?;
         if let Some(client) = guard.get(&proxy) {
             return Ok(client.clone());
         }

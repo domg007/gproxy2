@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 
 use sha2::Digest;
 
+use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 use crate::providers::oauth_common::{
     extract_code_state_from_callback_url, parse_query_value, resolve_manual_code_and_state,
 };
-use crate::providers::http_client::{SharedClientKind, client_for_ctx};
 
 const DEFAULT_BROWSER_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
@@ -271,8 +271,13 @@ pub(super) fn oauth_callback(
                 guard.remove(&state_id);
             }
 
-            let tokens =
-                exchange_code_for_tokens(ctx, DEFAULT_ISSUER, &redirect_uri, &code_verifier, &code)?;
+            let tokens = exchange_code_for_tokens(
+                ctx,
+                DEFAULT_ISSUER,
+                &redirect_uri,
+                &code_verifier,
+                &code,
+            )?;
             build_callback_result(tokens)
         }
     }
@@ -474,7 +479,10 @@ where
     }
 }
 
-fn request_device_user_code(ctx: &UpstreamCtx, issuer: &str) -> ProviderResult<DeviceUserCodeResponse> {
+fn request_device_user_code(
+    ctx: &UpstreamCtx,
+    issuer: &str,
+) -> ProviderResult<DeviceUserCodeResponse> {
     crate::providers::oauth_common::block_on(async move {
         let client = client_for_ctx(ctx, SharedClientKind::Global)?;
         let body = serde_json::to_vec(&serde_json::json!({ "client_id": CLIENT_ID }))

@@ -10,6 +10,6 @@ pub use snapshot::{
     CredentialRow, GlobalConfigRow, ProviderRow, StorageSnapshot, UserKeyRow, UserRow,
 };
 pub use storage::{
-    LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError,
+    LogCursor, LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError,
     StorageResult, UsageAggregate, UsageAggregateFilter,
 };

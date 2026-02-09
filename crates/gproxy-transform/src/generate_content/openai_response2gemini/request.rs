@@ -16,10 +16,9 @@ use gproxy_protocol::openai::create_response::request::CreateResponseRequest as 
 use gproxy_protocol::openai::create_response::types::{
     AllowedTool, CustomTool, EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole,
     FunctionTool, ImageGenSize, ImageGenTool, InputContent, InputFileContent, InputImageContent,
-    InputItem, InputMessage, InputMessageRole, InputParam, OutputMessage,
-    OutputMessageContent, Reasoning, ReasoningEffort, ResponseTextParam,
-    TextResponseFormatConfiguration, Tool, ToolChoiceAllowed, ToolChoiceAllowedMode,
-    ToolChoiceOptions, ToolChoiceParam,
+    InputItem, InputMessage, InputMessageRole, InputParam, OutputMessage, OutputMessageContent,
+    Reasoning, ReasoningEffort, ResponseTextParam, TextResponseFormatConfiguration, Tool,
+    ToolChoiceAllowed, ToolChoiceAllowedMode, ToolChoiceOptions, ToolChoiceParam,
 };
 use serde_json::Value as JsonValue;
 

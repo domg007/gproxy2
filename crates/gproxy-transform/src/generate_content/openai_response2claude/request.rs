@@ -32,7 +32,8 @@ use gproxy_protocol::openai::create_response::types::{
     InputContent, InputFileContent, InputItem, InputMessage, InputMessageRole, InputParam,
     MCPAllowedTools, MCPTool, OutputMessage, OutputMessageContent, Reasoning, ReasoningEffort,
     ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceAllowed,
-    ToolChoiceAllowedMode, ToolChoiceBuiltInType, ToolChoiceOptions, ToolChoiceParam, ToolChoiceTypes,
+    ToolChoiceAllowedMode, ToolChoiceBuiltInType, ToolChoiceOptions, ToolChoiceParam,
+    ToolChoiceTypes,
 };
 use serde_json::Value as JsonValue;
 

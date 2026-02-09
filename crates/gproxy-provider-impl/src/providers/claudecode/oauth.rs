@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 use crate::providers::http_client::{SharedClientKind, client_for_ctx};
+use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 
 #[derive(Debug)]
 struct OAuthState {

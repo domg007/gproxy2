@@ -753,6 +753,12 @@ struct LogsQuery {
     limit: Option<usize>,
     #[serde(default)]
     offset: Option<usize>,
+    #[serde(default)]
+    cursor_at: Option<String>,
+    #[serde(default)]
+    cursor_id: Option<i64>,
+    #[serde(default)]
+    include_body: Option<bool>,
 }
 
 async fn usage_tokens_by_provider(
@@ -937,7 +943,10 @@ async fn usage_tokens_by_credential_model(
         .into_response()
 }
 
-async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQuery>) -> impl IntoResponse {
+async fn query_logs(
+    State(state): State<AdminState>,
+    Query(query): Query<LogsQuery>,
+) -> impl IntoResponse {
     let kind = match normalize_opt_str(query.kind).as_deref() {
         None | Some("all") => None,
         Some("upstream") => Some(gproxy_storage::LogRecordKind::Upstream),
@@ -1012,8 +1021,51 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
             .into_response();
     }
 
-    let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let offset = query.offset.unwrap_or(0);
+    if offset > 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "offset_not_supported",
+                "detail": "offset pagination is disabled for performance; use cursor_at + cursor_id",
+            })),
+        )
+            .into_response();
+    }
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let include_body = query.include_body.unwrap_or(false);
+    let cursor = match (normalize_opt_str(query.cursor_at), query.cursor_id) {
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_cursor",
+                    "detail": "cursor_at and cursor_id must be provided together",
+                })),
+            )
+                .into_response();
+        }
+        (Some(cursor_at), Some(cursor_id)) => {
+            let cursor_at = match OffsetDateTime::parse(&cursor_at, &Rfc3339) {
+                Ok(v) => v,
+                Err(err) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": "invalid_cursor_at",
+                            "detail": err.to_string(),
+                        })),
+                    )
+                        .into_response();
+                }
+            };
+            Some(gproxy_storage::LogCursor {
+                at: cursor_at,
+                id: cursor_id,
+            })
+        }
+    };
 
     let filter = gproxy_storage::LogQueryFilter {
         from,
@@ -1029,7 +1081,8 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
         status_min: query.status_min,
         status_max: query.status_max,
         limit,
-        offset,
+        cursor,
+        include_body,
     };
 
     let result = match state.storage.query_logs(filter).await {
@@ -1045,6 +1098,16 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
                 gproxy_storage::LogRecordKind::Upstream => "upstream",
                 gproxy_storage::LogRecordKind::Downstream => "downstream",
             };
+            let request_body = if include_body {
+                bytes_body_to_json(&row.request_body)
+            } else {
+                JsonValue::Null
+            };
+            let response_body = if include_body {
+                bytes_body_to_json(&row.response_body)
+            } else {
+                JsonValue::Null
+            };
             serde_json::json!({
                 "id": row.id,
                 "kind": kind,
@@ -1058,14 +1121,19 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
                 "operation": row.operation,
                 "request_method": row.request_method,
                 "request_path": row.request_path,
-                "request_body": bytes_body_to_json(&row.request_body),
+                "request_body": request_body,
                 "response_status": row.response_status,
-                "response_body": bytes_body_to_json(&row.response_body),
+                "response_body": response_body,
                 "error_kind": row.error_kind,
                 "error_message": row.error_message,
             })
         })
         .collect();
+
+    let (next_cursor_at, next_cursor_id) = match result.next_cursor {
+        Some(cursor) => (Some(format_time_rfc3339(cursor.at)), Some(cursor.id)),
+        None => (None, None),
+    };
 
     (
         StatusCode::OK,
@@ -1078,8 +1146,10 @@ async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQue
                 Some(gproxy_storage::LogRecordKind::Downstream) => "downstream",
             },
             "limit": limit,
-            "offset": offset,
+            "include_body": include_body,
             "has_more": result.has_more,
+            "next_cursor_at": next_cursor_at,
+            "next_cursor_id": next_cursor_id,
             "rows": rows,
         })),
     )

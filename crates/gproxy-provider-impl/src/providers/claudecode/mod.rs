@@ -329,7 +329,8 @@ impl UpstreamProvider for ClaudeCodeProvider {
 
                     let enrich_base = candidate.as_ref().unwrap_or(credential);
                     if let Some(enriched) =
-                        oauth::enrich_credential_profile_if_missing(ctx, config, enrich_base).await?
+                        oauth::enrich_credential_profile_if_missing(ctx, config, enrich_base)
+                            .await?
                     {
                         return Ok(Some(enriched));
                     }

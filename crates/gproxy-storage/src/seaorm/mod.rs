@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Index;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
-    EntityTrait, QueryOrder, QuerySelect, Schema,
+    ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
+    FromQueryResult, QueryOrder, QuerySelect, Schema,
 };
-use sea_orm::{ColumnTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, QueryFilter};
 use time::OffsetDateTime;
 
 use gproxy_common::GlobalConfig;
@@ -15,9 +16,48 @@ use crate::snapshot::{
     CredentialRow, GlobalConfigRow, ProviderRow, StorageSnapshot, UserKeyRow, UserRow,
 };
 use crate::storage::{
-    LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError, StorageResult,
-    UsageAggregate, UsageAggregateFilter,
+    LogCursor, LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError,
+    StorageResult, UsageAggregate, UsageAggregateFilter,
 };
+
+#[derive(Debug, FromQueryResult)]
+struct UsageAggregateRow {
+    matched_rows: Option<i64>,
+    input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    cache_read_input_tokens: Option<i64>,
+    cache_creation_input_tokens: Option<i64>,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct UpstreamLogLiteRow {
+    id: i64,
+    trace_id: Option<String>,
+    at: OffsetDateTime,
+    provider: String,
+    credential_id: Option<i64>,
+    user_id: Option<i64>,
+    user_key_id: Option<i64>,
+    attempt_no: i32,
+    operation: String,
+    request_method: String,
+    request_path: String,
+    response_status: Option<i32>,
+    error_kind: Option<String>,
+    error_message: Option<String>,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct DownstreamLogLiteRow {
+    id: i64,
+    trace_id: Option<String>,
+    at: OffsetDateTime,
+    user_id: Option<i64>,
+    user_key_id: Option<i64>,
+    request_method: String,
+    request_path: String,
+    response_status: Option<i32>,
+}
 
 #[derive(Clone)]
 pub struct SeaOrmStorage {
@@ -92,20 +132,146 @@ impl SeaOrmStorage {
         Ok(())
     }
 
-    async fn ensure_usage_model_column(&self) -> StorageResult<()> {
-        if self.db.get_database_backend() != DatabaseBackend::Sqlite {
-            return Ok(());
-        }
+    async fn ensure_performance_indexes(&self) -> StorageResult<()> {
+        use entities::downstream_requests::Column as DownstreamColumn;
+        use entities::upstream_requests::Column as UpstreamColumn;
+        use entities::upstream_usages::Column as UpstreamUsageColumn;
 
-        let res = self
-            .db
-            .execute_unprepared("ALTER TABLE upstream_usages ADD COLUMN model TEXT")
-            .await;
-        if let Err(err) = res {
-            let msg = err.to_string().to_ascii_lowercase();
-            if !msg.contains("duplicate column name") {
-                return Err(err.into());
-            }
+        let backend = self.db.get_database_backend();
+        let statements = vec![
+            Index::create()
+                .name("idx_upstream_requests_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_provider_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::Provider)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_credential_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::CredentialId)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_user_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::UserId)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_user_key_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::UserKeyId)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_trace_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::TraceId)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_operation_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::Operation)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_requests_status_at_id")
+                .table(entities::upstream_requests::Entity)
+                .col(UpstreamColumn::ResponseStatus)
+                .col(UpstreamColumn::At)
+                .col(UpstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_downstream_requests_at_id")
+                .table(entities::downstream_requests::Entity)
+                .col(DownstreamColumn::At)
+                .col(DownstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_downstream_requests_user_at_id")
+                .table(entities::downstream_requests::Entity)
+                .col(DownstreamColumn::UserId)
+                .col(DownstreamColumn::At)
+                .col(DownstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_downstream_requests_user_key_at_id")
+                .table(entities::downstream_requests::Entity)
+                .col(DownstreamColumn::UserKeyId)
+                .col(DownstreamColumn::At)
+                .col(DownstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_downstream_requests_trace_at_id")
+                .table(entities::downstream_requests::Entity)
+                .col(DownstreamColumn::TraceId)
+                .col(DownstreamColumn::At)
+                .col(DownstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_downstream_requests_status_at_id")
+                .table(entities::downstream_requests::Entity)
+                .col(DownstreamColumn::ResponseStatus)
+                .col(DownstreamColumn::At)
+                .col(DownstreamColumn::Id)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_usages_at")
+                .table(entities::upstream_usages::Entity)
+                .col(UpstreamUsageColumn::At)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_usages_provider_at")
+                .table(entities::upstream_usages::Entity)
+                .col(UpstreamUsageColumn::Provider)
+                .col(UpstreamUsageColumn::At)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_usages_credential_at")
+                .table(entities::upstream_usages::Entity)
+                .col(UpstreamUsageColumn::CredentialId)
+                .col(UpstreamUsageColumn::At)
+                .if_not_exists()
+                .to_owned(),
+            Index::create()
+                .name("idx_upstream_usages_model_at")
+                .table(entities::upstream_usages::Entity)
+                .col(UpstreamUsageColumn::Model)
+                .col(UpstreamUsageColumn::At)
+                .if_not_exists()
+                .to_owned(),
+        ];
+
+        for statement in statements {
+            self.db.execute(backend.build(&statement)).await?;
         }
 
         Ok(())
@@ -128,7 +294,7 @@ impl Storage for SeaOrmStorage {
             .register(entities::InternalEvents)
             .sync(&self.db)
             .await?;
-        self.ensure_usage_model_column().await?;
+        self.ensure_performance_indexes().await?;
         self.backfill_usage_models().await?;
         Ok(())
     }
@@ -663,6 +829,18 @@ impl Storage for SeaOrmStorage {
         use entities::upstream_usages::Column as UpstreamUsageColumn;
 
         let mut usage_query = entities::UpstreamUsages::find()
+            .select_only()
+            .column_as(UpstreamUsageColumn::Id.count(), "matched_rows")
+            .column_as(UpstreamUsageColumn::InputTokens.sum(), "input_tokens")
+            .column_as(UpstreamUsageColumn::OutputTokens.sum(), "output_tokens")
+            .column_as(
+                UpstreamUsageColumn::CacheReadInputTokens.sum(),
+                "cache_read_input_tokens",
+            )
+            .column_as(
+                UpstreamUsageColumn::CacheCreationInputTokens.sum(),
+                "cache_creation_input_tokens",
+            )
             .filter(UpstreamUsageColumn::At.gte(filter.from))
             .filter(UpstreamUsageColumn::At.lte(filter.to));
 
@@ -679,22 +857,22 @@ impl Storage for SeaOrmStorage {
             usage_query = usage_query.filter(UpstreamUsageColumn::Model.contains(model_contains));
         }
 
-        let usage_rows = usage_query.all(&self.db).await?;
-        if usage_rows.is_empty() {
+        let Some(row) = usage_query
+            .into_model::<UsageAggregateRow>()
+            .one(&self.db)
+            .await?
+        else {
             return Ok(UsageAggregate::default());
-        }
-
-        let mut out = UsageAggregate {
-            matched_rows: i64::try_from(usage_rows.len()).unwrap_or(i64::MAX),
-            ..UsageAggregate::default()
         };
 
-        for row in usage_rows {
-            out.input_tokens += row.input_tokens.unwrap_or(0);
-            out.output_tokens += row.output_tokens.unwrap_or(0);
-            out.cache_read_input_tokens += row.cache_read_input_tokens.unwrap_or(0);
-            out.cache_creation_input_tokens += row.cache_creation_input_tokens.unwrap_or(0);
-        }
+        let mut out = UsageAggregate {
+            matched_rows: row.matched_rows.unwrap_or(0),
+            input_tokens: row.input_tokens.unwrap_or(0),
+            output_tokens: row.output_tokens.unwrap_or(0),
+            cache_read_input_tokens: row.cache_read_input_tokens.unwrap_or(0),
+            cache_creation_input_tokens: row.cache_creation_input_tokens.unwrap_or(0),
+            ..UsageAggregate::default()
+        };
         out.total_tokens = out.input_tokens
             + out.output_tokens
             + out.cache_read_input_tokens
@@ -707,11 +885,15 @@ impl Storage for SeaOrmStorage {
         use entities::downstream_requests::Column as DownstreamColumn;
         use entities::upstream_requests::Column as UpstreamColumn;
 
-        let fetch_count = filter
-            .offset
-            .saturating_add(filter.limit)
-            .saturating_add(1);
-        let fetch_limit = u64::try_from(fetch_count).unwrap_or(u64::MAX);
+        if filter.limit == 0 {
+            return Ok(LogQueryResult {
+                rows: Vec::new(),
+                has_more: false,
+                next_cursor: None,
+            });
+        }
+
+        let fetch_limit = u64::try_from(filter.limit.saturating_add(1)).unwrap_or(u64::MAX);
 
         let query_upstream = filter.kind != Some(LogRecordKind::Downstream);
         let query_downstream = match filter.kind {
@@ -724,7 +906,8 @@ impl Storage for SeaOrmStorage {
             }
         };
 
-        let mut rows: Vec<LogRecord> = Vec::new();
+        let mut upstream_rows: Vec<LogRecord> = Vec::new();
+        let mut downstream_rows: Vec<LogRecord> = Vec::new();
 
         if query_upstream {
             let mut q = entities::UpstreamRequests::find()
@@ -758,33 +941,85 @@ impl Storage for SeaOrmStorage {
             if let Some(status_max) = filter.status_max {
                 q = q.filter(UpstreamColumn::ResponseStatus.lte(status_max));
             }
+            if let Some(cursor) = filter.cursor {
+                q = q.filter(
+                    Condition::any().add(UpstreamColumn::At.lt(cursor.at)).add(
+                        Condition::all()
+                            .add(UpstreamColumn::At.eq(cursor.at))
+                            .add(UpstreamColumn::Id.lt(cursor.id)),
+                    ),
+                );
+            }
 
-            let upstream_rows = q
-                .order_by_desc(UpstreamColumn::At)
-                .order_by_desc(UpstreamColumn::Id)
-                .limit(fetch_limit)
-                .all(&self.db)
-                .await?;
-
-            rows.extend(upstream_rows.into_iter().map(|row| LogRecord {
-                id: row.id,
-                kind: LogRecordKind::Upstream,
-                at: row.at,
-                trace_id: row.trace_id,
-                provider: Some(row.provider),
-                credential_id: row.credential_id,
-                user_id: row.user_id,
-                user_key_id: row.user_key_id,
-                attempt_no: Some(row.attempt_no),
-                operation: Some(row.operation),
-                request_method: row.request_method,
-                request_path: row.request_path,
-                request_body: row.request_body,
-                response_status: row.response_status,
-                response_body: row.response_body,
-                error_kind: row.error_kind,
-                error_message: row.error_message,
-            }));
+            if filter.include_body {
+                let rows = q
+                    .order_by_desc(UpstreamColumn::At)
+                    .order_by_desc(UpstreamColumn::Id)
+                    .limit(fetch_limit)
+                    .all(&self.db)
+                    .await?;
+                upstream_rows.extend(rows.into_iter().map(|row| LogRecord {
+                    id: row.id,
+                    kind: LogRecordKind::Upstream,
+                    at: row.at,
+                    trace_id: row.trace_id,
+                    provider: Some(row.provider),
+                    credential_id: row.credential_id,
+                    user_id: row.user_id,
+                    user_key_id: row.user_key_id,
+                    attempt_no: Some(row.attempt_no),
+                    operation: Some(row.operation),
+                    request_method: row.request_method,
+                    request_path: row.request_path,
+                    request_body: row.request_body,
+                    response_status: row.response_status,
+                    response_body: row.response_body,
+                    error_kind: row.error_kind,
+                    error_message: row.error_message,
+                }));
+            } else {
+                let rows = q
+                    .select_only()
+                    .column(UpstreamColumn::Id)
+                    .column(UpstreamColumn::TraceId)
+                    .column(UpstreamColumn::At)
+                    .column(UpstreamColumn::Provider)
+                    .column(UpstreamColumn::CredentialId)
+                    .column(UpstreamColumn::UserId)
+                    .column(UpstreamColumn::UserKeyId)
+                    .column(UpstreamColumn::AttemptNo)
+                    .column(UpstreamColumn::Operation)
+                    .column(UpstreamColumn::RequestMethod)
+                    .column(UpstreamColumn::RequestPath)
+                    .column(UpstreamColumn::ResponseStatus)
+                    .column(UpstreamColumn::ErrorKind)
+                    .column(UpstreamColumn::ErrorMessage)
+                    .order_by_desc(UpstreamColumn::At)
+                    .order_by_desc(UpstreamColumn::Id)
+                    .limit(fetch_limit)
+                    .into_model::<UpstreamLogLiteRow>()
+                    .all(&self.db)
+                    .await?;
+                upstream_rows.extend(rows.into_iter().map(|row| LogRecord {
+                    id: row.id,
+                    kind: LogRecordKind::Upstream,
+                    at: row.at,
+                    trace_id: row.trace_id,
+                    provider: Some(row.provider),
+                    credential_id: row.credential_id,
+                    user_id: row.user_id,
+                    user_key_id: row.user_key_id,
+                    attempt_no: Some(row.attempt_no),
+                    operation: Some(row.operation),
+                    request_method: row.request_method,
+                    request_path: row.request_path,
+                    request_body: None,
+                    response_status: row.response_status,
+                    response_body: None,
+                    error_kind: row.error_kind,
+                    error_message: row.error_message,
+                }));
+            }
         }
 
         if query_downstream {
@@ -810,44 +1045,134 @@ impl Storage for SeaOrmStorage {
             if let Some(status_max) = filter.status_max {
                 q = q.filter(DownstreamColumn::ResponseStatus.lte(status_max));
             }
+            if let Some(cursor) = filter.cursor {
+                q = q.filter(
+                    Condition::any()
+                        .add(DownstreamColumn::At.lt(cursor.at))
+                        .add(
+                            Condition::all()
+                                .add(DownstreamColumn::At.eq(cursor.at))
+                                .add(DownstreamColumn::Id.lt(cursor.id)),
+                        ),
+                );
+            }
 
-            let downstream_rows = q
-                .order_by_desc(DownstreamColumn::At)
-                .order_by_desc(DownstreamColumn::Id)
-                .limit(fetch_limit)
-                .all(&self.db)
-                .await?;
-
-            rows.extend(downstream_rows.into_iter().map(|row| LogRecord {
-                id: row.id,
-                kind: LogRecordKind::Downstream,
-                at: row.at,
-                trace_id: row.trace_id,
-                provider: None,
-                credential_id: None,
-                user_id: row.user_id,
-                user_key_id: row.user_key_id,
-                attempt_no: None,
-                operation: None,
-                request_method: row.request_method,
-                request_path: row.request_path,
-                request_body: row.request_body,
-                response_status: row.response_status,
-                response_body: row.response_body,
-                error_kind: None,
-                error_message: None,
-            }));
+            if filter.include_body {
+                let rows = q
+                    .order_by_desc(DownstreamColumn::At)
+                    .order_by_desc(DownstreamColumn::Id)
+                    .limit(fetch_limit)
+                    .all(&self.db)
+                    .await?;
+                downstream_rows.extend(rows.into_iter().map(|row| LogRecord {
+                    id: row.id,
+                    kind: LogRecordKind::Downstream,
+                    at: row.at,
+                    trace_id: row.trace_id,
+                    provider: None,
+                    credential_id: None,
+                    user_id: row.user_id,
+                    user_key_id: row.user_key_id,
+                    attempt_no: None,
+                    operation: None,
+                    request_method: row.request_method,
+                    request_path: row.request_path,
+                    request_body: row.request_body,
+                    response_status: row.response_status,
+                    response_body: row.response_body,
+                    error_kind: None,
+                    error_message: None,
+                }));
+            } else {
+                let rows = q
+                    .select_only()
+                    .column(DownstreamColumn::Id)
+                    .column(DownstreamColumn::TraceId)
+                    .column(DownstreamColumn::At)
+                    .column(DownstreamColumn::UserId)
+                    .column(DownstreamColumn::UserKeyId)
+                    .column(DownstreamColumn::RequestMethod)
+                    .column(DownstreamColumn::RequestPath)
+                    .column(DownstreamColumn::ResponseStatus)
+                    .order_by_desc(DownstreamColumn::At)
+                    .order_by_desc(DownstreamColumn::Id)
+                    .limit(fetch_limit)
+                    .into_model::<DownstreamLogLiteRow>()
+                    .all(&self.db)
+                    .await?;
+                downstream_rows.extend(rows.into_iter().map(|row| LogRecord {
+                    id: row.id,
+                    kind: LogRecordKind::Downstream,
+                    at: row.at,
+                    trace_id: row.trace_id,
+                    provider: None,
+                    credential_id: None,
+                    user_id: row.user_id,
+                    user_key_id: row.user_key_id,
+                    attempt_no: None,
+                    operation: None,
+                    request_method: row.request_method,
+                    request_path: row.request_path,
+                    request_body: None,
+                    response_status: row.response_status,
+                    response_body: None,
+                    error_kind: None,
+                    error_message: None,
+                }));
+            }
         }
 
-        rows.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| b.id.cmp(&a.id)));
+        let mut rows = merge_sorted_logs(
+            upstream_rows,
+            downstream_rows,
+            filter.limit.saturating_add(1),
+        );
+        let has_more = rows.len() > filter.limit;
+        if has_more {
+            rows.truncate(filter.limit);
+        }
+        let next_cursor = if has_more {
+            rows.last().map(|row| LogCursor {
+                at: row.at,
+                id: row.id,
+            })
+        } else {
+            None
+        };
 
-        let start = filter.offset.min(rows.len());
-        let end = start.saturating_add(filter.limit).min(rows.len());
-        let has_more = rows.len() > end;
-        let rows = rows[start..end].to_vec();
-
-        Ok(LogQueryResult { rows, has_more })
+        Ok(LogQueryResult {
+            rows,
+            has_more,
+            next_cursor,
+        })
     }
+}
+
+fn merge_sorted_logs(
+    upstream_rows: Vec<LogRecord>,
+    downstream_rows: Vec<LogRecord>,
+    take: usize,
+) -> Vec<LogRecord> {
+    let mut upstream = upstream_rows.into_iter().peekable();
+    let mut downstream = downstream_rows.into_iter().peekable();
+    let mut merged = Vec::with_capacity(take);
+
+    while merged.len() < take {
+        match (upstream.peek(), downstream.peek()) {
+            (Some(u), Some(d)) => {
+                if u.at > d.at || (u.at == d.at && u.id >= d.id) {
+                    merged.push(upstream.next().expect("upstream row"));
+                } else {
+                    merged.push(downstream.next().expect("downstream row"));
+                }
+            }
+            (Some(_), None) => merged.push(upstream.next().expect("upstream row")),
+            (None, Some(_)) => merged.push(downstream.next().expect("downstream row")),
+            (None, None) => break,
+        }
+    }
+
+    merged
 }
 
 fn system_time_to_offset(at: std::time::SystemTime) -> OffsetDateTime {

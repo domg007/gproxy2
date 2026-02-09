@@ -195,6 +195,8 @@ Accepted admin key sources (first match wins):
 Note: usage records are persisted in DB table `upstream_usages` (not `upstream_requests.usage_json`).
 Note: `upstream_usages` includes a `model` column. Model-scoped usage routes filter by this column.
 Note: `model` can be `NULL` for historical rows when request body/path did not contain model info, or when `event_redact_sensitive=true` (request body not persisted, so model cannot be extracted/backfilled).
+Note: `GET /admin/logs` uses cursor pagination (`cursor_at` + `cursor_id`). `offset>0` is rejected for performance.
+Note: `GET /admin/logs` defaults to `include_body=false`; request/response bodies are omitted unless explicitly enabled.
 
 ### Self update (`POST /admin/system/self_update`)
 - Downloads the latest GitHub release metadata from `LeenHawk/gproxy`.

@@ -15,12 +15,11 @@ use gproxy_protocol::openai::create_response::types::{
     AllowedTool, CustomToolCall, CustomToolCallType, FunctionCallItemStatus,
     FunctionCallOutputItemParam, FunctionCallOutputItemType, FunctionToolCall,
     FunctionToolCallType, InputContent, InputFileContent, InputImageContent, InputItem,
-    InputMessage, InputMessageRole, InputMessageType, InputParam, MessageStatus,
-    OutputMessage, OutputMessageContent, OutputMessageRole, OutputMessageType,
-    ResponseStreamOptions, ResponseTextParam, TextResponseFormatConfiguration, Tool,
-    ToolCallOutput, ToolChoiceAllowed, ToolChoiceAllowedMode, ToolChoiceAllowedType,
-    ToolChoiceCustom, ToolChoiceCustomType, ToolChoiceFunction, ToolChoiceFunctionType,
-    ToolChoiceOptions, ToolChoiceParam,
+    InputMessage, InputMessageRole, InputMessageType, InputParam, MessageStatus, OutputMessage,
+    OutputMessageContent, OutputMessageRole, OutputMessageType, ResponseStreamOptions,
+    ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolCallOutput, ToolChoiceAllowed,
+    ToolChoiceAllowedMode, ToolChoiceAllowedType, ToolChoiceCustom, ToolChoiceCustomType,
+    ToolChoiceFunction, ToolChoiceFunctionType, ToolChoiceOptions, ToolChoiceParam,
 };
 
 /// Convert an OpenAI chat-completions request into an OpenAI responses request.

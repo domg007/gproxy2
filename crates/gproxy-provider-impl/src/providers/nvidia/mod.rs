@@ -123,9 +123,15 @@ impl UpstreamProvider for NvidiaProvider {
         let hf_token = nvidia_hf_token(config);
         let hf_url = nvidia_hf_url(config);
         let data_dir = nvidia_data_dir(config);
-        let tokens =
-            tokenizer::count_input_tokens(ctx, &req.body.model, &req.body, hf_token, hf_url, data_dir)
-                .map_err(|err| ProviderError::Other(err.to_string()))?;
+        let tokens = tokenizer::count_input_tokens(
+            ctx,
+            &req.body.model,
+            &req.body,
+            hf_token,
+            hf_url,
+            data_dir,
+        )
+        .map_err(|err| ProviderError::Other(err.to_string()))?;
         let response = gproxy_protocol::openai::count_tokens::response::InputTokenCountResponse {
             object: gproxy_protocol::openai::count_tokens::types::InputTokenObjectType::ResponseInputTokens,
             input_tokens: tokens,

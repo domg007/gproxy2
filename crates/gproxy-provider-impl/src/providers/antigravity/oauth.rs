@@ -7,8 +7,8 @@ use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
-use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 use crate::providers::http_client::{SharedClientKind, client_for_ctx};
+use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 
 #[derive(Debug)]
 struct OAuthState {
@@ -125,9 +125,8 @@ pub(super) fn oauth_callback(
     let base_url = antigravity_base_url(config)?;
     let project_id = match project_id {
         Some(value) => value,
-        None => {
-            detect_project_id(ctx, &tokens.access_token, base_url)?.unwrap_or_else(random_project_id)
-        }
+        None => detect_project_id(ctx, &tokens.access_token, base_url)?
+            .unwrap_or_else(random_project_id),
     };
     let user_email = fetch_user_email(ctx, &tokens.access_token).ok().flatten();
     let credential = OAuthCredential {
@@ -390,7 +389,9 @@ pub(super) async fn enrich_credential_profile_if_missing(
             changed = true;
         }
     }
-    if email_missing && let Ok(Some(email)) = fetch_user_email_async(ctx, &updated.access_token).await {
+    if email_missing
+        && let Ok(Some(email)) = fetch_user_email_async(ctx, &updated.access_token).await
+    {
         updated.user_email = Some(email);
         changed = true;
     }

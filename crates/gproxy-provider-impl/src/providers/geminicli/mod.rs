@@ -252,9 +252,9 @@ impl UpstreamProvider for GeminiCliProvider {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = ProviderResult<Option<Credential>>> + Send + 'a>,
     > {
-        Box::pin(
-            async move { oauth::enrich_credential_profile_if_missing(ctx, config, credential).await },
-        )
+        Box::pin(async move {
+            oauth::enrich_credential_profile_if_missing(ctx, config, credential).await
+        })
     }
 
     async fn build_upstream_usage(

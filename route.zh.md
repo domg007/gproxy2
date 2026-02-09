@@ -191,3 +191,5 @@
 注意：usage 记录持久化在 DB 表 `upstream_usages`（不是 `upstream_requests.usage_json`）。  
 注意：`upstream_usages` 包含 `model` 列；模型维度 usage 路由按该列过滤。  
 注意：历史数据在请求体/路径未含模型信息，或 `event_redact_sensitive=true`（请求体未持久化，无法提取/回填模型）时，`model` 可能为 `NULL`。
+注意：`GET /admin/logs` 使用游标分页（`cursor_at` + `cursor_id`），`offset>0` 会被拒绝以避免性能问题。  
+注意：`GET /admin/logs` 默认 `include_body=false`，除非显式开启，否则不会返回请求/响应 body。

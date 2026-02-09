@@ -134,9 +134,9 @@ fn map_message_to_item(message: &ClaudeMessageParam, message_index: usize) -> Op
             })
         }
         ClaudeMessageRole::Assistant => map_message_as_output(message, message_index).map(|msg| {
-            InputItem::Item(gproxy_protocol::openai::create_response::types::Item::OutputMessage(
-                msg,
-            ))
+            InputItem::Item(
+                gproxy_protocol::openai::create_response::types::Item::OutputMessage(msg),
+            )
         }),
     }
 }
@@ -158,7 +158,10 @@ fn map_message_as_input(
     }
 }
 
-fn map_message_as_output(message: &ClaudeMessageParam, message_index: usize) -> Option<OutputMessage> {
+fn map_message_as_output(
+    message: &ClaudeMessageParam,
+    message_index: usize,
+) -> Option<OutputMessage> {
     let content = map_message_content_to_output_contents(&message.content);
     if content.is_empty() {
         return None;
@@ -172,7 +175,9 @@ fn map_message_as_output(message: &ClaudeMessageParam, message_index: usize) -> 
     })
 }
 
-fn map_message_content_to_output_contents(content: &ClaudeMessageContent) -> Vec<OutputMessageContent> {
+fn map_message_content_to_output_contents(
+    content: &ClaudeMessageContent,
+) -> Vec<OutputMessageContent> {
     let mut contents = Vec::new();
 
     fn push_text(contents: &mut Vec<OutputMessageContent>, text: String) {

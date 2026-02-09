@@ -42,6 +42,12 @@ pub enum LogRecordKind {
     Downstream,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LogCursor {
+    pub at: OffsetDateTime,
+    pub id: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct LogQueryFilter {
     pub from: OffsetDateTime,
@@ -57,7 +63,8 @@ pub struct LogQueryFilter {
     pub status_min: Option<i32>,
     pub status_max: Option<i32>,
     pub limit: usize,
-    pub offset: usize,
+    pub cursor: Option<LogCursor>,
+    pub include_body: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +92,7 @@ pub struct LogRecord {
 pub struct LogQueryResult {
     pub rows: Vec<LogRecord>,
     pub has_more: bool,
+    pub next_cursor: Option<LogCursor>,
 }
 
 /// Storage is used for:

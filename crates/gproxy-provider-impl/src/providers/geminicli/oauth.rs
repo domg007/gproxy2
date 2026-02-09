@@ -8,8 +8,8 @@ use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
-use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 use crate::providers::http_client::{SharedClientKind, client_for_ctx};
+use crate::providers::oauth_common::{parse_query_value, resolve_manual_code_and_state};
 
 #[derive(Debug)]
 struct OAuthState {
@@ -387,7 +387,9 @@ pub(super) async fn enrich_credential_profile_if_missing(
             changed = true;
         }
     }
-    if email_missing && let Ok(Some(email)) = fetch_user_email_async(ctx, &updated.access_token).await {
+    if email_missing
+        && let Ok(Some(email)) = fetch_user_email_async(ctx, &updated.access_token).await
+    {
         updated.user_email = Some(email);
         changed = true;
     }

@@ -280,9 +280,9 @@ impl UpstreamProvider for AntigravityProvider {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = ProviderResult<Option<Credential>>> + Send + 'a>,
     > {
-        Box::pin(
-            async move { oauth::enrich_credential_profile_if_missing(ctx, config, credential).await },
-        )
+        Box::pin(async move {
+            oauth::enrich_credential_profile_if_missing(ctx, config, credential).await
+        })
     }
 
     fn on_auth_failure<'a>(
