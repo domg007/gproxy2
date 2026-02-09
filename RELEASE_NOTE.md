@@ -242,3 +242,13 @@
 
 ### Fixed
 - enhance assistant message handling by adding index tracking for output messages
+
+## v0.2.29
+
+- OpenAI Responses transform compatibility:
+  - fixed `claude -> openai responses` assistant message mapping to emit `OutputMessage` with `output_text` content instead of invalid `input_text`.
+  - assistant output message IDs now use `msg_assistant_{index}` format to satisfy upstream `msg*` ID validation.
+- downstream log persistence:
+  - `DownstreamEvent.request_body` is now captured and persisted (when `event_redact_sensitive=false`) instead of always `null`.
+- upstream log persistence:
+  - non-2xx upstream events now persist `response_headers` and `response_body` instead of only status/error metadata.
