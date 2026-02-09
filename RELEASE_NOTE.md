@@ -146,3 +146,15 @@
 ### Fixed
 - admin event stream (`/admin/events/ws`) now serializes `request_body` / `response_body` as readable strings instead of raw byte arrays.
 - terminal event sink logging now uses the same readable string serialization for request/response bodies.
+
+## v0.2.20
+
+### Changed
+- `openai/codex` responses API now uses provider passthrough request building for `/v1/responses` routes, reducing schema-coupling with local DTO parsing.
+- provider-scoped responses routing now supports passthrough for both `/v1/responses` and nested `/v1/responses/*` paths.
+
+### Fixed
+- fixed frequent `422` on codex/openai responses caused by strict local body deserialization before upstream forwarding.
+- kept credential injection/auth handling in passthrough flow, and preserved codex upstream request normalization (`instructions` fallback, compact stream handling, input normalization).
+- fixed ClaudeCode 1M beta header behavior: when 1M is disabled or entitlement is unavailable, `context-1m-*` beta is now stripped from outgoing headers.
+- fixed ClaudeCode 1M gating logic: 1M beta is sent only when both `enable_claude_1m_* == true` and `supports_claude_1m_* == true`.
