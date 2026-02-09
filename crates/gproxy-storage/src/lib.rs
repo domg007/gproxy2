@@ -9,4 +9,7 @@ pub use sinks::DbEventSink;
 pub use snapshot::{
     CredentialRow, GlobalConfigRow, ProviderRow, StorageSnapshot, UserKeyRow, UserRow,
 };
-pub use storage::{Storage, StorageError, StorageResult, UsageAggregate, UsageAggregateFilter};
+pub use storage::{
+    LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError,
+    StorageResult, UsageAggregate, UsageAggregateFilter,
+};

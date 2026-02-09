@@ -98,6 +98,36 @@ export type UsageResponse = {
   total_tokens: number;
 };
 
+export type LogRecordKind = "upstream" | "downstream";
+
+export type LogQueryRow = {
+  id: number;
+  kind: LogRecordKind;
+  at: string;
+  trace_id?: string | null;
+  provider?: string | null;
+  credential_id?: number | null;
+  user_id?: number | null;
+  user_key_id?: number | null;
+  attempt_no?: number | null;
+  operation?: string | null;
+  request_method: string;
+  request_path: string;
+  response_status?: number | null;
+  error_kind?: string | null;
+  error_message?: string | null;
+};
+
+export type LogQueryResponse = {
+  from: string;
+  to: string;
+  kind: "all" | LogRecordKind;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  rows: LogQueryRow[];
+};
+
 export type ToastKind = "success" | "error" | "info";
 
 export type ToastState = {

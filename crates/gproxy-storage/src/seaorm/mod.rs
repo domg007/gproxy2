@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
-    EntityTrait, QueryOrder, Schema,
+    EntityTrait, QueryOrder, QuerySelect, Schema,
 };
 use sea_orm::{ColumnTrait, QueryFilter};
 use time::OffsetDateTime;
@@ -14,7 +14,10 @@ use crate::entities;
 use crate::snapshot::{
     CredentialRow, GlobalConfigRow, ProviderRow, StorageSnapshot, UserKeyRow, UserRow,
 };
-use crate::storage::{Storage, StorageError, StorageResult, UsageAggregate, UsageAggregateFilter};
+use crate::storage::{
+    LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError, StorageResult,
+    UsageAggregate, UsageAggregateFilter,
+};
 
 #[derive(Clone)]
 pub struct SeaOrmStorage {
@@ -698,6 +701,148 @@ impl Storage for SeaOrmStorage {
             + out.cache_creation_input_tokens;
 
         Ok(out)
+    }
+
+    async fn query_logs(&self, filter: LogQueryFilter) -> StorageResult<LogQueryResult> {
+        use entities::downstream_requests::Column as DownstreamColumn;
+        use entities::upstream_requests::Column as UpstreamColumn;
+
+        let fetch_count = filter
+            .offset
+            .saturating_add(filter.limit)
+            .saturating_add(1);
+        let fetch_limit = u64::try_from(fetch_count).unwrap_or(u64::MAX);
+
+        let query_upstream = filter.kind != Some(LogRecordKind::Downstream);
+        let query_downstream = match filter.kind {
+            Some(LogRecordKind::Upstream) => false,
+            Some(LogRecordKind::Downstream) => true,
+            None => {
+                filter.provider.is_none()
+                    && filter.credential_id.is_none()
+                    && filter.operation.is_none()
+            }
+        };
+
+        let mut rows: Vec<LogRecord> = Vec::new();
+
+        if query_upstream {
+            let mut q = entities::UpstreamRequests::find()
+                .filter(UpstreamColumn::At.gte(filter.from))
+                .filter(UpstreamColumn::At.lte(filter.to));
+
+            if let Some(provider) = filter.provider.as_deref() {
+                q = q.filter(UpstreamColumn::Provider.eq(provider));
+            }
+            if let Some(credential_id) = filter.credential_id {
+                q = q.filter(UpstreamColumn::CredentialId.eq(credential_id));
+            }
+            if let Some(user_id) = filter.user_id {
+                q = q.filter(UpstreamColumn::UserId.eq(user_id));
+            }
+            if let Some(user_key_id) = filter.user_key_id {
+                q = q.filter(UpstreamColumn::UserKeyId.eq(user_key_id));
+            }
+            if let Some(trace_id) = filter.trace_id.as_deref() {
+                q = q.filter(UpstreamColumn::TraceId.eq(trace_id));
+            }
+            if let Some(operation) = filter.operation.as_deref() {
+                q = q.filter(UpstreamColumn::Operation.eq(operation));
+            }
+            if let Some(path_contains) = filter.request_path_contains.as_deref() {
+                q = q.filter(UpstreamColumn::RequestPath.contains(path_contains));
+            }
+            if let Some(status_min) = filter.status_min {
+                q = q.filter(UpstreamColumn::ResponseStatus.gte(status_min));
+            }
+            if let Some(status_max) = filter.status_max {
+                q = q.filter(UpstreamColumn::ResponseStatus.lte(status_max));
+            }
+
+            let upstream_rows = q
+                .order_by_desc(UpstreamColumn::At)
+                .order_by_desc(UpstreamColumn::Id)
+                .limit(fetch_limit)
+                .all(&self.db)
+                .await?;
+
+            rows.extend(upstream_rows.into_iter().map(|row| LogRecord {
+                id: row.id,
+                kind: LogRecordKind::Upstream,
+                at: row.at,
+                trace_id: row.trace_id,
+                provider: Some(row.provider),
+                credential_id: row.credential_id,
+                user_id: row.user_id,
+                user_key_id: row.user_key_id,
+                attempt_no: Some(row.attempt_no),
+                operation: Some(row.operation),
+                request_method: row.request_method,
+                request_path: row.request_path,
+                response_status: row.response_status,
+                error_kind: row.error_kind,
+                error_message: row.error_message,
+            }));
+        }
+
+        if query_downstream {
+            let mut q = entities::DownstreamRequests::find()
+                .filter(DownstreamColumn::At.gte(filter.from))
+                .filter(DownstreamColumn::At.lte(filter.to));
+
+            if let Some(user_id) = filter.user_id {
+                q = q.filter(DownstreamColumn::UserId.eq(user_id));
+            }
+            if let Some(user_key_id) = filter.user_key_id {
+                q = q.filter(DownstreamColumn::UserKeyId.eq(user_key_id));
+            }
+            if let Some(trace_id) = filter.trace_id.as_deref() {
+                q = q.filter(DownstreamColumn::TraceId.eq(trace_id));
+            }
+            if let Some(path_contains) = filter.request_path_contains.as_deref() {
+                q = q.filter(DownstreamColumn::RequestPath.contains(path_contains));
+            }
+            if let Some(status_min) = filter.status_min {
+                q = q.filter(DownstreamColumn::ResponseStatus.gte(status_min));
+            }
+            if let Some(status_max) = filter.status_max {
+                q = q.filter(DownstreamColumn::ResponseStatus.lte(status_max));
+            }
+
+            let downstream_rows = q
+                .order_by_desc(DownstreamColumn::At)
+                .order_by_desc(DownstreamColumn::Id)
+                .limit(fetch_limit)
+                .all(&self.db)
+                .await?;
+
+            rows.extend(downstream_rows.into_iter().map(|row| LogRecord {
+                id: row.id,
+                kind: LogRecordKind::Downstream,
+                at: row.at,
+                trace_id: row.trace_id,
+                provider: None,
+                credential_id: None,
+                user_id: row.user_id,
+                user_key_id: row.user_key_id,
+                attempt_no: None,
+                operation: None,
+                request_method: row.request_method,
+                request_path: row.request_path,
+                response_status: row.response_status,
+                error_kind: None,
+                error_message: None,
+            }));
+        }
+
+        rows.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| b.id.cmp(&a.id)));
+
+        let start = filter.offset.min(rows.len());
+        let end = start.saturating_add(filter.limit).min(rows.len());
+        let has_more = rows.len() > end;
+        let rows = rows[start..end].to_vec();
+
+        Ok(LogQueryResult { rows, has_more })
     }
 }
 

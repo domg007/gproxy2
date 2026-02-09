@@ -13,7 +13,7 @@ import { OverviewSection } from "./sections/OverviewSection";
 import { ProvidersSection } from "./sections/ProvidersSection";
 import { UsageSection } from "./sections/UsageSection";
 import { UsersSection } from "./sections/UsersSection";
-import { EventStreamSection } from "./sections/EventStreamSection";
+import { LogQuerySection } from "./sections/LogQuerySection";
 
 const KEY_STORAGE = "gproxy_admin_key";
 
@@ -122,7 +122,7 @@ export default function App() {
       { id: "providers", label: t("nav.providers") },
       { id: "users", label: t("nav.users") },
       { id: "usage", label: t("nav.usage") },
-      { id: "events", label: t("nav.events") },
+      { id: "events", label: t("nav.logs") },
       { id: "about", label: t("nav.about") }
     ],
     [t]
@@ -134,6 +134,8 @@ export default function App() {
     setAuthed(false);
     setProviders([]);
   };
+
+  const contentWidthClass = route === "events" ? "max-w-[1850px]" : "max-w-[1300px]";
 
   if (!authed) {
     return (
@@ -147,7 +149,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Toast toast={toast} />
-      <div className="mx-auto flex w-full max-w-[1300px] flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6 lg:py-8">
+      <div className={`mx-auto flex w-full ${contentWidthClass} flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6 lg:py-8`}>
         <Sidebar active={route} onChange={goRoute} items={navItems} />
         <main className="flex-1 space-y-5">
           <header className="topbar-shell">
@@ -183,7 +185,7 @@ export default function App() {
           {route === "providers" ? <ProvidersSection adminKey={adminKey} notify={notify} /> : null}
           {route === "users" ? <UsersSection adminKey={adminKey} notify={notify} /> : null}
           {route === "usage" ? <UsageSection adminKey={adminKey} providers={providers} notify={notify} /> : null}
-          {route === "events" ? <EventStreamSection adminKey={adminKey} notify={notify} /> : null}
+          {route === "events" ? <LogQuerySection adminKey={adminKey} notify={notify} /> : null}
           {route === "about" ? <AboutSection adminKey={adminKey} notify={notify} /> : null}
         </main>
       </div>

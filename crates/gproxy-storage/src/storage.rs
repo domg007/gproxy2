@@ -36,6 +36,55 @@ pub struct UsageAggregate {
     pub total_tokens: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogRecordKind {
+    Upstream,
+    Downstream,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogQueryFilter {
+    pub from: OffsetDateTime,
+    pub to: OffsetDateTime,
+    pub kind: Option<LogRecordKind>,
+    pub provider: Option<String>,
+    pub credential_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub user_key_id: Option<i64>,
+    pub trace_id: Option<String>,
+    pub operation: Option<String>,
+    pub request_path_contains: Option<String>,
+    pub status_min: Option<i32>,
+    pub status_max: Option<i32>,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogRecord {
+    pub id: i64,
+    pub kind: LogRecordKind,
+    pub at: OffsetDateTime,
+    pub trace_id: Option<String>,
+    pub provider: Option<String>,
+    pub credential_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub user_key_id: Option<i64>,
+    pub attempt_no: Option<i32>,
+    pub operation: Option<String>,
+    pub request_method: String,
+    pub request_path: String,
+    pub response_status: Option<i32>,
+    pub error_kind: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogQueryResult {
+    pub rows: Vec<LogRecord>,
+    pub has_more: bool,
+}
+
 /// Storage is used for:
 /// - bootstrap (load_snapshot)
 /// - admin mutations (writes only)
@@ -106,4 +155,6 @@ pub trait Storage: Send + Sync {
         &self,
         filter: UsageAggregateFilter,
     ) -> StorageResult<UsageAggregate>;
+
+    async fn query_logs(&self, filter: LogQueryFilter) -> StorageResult<LogQueryResult>;
 }

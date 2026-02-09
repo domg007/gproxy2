@@ -13,7 +13,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use serde::Deserialize;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{Duration as TimeDuration, OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::select;
 
 use gproxy_core::state::{AppState, CredentialInsertInput, ProviderRuntime};
@@ -65,6 +65,7 @@ pub fn admin_router(app: Arc<AppState>, storage: Arc<dyn Storage>) -> Router {
             "/usage/credentials/{credential_id}/models/{model}/tokens",
             get(usage_tokens_by_credential_model),
         )
+        .route("/logs", get(query_logs))
         .route("/users", get(list_users))
         .route("/users/{id}", put(upsert_user).delete(delete_user))
         .route("/users/{id}/enabled", put(set_user_enabled))
@@ -724,6 +725,38 @@ struct UsageRangeQuery {
     model_contains: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct LogsQuery {
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    to: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    credential_id: Option<i64>,
+    #[serde(default)]
+    user_id: Option<i64>,
+    #[serde(default)]
+    user_key_id: Option<i64>,
+    #[serde(default)]
+    trace_id: Option<String>,
+    #[serde(default)]
+    operation: Option<String>,
+    #[serde(default)]
+    path_contains: Option<String>,
+    #[serde(default)]
+    status_min: Option<i32>,
+    #[serde(default)]
+    status_max: Option<i32>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: Option<usize>,
+}
+
 async fn usage_tokens_by_provider(
     State(state): State<AdminState>,
     Path(provider): Path<String>,
@@ -901,6 +934,153 @@ async fn usage_tokens_by_credential_model(
             "cache_read_input_tokens": aggregate.cache_read_input_tokens,
             "cache_creation_input_tokens": aggregate.cache_creation_input_tokens,
             "total_tokens": aggregate.total_tokens,
+        })),
+    )
+        .into_response()
+}
+
+async fn query_logs(State(state): State<AdminState>, Query(query): Query<LogsQuery>) -> impl IntoResponse {
+    let kind = match normalize_opt_str(query.kind).as_deref() {
+        None | Some("all") => None,
+        Some("upstream") => Some(gproxy_storage::LogRecordKind::Upstream),
+        Some("downstream") => Some(gproxy_storage::LogRecordKind::Downstream),
+        Some(other) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_kind",
+                    "detail": format!("unsupported kind: {other}; expected one of all/upstream/downstream"),
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    if let (Some(status_min), Some(status_max)) = (query.status_min, query.status_max)
+        && status_max < status_min
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid_status_range",
+                "detail": "`status_max` must be >= `status_min`",
+            })),
+        )
+            .into_response();
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let default_from = now - TimeDuration::hours(24);
+    let from = match normalize_opt_str(query.from) {
+        Some(raw) => match OffsetDateTime::parse(&raw, &Rfc3339) {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "invalid_from",
+                        "detail": err.to_string(),
+                    })),
+                )
+                    .into_response();
+            }
+        },
+        None => default_from,
+    };
+    let to = match normalize_opt_str(query.to) {
+        Some(raw) => match OffsetDateTime::parse(&raw, &Rfc3339) {
+            Ok(v) => v,
+            Err(err) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "invalid_to",
+                        "detail": err.to_string(),
+                    })),
+                )
+                    .into_response();
+            }
+        },
+        None => now,
+    };
+    if to < from {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid_range",
+                "detail": "`to` must be >= `from`",
+            })),
+        )
+            .into_response();
+    }
+
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let offset = query.offset.unwrap_or(0);
+
+    let filter = gproxy_storage::LogQueryFilter {
+        from,
+        to,
+        kind,
+        provider: normalize_opt_str(query.provider),
+        credential_id: query.credential_id,
+        user_id: query.user_id,
+        user_key_id: query.user_key_id,
+        trace_id: normalize_opt_str(query.trace_id),
+        operation: normalize_opt_str(query.operation),
+        request_path_contains: normalize_opt_str(query.path_contains),
+        status_min: query.status_min,
+        status_max: query.status_max,
+        limit,
+        offset,
+    };
+
+    let result = match state.storage.query_logs(filter).await {
+        Ok(v) => v,
+        Err(err) => return storage_error(err).into_response(),
+    };
+
+    let rows: Vec<_> = result
+        .rows
+        .into_iter()
+        .map(|row| {
+            let kind = match row.kind {
+                gproxy_storage::LogRecordKind::Upstream => "upstream",
+                gproxy_storage::LogRecordKind::Downstream => "downstream",
+            };
+            serde_json::json!({
+                "id": row.id,
+                "kind": kind,
+                "at": format_time_rfc3339(row.at),
+                "trace_id": row.trace_id,
+                "provider": row.provider,
+                "credential_id": row.credential_id,
+                "user_id": row.user_id,
+                "user_key_id": row.user_key_id,
+                "attempt_no": row.attempt_no,
+                "operation": row.operation,
+                "request_method": row.request_method,
+                "request_path": row.request_path,
+                "response_status": row.response_status,
+                "error_kind": row.error_kind,
+                "error_message": row.error_message,
+            })
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "from": format_time_rfc3339(from),
+            "to": format_time_rfc3339(to),
+            "kind": match kind {
+                None => "all",
+                Some(gproxy_storage::LogRecordKind::Upstream) => "upstream",
+                Some(gproxy_storage::LogRecordKind::Downstream) => "downstream",
+            },
+            "limit": limit,
+            "offset": offset,
+            "has_more": result.has_more,
+            "rows": rows,
         })),
     )
         .into_response()
@@ -1627,6 +1807,23 @@ fn parse_usage_range(
         ));
     }
     Ok((from, to))
+}
+
+fn normalize_opt_str(input: Option<String>) -> Option<String> {
+    input.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn format_time_rfc3339(value: OffsetDateTime) -> String {
+    value
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| value.unix_timestamp().to_string())
 }
 
 fn storage_error(err: gproxy_storage::StorageError) -> (StatusCode, Json<serde_json::Value>) {
