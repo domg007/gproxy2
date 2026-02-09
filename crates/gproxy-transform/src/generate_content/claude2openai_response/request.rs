@@ -19,10 +19,10 @@ use gproxy_protocol::openai::create_response::request::{
 };
 use gproxy_protocol::openai::create_response::types::{
     CodeInterpreterContainer, CodeInterpreterContainerParams, CodeInterpreterTool,
-    ComputerEnvironment, ComputerUsePreviewTool, EasyInputMessage, EasyInputMessageContent,
-    EasyInputMessageRole, EasyInputMessageType, FileSearchTool, FunctionShellTool, FunctionTool,
+    ComputerEnvironment, ComputerUsePreviewTool, FileSearchTool, FunctionShellTool, FunctionTool,
     InputContent, InputFileContent, InputImageContent, InputItem, InputMessage, InputMessageRole,
-    InputParam, InputTextContent, MCPAllowedTools, MCPTool, Reasoning, ReasoningEffort,
+    InputParam, InputTextContent, MCPAllowedTools, MCPTool, MessageStatus, OutputMessage,
+    OutputMessageContent, OutputMessageRole, OutputMessageType, Reasoning, ReasoningEffort,
     ResponseTextParam, TextResponseFormatConfiguration, Tool, ToolChoiceOptions, ToolChoiceParam,
     WebSearchApproximateLocation, WebSearchFilters, WebSearchTool,
 };
@@ -111,8 +111,8 @@ fn map_system_to_instructions(
 fn map_messages_to_input(messages: &[ClaudeMessageParam]) -> Option<InputParam> {
     let mut items = Vec::new();
 
-    for message in messages {
-        if let Some(item) = map_message_to_item(message) {
+    for (message_index, message) in messages.iter().enumerate() {
+        if let Some(item) = map_message_to_item(message, message_index) {
             items.push(item);
         }
     }
@@ -124,7 +124,7 @@ fn map_messages_to_input(messages: &[ClaudeMessageParam]) -> Option<InputParam> 
     }
 }
 
-fn map_message_to_item(message: &ClaudeMessageParam) -> Option<InputItem> {
+fn map_message_to_item(message: &ClaudeMessageParam, message_index: usize) -> Option<InputItem> {
     match message.role {
         ClaudeMessageRole::User => {
             map_message_as_input(message, InputMessageRole::User).map(|msg| {
@@ -133,14 +133,11 @@ fn map_message_to_item(message: &ClaudeMessageParam) -> Option<InputItem> {
                 )
             })
         }
-        ClaudeMessageRole::Assistant => {
-            let content = map_message_content_to_easy_content(&message.content)?;
-            Some(InputItem::EasyMessage(EasyInputMessage {
-                r#type: EasyInputMessageType::Message,
-                role: EasyInputMessageRole::Assistant,
-                content,
-            }))
-        }
+        ClaudeMessageRole::Assistant => map_message_as_output(message, message_index).map(|msg| {
+            InputItem::Item(gproxy_protocol::openai::create_response::types::Item::OutputMessage(
+                msg,
+            ))
+        }),
     }
 }
 
@@ -161,25 +158,55 @@ fn map_message_as_input(
     }
 }
 
-fn map_message_content_to_easy_content(
-    content: &ClaudeMessageContent,
-) -> Option<EasyInputMessageContent> {
+fn map_message_as_output(message: &ClaudeMessageParam, message_index: usize) -> Option<OutputMessage> {
+    let content = map_message_content_to_output_contents(&message.content);
+    if content.is_empty() {
+        return None;
+    }
+    Some(OutputMessage {
+        id: format!("msg_assistant_{message_index}"),
+        r#type: OutputMessageType::Message,
+        role: OutputMessageRole::Assistant,
+        content,
+        status: MessageStatus::Completed,
+    })
+}
+
+fn map_message_content_to_output_contents(content: &ClaudeMessageContent) -> Vec<OutputMessageContent> {
+    let mut contents = Vec::new();
+
+    fn push_text(contents: &mut Vec<OutputMessageContent>, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        contents.push(OutputMessageContent::OutputText(
+            gproxy_protocol::openai::create_response::types::OutputTextContent {
+                text,
+                annotations: Vec::new(),
+                logprobs: None,
+            },
+        ));
+    }
+
     match content {
-        ClaudeMessageContent::Text(text) => Some(EasyInputMessageContent::Text(text.clone())),
+        ClaudeMessageContent::Text(text) => push_text(&mut contents, text.clone()),
         ClaudeMessageContent::Blocks(blocks) => {
-            let mut parts = Vec::new();
             for block in blocks {
-                if let Some(part) = map_block_to_input_content(block) {
-                    parts.push(part);
+                match block {
+                    ClaudeContentBlockParam::Text(text_block) => {
+                        push_text(&mut contents, text_block.text.clone());
+                    }
+                    _ => {
+                        if let Ok(serialized) = serde_json::to_string(block) {
+                            push_text(&mut contents, serialized);
+                        }
+                    }
                 }
-            }
-            if parts.is_empty() {
-                None
-            } else {
-                Some(EasyInputMessageContent::Parts(parts))
             }
         }
     }
+
+    contents
 }
 
 fn map_message_content_to_input_contents(content: &ClaudeMessageContent) -> Vec<InputContent> {
