@@ -178,3 +178,13 @@
 - Updated various provider implementations (ClaudeCode, Codex, GeminiCli, Nvidia, Vertex) to use the new client management approach.
 - Modified OAuth handling to ensure consistent client usage across authentication flows.
 - Enhanced self-update functionality to support proxy configuration.
+
+## v0.2.24
+
+### Added
+- SSE downstream keepalive heartbeat support (default `15s`) for `text/event-stream` responses to reduce idle disconnects on unstable network / reverse-proxy links.
+- SSE response header hints for reverse proxies (`Cache-Control: no-cache`, `X-Accel-Buffering: no`) to reduce buffering-related stream interruption.
+
+### Fixed
+- codex responses passthrough compatibility: strip unsupported sampling params (`temperature`, `top_p`) for `/v1/responses` and `/v1/responses/compact` upstream calls.
+- upstream non-JSON HTTP error normalization: HTML/error pages (for example Cloudflare 4xx pages) are now converted to stable JSON error payloads for downstream clients, while native JSON upstream errors are preserved as-is.
