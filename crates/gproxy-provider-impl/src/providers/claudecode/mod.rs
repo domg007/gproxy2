@@ -663,6 +663,15 @@ mod tests {
     }
 
     #[test]
+    fn supports_unknown_does_not_use_context_1m() {
+        let mut secret = default_secret();
+        secret.enable_claude_1m_sonnet = Some(true);
+        secret.supports_claude_1m_sonnet = None;
+        let cred = oauth_cred(secret);
+        assert!(!should_use_context_1m(&cred, Some("claude-sonnet-4-5")));
+    }
+
+    #[test]
     fn forbidden_response_detected() {
         let failure = UpstreamFailure::Http {
             status: 403,
@@ -931,10 +940,7 @@ fn should_use_context_1m(credential: &Credential, model: Option<&str>) -> bool {
     if !claude_code_meta_get_enable_1m(credential, family) {
         return false;
     }
-    !matches!(
-        claude_code_meta_get_supports_1m(credential, family),
-        Some(false)
-    )
+    matches!(claude_code_meta_get_supports_1m(credential, family), Some(true))
 }
 
 fn is_1m_forbidden_response(failure: &gproxy_provider_core::provider::UpstreamFailure) -> bool {
