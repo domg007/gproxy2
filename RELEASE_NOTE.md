@@ -164,3 +164,8 @@
 ### Fixed
 - claudecode beta header normalization now actively removes downstream-provided `context-1m-*` entries when current credential/model is not eligible for 1M context.
 - preserved non-1M beta entries while still appending required OAuth beta flag, and added unit tests for disabled/enabled context-1m header behavior.
+
+## v0.2.22
+
+### Changed
+- simplified frontend Usage page by removing the live provider usage panel (`/{provider}/usage`) and related local state/actions.
