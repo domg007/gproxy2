@@ -1,32 +1,5 @@
 # Release Notes
 
-## v0.2.25
-
-### Added
-- admin API: added `GET /admin/logs` to query persisted upstream/downstream request logs with time range filters, kind selection, status range, and pagination.
-- frontend: added a new non-realtime log query page with filter form + table view, replacing the old terminal-style WS stream page in sidebar entry.
-
-### Changed
-- credentials usage token APIs now support `model_contains` filter across provider/credential scopes.
-- usage responses now include `call_count` (same semantics as `matched_rows`) for easier frontend aggregation display.
-- log query route now uses a wider page max-width on frontend to improve table readability.
-
-### Fixed
-- downstream log query behavior: when `kind=downstream`, upstream-only filters no longer suppress downstream results unexpectedly.
-- admin time serialization in log query responses is normalized to RFC3339 output.
-
-## v0.2.4
-
-### Changed
-- Updated Render blueprint (`render.yaml`) to official Blueprint style (`runtime: docker`, preview generation enabled, `autoDeployTrigger`), and removed default managed PostgreSQL creation.
-- Render deployment now keeps `GPROXY_DSN` optional by default for external DB wiring.
-- Updated README/README.zh deployment docs to reflect current Render behavior and ephemeral default data directory usage.
-- Minor code cleanup and refactor simplification in provider implementation internals.
-
-### Fixed
-- Fixed Zeabur template defaults to avoid passing literal placeholder strings like `${GPROXY_PORT}` into runtime envs.
-- Hardened Docker startup command with defensive env normalization and safe fallbacks (`host`, `port`, `data_dir`, `admin_key`) to prevent crash loops from malformed platform-injected values.
-
 ## v0.2.3
 
 ### Added
@@ -45,6 +18,19 @@
 
 ### Fixed
 - Release script now uses clean tag/release title formatting for GitHub Release updates.
+
+## v0.2.4
+
+### Changed
+- Updated Render blueprint (`render.yaml`) to official Blueprint style (`runtime: docker`, preview generation enabled, `autoDeployTrigger`), and removed default managed PostgreSQL creation.
+- Render deployment now keeps `GPROXY_DSN` optional by default for external DB wiring.
+- Updated README/README.zh deployment docs to reflect current Render behavior and ephemeral default data directory usage.
+- Minor code cleanup and refactor simplification in provider implementation internals.
+
+### Fixed
+- Fixed Zeabur template defaults to avoid passing literal placeholder strings like `${GPROXY_PORT}` into runtime envs.
+- Hardened Docker startup command with defensive env normalization and safe fallbacks (`host`, `port`, `data_dir`, `admin_key`) to prevent crash loops from malformed platform-injected values.
+
 
 ## v0.2.5
 
@@ -252,3 +238,9 @@
   - `DownstreamEvent.request_body` is now captured and persisted (when `event_redact_sensitive=false`) instead of always `null`.
 - upstream log persistence:
   - non-2xx upstream events now persist `response_headers` and `response_body` instead of only status/error metadata.
+
+## v0.2.30
+
+### Fixed
+- storage (SeaORM): fixed compile compatibility with SeaORM v2 by importing `DatabaseBackend` for sqlite backend checks and executing index statements via `execute(&statement)` in `ensure_performance_indexes`.
+- restored clean local validation flow by fixing `cargo check` and `cargo clippy` failures caused by the storage compile errors.

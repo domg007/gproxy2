@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use sea_orm::sea_query::Index;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
-    FromQueryResult, QueryOrder, QuerySelect, Schema,
+    ActiveModelTrait, ActiveValue, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
+    EntityTrait, FromQueryResult, QueryOrder, QuerySelect, Schema,
 };
 use sea_orm::{ColumnTrait, Condition, QueryFilter};
 use time::OffsetDateTime;
@@ -137,7 +137,6 @@ impl SeaOrmStorage {
         use entities::upstream_requests::Column as UpstreamColumn;
         use entities::upstream_usages::Column as UpstreamUsageColumn;
 
-        let backend = self.db.get_database_backend();
         let statements = vec![
             Index::create()
                 .name("idx_upstream_requests_at_id")
@@ -271,7 +270,7 @@ impl SeaOrmStorage {
         ];
 
         for statement in statements {
-            self.db.execute(backend.build(&statement)).await?;
+            self.db.execute(&statement).await?;
         }
 
         Ok(())
