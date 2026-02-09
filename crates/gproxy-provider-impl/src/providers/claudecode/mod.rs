@@ -553,6 +553,10 @@ fn ensure_oauth_beta(headers: &mut gproxy_provider_core::Headers, use_context_1m
         })
         .unwrap_or_default();
 
+    if !use_context_1m {
+        values.retain(|value| !value.to_ascii_lowercase().starts_with("context-1m"));
+    }
+
     if !values.iter().any(|v| v.eq_ignore_ascii_case(OAUTH_BETA)) {
         values.push(OAUTH_BETA.to_string());
     }
@@ -669,6 +673,32 @@ mod tests {
         secret.supports_claude_1m_sonnet = None;
         let cred = oauth_cred(secret);
         assert!(!should_use_context_1m(&cred, Some("claude-sonnet-4-5")));
+    }
+
+    #[test]
+    fn ensure_oauth_beta_strips_context_1m_when_disabled() {
+        let mut headers = vec![(
+            HEADER_BETA.to_string(),
+            "output-128k-2025-02-19,context-1m-2025-08-07".to_string(),
+        )];
+        ensure_oauth_beta(&mut headers, false);
+        let beta = header_get(&headers, HEADER_BETA).unwrap_or_default();
+        assert!(beta.contains("output-128k-2025-02-19"));
+        assert!(beta.contains(OAUTH_BETA));
+        assert!(!beta.to_ascii_lowercase().contains("context-1m"));
+    }
+
+    #[test]
+    fn ensure_oauth_beta_keeps_context_1m_when_enabled() {
+        let mut headers = vec![(
+            HEADER_BETA.to_string(),
+            "output-128k-2025-02-19,context-1m-2025-08-07".to_string(),
+        )];
+        ensure_oauth_beta(&mut headers, true);
+        let beta = header_get(&headers, HEADER_BETA).unwrap_or_default();
+        assert!(beta.contains("output-128k-2025-02-19"));
+        assert!(beta.contains(OAUTH_BETA));
+        assert!(beta.to_ascii_lowercase().contains("context-1m"));
     }
 
     #[test]
