@@ -1118,22 +1118,23 @@ impl ProxyEngine {
                         body: Bytes::new(),
                     },
                 };
-                emit_upstream_event!(
-                    self,
-                    trace_id.clone(),
-                    auth.clone(),
-                    provider.clone(),
-                    Some(cred_id),
-                    false,
+                self.emit_upstream_event(UpstreamEventInput {
+                    trace_id: trace_id.clone(),
+                    auth: auth.clone(),
+                    provider: provider.clone(),
+                    credential_id: Some(cred_id),
+                    internal: false,
                     attempt_no,
-                    format!("{op:?}"),
-                    &upstream_req,
-                    Some(status),
-                    None,
-                    Some("http".to_string()),
-                    Some(format!("http_status_{status}")),
-                    None,
-                )
+                    operation: format!("{op:?}"),
+                    upstream_req: &upstream_req,
+                    response_status: Some(status),
+                    response_headers: Some(resp.headers.clone()),
+                    response_body: resp_body_bytes(&resp.body).map(|body| body.to_vec()),
+                    usage: None,
+                    error_kind: Some("http".to_string()),
+                    error_message: Some(format!("http_status_{status}")),
+                    transport_kind: None,
+                })
                 .await;
                 if provider_retry_used != Some(cred_id)
                     && let Ok(action) = provider_impl
@@ -1449,22 +1450,23 @@ impl ProxyEngine {
                 let status = local_resp.status;
                 let is_success = (200..300).contains(&status);
                 if !is_success {
-                    emit_upstream_event!(
-                        self,
-                        trace_id.clone(),
-                        auth.clone(),
-                        provider.clone(),
-                        Some(cred_id),
-                        false,
+                    self.emit_upstream_event(UpstreamEventInput {
+                        trace_id: trace_id.clone(),
+                        auth: auth.clone(),
+                        provider: provider.clone(),
+                        credential_id: Some(cred_id),
+                        internal: false,
                         attempt_no,
-                        format!("{:?}", resolved.provider_op),
-                        &upstream_req,
-                        Some(status),
-                        None,
-                        Some("http".to_string()),
-                        Some(format!("http_status_{status}")),
-                        None,
-                    )
+                        operation: format!("{:?}", resolved.provider_op),
+                        upstream_req: &upstream_req,
+                        response_status: Some(status),
+                        response_headers: Some(local_resp.headers.clone()),
+                        response_body: resp_body_bytes(&local_resp.body).map(|body| body.to_vec()),
+                        usage: None,
+                        error_kind: Some("http".to_string()),
+                        error_message: Some(format!("http_status_{status}")),
+                        transport_kind: None,
+                    })
                     .await;
                     return local_resp;
                 }
@@ -1644,22 +1646,23 @@ impl ProxyEngine {
                         body: Bytes::new(),
                     },
                 };
-                emit_upstream_event!(
-                    self,
-                    trace_id.clone(),
-                    auth.clone(),
-                    provider.clone(),
-                    Some(cred_id),
-                    false,
+                self.emit_upstream_event(UpstreamEventInput {
+                    trace_id: trace_id.clone(),
+                    auth: auth.clone(),
+                    provider: provider.clone(),
+                    credential_id: Some(cred_id),
+                    internal: false,
                     attempt_no,
-                    format!("{:?}", resolved.provider_op),
-                    &upstream_req,
-                    Some(status),
-                    None,
-                    Some("http".to_string()),
-                    Some(format!("http_status_{status}")),
-                    None,
-                )
+                    operation: format!("{:?}", resolved.provider_op),
+                    upstream_req: &upstream_req,
+                    response_status: Some(status),
+                    response_headers: Some(resp.headers.clone()),
+                    response_body: resp_body_bytes(&resp.body).map(|body| body.to_vec()),
+                    usage: None,
+                    error_kind: Some("http".to_string()),
+                    error_message: Some(format!("http_status_{status}")),
+                    transport_kind: None,
+                })
                 .await;
                 if provider_retry_used != Some(cred_id)
                     && let Ok(action) = provider_impl

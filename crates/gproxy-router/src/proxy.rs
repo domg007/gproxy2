@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use axum::body::Body;
+use axum::body::{Body, to_bytes};
 use axum::extract::{DefaultBodyLimit, Extension, Path, Query, RawQuery, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -200,6 +200,19 @@ async fn proxy_auth(
     req.extensions_mut().insert(auth);
     req.extensions_mut().insert(key.1);
     let auth = req.extensions().get::<ProxyAuth>().cloned().unwrap();
+    let mut request_body: Option<Vec<u8>> = None;
+    if !redact_sensitive {
+        let (parts, body) = req.into_parts();
+        match to_bytes(body, MAX_DOWNSTREAM_LOG_BODY_BYTES).await {
+            Ok(bytes) => {
+                request_body = Some(bytes.to_vec());
+                req = axum::http::Request::from_parts(parts, Body::from(bytes));
+            }
+            Err(_) => {
+                req = axum::http::Request::from_parts(parts, Body::empty());
+            }
+        }
+    }
 
     let resp = next.run(req).await;
     let status = resp.status().as_u16();
@@ -259,7 +272,7 @@ async fn proxy_auth(
                 request_headers,
                 request_path,
                 request_query,
-                request_body: None,
+                request_body: request_body.clone(),
                 response_status: Some(status),
                 response_headers,
                 response_body: Some(response_body),
