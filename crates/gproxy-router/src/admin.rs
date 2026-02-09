@@ -1171,26 +1171,7 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
             format!("asset_not_found_for_target:{target_asset}; available=[{names}]")
         })?;
 
-    let zip_resp = client
-        .get(&asset.browser_download_url)
-        .header("accept", "application/octet-stream")
-        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
-        .send()
-        .await
-        .map_err(|e| format!("download_asset: {e}"))?;
-    if !zip_resp.status().is_success() {
-        let status = zip_resp.status();
-        let body = zip_resp
-            .bytes()
-            .await
-            .map(|b| String::from_utf8_lossy(&b).to_string())
-            .unwrap_or_else(|_| String::new());
-        return Err(format!("download_asset_status_{status}: {body}"));
-    }
-    let zip_bytes = zip_resp
-        .bytes()
-        .await
-        .map_err(|e| format!("read_asset_body: {e}"))?;
+    let zip_bytes = download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
 
     let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
     install_binary_bytes(binary_bytes)?;
@@ -1203,6 +1184,65 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
         asset_name: asset.name.clone(),
         installed_to,
     })
+}
+
+async fn download_bytes_with_redirects(
+    client: &wreq::Client,
+    url: &str,
+    max_redirects: usize,
+) -> Result<bytes::Bytes, String> {
+    let mut current = url.to_string();
+
+    for _ in 0..=max_redirects {
+        let resp = client
+            .get(&current)
+            .header("accept", "application/octet-stream")
+            .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+            .send()
+            .await
+            .map_err(|e| format!("download_asset:{current}:{e}"))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            return resp
+                .bytes()
+                .await
+                .map_err(|e| format!("read_asset_body:{current}:{e}"));
+        }
+
+        if status.is_redirection() {
+            let Some(location) = resp
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(format!("redirect_without_location:{status}:{current}"));
+            };
+
+            let next = if location.starts_with("http://") || location.starts_with("https://") {
+                location.to_string()
+            } else {
+                return Err(format!(
+                    "relative_redirect_unsupported:{status}:{current}:{location}"
+                ));
+            };
+            current = next;
+            continue;
+        }
+
+        let body = resp
+            .bytes()
+            .await
+            .map(|b| String::from_utf8_lossy(&b).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("download_asset_status_{status}:{current}: {body}"));
+    }
+
+    Err(format!(
+        "download_asset_too_many_redirects:start_url={url}:max={max_redirects}"
+    ))
 }
 
 fn target_release_asset_name() -> Result<String, String> {
