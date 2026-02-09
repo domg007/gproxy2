@@ -940,7 +940,10 @@ fn should_use_context_1m(credential: &Credential, model: Option<&str>) -> bool {
     if !claude_code_meta_get_enable_1m(credential, family) {
         return false;
     }
-    matches!(claude_code_meta_get_supports_1m(credential, family), Some(true))
+    matches!(
+        claude_code_meta_get_supports_1m(credential, family),
+        Some(true)
+    )
 }
 
 fn is_1m_forbidden_response(failure: &gproxy_provider_core::provider::UpstreamFailure) -> bool {

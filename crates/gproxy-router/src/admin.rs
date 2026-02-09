@@ -1,4 +1,6 @@
 use std::sync::Arc;
+#[cfg(windows)]
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs, io::Read, path::PathBuf, time::Duration};
 
@@ -1070,7 +1072,7 @@ async fn events_ws(ws: WebSocketUpgrade, State(state): State<AdminState>) -> imp
 
 const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct GithubReleaseAsset {
     name: String,
     browser_download_url: String,
@@ -1095,7 +1097,7 @@ async fn system_self_update() -> impl IntoResponse {
                     "installed_to": result.installed_to,
                     "restart_required": false,
                     "restart_scheduled": true,
-                    "note": "Binary replaced and process restart scheduled automatically."
+                    "note": "Update prepared and process restart scheduled automatically."
                 })),
             )
                 .into_response(),
@@ -1128,19 +1130,36 @@ struct SelfUpdateResult {
     installed_to: String,
 }
 
-async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
-    #[cfg(windows)]
+#[cfg(windows)]
+static WINDOWS_PENDING_SELF_UPDATE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+
+#[cfg(windows)]
+fn windows_pending_self_update() -> &'static Mutex<Option<PathBuf>> {
+    WINDOWS_PENDING_SELF_UPDATE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(windows)]
+fn set_windows_pending_self_update(path: PathBuf) -> Result<(), String> {
+    let mut guard = windows_pending_self_update()
+        .lock()
+        .map_err(|_| "windows_pending_self_update_lock_failed".to_string())?;
+    if let Some(prev) = guard.replace(path)
+        && prev.exists()
     {
-        return Err("self_update_not_supported_on_windows_running_binary".to_string());
+        let _ = fs::remove_file(prev);
     }
+    Ok(())
+}
 
-    let target_asset = target_release_asset_name()?;
-    let client = wreq::Client::builder()
-        .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("build_http_client: {e}"))?;
+#[cfg(windows)]
+fn take_windows_pending_self_update() -> Option<PathBuf> {
+    windows_pending_self_update().lock().ok()?.take()
+}
 
+async fn fetch_latest_release_asset(
+    client: &wreq::Client,
+    target_asset: &str,
+) -> Result<(String, GithubReleaseAsset), String> {
     let release_resp = client
         .get(GPROXY_REPO_API_LATEST)
         .header("accept", "application/vnd.github+json")
@@ -1163,11 +1182,11 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
         .map_err(|e| format!("read_latest_release_body: {e}"))?;
     let release: GithubReleaseInfo = serde_json::from_slice(&release_body)
         .map_err(|e| format!("parse_latest_release_json: {e}"))?;
-
     let asset = release
         .assets
         .iter()
         .find(|item| item.name == target_asset)
+        .cloned()
         .ok_or_else(|| {
             let names = release
                 .assets
@@ -1177,6 +1196,44 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
                 .join(", ");
             format!("asset_not_found_for_target:{target_asset}; available=[{names}]")
         })?;
+    Ok((release.tag_name, asset))
+}
+
+#[cfg(windows)]
+async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
+    let target_asset = target_release_asset_name()?;
+    let client = wreq::Client::builder()
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("build_http_client: {e}"))?;
+
+    let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
+    let zip_bytes = download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
+    let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
+    let staged = stage_windows_binary_bytes(binary_bytes)?;
+    set_windows_pending_self_update(staged.clone())?;
+
+    let installed_to = env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    Ok(SelfUpdateResult {
+        release_tag,
+        asset_name: asset.name,
+        installed_to,
+    })
+}
+
+#[cfg(not(windows))]
+async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
+    let target_asset = target_release_asset_name()?;
+    let client = wreq::Client::builder()
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("build_http_client: {e}"))?;
+
+    let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
 
     let zip_bytes = download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
 
@@ -1187,8 +1244,8 @@ async fn self_update_to_latest_release() -> Result<SelfUpdateResult, String> {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "<unknown>".to_string());
     Ok(SelfUpdateResult {
-        release_tag: release.tag_name,
-        asset_name: asset.name.clone(),
+        release_tag,
+        asset_name: asset.name,
         installed_to,
     })
 }
@@ -1327,6 +1384,17 @@ fn install_binary_bytes(binary: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn stage_windows_binary_bytes(binary: Vec<u8>) -> Result<PathBuf, String> {
+    let current = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "current_exe_parent_missing".to_string())?;
+    let temp = temp_update_path(parent);
+    fs::write(&temp, &binary).map_err(|e| format!("write_staged_binary:{}:{e}", temp.display()))?;
+    Ok(temp)
+}
+
 fn temp_update_path(parent: &std::path::Path) -> PathBuf {
     let pid = std::process::id();
     let nanos = SystemTime::now()
@@ -1343,8 +1411,13 @@ fn temp_update_path(parent: &std::path::Path) -> PathBuf {
 fn schedule_self_restart() -> Result<(), String> {
     let exe = env::current_exe().map_err(|e| format!("current_exe_for_restart: {e}"))?;
     let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
+    #[cfg(windows)]
+    let pending_update = take_windows_pending_self_update();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(500));
+        #[cfg(windows)]
+        restart_current_process(exe, args, pending_update);
+        #[cfg(not(windows))]
         restart_current_process(exe, args);
     });
     Ok(())
@@ -1360,7 +1433,49 @@ fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
     std::process::exit(1);
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn restart_current_process(
+    exe: PathBuf,
+    args: Vec<std::ffi::OsString>,
+    pending_update: Option<PathBuf>,
+) {
+    if let Some(staged) = pending_update {
+        let script = build_windows_self_update_script(&exe, &staged, &args);
+        match std::process::Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-WindowStyle")
+            .arg("Hidden")
+            .arg("-Command")
+            .arg(script)
+            .spawn()
+        {
+            Ok(_) => std::process::exit(0),
+            Err(err) => {
+                eprintln!(
+                    "self_update powershell spawn failed for {} with staged {}: {err}",
+                    exe.display(),
+                    staged.display()
+                );
+            }
+        }
+    }
+
+    match std::process::Command::new(&exe).args(&args).spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(err) => {
+            eprintln!(
+                "self_update spawn failed for {} with args {:?}: {err}",
+                exe.display(),
+                args
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
     match std::process::Command::new(&exe).args(&args).spawn() {
         Ok(_) => std::process::exit(0),
@@ -1373,6 +1488,43 @@ fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(windows)]
+fn build_windows_self_update_script(
+    exe: &std::path::Path,
+    staged: &std::path::Path,
+    args: &[std::ffi::OsString],
+) -> String {
+    let exe_quoted = powershell_single_quote(&exe.to_string_lossy());
+    let staged_quoted = powershell_single_quote(&staged.to_string_lossy());
+    let args_array = if args.is_empty() {
+        "@()".to_string()
+    } else {
+        let joined = args
+            .iter()
+            .map(|arg| format!("'{}'", powershell_single_quote(&arg.to_string_lossy())))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("@({joined})")
+    };
+
+    format!(
+        "$ErrorActionPreference='SilentlyContinue'; \
+         $exe='{exe_quoted}'; \
+         $new='{staged_quoted}'; \
+         $args={args_array}; \
+         for ($i=0; $i -lt 120; $i++) {{ \
+             try {{ Move-Item -LiteralPath $new -Destination $exe -Force; break }} \
+             catch {{ Start-Sleep -Milliseconds 500 }} \
+         }}; \
+         Start-Process -FilePath $exe -ArgumentList $args"
+    )
+}
+
+#[cfg(windows)]
+fn powershell_single_quote(input: &str) -> String {
+    input.replace('\'', "''")
 }
 
 async fn handle_events_ws(mut socket: WebSocket, app: Arc<AppState>) {
