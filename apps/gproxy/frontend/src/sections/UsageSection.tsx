@@ -80,8 +80,9 @@ export function UsageSection({ adminKey, providers, notify }: Props) {
   };
 
   const metrics = result
-    ? [
+      ? [
         [t("usage.matched_rows"), result.matched_rows],
+        [t("usage.call_count"), result.call_count],
         [t("usage.input_tokens"), result.input_tokens],
         [t("usage.output_tokens"), result.output_tokens],
         [t("usage.cache_read_input_tokens"), result.cache_read_input_tokens],

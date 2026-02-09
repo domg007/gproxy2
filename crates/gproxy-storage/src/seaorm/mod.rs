@@ -672,6 +672,9 @@ impl Storage for SeaOrmStorage {
         if let Some(model) = filter.model.as_deref() {
             usage_query = usage_query.filter(UpstreamUsageColumn::Model.eq(model));
         }
+        if let Some(model_contains) = filter.model_contains.as_deref() {
+            usage_query = usage_query.filter(UpstreamUsageColumn::Model.contains(model_contains));
+        }
 
         let usage_rows = usage_query.all(&self.db).await?;
         if usage_rows.is_empty() {

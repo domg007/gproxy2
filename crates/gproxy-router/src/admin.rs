@@ -720,6 +720,8 @@ async fn list_credentials(State(state): State<AdminState>) -> impl IntoResponse 
 struct UsageRangeQuery {
     from: String,
     to: String,
+    #[serde(default)]
+    model_contains: Option<String>,
 }
 
 async fn usage_tokens_by_provider(
@@ -740,6 +742,7 @@ async fn usage_tokens_by_provider(
             provider: Some(provider.clone()),
             credential_id: None,
             model: None,
+            model_contains: query.model_contains.clone(),
         })
         .await
     {
@@ -755,6 +758,7 @@ async fn usage_tokens_by_provider(
             "from": query.from,
             "to": query.to,
             "matched_rows": aggregate.matched_rows,
+            "call_count": aggregate.matched_rows,
             "input_tokens": aggregate.input_tokens,
             "output_tokens": aggregate.output_tokens,
             "cache_read_input_tokens": aggregate.cache_read_input_tokens,
@@ -783,6 +787,7 @@ async fn usage_tokens_by_provider_model(
             provider: Some(provider.clone()),
             credential_id: None,
             model: Some(model.clone()),
+            model_contains: query.model_contains.clone(),
         })
         .await
     {
@@ -799,6 +804,7 @@ async fn usage_tokens_by_provider_model(
             "from": query.from,
             "to": query.to,
             "matched_rows": aggregate.matched_rows,
+            "call_count": aggregate.matched_rows,
             "input_tokens": aggregate.input_tokens,
             "output_tokens": aggregate.output_tokens,
             "cache_read_input_tokens": aggregate.cache_read_input_tokens,
@@ -827,6 +833,7 @@ async fn usage_tokens_by_credential(
             provider: None,
             credential_id: Some(credential_id),
             model: None,
+            model_contains: query.model_contains.clone(),
         })
         .await
     {
@@ -842,6 +849,7 @@ async fn usage_tokens_by_credential(
             "from": query.from,
             "to": query.to,
             "matched_rows": aggregate.matched_rows,
+            "call_count": aggregate.matched_rows,
             "input_tokens": aggregate.input_tokens,
             "output_tokens": aggregate.output_tokens,
             "cache_read_input_tokens": aggregate.cache_read_input_tokens,
@@ -870,6 +878,7 @@ async fn usage_tokens_by_credential_model(
             provider: None,
             credential_id: Some(credential_id),
             model: Some(model.clone()),
+            model_contains: query.model_contains.clone(),
         })
         .await
     {
@@ -886,6 +895,7 @@ async fn usage_tokens_by_credential_model(
             "from": query.from,
             "to": query.to,
             "matched_rows": aggregate.matched_rows,
+            "call_count": aggregate.matched_rows,
             "input_tokens": aggregate.input_tokens,
             "output_tokens": aggregate.output_tokens,
             "cache_read_input_tokens": aggregate.cache_read_input_tokens,

@@ -90,6 +90,7 @@ export type UsageResponse = {
   from: string;
   to: string;
   matched_rows: number;
+  call_count: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens: number;

@@ -6,7 +6,8 @@ import type {
   OAuthCallbackResponse,
   OAuthStartResponse,
   ProviderDetail,
-  ProviderSummary
+  ProviderSummary,
+  UsageResponse
 } from "../lib/types";
 import { formatDateTime } from "../lib/format";
 import { formatUsagePercent, parseLiveUsageRows, type LiveUsageRow } from "../lib/live_usage";
@@ -79,6 +80,26 @@ type ClaudeCodeOneMFlags = {
   enable_claude_1m_opus?: boolean;
   supports_claude_1m_sonnet?: boolean;
   supports_claude_1m_opus?: boolean;
+};
+type TokenUsageGroup = "all" | "haiku" | "sonnet" | "opus";
+type TokenUsageWindow = "5h" | "1d" | "1w" | "sum";
+type TokenUsageRequestSpec = {
+  group: TokenUsageGroup;
+  window: TokenUsageWindow;
+  from: string;
+  to: string;
+  modelContains?: string;
+};
+type TokenUsageRow = {
+  group: TokenUsageGroup;
+  window: TokenUsageWindow;
+  from: string;
+  to: string;
+  input: number;
+  output: number;
+  cache: number;
+  total: number;
+  calls: number;
 };
 
 function asJsonObject(value: unknown): Record<string, unknown> | null {
@@ -198,6 +219,255 @@ const CUSTOM_DISPATCH_OPERATION_NAMES = [
   "oauth_callback",
   "usage"
 ] as const;
+const HOUR_MS = 3600 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const WEEK_MS = 7 * DAY_MS;
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseResetMs(value: unknown): number | null {
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const raw = asFiniteNumber(value);
+  if (raw === null) {
+    return null;
+  }
+  return raw < 1_000_000_000_000 ? raw * 1000 : raw;
+}
+
+function parseResetMsFromObject(source: Record<string, unknown> | null, nowMs: number): number | null {
+  if (!source) {
+    return null;
+  }
+  const direct =
+    parseResetMs(source.reset_at) ??
+    parseResetMs(source.resetAt) ??
+    parseResetMs(source.resets_at) ??
+    parseResetMs(source.resetsAt) ??
+    parseResetMs(source.resetTime) ??
+    parseResetMs(source.reset_time);
+  if (direct !== null) {
+    return direct;
+  }
+  const resetAfter =
+    asFiniteNumber(source.reset_after_seconds) ??
+    asFiniteNumber(source.resetAfterSeconds);
+  if (resetAfter !== null && resetAfter >= 0) {
+    return nowMs + resetAfter * 1000;
+  }
+  return null;
+}
+
+function rowResetMs(row: LiveUsageRow): number | null {
+  return parseResetMs(row.resetAt);
+}
+
+function nearestFutureMs(values: Array<number | null>, nowMs: number): number | null {
+  let out: number | null = null;
+  for (const value of values) {
+    if (value === null || value <= nowMs) {
+      continue;
+    }
+    if (out === null || value < out) {
+      out = value;
+    }
+  }
+  return out;
+}
+
+function farthestFutureMs(values: Array<number | null>, nowMs: number): number | null {
+  let out: number | null = null;
+  for (const value of values) {
+    if (value === null || value <= nowMs) {
+      continue;
+    }
+    if (out === null || value > out) {
+      out = value;
+    }
+  }
+  return out;
+}
+
+function findResetByRowName(
+  rows: LiveUsageRow[],
+  target: string,
+  nowMs: number,
+  mode: "contains" | "equals" = "contains",
+): number | null {
+  const matches = rows
+    .filter((row) =>
+      mode === "equals"
+        ? row.name.trim().toLowerCase() === target.trim().toLowerCase()
+        : row.name.toLowerCase().includes(target.toLowerCase()),
+    )
+    .map(rowResetMs);
+  return nearestFutureMs(matches, nowMs) ?? matches.find((value) => value !== null) ?? null;
+}
+
+function rangeFromResetOrRolling(resetMs: number | null, durationMs: number, nowMs: number): {
+  from: string;
+  to: string;
+} {
+  const to = new Date(nowMs).toISOString();
+  if (resetMs !== null && resetMs > nowMs) {
+    return {
+      from: new Date(Math.max(0, resetMs - durationMs)).toISOString(),
+      to,
+    };
+  }
+  return {
+    from: new Date(Math.max(0, nowMs - durationMs)).toISOString(),
+    to,
+  };
+}
+
+function buildTokenUsageSpecs(
+  providerName: string,
+  livePayload: Record<string, unknown> | null,
+  liveRows: LiveUsageRow[],
+  nowMs: number,
+): TokenUsageRequestSpec[] {
+  const provider = providerName.trim().toLowerCase();
+  const specs: TokenUsageRequestSpec[] = [];
+  const sumRange = {
+    from: new Date(0).toISOString(),
+    to: new Date(nowMs).toISOString(),
+  };
+  const pushSpec = (
+    group: TokenUsageGroup,
+    window: TokenUsageWindow,
+    from: string,
+    to: string,
+    modelContains?: string,
+  ) => {
+    specs.push({
+      group,
+      window,
+      from,
+      to,
+      modelContains: modelContains?.trim() || undefined,
+    });
+  };
+
+  if (provider === "codex") {
+    const root = asJsonObject(livePayload);
+    const rateLimit = asJsonObject(root?.rate_limit) ?? root;
+    const primaryWindow = asJsonObject(rateLimit?.primary_window);
+    const secondaryWindow = asJsonObject(rateLimit?.secondary_window);
+    const fiveHourReset =
+      parseResetMsFromObject(primaryWindow, nowMs) ??
+      findResetByRowName(liveRows, "primary_window", nowMs) ??
+      nearestFutureMs(liveRows.map(rowResetMs), nowMs);
+    const weekReset =
+      parseResetMsFromObject(secondaryWindow, nowMs) ??
+      findResetByRowName(liveRows, "secondary_window", nowMs) ??
+      farthestFutureMs(liveRows.map(rowResetMs), nowMs);
+    const range5h = rangeFromResetOrRolling(fiveHourReset, 5 * HOUR_MS, nowMs);
+    const range1w = rangeFromResetOrRolling(weekReset, WEEK_MS, nowMs);
+    pushSpec("all", "5h", range5h.from, range5h.to);
+    pushSpec("all", "1w", range1w.from, range1w.to);
+    pushSpec("all", "sum", sumRange.from, sumRange.to);
+    return specs;
+  }
+
+  if (provider === "claudecode") {
+    const root = asJsonObject(livePayload);
+    const fiveHour = asJsonObject(root?.five_hour);
+    const sevenDay = asJsonObject(root?.seven_day);
+    const sevenDaySonnet = asJsonObject(root?.seven_day_sonnet);
+    const fiveHourReset =
+      parseResetMsFromObject(fiveHour, nowMs) ??
+      findResetByRowName(liveRows, "five_hour", nowMs, "equals");
+    const sevenDayReset =
+      parseResetMsFromObject(sevenDay, nowMs) ??
+      findResetByRowName(liveRows, "seven_day", nowMs, "equals");
+    const sevenDaySonnetReset =
+      parseResetMsFromObject(sevenDaySonnet, nowMs) ??
+      findResetByRowName(liveRows, "seven_day_sonnet", nowMs, "equals");
+    const families: TokenUsageGroup[] = ["haiku", "sonnet", "opus"];
+
+    for (const family of families) {
+      const range5h = rangeFromResetOrRolling(fiveHourReset, 5 * HOUR_MS, nowMs);
+      const weekResetForFamily =
+        family === "sonnet" ? (sevenDaySonnetReset ?? sevenDayReset) : sevenDayReset;
+      const range1w = rangeFromResetOrRolling(weekResetForFamily, WEEK_MS, nowMs);
+      pushSpec(family, "5h", range5h.from, range5h.to, family);
+      pushSpec(family, "1w", range1w.from, range1w.to, family);
+      pushSpec(family, "sum", sumRange.from, sumRange.to, family);
+    }
+
+    return specs;
+  }
+
+  if (provider === "antigravity") {
+    const root = asJsonObject(livePayload);
+    const models = asJsonObject(root?.models) ?? asJsonObject(root?.model_usage);
+    const resetsFromPayload: Array<number | null> = [];
+    if (models) {
+      for (const raw of Object.values(models)) {
+        const model = asJsonObject(raw);
+        const quota = asJsonObject(model?.quotaInfo) ?? asJsonObject(model?.quota_info) ?? model;
+        resetsFromPayload.push(parseResetMsFromObject(quota, nowMs));
+      }
+    }
+    const allResets = [...resetsFromPayload, ...liveRows.map(rowResetMs)];
+    const nearestReset = nearestFutureMs(allResets, nowMs);
+    const hideFiveHour = nearestReset !== null && nearestReset > nowMs + 5 * HOUR_MS;
+    if (!hideFiveHour) {
+      const range5h = rangeFromResetOrRolling(nearestReset, 5 * HOUR_MS, nowMs);
+      pushSpec("all", "5h", range5h.from, range5h.to);
+    }
+    const range1w = rangeFromResetOrRolling(nearestReset, WEEK_MS, nowMs);
+    pushSpec("all", "1w", range1w.from, range1w.to);
+    pushSpec("all", "sum", sumRange.from, sumRange.to);
+    return specs;
+  }
+
+  if (provider === "geminicli") {
+    const root = asJsonObject(livePayload);
+    const buckets = Array.isArray(root?.buckets) ? root?.buckets : [];
+    const resetsFromBuckets: Array<number | null> = [];
+    for (const bucket of buckets) {
+      const item = asJsonObject(bucket);
+      if (!item) {
+        continue;
+      }
+      resetsFromBuckets.push(parseResetMsFromObject(item, nowMs));
+    }
+    const allResets = [...resetsFromBuckets, ...liveRows.map(rowResetMs)];
+    const dayReset = nearestFutureMs(allResets, nowMs);
+    const weekReset = farthestFutureMs(allResets, nowMs) ?? dayReset;
+    const range1d = rangeFromResetOrRolling(dayReset, DAY_MS, nowMs);
+    const range1w = rangeFromResetOrRolling(weekReset, WEEK_MS, nowMs);
+    pushSpec("all", "1d", range1d.from, range1d.to);
+    pushSpec("all", "1w", range1w.from, range1w.to);
+    pushSpec("all", "sum", sumRange.from, sumRange.to);
+    return specs;
+  }
+
+  const range1w = rangeFromResetOrRolling(null, WEEK_MS, nowMs);
+  pushSpec("all", "1w", range1w.from, range1w.to);
+  pushSpec("all", "sum", sumRange.from, sumRange.to);
+  return specs;
+}
+
+function formatTokenInt(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return Math.round(value).toLocaleString();
+}
 
 function opNativeProto(opIndex: number): CustomProto | null {
   if (opIndex >= 0 && opIndex <= 4) {
@@ -459,6 +729,15 @@ export function ProvidersSection({ adminKey, notify }: Props) {
   const [quotaRowsByCredentialId, setQuotaRowsByCredentialId] = useState<
     Record<number, LiveUsageRow[]>
   >({});
+  const [usageLoadingByCredentialId, setUsageLoadingByCredentialId] = useState<
+    Record<number, boolean>
+  >({});
+  const [usageRowsByCredentialId, setUsageRowsByCredentialId] = useState<
+    Record<number, TokenUsageRow[]>
+  >({});
+  const [usageErrorByCredentialId, setUsageErrorByCredentialId] = useState<
+    Record<number, string>
+  >({});
 
   const [oauthStartParams, setOauthStartParams] = useState({
     redirect_uri: "",
@@ -600,6 +879,9 @@ export function ProvidersSection({ adminKey, notify }: Props) {
     setOauthCallbackParams({ state: "", code: "", callback_url: "", project_id: "" });
     setQuotaRowsByCredentialId({});
     setQuotaLoadingId(null);
+    setUsageLoadingByCredentialId({});
+    setUsageRowsByCredentialId({});
+    setUsageErrorByCredentialId({});
   }, [selected?.name]);
 
   useEffect(() => {
@@ -905,24 +1187,103 @@ export function ProvidersSection({ adminKey, notify }: Props) {
     if (!selected) {
       return;
     }
-    if (!supportsLiveUsage) {
-      notify("error", t("usage.live_unsupported"));
-      return;
-    }
     setQuotaLoadingId(credentialId);
+    setUsageLoadingByCredentialId((prev) => ({ ...prev, [credentialId]: true }));
+    setUsageErrorByCredentialId((prev) => {
+      const next = { ...prev };
+      delete next[credentialId];
+      return next;
+    });
     try {
-      const data = await request<Record<string, unknown>>(`/${selected.name}/usage`, {
-        userKey: adminKey,
-        query: {
-          credential_id: credentialId
+      let livePayload: Record<string, unknown> | null = null;
+      let liveRows: LiveUsageRow[] = [];
+
+      if (supportsLiveUsage) {
+        try {
+          const data = await request<Record<string, unknown>>(`/${selected.name}/usage`, {
+            userKey: adminKey,
+            query: {
+              credential_id: credentialId,
+            },
+          });
+          livePayload = data;
+          liveRows = parseLiveUsageRows(selected.name, data);
+          setQuotaRowsByCredentialId((prev) => ({ ...prev, [credentialId]: liveRows }));
+        } catch (error) {
+          notify("error", formatApiError(error));
+          setQuotaRowsByCredentialId((prev) => ({ ...prev, [credentialId]: [] }));
         }
+      } else {
+        setQuotaRowsByCredentialId((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, credentialId)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[credentialId];
+          return next;
+        });
+      }
+
+      const specs = buildTokenUsageSpecs(selected.name, livePayload, liveRows, Date.now());
+      const settled = await Promise.allSettled(
+        specs.map((spec) =>
+          request<UsageResponse>(`/admin/usage/credentials/${credentialId}/tokens`, {
+            adminKey,
+            query: {
+              from: spec.from,
+              to: spec.to,
+              model_contains: spec.modelContains,
+            },
+          }),
+        ),
+      );
+
+      const usageRows: TokenUsageRow[] = [];
+      const errors: string[] = [];
+      settled.forEach((result, index) => {
+        const spec = specs[index];
+        if (!spec) {
+          return;
+        }
+        if (result.status === "fulfilled") {
+          const data = result.value;
+          usageRows.push({
+            group: spec.group,
+            window: spec.window,
+            from: spec.from,
+            to: spec.to,
+            input: data.input_tokens,
+            output: data.output_tokens,
+            cache: data.cache_read_input_tokens + data.cache_creation_input_tokens,
+            total: data.total_tokens,
+            calls: data.call_count ?? data.matched_rows,
+          });
+          return;
+        }
+        errors.push(formatApiError(result.reason));
       });
-      const rows = parseLiveUsageRows(selected.name, data);
-      setQuotaRowsByCredentialId((prev) => ({ ...prev, [credentialId]: rows }));
+
+      setUsageRowsByCredentialId((prev) => ({ ...prev, [credentialId]: usageRows }));
+      if (errors.length > 0) {
+        const message =
+          errors.length === specs.length
+            ? t("usage.token_query_failed")
+            : t("usage.token_query_partial", {
+                count: String(errors.length),
+                total: String(specs.length),
+              });
+        setUsageErrorByCredentialId((prev) => ({ ...prev, [credentialId]: message }));
+      }
     } catch (error) {
       notify("error", formatApiError(error));
+      setUsageRowsByCredentialId((prev) => ({ ...prev, [credentialId]: [] }));
+      setUsageErrorByCredentialId((prev) => ({
+        ...prev,
+        [credentialId]: t("usage.token_query_failed"),
+      }));
     } finally {
       setQuotaLoadingId(null);
+      setUsageLoadingByCredentialId((prev) => ({ ...prev, [credentialId]: false }));
     }
   };
 
@@ -1530,6 +1891,13 @@ export function ProvidersSection({ adminKey, notify }: Props) {
               const availableModels = Array.from(knownModelSet)
                 .filter((name) => !unavailableModelSet.has(name))
                 .sort((a, b) => a.localeCompare(b));
+              const tokenUsageRows = usageRowsByCredentialId[row.id] ?? [];
+              const tokenUsageLoaded = Object.prototype.hasOwnProperty.call(
+                usageRowsByCredentialId,
+                row.id,
+              );
+              const tokenUsageLoading = Boolean(usageLoadingByCredentialId[row.id]);
+              const tokenUsageError = usageErrorByCredentialId[row.id];
               return (
                 <div key={row.id} className="rounded-2xl border border-slate-200 bg-white/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1707,9 +2075,7 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                     </div>
                   </div>
                 ) : null}
-                <div
-                  className={`mt-3 grid gap-2 ${supportsLiveUsage ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}
-                >
+                <div className="mt-3 grid gap-2 sm:grid-cols-5">
                   <Button variant="neutral" onClick={() => toggleCredentialView(row.id)}>
                     {credentialViewOpenIds[row.id]
                       ? t("credentials.hide_secret")
@@ -1733,21 +2099,19 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                   <Button variant="danger" onClick={() => void deleteCredential(row.id)}>
                     {t("common.delete")}
                   </Button>
-                  {supportsLiveUsage ? (
-                    <Button
-                      variant="neutral"
-                      onClick={() => void loadCredentialQuota(row.id)}
-                      disabled={quotaLoadingId === row.id}
-                    >
-                      {quotaLoadingId === row.id
-                        ? t("common.loading")
-                        : Object.prototype.hasOwnProperty.call(quotaRowsByCredentialId, row.id)
-                          ? t("usage.live_refresh")
-                          : t("usage.live_view_quota")}
-                    </Button>
-                  ) : null}
+                  <Button
+                    variant="neutral"
+                    onClick={() => void loadCredentialQuota(row.id)}
+                    disabled={tokenUsageLoading || quotaLoadingId === row.id}
+                  >
+                    {tokenUsageLoading || quotaLoadingId === row.id
+                      ? t("common.loading")
+                      : tokenUsageLoaded
+                        ? t("usage.token_refresh")
+                        : t("usage.token_view")}
+                  </Button>
                 </div>
-                {Object.prototype.hasOwnProperty.call(quotaRowsByCredentialId, row.id) ? (
+                {supportsLiveUsage && Object.prototype.hasOwnProperty.call(quotaRowsByCredentialId, row.id) ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <div className="grid grid-cols-[minmax(0,2fr)_minmax(120px,1fr)_minmax(160px,1fr)] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
                       <span>{t("usage.live_limit")}</span>
@@ -1771,6 +2135,42 @@ export function ProvidersSection({ adminKey, notify }: Props) {
                       <div className="px-4 py-3 text-sm text-slate-500">{t("usage.live_no_limits")}</div>
                     )}
                   </div>
+                ) : null}
+                {tokenUsageLoaded ? (
+                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="grid grid-cols-[minmax(90px,0.9fr)_minmax(70px,0.8fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(90px,0.8fr)] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      <span>{t("usage.token_group")}</span>
+                      <span>{t("usage.token_window")}</span>
+                      <span>{t("usage.input_tokens")}</span>
+                      <span>{t("usage.output_tokens")}</span>
+                      <span>{t("usage.token_cache")}</span>
+                      <span>{t("usage.total_tokens")}</span>
+                      <span>{t("usage.token_calls")}</span>
+                    </div>
+                    {tokenUsageRows.length > 0 ? (
+                      <div className="divide-y divide-slate-100">
+                        {tokenUsageRows.map((usageRow, index) => (
+                          <div
+                            key={`${row.id}-${usageRow.group}-${usageRow.window}-${index}`}
+                            className="grid grid-cols-[minmax(90px,0.9fr)_minmax(70px,0.8fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(90px,0.8fr)] gap-2 px-4 py-3 text-sm text-slate-700"
+                          >
+                            <span className="font-medium text-slate-900">{t(`usage.group_${usageRow.group}`)}</span>
+                            <span>{t(`usage.window_${usageRow.window}`)}</span>
+                            <span>{formatTokenInt(usageRow.input)}</span>
+                            <span>{formatTokenInt(usageRow.output)}</span>
+                            <span>{formatTokenInt(usageRow.cache)}</span>
+                            <span>{formatTokenInt(usageRow.total)}</span>
+                            <span>{formatTokenInt(usageRow.calls)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-4 py-3 text-sm text-slate-500">{t("usage.token_no_data")}</div>
+                    )}
+                  </div>
+                ) : null}
+                {tokenUsageError ? (
+                  <div className="mt-2 text-xs text-amber-700">{tokenUsageError}</div>
                 ) : null}
                 {credentialViewOpenIds[row.id] ? (
                   <div className="mt-3 max-w-full rounded-xl border border-slate-200 bg-white p-3">

@@ -23,6 +23,7 @@ pub struct UsageAggregateFilter {
     pub provider: Option<String>,
     pub credential_id: Option<i64>,
     pub model: Option<String>,
+    pub model_contains: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
