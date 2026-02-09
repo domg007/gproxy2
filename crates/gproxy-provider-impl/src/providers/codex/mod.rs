@@ -17,7 +17,7 @@ use gproxy_provider_core::{
 use gproxy_protocol::openai;
 use gproxy_protocol::openai::create_response::types::{
     EasyInputMessage, EasyInputMessageContent, EasyInputMessageRole, EasyInputMessageType,
-    InputItem, InputParam, Metadata,
+    InputItem, InputParam, Instructions, Metadata,
 };
 
 use crate::auth_extractor;
@@ -189,6 +189,7 @@ impl UpstreamProvider for CodexProvider {
             body.stream = Some(false);
             body.stream_options = None;
         }
+        ensure_codex_instructions_field(&mut body);
         let is_stream = if is_compact {
             false
         } else {
@@ -768,6 +769,14 @@ fn normalize_codex_input(body: &mut openai::create_response::request::CreateResp
     });
 }
 
+fn ensure_codex_instructions_field(
+    body: &mut openai::create_response::request::CreateResponseRequestBody,
+) {
+    if body.instructions.is_none() {
+        body.instructions = Some(Instructions::Text(String::new()));
+    }
+}
+
 fn json_response(body: serde_json::Value) -> UpstreamHttpResponse {
     let mut headers = Vec::new();
     header_set(&mut headers, "content-type", "application/json");
@@ -961,6 +970,47 @@ mod tests {
         let taken = take_compact_marker(&mut metadata);
         assert!(taken);
         assert!(metadata.is_none());
+    }
+
+    #[test]
+    fn ensure_codex_instructions_field_fills_empty_text_when_missing() {
+        let mut body = openai::create_response::request::CreateResponseRequestBody {
+            model: "gpt-5".to_string(),
+            input: None,
+            include: None,
+            parallel_tool_calls: None,
+            store: None,
+            instructions: None,
+            stream: Some(false),
+            stream_options: None,
+            conversation: None,
+            previous_response_id: None,
+            reasoning: None,
+            background: None,
+            max_output_tokens: None,
+            max_tool_calls: None,
+            text: None,
+            tools: None,
+            tool_choice: None,
+            prompt: None,
+            truncation: None,
+            top_logprobs: None,
+            metadata: None,
+            temperature: None,
+            top_p: None,
+            user: None,
+            safety_identifier: None,
+            prompt_cache_key: None,
+            service_tier: None,
+            prompt_cache_retention: None,
+        };
+
+        ensure_codex_instructions_field(&mut body);
+
+        match body.instructions {
+            Some(Instructions::Text(text)) => assert_eq!(text, ""),
+            _ => panic!("instructions should be empty text"),
+        }
     }
 
     #[test]
