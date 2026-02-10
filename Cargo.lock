@@ -1401,7 +1401,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "anyhow",
  "axum",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "anyhow",
  "axum",
@@ -1428,7 +1428,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-common"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "bytes",
  "serde",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "bytes",
  "serde",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider-core"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider-impl"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-router"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "axum",
  "bytes",
@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "async-trait",
  "gproxy-common",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-transform"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "gproxy-protocol",
  "serde",
@@ -2047,9 +2047,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.180"
+version = "0.2.181"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
+checksum = "459427e2af2b9c839b132acb702a1c654d95e10f8c326bfc2ad11310e458b1c5"
 
 [[package]]
 name = "libloading"

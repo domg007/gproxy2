@@ -3,7 +3,7 @@ export type RequestOptions = {
   body?: unknown;
   adminKey?: string;
   userKey?: string;
-  query?: Record<string, string | number | undefined | null>;
+  query?: Record<string, string | number | boolean | undefined | null>;
 };
 
 export class ApiError extends Error {

@@ -125,8 +125,10 @@ export type LogQueryResponse = {
   to: string;
   kind: "all" | LogRecordKind;
   limit: number;
-  offset: number;
+  include_body: boolean;
   has_more: boolean;
+  next_cursor_at?: string | null;
+  next_cursor_id?: number | null;
   rows: LogQueryRow[];
 };
 

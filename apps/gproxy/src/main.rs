@@ -1,4 +1,5 @@
 use anyhow::Result;
+use axum::http::StatusCode;
 use axum::routing::get;
 
 mod admin_ui;
@@ -30,6 +31,7 @@ async fn main() -> Result<()> {
             "/admin",
             gproxy_router::admin_router(boot.state.clone(), boot.storage.clone()),
         )
+        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .route("/", get(admin_ui::index))
         .route("/assets/{*path}", get(admin_ui::asset));
 

@@ -12,6 +12,7 @@ type Props = {
 };
 
 type QueryKind = "all" | LogRecordKind;
+type LogCursor = { at: string; id: number } | null;
 
 function parseOptionalInt(input: string): number | undefined {
   const trimmed = input.trim();
@@ -40,7 +41,8 @@ export function LogQuerySection({ adminKey, notify }: Props) {
   const [statusMin, setStatusMin] = useState("");
   const [statusMax, setStatusMax] = useState("");
   const [limit, setLimit] = useState("100");
-  const [offset, setOffset] = useState(0);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [cursorHistory, setCursorHistory] = useState<LogCursor[]>([null]);
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const [data, setData] = useState<LogQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,12 +55,15 @@ export function LogQuerySection({ adminKey, notify }: Props) {
     if (total === 0) {
       return t("logs.range_info", { from: 0, to: 0, count: 0 });
     }
-    const fromValue = data?.offset ?? offset;
+    const parsedLimit = Number(limit);
+    const pageSize =
+      data?.limit ?? (Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 100);
+    const fromValue = pageIndex * pageSize;
     const toValue = fromValue + total;
     return t("logs.range_info", { from: fromValue + 1, to: toValue, count: total });
-  }, [data?.offset, offset, rows.length, t]);
+  }, [data?.limit, limit, pageIndex, rows.length, t]);
 
-  const runQuery = async (nextOffset = 0) => {
+  const runQuery = async (cursor: LogCursor = null) => {
     let parsedLimit = 100;
     let parsedCredentialId: number | undefined;
     let parsedUserId: number | undefined;
@@ -98,31 +103,64 @@ export function LogQuerySection({ adminKey, notify }: Props) {
           status_min: parsedStatusMin,
           status_max: parsedStatusMax,
           limit: parsedLimit,
-          offset: nextOffset
+          cursor_at: cursor?.at,
+          cursor_id: cursor?.id,
+          include_body: true
         }
       });
-      setData(result);
-      setOffset(result.offset);
-      setExpandedRowKey(null);
+      return result;
     } catch (error) {
       notify("error", formatApiError(error));
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
+  const runFirstPage = async () => {
+    const result = await runQuery(null);
+    if (!result) {
+      return;
+    }
+    setData(result);
+    setPageIndex(0);
+    setCursorHistory([null]);
+    setExpandedRowKey(null);
+  };
+
   const nextPage = () => {
-    const fallback = Number(limit);
-    const size = data?.limit ?? (Number.isFinite(fallback) && fallback > 0 ? fallback : 100);
-    const nextOffset = (data?.offset ?? offset) + size;
-    void runQuery(nextOffset);
+    const nextCursorAt = data?.next_cursor_at;
+    const nextCursorId = data?.next_cursor_id;
+    if (!nextCursorAt || nextCursorId === null || nextCursorId === undefined) {
+      return;
+    }
+    const nextCursor: LogCursor = { at: nextCursorAt, id: nextCursorId };
+    void (async () => {
+      const result = await runQuery(nextCursor);
+      if (!result) {
+        return;
+      }
+      setData(result);
+      setCursorHistory((prev) => [...prev.slice(0, pageIndex + 1), nextCursor]);
+      setPageIndex((prev) => prev + 1);
+      setExpandedRowKey(null);
+    })();
   };
 
   const prevPage = () => {
-    const fallback = Number(limit);
-    const size = data?.limit ?? (Number.isFinite(fallback) && fallback > 0 ? fallback : 100);
-    const nextOffset = Math.max(0, (data?.offset ?? offset) - size);
-    void runQuery(nextOffset);
+    if (pageIndex <= 0) {
+      return;
+    }
+    const prevCursor = cursorHistory[pageIndex - 1] ?? null;
+    void (async () => {
+      const result = await runQuery(prevCursor);
+      if (!result) {
+        return;
+      }
+      setData(result);
+      setPageIndex((prev) => Math.max(0, prev - 1));
+      setExpandedRowKey(null);
+    })();
   };
 
   return (
@@ -145,13 +183,14 @@ export function LogQuerySection({ adminKey, notify }: Props) {
             setStatusMin("");
             setStatusMax("");
             setLimit("100");
-            setOffset(0);
+            setPageIndex(0);
+            setCursorHistory([null]);
             setExpandedRowKey(null);
             setData(null);
           }}>
             {t("logs.reset")}
           </Button>
-          <Button onClick={() => void runQuery(0)} disabled={loading}>
+          <Button onClick={() => void runFirstPage()} disabled={loading}>
             {loading ? t("logs.querying") : t("logs.query")}
           </Button>
         </div>
@@ -346,7 +385,7 @@ export function LogQuerySection({ adminKey, notify }: Props) {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-slate-500">{summaryText}</div>
         <div className="flex items-center gap-2">
-          <Button variant="neutral" onClick={prevPage} disabled={loading || (data?.offset ?? 0) <= 0}>
+          <Button variant="neutral" onClick={prevPage} disabled={loading || pageIndex <= 0}>
             {t("logs.prev")}
           </Button>
           <Button variant="neutral" onClick={nextPage} disabled={loading || !hasMore}>
