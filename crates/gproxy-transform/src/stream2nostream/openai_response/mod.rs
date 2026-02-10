@@ -512,8 +512,8 @@ impl OpenAIResponseStreamToResponseState {
     fn handle_mcp_call_delta(&mut self, event: ResponseMCPCallArgumentsDeltaEvent) {
         self.with_mcp_tool_call_mut(event.output_index, &event.item_id, |mcp| {
             mcp.arguments.push_str(&event.delta);
-            if matches!(mcp.status, MCPToolCallStatus::InProgress) {
-                mcp.status = MCPToolCallStatus::Calling;
+            if matches!(mcp.status, Some(MCPToolCallStatus::InProgress)) {
+                mcp.status = Some(MCPToolCallStatus::Calling);
             }
         });
     }
@@ -523,9 +523,9 @@ impl OpenAIResponseStreamToResponseState {
             mcp.arguments = event.arguments;
             if matches!(
                 mcp.status,
-                MCPToolCallStatus::InProgress | MCPToolCallStatus::Calling
+                Some(MCPToolCallStatus::InProgress) | Some(MCPToolCallStatus::Calling)
             ) {
-                mcp.status = MCPToolCallStatus::Calling;
+                mcp.status = Some(MCPToolCallStatus::Calling);
             }
         });
     }
@@ -537,7 +537,7 @@ impl OpenAIResponseStreamToResponseState {
         status: MCPToolCallStatus,
     ) {
         self.with_mcp_tool_call_mut(output_index, &item_id, |mcp| {
-            mcp.status = status;
+            mcp.status = Some(status);
         });
     }
 
@@ -801,7 +801,7 @@ impl OpenAIResponseStreamToResponseState {
                 arguments: String::new(),
                 output: None,
                 error: None,
-                status: MCPToolCallStatus::InProgress,
+                status: Some(MCPToolCallStatus::InProgress),
                 approval_request_id: None,
             })
         });
@@ -1176,8 +1176,16 @@ fn prefer_code_interpreter_status(
     prefer_status(current, incoming, code_interpreter_status_rank)
 }
 
-fn prefer_mcp_status(current: MCPToolCallStatus, incoming: MCPToolCallStatus) -> MCPToolCallStatus {
-    prefer_status(current, incoming, mcp_status_rank)
+fn prefer_mcp_status(
+    current: Option<MCPToolCallStatus>,
+    incoming: Option<MCPToolCallStatus>,
+) -> Option<MCPToolCallStatus> {
+    match (current, incoming) {
+        (Some(current), Some(incoming)) => Some(prefer_status(current, incoming, mcp_status_rank)),
+        (None, Some(incoming)) => Some(incoming),
+        (Some(current), None) => Some(current),
+        (None, None) => None,
+    }
 }
 
 fn prefer_status<T: Copy + Eq>(current: T, incoming: T, ranker: fn(T) -> i32) -> T {

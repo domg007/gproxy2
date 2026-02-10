@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::openai::create_response::types::{OutputItem, ResponseUsage};
+use crate::openai::create_response::types::{Item, MessageItem, OutputItem, ResponseUsage};
 use crate::openai::list_response_items::types::ItemResource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,12 +20,15 @@ pub struct CompactResponseResponse {
 }
 
 /// OpenAPI schema points to `OutputItem`, but official compact examples include
-/// `user` messages. Accept both response-item resources and output-only items.
+/// `user` messages and mixed item shapes with optional IDs. Accept message,
+/// response-item resources, output-only items, and full item inputs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CompactResponseOutputItem {
+    Message(MessageItem),
     ItemResource(ItemResource),
     OutputItem(OutputItem),
+    Item(Item),
 }
 
 #[cfg(test)]

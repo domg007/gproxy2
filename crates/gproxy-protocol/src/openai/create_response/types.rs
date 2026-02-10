@@ -525,7 +525,7 @@ pub struct ReasoningItem {
     pub encrypted_content: Option<String>,
     #[serde(default)]
     pub summary: Vec<SummaryPart>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<ReasoningContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ReasoningItemStatus>,
@@ -622,6 +622,21 @@ pub struct ConversationRef {
 pub enum ConversationParam {
     Id(String),
     Ref(ConversationRef),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ContextManagement {
+    #[serde(rename = "type")]
+    pub r#type: ContextManagementType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact_threshold: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ContextManagementType {
+    #[serde(rename = "compaction")]
+    Compaction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1383,9 +1398,12 @@ pub enum FileSearchToolCallStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct FileSearchResult {
-    pub file_id: String,
-    pub text: String,
-    pub filename: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attributes: Option<VectorStoreFileAttributes>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1435,6 +1453,7 @@ pub enum WebSearchToolCallStatus {
 pub enum WebSearchAction {
     Search(WebSearchActionSearch),
     OpenPage(WebSearchActionOpenPage),
+    #[serde(rename = "find_in_page")]
     Find(WebSearchActionFind),
 }
 
@@ -1467,7 +1486,8 @@ pub enum WebSearchSourceType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct WebSearchActionOpenPage {
-    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1810,9 +1830,7 @@ pub struct LocalShellToolCallOutput {
     #[serde(rename = "type")]
     pub r#type: LocalShellToolCallOutputType,
     /// The ID is populated when returned by the API (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    pub call_id: String,
+    pub id: String,
     pub output: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<LocalShellCallStatus>,
@@ -1914,9 +1932,9 @@ pub struct FunctionShellCallOutput {
     pub r#type: FunctionShellCallOutputType,
     pub id: String,
     pub call_id: String,
+    pub max_output_length: i64,
     pub output: Vec<FunctionShellCallOutputContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_output_length: Option<i64>,
+    pub status: FunctionShellCallStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
 }
@@ -1932,6 +1950,8 @@ pub struct FunctionShellCallOutputItemParam {
     pub output: Vec<FunctionShellCallOutputContentParam>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_length: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<FunctionShellCallStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2095,7 +2115,8 @@ pub struct MCPToolCall {
     pub output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub status: MCPToolCallStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<MCPToolCallStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_request_id: Option<String>,
 }
@@ -2186,4 +2207,15 @@ pub struct MCPApprovalResponse {
 pub enum MCPApprovalResponseType {
     #[serde(rename = "mcp_approval_response")]
     MCPApprovalResponse,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MessageItem {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub r#type: OutputMessageType,
+    pub role: MessageRole,
+    pub content: Vec<MessageContent>,
+    pub status: MessageStatus,
 }

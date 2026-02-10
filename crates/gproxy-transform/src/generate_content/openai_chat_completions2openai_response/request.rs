@@ -105,6 +105,7 @@ pub fn transform_request(request: CreateChatCompletionRequest) -> CreateResponse
                     generate_summary: None,
                 }
             }),
+            context_management: None,
             background: None,
             max_output_tokens: map_max_output_tokens(
                 request.body.max_completion_tokens,

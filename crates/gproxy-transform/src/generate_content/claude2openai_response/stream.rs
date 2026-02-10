@@ -215,7 +215,7 @@ impl ClaudeToOpenAIResponseStreamState {
                     arguments: info.arguments,
                     output: None,
                     error: None,
-                    status: MCPToolCallStatus::Completed,
+                    status: Some(MCPToolCallStatus::Completed),
                     approval_request_id: None,
                 });
                 events.push(ResponseStreamEvent::OutputItemDone(
@@ -299,7 +299,7 @@ impl ClaudeToOpenAIResponseStreamState {
                 arguments: String::new(),
                 output: None,
                 error: None,
-                status: MCPToolCallStatus::InProgress,
+                status: Some(MCPToolCallStatus::InProgress),
                 approval_request_id: None,
             }),
         };

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openai::create_response::types::{
-    ConversationParam, InputParam, Metadata, Prompt, PromptCacheRetention, Reasoning,
-    ResponseInclude, ResponseStreamOptions, ResponseTextParam, ServiceTier, Tool, ToolChoiceParam,
-    Truncation,
+    ContextManagement, ConversationParam, InputParam, Metadata, Prompt, PromptCacheRetention,
+    Reasoning, ResponseInclude, ResponseStreamOptions, ResponseTextParam, ServiceTier, Tool,
+    ToolChoiceParam, Truncation,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +35,8 @@ pub struct CreateResponseRequestBody {
     pub previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<Reasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_management: Option<Vec<ContextManagement>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

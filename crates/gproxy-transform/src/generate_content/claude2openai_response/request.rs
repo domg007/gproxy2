@@ -66,6 +66,7 @@ pub fn transform_request(request: ClaudeCreateMessageRequest) -> OpenAIResponseR
             conversation: None,
             previous_response_id: None,
             reasoning,
+            context_management: None,
             background: None,
             max_output_tokens: Some(request.body.max_tokens as i64),
             max_tool_calls: None,

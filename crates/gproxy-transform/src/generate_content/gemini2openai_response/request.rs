@@ -64,6 +64,7 @@ pub fn transform_request(request: GeminiGenerateContentRequest) -> OpenAIRespons
             conversation: None,
             previous_response_id: None,
             reasoning,
+            context_management: None,
             background: None,
             max_output_tokens: request
                 .body

@@ -164,7 +164,7 @@ fn map_mcp_tool_use(tool: &BetaMcpToolUseBlock) -> MCPToolCall {
         arguments,
         output: None,
         error: None,
-        status: MCPToolCallStatus::Completed,
+        status: Some(MCPToolCallStatus::Completed),
         approval_request_id: None,
     }
 }
