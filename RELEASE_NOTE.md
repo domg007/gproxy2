@@ -244,3 +244,19 @@
 ### Fixed
 - storage (SeaORM): fixed compile compatibility with SeaORM v2 by importing `DatabaseBackend` for sqlite backend checks and executing index statements via `execute(&statement)` in `ensure_performance_indexes`.
 - restored clean local validation flow by fixing `cargo check` and `cargo clippy` failures caused by the storage compile errors.
+
+## v0.2.31
+
+### Added
+- OpenAI Responses support now includes dedicated handling modules for `cancel`, `compact`, `delete`, `get`, and `list_input_items`.
+- Added trace summarization module for request/response trace lifecycle handling.
+- Added context management support in OpenAI response transformation flow.
+
+### Changed
+- Expanded OpenAI response route coverage with new endpoints and updated request structures.
+- Improved response item processing to support stream option flow in `GetResponse`.
+- Enhanced OpenAI streaming behavior with passthrough support for same-protocol events.
+
+### Fixed
+- Improved compatibility for unknown upstream response item shapes to avoid transform-time breakage.
+- frontend logs query now sends `include_body=true` and uses cursor pagination (`cursor_at`/`cursor_id`), so expanded rows can display persisted `request_body` / `response_body` again.
