@@ -1098,12 +1098,15 @@ async fn query_logs(
                 gproxy_storage::LogRecordKind::Upstream => "upstream",
                 gproxy_storage::LogRecordKind::Downstream => "downstream",
             };
-            let request_body = if include_body {
+            let show_error_body = matches!(row.kind, gproxy_storage::LogRecordKind::Downstream)
+                && row.response_status.unwrap_or_default() >= 400;
+            let show_body = include_body || show_error_body;
+            let request_body = if show_body {
                 bytes_body_to_json(&row.request_body)
             } else {
                 JsonValue::Null
             };
-            let response_body = if include_body {
+            let response_body = if show_body {
                 bytes_body_to_json(&row.response_body)
             } else {
                 JsonValue::Null

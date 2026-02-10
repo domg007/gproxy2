@@ -1361,6 +1361,8 @@ pub enum Item {
     MCPCall(MCPToolCall),
     CustomToolCallOutput(CustomToolCallOutput),
     CustomToolCall(CustomToolCall),
+    /// Forward-compatible fallback for unknown item shapes.
+    Unknown(Value),    
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

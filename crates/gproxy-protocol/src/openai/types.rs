@@ -26,7 +26,7 @@ pub use crate::openai::delete_response::{
 };
 pub use crate::openai::get_model::{GetModelPath, GetModelRequest, GetModelResponse, Model};
 pub use crate::openai::get_response::{
-    GetResponsePath, GetResponseQuery, GetResponseRequest, GetResponseResponse,
+    GetResponsePath, GetResponseQuery, GetResponseRequest, GetResponseResponse, GetResponseStream,
 };
 pub use crate::openai::list_input_items::{
     ListInputItemsPath, ListInputItemsQuery, ListInputItemsRequest, ListInputItemsResponse,

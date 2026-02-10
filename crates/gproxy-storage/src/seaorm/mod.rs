@@ -56,7 +56,9 @@ struct DownstreamLogLiteRow {
     user_key_id: Option<i64>,
     request_method: String,
     request_path: String,
+    request_body: Option<Vec<u8>>,
     response_status: Option<i32>,
+    response_body: Option<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -1063,24 +1065,31 @@ impl Storage for SeaOrmStorage {
                     .limit(fetch_limit)
                     .all(&self.db)
                     .await?;
-                downstream_rows.extend(rows.into_iter().map(|row| LogRecord {
-                    id: row.id,
-                    kind: LogRecordKind::Downstream,
-                    at: row.at,
-                    trace_id: row.trace_id,
-                    provider: None,
-                    credential_id: None,
-                    user_id: row.user_id,
-                    user_key_id: row.user_key_id,
-                    attempt_no: None,
-                    operation: None,
-                    request_method: row.request_method,
-                    request_path: row.request_path,
-                    request_body: row.request_body,
-                    response_status: row.response_status,
-                    response_body: row.response_body,
-                    error_kind: None,
-                    error_message: None,
+                downstream_rows.extend(rows.into_iter().map(|row| {
+                    let (provider, operation, attempt_no) = derive_downstream_observability(
+                        &row.request_method,
+                        &row.request_path,
+                        row.request_body.as_deref(),
+                    );
+                    LogRecord {
+                        id: row.id,
+                        kind: LogRecordKind::Downstream,
+                        at: row.at,
+                        trace_id: row.trace_id,
+                        provider,
+                        credential_id: None,
+                        user_id: row.user_id,
+                        user_key_id: row.user_key_id,
+                        attempt_no,
+                        operation,
+                        request_method: row.request_method,
+                        request_path: row.request_path,
+                        request_body: row.request_body,
+                        response_status: row.response_status,
+                        response_body: row.response_body,
+                        error_kind: None,
+                        error_message: None,
+                    }
                 }));
             } else {
                 let rows = q
@@ -1092,31 +1101,49 @@ impl Storage for SeaOrmStorage {
                     .column(DownstreamColumn::UserKeyId)
                     .column(DownstreamColumn::RequestMethod)
                     .column(DownstreamColumn::RequestPath)
+                    .column(DownstreamColumn::RequestBody)
                     .column(DownstreamColumn::ResponseStatus)
+                    .column(DownstreamColumn::ResponseBody)
                     .order_by_desc(DownstreamColumn::At)
                     .order_by_desc(DownstreamColumn::Id)
                     .limit(fetch_limit)
                     .into_model::<DownstreamLogLiteRow>()
                     .all(&self.db)
                     .await?;
-                downstream_rows.extend(rows.into_iter().map(|row| LogRecord {
-                    id: row.id,
-                    kind: LogRecordKind::Downstream,
-                    at: row.at,
-                    trace_id: row.trace_id,
-                    provider: None,
-                    credential_id: None,
-                    user_id: row.user_id,
-                    user_key_id: row.user_key_id,
-                    attempt_no: None,
-                    operation: None,
-                    request_method: row.request_method,
-                    request_path: row.request_path,
-                    request_body: None,
-                    response_status: row.response_status,
-                    response_body: None,
-                    error_kind: None,
-                    error_message: None,
+                downstream_rows.extend(rows.into_iter().map(|row| {
+                    let (provider, operation, attempt_no) = derive_downstream_observability(
+                        &row.request_method,
+                        &row.request_path,
+                        row.request_body.as_deref(),
+                    );
+                    let include_error_body = row.response_status.unwrap_or_default() >= 400;
+                    LogRecord {
+                        id: row.id,
+                        kind: LogRecordKind::Downstream,
+                        at: row.at,
+                        trace_id: row.trace_id,
+                        provider,
+                        credential_id: None,
+                        user_id: row.user_id,
+                        user_key_id: row.user_key_id,
+                        attempt_no,
+                        operation,
+                        request_method: row.request_method,
+                        request_path: row.request_path,
+                        request_body: if include_error_body {
+                            row.request_body
+                        } else {
+                            None
+                        },
+                        response_status: row.response_status,
+                        response_body: if include_error_body {
+                            row.response_body
+                        } else {
+                            None
+                        },
+                        error_kind: None,
+                        error_message: None,
+                    }
                 }));
             }
         }
@@ -1260,4 +1287,119 @@ fn normalize_model_candidate(raw: &str, allow_no_action_suffix: bool) -> Option<
         return None;
     }
     Some(s.to_string())
+}
+
+fn derive_downstream_observability(
+    request_method: &str,
+    request_path: &str,
+    request_body: Option<&[u8]>,
+) -> (Option<String>, Option<String>, Option<i32>) {
+    let (provider, route_path) = split_provider_prefixed_path(request_path);
+    let operation = derive_downstream_operation(request_method, &route_path, request_body);
+    (provider, operation, Some(0))
+}
+
+fn split_provider_prefixed_path(request_path: &str) -> (Option<String>, String) {
+    let normalized = if request_path.starts_with('/') {
+        request_path.to_string()
+    } else {
+        format!("/{request_path}")
+    };
+    let parts: Vec<&str> = normalized
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if parts.len() >= 2
+        && (parts[1] == "v1" || parts[1] == "v1beta")
+        && parts[0] != "v1"
+        && parts[0] != "v1beta"
+    {
+        let route_path = format!("/{}", parts[1..].join("/"));
+        (Some(parts[0].to_string()), route_path)
+    } else {
+        (None, normalized)
+    }
+}
+
+fn derive_downstream_operation(
+    request_method: &str,
+    route_path: &str,
+    request_body: Option<&[u8]>,
+) -> Option<String> {
+    let is_post = request_method.eq_ignore_ascii_case("POST");
+    let is_get = request_method.eq_ignore_ascii_case("GET");
+    let is_delete = request_method.eq_ignore_ascii_case("DELETE");
+    let stream = extract_stream_flag(request_body);
+
+    if is_post && (route_path == "/v1/messages" || route_path == "/v1/chat/completions") {
+        return Some(if stream {
+            "StreamGenerateContent".to_string()
+        } else {
+            "GenerateContent".to_string()
+        });
+    }
+    if is_post && route_path == "/v1/messages/count_tokens" {
+        return Some("CountTokens".to_string());
+    }
+    if is_post && route_path == "/v1/responses" {
+        return Some(if stream {
+            "StreamGenerateContent".to_string()
+        } else {
+            "GenerateContent".to_string()
+        });
+    }
+    if is_post && route_path == "/v1/responses/compact" {
+        return Some("ResponseCompact".to_string());
+    }
+    if is_post && route_path == "/v1/responses/input_tokens" {
+        return Some("CountTokens".to_string());
+    }
+    if is_post && route_path == "/v1/memories/trace_summarize" {
+        return Some("MemoryTraceSummarize".to_string());
+    }
+    if is_get && (route_path == "/v1/models" || route_path == "/v1beta/models") {
+        return Some("ModelList".to_string());
+    }
+    if is_get
+        && (route_path.starts_with("/v1/models/") || route_path.starts_with("/v1beta/models/"))
+    {
+        return Some("ModelGet".to_string());
+    }
+    if is_post
+        && (route_path.starts_with("/v1/models/") || route_path.starts_with("/v1beta/models/"))
+    {
+        if route_path.contains(":streamGenerateContent") {
+            return Some("StreamGenerateContent".to_string());
+        }
+        if route_path.contains(":generateContent") {
+            return Some("GenerateContent".to_string());
+        }
+        if route_path.contains(":countTokens") {
+            return Some("CountTokens".to_string());
+        }
+    }
+    if route_path.starts_with("/v1/responses/") {
+        if is_post && route_path.ends_with("/cancel") {
+            return Some("ResponseCancel".to_string());
+        }
+        if is_get && route_path.ends_with("/input_items") {
+            return Some("ResponseListInputItems".to_string());
+        }
+        if is_get {
+            return Some("ResponseGet".to_string());
+        }
+        if is_delete {
+            return Some("ResponseDelete".to_string());
+        }
+    }
+
+    None
+}
+
+fn extract_stream_flag(request_body: Option<&[u8]>) -> bool {
+    request_body
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok())
+        .and_then(|json| json.get("stream").and_then(|value| value.as_bool()))
+        .unwrap_or(false)
 }
