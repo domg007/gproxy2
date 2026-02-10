@@ -28,16 +28,20 @@ pub use events::{
 pub use headers::{Headers, header_get, header_remove, header_set};
 pub use provider::{
     AuthRetryAction, HttpMethod, OAuthCallbackRequest, OAuthCallbackResult, OAuthCredential,
-    OAuthStartRequest, OpenAIResponsesPassthroughRequest, UpstreamBody, UpstreamCtx,
-    UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider,
+    OAuthStartRequest, UpstreamBody, UpstreamCtx, UpstreamHttpRequest, UpstreamHttpResponse,
+    UpstreamProvider,
 };
 pub use registry::ProviderRegistry;
 
 // Re-export the protocol/transform typed enums from gproxy-transform.
 pub use gproxy_transform::middleware::{
     CountTokensRequest, CountTokensResponse, GenerateContentRequest, GenerateContentResponse,
-    ModelGetRequest, ModelGetResponse, ModelListRequest, ModelListResponse, Op, Proto, Request,
-    Response, StreamEvent, StreamFormat, TransformContext, TransformError, stream_format,
+    MemoryTraceSummarizeRequest, MemoryTraceSummarizeResponse, ModelGetRequest, ModelGetResponse,
+    ModelListRequest, ModelListResponse, Op, Proto, Request, Response, ResponseCancelRequest,
+    ResponseCancelResponse, ResponseCompactRequest, ResponseCompactResponse, ResponseDeleteRequest,
+    ResponseDeleteResponse, ResponseGetRequest, ResponseGetResponse, ResponseListInputItemsRequest,
+    ResponseListInputItemsResponse, StreamEvent, StreamFormat, TransformContext, TransformError,
+    stream_format,
 };
 
 // Re-export usage helpers used by the middleware/engine layer.

@@ -70,6 +70,12 @@ impl OperationKind {
                 Proto::OpenAI => Some(OperationKind::OpenAIModelsGet),
                 _ => None,
             },
+            Op::ResponseGet
+            | Op::ResponseDelete
+            | Op::ResponseCancel
+            | Op::ResponseListInputItems
+            | Op::ResponseCompact
+            | Op::MemoryTraceSummarize => None,
         }
     }
 }

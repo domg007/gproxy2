@@ -4,11 +4,11 @@ use std::time::{Duration, SystemTime};
 
 use axum::body::{Body, to_bytes};
 use axum::extract::{DefaultBodyLimit, Extension, Path, Query, RawQuery, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::routing::{any, get, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -22,9 +22,14 @@ use gproxy_protocol::openai;
 use gproxy_provider_core::{
     CountTokensRequest as MwCountTokensRequest, DownstreamEvent, Event,
     GenerateContentRequest as MwGenerateContentRequest, Headers,
+    MemoryTraceSummarizeRequest as MwMemoryTraceSummarizeRequest,
     ModelGetRequest as MwModelGetRequest, ModelListRequest as MwModelListRequest,
-    OAuthCallbackRequest, OAuthStartRequest, Op, OpenAIResponsesPassthroughRequest, Proto, Request,
-    UpstreamBody, UpstreamHttpResponse,
+    OAuthCallbackRequest, OAuthStartRequest, Op, Proto, Request,
+    ResponseCancelRequest as MwResponseCancelRequest,
+    ResponseCompactRequest as MwResponseCompactRequest,
+    ResponseDeleteRequest as MwResponseDeleteRequest, ResponseGetRequest as MwResponseGetRequest,
+    ResponseListInputItemsRequest as MwResponseListInputItemsRequest, UpstreamBody,
+    UpstreamHttpResponse,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +81,10 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
             "/v1/responses/input_tokens",
             post(openai_input_tokens_aggregate),
         )
+        .route(
+            "/v1/memories/trace_summarize",
+            post(openai_memories_trace_summarize_aggregate),
+        )
         .route("/v1/models", get(models_list_v1_aggregate))
         .route("/v1/models/{*model}", get(models_get_v1_aggregate))
         .route("/v1/models/{*model}", post(gemini_post_aggregate))
@@ -93,17 +102,30 @@ pub fn proxy_router(engine: Arc<ProxyEngine>) -> Router {
             "/{provider}/v1/chat/completions",
             post(openai_chat_completions),
         )
+        .route("/{provider}/v1/responses", post(openai_responses))
         .route(
-            "/{provider}/v1/responses",
-            any(openai_responses_passthrough),
+            "/{provider}/v1/responses/compact",
+            post(openai_response_compact),
+        )
+        .route(
+            "/{provider}/v1/responses/{response_id}/cancel",
+            post(openai_response_cancel),
+        )
+        .route(
+            "/{provider}/v1/responses/{response_id}/input_items",
+            get(openai_response_list_input_items),
+        )
+        .route(
+            "/{provider}/v1/responses/{response_id}",
+            get(openai_response_get).delete(openai_response_delete),
         )
         .route(
             "/{provider}/v1/responses/input_tokens",
             post(openai_input_tokens),
         )
         .route(
-            "/{provider}/v1/responses/{*rest}",
-            any(openai_responses_passthrough_rest),
+            "/{provider}/v1/memories/trace_summarize",
+            post(openai_memories_trace_summarize),
         )
         // Shared OpenAI/Claude models endpoints (disambiguate by `anthropic-version` header).
         .route("/{provider}/v1/models", get(models_list_v1))
@@ -490,55 +512,80 @@ async fn openai_responses_aggregate(
     State(state): State<ProxyState>,
     Extension(auth): Extension<ProxyAuth>,
     Extension(trace_id): Extension<RequestTraceId>,
-    method: Method,
-    RawQuery(query): RawQuery,
-    headers: HeaderMap,
-    body: Bytes,
+    Json(mut body): Json<openai::create_response::request::CreateResponseRequestBody>,
 ) -> Response {
-    let Some((provider, body)) = split_provider_and_rewrite_model_from_openai_body(&body) else {
+    let Some((provider, model)) = split_provider_model(&body.model) else {
         return (StatusCode::BAD_REQUEST, "missing_provider_prefix").into_response();
     };
-    forward_openai_responses_passthrough(
-        state,
+    body.model = model;
+    let op = if body.stream.unwrap_or(false) {
+        Op::StreamGenerateContent
+    } else {
+        Op::GenerateContent
+    };
+    let req = openai::create_response::request::CreateResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
         auth,
-        trace_id.0,
-        provider,
-        "/v1/responses".to_string(),
-        method,
-        query,
-        headers,
-        body,
-    )
-    .await
+        provider: provider.clone(),
+        response_model_prefix_provider: Some(provider),
+        user_proto: Proto::OpenAIResponse,
+        user_op: op,
+        req: Box::new(Request::GenerateContent(
+            MwGenerateContentRequest::OpenAIResponse(req),
+        )),
+    };
+    to_axum_response(state.engine.handle(call).await)
 }
 
 async fn openai_responses_compact_aggregate(
     State(state): State<ProxyState>,
     Extension(auth): Extension<ProxyAuth>,
     Extension(trace_id): Extension<RequestTraceId>,
-    method: Method,
-    RawQuery(query): RawQuery,
-    headers: HeaderMap,
-    body: Bytes,
+    Json(mut body): Json<openai::compact_response::request::CompactResponseRequestBody>,
 ) -> Response {
-    let Some((provider, body)) = split_provider_and_rewrite_model_from_openai_body(&body) else {
+    let Some((provider, model)) = split_provider_model(&body.model) else {
         return (StatusCode::BAD_REQUEST, "missing_provider_prefix").into_response();
     };
-    if provider != "codex" {
-        return (StatusCode::NOT_IMPLEMENTED, "unsupported_operation").into_response();
-    }
-    forward_openai_responses_passthrough(
-        state,
+    body.model = model;
+    let req = openai::compact_response::request::CompactResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
         auth,
-        trace_id.0,
-        provider,
-        "/v1/responses/compact".to_string(),
-        method,
-        query,
-        headers,
-        body,
-    )
-    .await
+        provider: provider.clone(),
+        response_model_prefix_provider: Some(provider),
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseCompact,
+        req: Box::new(Request::ResponseCompact(MwResponseCompactRequest::OpenAI(
+            req,
+        ))),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_memories_trace_summarize_aggregate(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Json(mut body): Json<openai::trace_summarize::request::TraceSummarizeRequestBody>,
+) -> Response {
+    let Some((provider, model)) = split_provider_model(&body.model) else {
+        return (StatusCode::BAD_REQUEST, "missing_provider_prefix").into_response();
+    };
+    body.model = model;
+    let req = openai::trace_summarize::request::TraceSummarizeRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider: provider.clone(),
+        response_model_prefix_provider: Some(provider),
+        user_proto: Proto::OpenAI,
+        user_op: Op::MemoryTraceSummarize,
+        req: Box::new(Request::MemoryTraceSummarize(
+            MwMemoryTraceSummarizeRequest::OpenAI(req),
+        )),
+    };
+    to_axum_response(state.engine.handle(call).await)
 }
 
 async fn openai_input_tokens_aggregate(
@@ -1285,118 +1332,169 @@ fn apply_openai_chat_stream_defaults(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn forward_openai_responses_passthrough(
-    state: ProxyState,
-    auth: ProxyAuth,
-    trace_id: String,
-    provider: String,
-    path: String,
-    method: Method,
-    query: Option<String>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let Some(method) = gproxy_provider_core::HttpMethod::parse(method.as_str()) else {
-        return (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed").into_response();
-    };
-    let is_stream = openai_responses_stream_hint(method, &headers, &body);
-    let req = OpenAIResponsesPassthroughRequest {
-        method,
-        path,
-        query,
-        headers: headers_to_vec(&headers),
-        body: if body.is_empty() { None } else { Some(body) },
-        is_stream,
-    };
-    let call = ProxyCall::OpenAIResponsesPassthrough {
-        trace_id: Some(trace_id),
-        auth,
-        provider,
-        req,
-    };
-    to_axum_response(state.engine.handle(call).await)
-}
-
-fn split_provider_and_rewrite_model_from_openai_body(body: &Bytes) -> Option<(String, Bytes)> {
-    let mut value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
-    let obj = value.as_object_mut()?;
-    let model = obj.get("model")?.as_str()?;
-    let (provider, model) = split_provider_model(model)?;
-    obj.insert("model".to_string(), serde_json::Value::String(model));
-    let body = serde_json::to_vec(&value).ok()?;
-    Some((provider, Bytes::from(body)))
-}
-
-fn openai_responses_stream_hint(
-    method: gproxy_provider_core::HttpMethod,
-    headers: &HeaderMap,
-    body: &Bytes,
-) -> bool {
-    if matches!(
-        method,
-        gproxy_provider_core::HttpMethod::Get | gproxy_provider_core::HttpMethod::Delete
-    ) {
-        return false;
-    }
-    if headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.to_ascii_lowercase().contains("text/event-stream"))
-        .unwrap_or(false)
-    {
-        return true;
-    }
-    if body.is_empty() {
-        return false;
-    }
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
-        .unwrap_or(false)
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn openai_responses_passthrough(
+async fn openai_responses(
     State(state): State<ProxyState>,
     Extension(auth): Extension<ProxyAuth>,
     Extension(trace_id): Extension<RequestTraceId>,
     Path(provider): Path<String>,
-    method: Method,
-    RawQuery(query): RawQuery,
-    headers: HeaderMap,
-    body: Bytes,
+    Json(body): Json<openai::create_response::request::CreateResponseRequestBody>,
 ) -> Response {
-    forward_openai_responses_passthrough(
-        state,
+    let op = if body.stream.unwrap_or(false) {
+        Op::StreamGenerateContent
+    } else {
+        Op::GenerateContent
+    };
+    let req = openai::create_response::request::CreateResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
         auth,
-        trace_id.0,
         provider,
-        "/v1/responses".to_string(),
-        method,
-        query,
-        headers,
-        body,
-    )
-    .await
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAIResponse,
+        user_op: op,
+        req: Box::new(Request::GenerateContent(
+            MwGenerateContentRequest::OpenAIResponse(req),
+        )),
+    };
+    to_axum_response(state.engine.handle(call).await)
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn openai_responses_passthrough_rest(
+async fn openai_response_compact(
     State(state): State<ProxyState>,
     Extension(auth): Extension<ProxyAuth>,
     Extension(trace_id): Extension<RequestTraceId>,
-    Path((provider, rest)): Path<(String, String)>,
-    method: Method,
-    RawQuery(query): RawQuery,
-    headers: HeaderMap,
-    body: Bytes,
+    Path(provider): Path<String>,
+    Json(body): Json<openai::compact_response::request::CompactResponseRequestBody>,
 ) -> Response {
-    let path = format!("/v1/responses/{}", rest.trim_start_matches('/'));
-    forward_openai_responses_passthrough(
-        state, auth, trace_id.0, provider, path, method, query, headers, body,
-    )
-    .await
+    let req = openai::compact_response::request::CompactResponseRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseCompact,
+        req: Box::new(Request::ResponseCompact(MwResponseCompactRequest::OpenAI(
+            req,
+        ))),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_response_get(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path((provider, response_id)): Path<(String, String)>,
+    Query(query): Query<openai::get_response::request::GetResponseQuery>,
+) -> Response {
+    let req = openai::get_response::request::GetResponseRequest {
+        path: openai::get_response::request::GetResponsePath { response_id },
+        query,
+    };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseGet,
+        req: Box::new(Request::ResponseGet(MwResponseGetRequest::OpenAI(req))),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_response_delete(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path((provider, response_id)): Path<(String, String)>,
+) -> Response {
+    let req = openai::delete_response::request::DeleteResponseRequest {
+        path: openai::delete_response::request::DeleteResponsePath { response_id },
+    };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseDelete,
+        req: Box::new(Request::ResponseDelete(MwResponseDeleteRequest::OpenAI(
+            req,
+        ))),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_response_cancel(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path((provider, response_id)): Path<(String, String)>,
+) -> Response {
+    let req = openai::cancel_response::request::CancelResponseRequest {
+        path: openai::cancel_response::request::CancelResponsePath { response_id },
+    };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseCancel,
+        req: Box::new(Request::ResponseCancel(MwResponseCancelRequest::OpenAI(
+            req,
+        ))),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_response_list_input_items(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path((provider, response_id)): Path<(String, String)>,
+    Query(query): Query<openai::list_input_items::request::ListInputItemsQuery>,
+) -> Response {
+    let req = openai::list_input_items::request::ListInputItemsRequest {
+        path: openai::list_input_items::request::ListInputItemsPath { response_id },
+        query,
+    };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::ResponseListInputItems,
+        req: Box::new(Request::ResponseListInputItems(
+            MwResponseListInputItemsRequest::OpenAI(req),
+        )),
+    };
+    to_axum_response(state.engine.handle(call).await)
+}
+
+async fn openai_memories_trace_summarize(
+    State(state): State<ProxyState>,
+    Extension(auth): Extension<ProxyAuth>,
+    Extension(trace_id): Extension<RequestTraceId>,
+    Path(provider): Path<String>,
+    Json(body): Json<openai::trace_summarize::request::TraceSummarizeRequestBody>,
+) -> Response {
+    let req = openai::trace_summarize::request::TraceSummarizeRequest { body };
+    let call = ProxyCall::Protocol {
+        trace_id: Some(trace_id.0.clone()),
+        auth,
+        provider,
+        response_model_prefix_provider: None,
+        user_proto: Proto::OpenAI,
+        user_op: Op::MemoryTraceSummarize,
+        req: Box::new(Request::MemoryTraceSummarize(
+            MwMemoryTraceSummarizeRequest::OpenAI(req),
+        )),
+    };
+    to_axum_response(state.engine.handle(call).await)
 }
 
 async fn openai_input_tokens(

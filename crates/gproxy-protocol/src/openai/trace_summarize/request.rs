@@ -64,7 +64,10 @@ mod tests {
 
         let value = serde_json::to_value(&req).expect("serialize trace summarize request");
         assert_eq!(value["body"]["model"], "gpt-5-codex");
-        assert_eq!(value["body"]["traces"][0]["metadata"]["source_path"], "/tmp/trace-1.json");
+        assert_eq!(
+            value["body"]["traces"][0]["metadata"]["source_path"],
+            "/tmp/trace-1.json"
+        );
         assert_eq!(value["body"]["reasoning"]["effort"], "low");
     }
 }

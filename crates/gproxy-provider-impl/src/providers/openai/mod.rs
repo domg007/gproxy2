@@ -1,9 +1,9 @@
 use bytes::Bytes;
 
 use gproxy_provider_core::{
-    Credential, DispatchRule, DispatchTable, HttpMethod, OpenAIResponsesPassthroughRequest, Proto,
-    ProviderConfig, ProviderError, ProviderResult, UpstreamCtx, UpstreamHttpRequest,
-    UpstreamProvider, credential::ApiKeyCredential,
+    Credential, DispatchRule, DispatchTable, HttpMethod, Proto, ProviderConfig, ProviderError,
+    ProviderResult, UpstreamCtx, UpstreamHttpRequest, UpstreamProvider,
+    credential::ApiKeyCredential,
 };
 
 use crate::auth_extractor;
@@ -293,12 +293,12 @@ impl UpstreamProvider for OpenAIProvider {
         })
     }
 
-    async fn build_openai_responses_passthrough(
+    async fn build_openai_response_get(
         &self,
         _ctx: &UpstreamCtx,
         config: &ProviderConfig,
         credential: &Credential,
-        req: &OpenAIResponsesPassthroughRequest,
+        req: &gproxy_protocol::openai::get_response::request::GetResponseRequest,
     ) -> ProviderResult<UpstreamHttpRequest> {
         let base_url = match config {
             ProviderConfig::OpenAI(cfg) => cfg.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL),
@@ -309,7 +309,6 @@ impl UpstreamProvider for OpenAIProvider {
             }
         };
         let base_url = base_url.trim_end_matches('/');
-
         let api_key = match credential {
             Credential::OpenAI(ApiKeyCredential { api_key }) => api_key.as_str(),
             _ => {
@@ -318,35 +317,191 @@ impl UpstreamProvider for OpenAIProvider {
                 ));
             }
         };
-
-        let path = req.path.trim_start_matches('/');
-        let path = if let Some(query) = req.query.as_deref().filter(|q| !q.trim().is_empty()) {
-            format!("{path}?{query}")
-        } else {
-            path.to_string()
-        };
+        let mut path = format!("/v1/responses/{}", req.path.response_id);
+        let query = serde_urlencoded::to_string(&req.query)
+            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        if !query.is_empty() {
+            path.push('?');
+            path.push_str(&query);
+        }
         let url = build_url(Some(base_url), DEFAULT_BASE_URL, &path);
-        let mut headers = req.headers.clone();
+        let mut headers = Vec::new();
         auth_extractor::set_bearer(&mut headers, api_key);
-        if !has_header(&headers, "accept") {
-            auth_extractor::set_accept_json(&mut headers);
-        }
-        if req.body.is_some() && !has_header(&headers, "content-type") {
-            auth_extractor::set_content_type_json(&mut headers);
-        }
-
+        auth_extractor::set_accept_json(&mut headers);
         Ok(UpstreamHttpRequest {
-            method: req.method,
+            method: HttpMethod::Get,
             url,
             headers,
-            body: req.body.clone(),
-            is_stream: req.is_stream,
+            body: None,
+            is_stream: false,
         })
     }
 
-    // NOTE: We intentionally do not support arbitrary passthrough requests here.
-    // Upstream calls are modeled as typed ops (protocol requests) plus a few
-    // internal abilities like oauth/usage, handled elsewhere.
+    async fn build_openai_response_delete(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &gproxy_protocol::openai::delete_response::request::DeleteResponseRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = match config {
+            ProviderConfig::OpenAI(cfg) => cfg.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected ProviderConfig::OpenAI".to_string(),
+                ));
+            }
+        };
+        let base_url = base_url.trim_end_matches('/');
+        let api_key = match credential {
+            Credential::OpenAI(ApiKeyCredential { api_key }) => api_key.as_str(),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected Credential::OpenAI".to_string(),
+                ));
+            }
+        };
+        let url = build_url(
+            Some(base_url),
+            DEFAULT_BASE_URL,
+            &format!("/v1/responses/{}", req.path.response_id),
+        );
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, api_key);
+        auth_extractor::set_accept_json(&mut headers);
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Delete,
+            url,
+            headers,
+            body: None,
+            is_stream: false,
+        })
+    }
+
+    async fn build_openai_response_cancel(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &gproxy_protocol::openai::cancel_response::request::CancelResponseRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = match config {
+            ProviderConfig::OpenAI(cfg) => cfg.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected ProviderConfig::OpenAI".to_string(),
+                ));
+            }
+        };
+        let base_url = base_url.trim_end_matches('/');
+        let api_key = match credential {
+            Credential::OpenAI(ApiKeyCredential { api_key }) => api_key.as_str(),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected Credential::OpenAI".to_string(),
+                ));
+            }
+        };
+        let url = build_url(
+            Some(base_url),
+            DEFAULT_BASE_URL,
+            &format!("/v1/responses/{}/cancel", req.path.response_id),
+        );
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, api_key);
+        auth_extractor::set_accept_json(&mut headers);
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Post,
+            url,
+            headers,
+            body: None,
+            is_stream: false,
+        })
+    }
+
+    async fn build_openai_response_list_input_items(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &gproxy_protocol::openai::list_input_items::request::ListInputItemsRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = match config {
+            ProviderConfig::OpenAI(cfg) => cfg.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected ProviderConfig::OpenAI".to_string(),
+                ));
+            }
+        };
+        let base_url = base_url.trim_end_matches('/');
+        let api_key = match credential {
+            Credential::OpenAI(ApiKeyCredential { api_key }) => api_key.as_str(),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected Credential::OpenAI".to_string(),
+                ));
+            }
+        };
+        let mut path = format!("/v1/responses/{}/input_items", req.path.response_id);
+        let query = serde_urlencoded::to_string(&req.query)
+            .map_err(|err| ProviderError::Other(err.to_string()))?;
+        if !query.is_empty() {
+            path.push('?');
+            path.push_str(&query);
+        }
+        let url = build_url(Some(base_url), DEFAULT_BASE_URL, &path);
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, api_key);
+        auth_extractor::set_accept_json(&mut headers);
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Get,
+            url,
+            headers,
+            body: None,
+            is_stream: false,
+        })
+    }
+
+    async fn build_openai_response_compact(
+        &self,
+        _ctx: &UpstreamCtx,
+        config: &ProviderConfig,
+        credential: &Credential,
+        req: &gproxy_protocol::openai::compact_response::request::CompactResponseRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        let base_url = match config {
+            ProviderConfig::OpenAI(cfg) => cfg.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected ProviderConfig::OpenAI".to_string(),
+                ));
+            }
+        };
+        let base_url = base_url.trim_end_matches('/');
+        let api_key = match credential {
+            Credential::OpenAI(ApiKeyCredential { api_key }) => api_key.as_str(),
+            _ => {
+                return Err(ProviderError::InvalidConfig(
+                    "expected Credential::OpenAI".to_string(),
+                ));
+            }
+        };
+        let url = build_url(Some(base_url), DEFAULT_BASE_URL, "/v1/responses/compact");
+        let body =
+            serde_json::to_vec(&req.body).map_err(|err| ProviderError::Other(err.to_string()))?;
+        let mut headers = Vec::new();
+        auth_extractor::set_bearer(&mut headers, api_key);
+        auth_extractor::set_accept_json(&mut headers);
+        auth_extractor::set_content_type_json(&mut headers);
+        Ok(UpstreamHttpRequest {
+            method: HttpMethod::Post,
+            url,
+            headers,
+            body: Some(Bytes::from(body)),
+            is_stream: false,
+        })
+    }
 }
 
 fn build_url(base_url: Option<&str>, default_base: &str, path: &str) -> String {
@@ -356,8 +511,4 @@ fn build_url(base_url: Option<&str>, default_base: &str, path: &str) -> String {
         path = path.trim_start_matches("v1/").trim_start_matches("v1");
     }
     format!("{base}/{path}")
-}
-
-fn has_header(headers: &[(String, String)], name: &str) -> bool {
-    headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name))
 }

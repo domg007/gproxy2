@@ -28,6 +28,24 @@ pub fn resolve_call_shape(
     user_op: Op,
 ) -> Option<ResolvedCall> {
     let is_generate = matches!(user_op, Op::GenerateContent | Op::StreamGenerateContent);
+    if matches!(
+        user_op,
+        Op::ResponseGet
+            | Op::ResponseDelete
+            | Op::ResponseCancel
+            | Op::ResponseListInputItems
+            | Op::ResponseCompact
+            | Op::MemoryTraceSummarize
+    ) {
+        if user_proto != Proto::OpenAI {
+            return None;
+        }
+        return Some(ResolvedCall {
+            provider_proto: user_proto,
+            provider_op: user_op,
+            mode: GenerateMode::Same,
+        });
+    }
     if !is_generate {
         let ctx = TransformContext {
             src: user_proto,

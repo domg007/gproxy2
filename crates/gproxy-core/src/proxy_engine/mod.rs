@@ -12,10 +12,10 @@ use gproxy_provider_core::provider::{ByteStream, UpstreamFailure};
 use gproxy_provider_core::{
     AuthRetryAction, CountTokensFn, CountTokensRequest, CountTokensResponse, Credential,
     GenerateContentRequest, GenerateContentResponse, Headers, HttpMethod, ModelGetResponse,
-    ModelListResponse, Op, OpenAIResponsesPassthroughRequest, OutputAccumulator, Proto,
-    ProviderConfig, ProviderError, ProviderRegistry, ProviderResult, Request, Response,
-    StreamEvent, TransformContext, TransformError, UpstreamBody, UpstreamCtx, UpstreamEvent,
-    UpstreamHttpRequest, UpstreamHttpResponse, UpstreamProvider, UsageAccumulator, UsageSummary,
+    ModelListResponse, Op, OutputAccumulator, Proto, ProviderConfig, ProviderError,
+    ProviderRegistry, ProviderResult, Request, Response, StreamEvent, TransformContext,
+    TransformError, UpstreamBody, UpstreamCtx, UpstreamEvent, UpstreamHttpRequest,
+    UpstreamHttpResponse, UpstreamProvider, UsageAccumulator, UsageSummary,
     fallback_usage_with_count_tokens, header_set, usage_from_response,
 };
 
@@ -218,15 +218,6 @@ impl ProxyEngine {
                     *req,
                 )
                 .await
-            }
-            ProxyCall::OpenAIResponsesPassthrough {
-                trace_id,
-                auth,
-                provider,
-                req,
-            } => {
-                self.handle_openai_responses_passthrough(trace_id, auth, provider, req)
-                    .await
             }
         }
     }
@@ -912,437 +903,6 @@ impl ProxyEngine {
         }
     }
 
-    async fn handle_openai_responses_passthrough(
-        &self,
-        trace_id: Option<String>,
-        auth: crate::proxy_engine::ProxyAuth,
-        provider: String,
-        req: OpenAIResponsesPassthroughRequest,
-    ) -> UpstreamHttpResponse {
-        let (provider_impl, runtime, config) = match self.load_provider(&provider) {
-            Ok(v) => v,
-            Err(resp) => return resp,
-        };
-
-        let model_for_cooldown = model_from_openai_responses_passthrough_body(req.body.as_ref());
-        let shadow_req = openai_responses_passthrough_shadow_request();
-
-        let mut attempt_no: u32 = 1;
-        let mut auth_retry_used: Option<i64> = None;
-        let mut provider_retry_used: Option<i64> = None;
-
-        loop {
-            let (cred_id, cred) = match model_for_cooldown.as_deref() {
-                Some(model) => match runtime.pool.acquire_for_model(&provider, model).await {
-                    Ok(v) => v,
-                    Err(AcquireError::ProviderUnknown) => {
-                        return json_error(404, "provider_not_found");
-                    }
-                    Err(AcquireError::NoActiveCredentials) => {
-                        return json_error(503, "no_active_credentials");
-                    }
-                },
-                None => match runtime.pool.acquire(&provider).await {
-                    Ok(v) => v,
-                    Err(AcquireError::ProviderUnknown) => {
-                        return json_error(404, "provider_not_found");
-                    }
-                    Err(AcquireError::NoActiveCredentials) => {
-                        return json_error(503, "no_active_credentials");
-                    }
-                },
-            };
-
-            let op = if req.is_stream {
-                Op::StreamGenerateContent
-            } else {
-                Op::GenerateContent
-            };
-            let ctx = UpstreamCtx {
-                trace_id: trace_id.clone(),
-                user_id: Some(auth.user_id),
-                user_key_id: Some(auth.user_key_id),
-                user_agent: auth.user_agent.clone(),
-                outbound_proxy: self.state.global.load().proxy.clone(),
-                provider: provider.clone(),
-                credential_id: Some(cred_id),
-                op,
-                internal: false,
-                attempt_no,
-            };
-
-            let mut cred = cred;
-            match provider_impl
-                .upgrade_credential(&ctx, &config, &cred, &shadow_req)
-                .await
-            {
-                Ok(Some(new_cred)) => {
-                    if let Err(resp) = self
-                        .persist_credential_update(cred_id, &new_cred, &runtime)
-                        .await
-                    {
-                        return resp;
-                    }
-                    cred = new_cred;
-                }
-                Ok(None) => {}
-                Err(err) => return error_response_from_provider_err(&err),
-            }
-
-            let upstream_req = match provider_impl
-                .build_openai_responses_passthrough(&ctx, &config, &cred, &req)
-                .await
-            {
-                Ok(r) => r,
-                Err(err) => return error_response_from_provider_err(&err),
-            };
-
-            let resp = match self.client.send(upstream_req.clone()).await {
-                Ok(r) => r,
-                Err(failure) => {
-                    emit_upstream_event!(
-                        self,
-                        trace_id.clone(),
-                        auth.clone(),
-                        provider.clone(),
-                        Some(cred_id),
-                        false,
-                        attempt_no,
-                        format!("{op:?}"),
-                        &upstream_req,
-                        None,
-                        None,
-                        Some("transport".to_string()),
-                        Some(failure_message(&failure)),
-                        transport_kind_from_failure(&failure),
-                    )
-                    .await;
-                    if provider_retry_used != Some(cred_id)
-                        && let Ok(action) = provider_impl
-                            .on_upstream_failure(&ctx, &config, &cred, &shadow_req, &failure)
-                            .await
-                    {
-                        match action {
-                            AuthRetryAction::RetrySame => {
-                                provider_retry_used = Some(cred_id);
-                                attempt_no += 1;
-                                continue;
-                            }
-                            AuthRetryAction::UpdateCredential(new_cred) => {
-                                if let Err(resp) = self
-                                    .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
-                                    .await
-                                {
-                                    return resp;
-                                }
-                                provider_retry_used = Some(cred_id);
-                                attempt_no += 1;
-                                continue;
-                            }
-                            AuthRetryAction::None => {}
-                        }
-                    }
-                    if is_auth_failure(&failure)
-                        && auth_retry_used != Some(cred_id)
-                        && let Ok(action) = provider_impl
-                            .on_auth_failure(&ctx, &config, &cred, &shadow_req, &failure)
-                            .await
-                    {
-                        match action {
-                            AuthRetryAction::RetrySame => {
-                                auth_retry_used = Some(cred_id);
-                                attempt_no += 1;
-                                continue;
-                            }
-                            AuthRetryAction::UpdateCredential(new_cred) => {
-                                if let Err(resp) = self
-                                    .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
-                                    .await
-                                {
-                                    return resp;
-                                }
-                                auth_retry_used = Some(cred_id);
-                                attempt_no += 1;
-                                continue;
-                            }
-                            AuthRetryAction::None => {}
-                        }
-                    }
-                    if let Some(decision) = provider_impl.decide_unavailable(
-                        &ctx,
-                        &config,
-                        &cred,
-                        &shadow_req,
-                        &failure,
-                    ) {
-                        self.apply_unavailable_decision(
-                            runtime.clone(),
-                            cred_id,
-                            op,
-                            model_for_cooldown.as_ref(),
-                            decision,
-                        )
-                        .await;
-                        if is_retryable_failure(&failure) {
-                            if !self
-                                .has_retry_candidate(
-                                    &runtime,
-                                    &provider,
-                                    model_for_cooldown.as_ref(),
-                                )
-                                .await
-                            {
-                                return failure_to_http(failure);
-                            }
-                            backoff_sleep(attempt_no).await;
-                            attempt_no += 1;
-                            continue;
-                        }
-                        return failure_to_http(failure);
-                    }
-                    return failure_to_http(failure);
-                }
-            };
-
-            let status = resp.status;
-            if !(200..300).contains(&status) {
-                let failure = match resp_body_bytes(&resp.body) {
-                    Some(body) => UpstreamFailure::Http {
-                        status,
-                        headers: resp.headers.clone(),
-                        body,
-                    },
-                    None => UpstreamFailure::Http {
-                        status,
-                        headers: resp.headers.clone(),
-                        body: Bytes::new(),
-                    },
-                };
-                self.emit_upstream_event(UpstreamEventInput {
-                    trace_id: trace_id.clone(),
-                    auth: auth.clone(),
-                    provider: provider.clone(),
-                    credential_id: Some(cred_id),
-                    internal: false,
-                    attempt_no,
-                    operation: format!("{op:?}"),
-                    upstream_req: &upstream_req,
-                    response_status: Some(status),
-                    response_headers: Some(resp.headers.clone()),
-                    response_body: resp_body_bytes(&resp.body).map(|body| body.to_vec()),
-                    usage: None,
-                    error_kind: Some("http".to_string()),
-                    error_message: Some(format!("http_status_{status}")),
-                    transport_kind: None,
-                })
-                .await;
-                if provider_retry_used != Some(cred_id)
-                    && let Ok(action) = provider_impl
-                        .on_upstream_failure(&ctx, &config, &cred, &shadow_req, &failure)
-                        .await
-                {
-                    match action {
-                        AuthRetryAction::RetrySame => {
-                            provider_retry_used = Some(cred_id);
-                            attempt_no += 1;
-                            continue;
-                        }
-                        AuthRetryAction::UpdateCredential(new_cred) => {
-                            if let Err(resp) = self
-                                .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
-                                .await
-                            {
-                                return resp;
-                            }
-                            provider_retry_used = Some(cred_id);
-                            attempt_no += 1;
-                            continue;
-                        }
-                        AuthRetryAction::None => {}
-                    }
-                }
-                if is_auth_failure(&failure)
-                    && auth_retry_used != Some(cred_id)
-                    && let Ok(action) = provider_impl
-                        .on_auth_failure(&ctx, &config, &cred, &shadow_req, &failure)
-                        .await
-                {
-                    match action {
-                        AuthRetryAction::RetrySame => {
-                            auth_retry_used = Some(cred_id);
-                            attempt_no += 1;
-                            continue;
-                        }
-                        AuthRetryAction::UpdateCredential(new_cred) => {
-                            if let Err(resp) = self
-                                .persist_credential_update(cred_id, new_cred.as_ref(), &runtime)
-                                .await
-                            {
-                                return resp;
-                            }
-                            auth_retry_used = Some(cred_id);
-                            attempt_no += 1;
-                            continue;
-                        }
-                        AuthRetryAction::None => {}
-                    }
-                }
-                if let Some(decision) =
-                    provider_impl.decide_unavailable(&ctx, &config, &cred, &shadow_req, &failure)
-                {
-                    self.apply_unavailable_decision(
-                        runtime.clone(),
-                        cred_id,
-                        op,
-                        model_for_cooldown.as_ref(),
-                        decision,
-                    )
-                    .await;
-                    if is_retryable_failure(&failure) {
-                        if !self
-                            .has_retry_candidate(&runtime, &provider, model_for_cooldown.as_ref())
-                            .await
-                        {
-                            return resp;
-                        }
-                        backoff_sleep(attempt_no).await;
-                        attempt_no += 1;
-                        continue;
-                    }
-                    return resp;
-                }
-                return resp;
-            }
-
-            let UpstreamHttpResponse {
-                status: resp_status,
-                headers: resp_headers,
-                body: resp_body,
-            } = resp;
-            let resp = match resp_body {
-                UpstreamBody::Bytes(body) => {
-                    self.emit_upstream_event(UpstreamEventInput {
-                        trace_id: trace_id.clone(),
-                        auth: auth.clone(),
-                        provider: provider.clone(),
-                        credential_id: Some(cred_id),
-                        internal: false,
-                        attempt_no,
-                        operation: format!("{op:?}"),
-                        upstream_req: &upstream_req,
-                        response_status: Some(resp_status),
-                        response_headers: Some(resp_headers.clone()),
-                        response_body: Some(body.to_vec()),
-                        usage: None,
-                        error_kind: None,
-                        error_message: None,
-                        transport_kind: None,
-                    })
-                    .await;
-                    UpstreamHttpResponse {
-                        status: resp_status,
-                        headers: resp_headers,
-                        body: UpstreamBody::Bytes(body),
-                    }
-                }
-                UpstreamBody::Stream(rx_in) => {
-                    let (tx_out, rx_out) = tokio::sync::mpsc::channel::<Bytes>(32);
-                    let events = self.state.events.clone();
-                    let trace_id2 = trace_id.clone();
-                    let auth2 = auth.clone();
-                    let provider2 = provider.clone();
-                    let upstream_req2 = upstream_req.clone();
-                    let (upstream_path, upstream_query) = split_path_query(&upstream_req.url);
-                    let upstream_resp_headers = resp_headers.clone();
-                    let status = resp_status;
-                    let redact_sensitive = self.state.global.load().event_redact_sensitive;
-
-                    tokio::spawn(async move {
-                        let mut rx_in = rx_in;
-                        let mut response_body = Vec::new();
-                        let mut error_kind: Option<String> = None;
-                        let mut error_message: Option<String> = None;
-                        while let Some(chunk) = rx_in.recv().await {
-                            append_capped(
-                                &mut response_body,
-                                chunk.as_ref(),
-                                MAX_UPSTREAM_LOG_BODY_BYTES,
-                            );
-                            if tx_out.send(chunk).await.is_err() {
-                                error_kind = Some("stream_forward_error".to_string());
-                                error_message = Some("downstream_stream_closed".to_string());
-                                break;
-                            }
-                        }
-                        events
-                            .emit(Event::Upstream(UpstreamEvent {
-                                trace_id: trace_id2,
-                                at: SystemTime::now(),
-                                user_id: Some(auth2.user_id),
-                                user_key_id: Some(auth2.user_key_id),
-                                provider: provider2,
-                                credential_id: Some(cred_id),
-                                internal: false,
-                                attempt_no,
-                                operation: format!("{op:?}"),
-                                request_method: upstream_req2.method.as_str().to_string(),
-                                request_headers: maybe_redact_headers(
-                                    upstream_req2.headers.clone(),
-                                    redact_sensitive,
-                                ),
-                                request_path: upstream_path,
-                                request_query: maybe_redact_query(upstream_query, redact_sensitive),
-                                request_body: if redact_sensitive {
-                                    None
-                                } else {
-                                    upstream_req2.body.clone().map(|b| b.to_vec())
-                                },
-                                response_status: Some(status),
-                                response_headers: maybe_redact_headers(
-                                    upstream_resp_headers,
-                                    redact_sensitive,
-                                ),
-                                response_body: if redact_sensitive {
-                                    None
-                                } else {
-                                    Some(response_body)
-                                },
-                                usage: None,
-                                error_kind,
-                                error_message,
-                                transport_kind: None,
-                            }))
-                            .await;
-                    });
-
-                    UpstreamHttpResponse {
-                        status: resp_status,
-                        headers: resp_headers,
-                        body: UpstreamBody::Stream(rx_out),
-                    }
-                }
-            };
-
-            match provider_impl
-                .on_upstream_success(&ctx, &config, &cred, &shadow_req, &resp)
-                .await
-            {
-                Ok(Some(new_cred)) => {
-                    if let Err(resp) = self
-                        .persist_credential_update(cred_id, &new_cred, &runtime)
-                        .await
-                    {
-                        return resp;
-                    }
-                }
-                Ok(None) => {}
-                Err(err) => return error_response_from_provider_err(&err),
-            }
-
-            return resp;
-        }
-    }
-
     async fn handle_protocol(
         &self,
         trace_id: Option<String>,
@@ -1827,7 +1387,16 @@ impl ProxyEngine {
         match (user_op, resolved.mode) {
             // Non-stream to non-stream (includes non-generate ops and generate non-stream).
             (
-                Op::ModelList | Op::ModelGet | Op::CountTokens | Op::GenerateContent,
+                Op::ModelList
+                | Op::ModelGet
+                | Op::CountTokens
+                | Op::GenerateContent
+                | Op::ResponseGet
+                | Op::ResponseDelete
+                | Op::ResponseCancel
+                | Op::ResponseListInputItems
+                | Op::ResponseCompact
+                | Op::MemoryTraceSummarize,
                 GenerateMode::Same,
             ) => {
                 self.handle_nonstream_response(
@@ -2016,13 +1585,12 @@ impl ProxyEngine {
             src_op: user_op,
             dst_op: user_op,
         };
-        let resp_user =
-            match gproxy_transform::middleware::transform_response(&to_user, resp_native) {
-                Ok(r) => r,
-                Err(err) => {
-                    return json_error_with(500, "transform_response_failed", format!("{err:?}"));
-                }
-            };
+        let resp_user = match transform_response_maybe(&to_user, resp_native) {
+            Ok(r) => r,
+            Err(err) => {
+                return json_error_with(500, "transform_response_failed", format!("{err:?}"));
+            }
+        };
         let resp_user =
             maybe_prefix_model_in_response(resp_user, response_model_prefix_provider.as_deref());
 
@@ -3048,6 +2616,16 @@ fn transform_request_maybe(
     gproxy_transform::middleware::transform_request(ctx, req)
 }
 
+fn transform_response_maybe(
+    ctx: &TransformContext,
+    resp: Response,
+) -> Result<Response, TransformError> {
+    if ctx.src == ctx.dst && ctx.src_op == ctx.dst_op {
+        return Ok(resp);
+    }
+    gproxy_transform::middleware::transform_response(ctx, resp)
+}
+
 async fn build_upstream_request(
     provider: &dyn UpstreamProvider,
     ctx: &UpstreamCtx,
@@ -3132,13 +2710,63 @@ async fn build_upstream_request(
                     .await
             }
         },
+        Request::ResponseGet(req) => match req {
+            gproxy_provider_core::ResponseGetRequest::OpenAI(r) => {
+                provider
+                    .build_openai_response_get(ctx, config, credential, r)
+                    .await
+            }
+        },
+        Request::ResponseDelete(req) => match req {
+            gproxy_provider_core::ResponseDeleteRequest::OpenAI(r) => {
+                provider
+                    .build_openai_response_delete(ctx, config, credential, r)
+                    .await
+            }
+        },
+        Request::ResponseCancel(req) => match req {
+            gproxy_provider_core::ResponseCancelRequest::OpenAI(r) => {
+                provider
+                    .build_openai_response_cancel(ctx, config, credential, r)
+                    .await
+            }
+        },
+        Request::ResponseListInputItems(req) => match req {
+            gproxy_provider_core::ResponseListInputItemsRequest::OpenAI(r) => {
+                provider
+                    .build_openai_response_list_input_items(ctx, config, credential, r)
+                    .await
+            }
+        },
+        Request::ResponseCompact(req) => match req {
+            gproxy_provider_core::ResponseCompactRequest::OpenAI(r) => {
+                provider
+                    .build_openai_response_compact(ctx, config, credential, r)
+                    .await
+            }
+        },
+        Request::MemoryTraceSummarize(req) => match req {
+            gproxy_provider_core::MemoryTraceSummarizeRequest::OpenAI(r) => {
+                provider
+                    .build_openai_memory_trace_summarize(ctx, config, credential, r)
+                    .await
+            }
+        },
     }
 }
 
 fn local_upstream_request(provider: &str, op: Op) -> UpstreamHttpRequest {
     let method = match op {
-        Op::ModelList | Op::ModelGet => HttpMethod::Get,
-        Op::CountTokens | Op::GenerateContent | Op::StreamGenerateContent => HttpMethod::Post,
+        Op::ModelList | Op::ModelGet | Op::ResponseGet | Op::ResponseListInputItems => {
+            HttpMethod::Get
+        }
+        Op::ResponseDelete => HttpMethod::Delete,
+        Op::CountTokens
+        | Op::GenerateContent
+        | Op::StreamGenerateContent
+        | Op::ResponseCancel
+        | Op::ResponseCompact
+        | Op::MemoryTraceSummarize => HttpMethod::Post,
     };
     UpstreamHttpRequest {
         method,
@@ -3194,6 +2822,78 @@ fn decode_response(proto: Proto, op: Op, body: &Bytes) -> Result<Response, serde
                 ));
             } // unreachable
         })),
+        Op::ResponseGet => Ok(Response::ResponseGet(match proto {
+            Proto::OpenAI => {
+                gproxy_provider_core::ResponseGetResponse::OpenAI(serde_json::from_slice(body)?)
+            }
+            _ => {
+                return Ok(Response::ResponseGet(
+                    gproxy_provider_core::ResponseGetResponse::OpenAI(serde_json::from_slice(
+                        body,
+                    )?),
+                ));
+            }
+        })),
+        Op::ResponseDelete => Ok(Response::ResponseDelete(match proto {
+            Proto::OpenAI => {
+                gproxy_provider_core::ResponseDeleteResponse::OpenAI(serde_json::from_slice(body)?)
+            }
+            _ => {
+                return Ok(Response::ResponseDelete(
+                    gproxy_provider_core::ResponseDeleteResponse::OpenAI(serde_json::from_slice(
+                        body,
+                    )?),
+                ));
+            }
+        })),
+        Op::ResponseCancel => Ok(Response::ResponseCancel(match proto {
+            Proto::OpenAI => {
+                gproxy_provider_core::ResponseCancelResponse::OpenAI(serde_json::from_slice(body)?)
+            }
+            _ => {
+                return Ok(Response::ResponseCancel(
+                    gproxy_provider_core::ResponseCancelResponse::OpenAI(serde_json::from_slice(
+                        body,
+                    )?),
+                ));
+            }
+        })),
+        Op::ResponseListInputItems => Ok(Response::ResponseListInputItems(match proto {
+            Proto::OpenAI => gproxy_provider_core::ResponseListInputItemsResponse::OpenAI(
+                serde_json::from_slice(body)?,
+            ),
+            _ => {
+                return Ok(Response::ResponseListInputItems(
+                    gproxy_provider_core::ResponseListInputItemsResponse::OpenAI(
+                        serde_json::from_slice(body)?,
+                    ),
+                ));
+            }
+        })),
+        Op::ResponseCompact => Ok(Response::ResponseCompact(match proto {
+            Proto::OpenAI => {
+                gproxy_provider_core::ResponseCompactResponse::OpenAI(serde_json::from_slice(body)?)
+            }
+            _ => {
+                return Ok(Response::ResponseCompact(
+                    gproxy_provider_core::ResponseCompactResponse::OpenAI(serde_json::from_slice(
+                        body,
+                    )?),
+                ));
+            }
+        })),
+        Op::MemoryTraceSummarize => Ok(Response::MemoryTraceSummarize(match proto {
+            Proto::OpenAI => gproxy_provider_core::MemoryTraceSummarizeResponse::OpenAI(
+                serde_json::from_slice(body)?,
+            ),
+            _ => {
+                return Ok(Response::MemoryTraceSummarize(
+                    gproxy_provider_core::MemoryTraceSummarizeResponse::OpenAI(
+                        serde_json::from_slice(body)?,
+                    ),
+                ));
+            }
+        })),
         Op::StreamGenerateContent => Err(serde_json::Error::io(std::io::Error::other(
             "stream response must be decoded via stream parser",
         ))),
@@ -3222,6 +2922,26 @@ fn encode_response(_proto: Proto, op: Op, resp: &Response) -> Result<Bytes, serd
             GenerateContentResponse::OpenAIChat(v) => serde_json::to_vec(v)?,
             GenerateContentResponse::OpenAIResponse(v) => serde_json::to_vec(v)?,
             GenerateContentResponse::Gemini(v) => serde_json::to_vec(v)?,
+        },
+        (Op::ResponseGet, Response::ResponseGet(r)) => match r {
+            gproxy_provider_core::ResponseGetResponse::OpenAI(v) => serde_json::to_vec(v)?,
+        },
+        (Op::ResponseDelete, Response::ResponseDelete(r)) => match r {
+            gproxy_provider_core::ResponseDeleteResponse::OpenAI(v) => serde_json::to_vec(v)?,
+        },
+        (Op::ResponseCancel, Response::ResponseCancel(r)) => match r {
+            gproxy_provider_core::ResponseCancelResponse::OpenAI(v) => serde_json::to_vec(v)?,
+        },
+        (Op::ResponseListInputItems, Response::ResponseListInputItems(r)) => match r {
+            gproxy_provider_core::ResponseListInputItemsResponse::OpenAI(v) => {
+                serde_json::to_vec(v)?
+            }
+        },
+        (Op::ResponseCompact, Response::ResponseCompact(r)) => match r {
+            gproxy_provider_core::ResponseCompactResponse::OpenAI(v) => serde_json::to_vec(v)?,
+        },
+        (Op::MemoryTraceSummarize, Response::MemoryTraceSummarize(r)) => match r {
+            gproxy_provider_core::MemoryTraceSummarizeResponse::OpenAI(v) => serde_json::to_vec(v)?,
         },
         _ => serde_json::to_vec(&serde_json::json!({ "error": "op_mismatch" }))?,
     };
@@ -3482,21 +3202,6 @@ fn extract_model_from_request(req: &Request) -> Option<String> {
     }
 }
 
-fn openai_responses_passthrough_shadow_request() -> Request {
-    Request::ModelList(gproxy_provider_core::ModelListRequest::OpenAI(
-        gproxy_protocol::openai::list_models::request::ListModelsRequest,
-    ))
-}
-
-fn model_from_openai_responses_passthrough_body(body: Option<&Bytes>) -> Option<String> {
-    let body = body?;
-    let value = serde_json::from_slice::<JsonValue>(body).ok()?;
-    value
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string)
-}
-
 fn claude_model_to_string(model: &ClaudeModel) -> String {
     match model {
         ClaudeModel::Custom(s) => s.clone(),
@@ -3556,7 +3261,13 @@ fn maybe_prefix_model_in_response(
             }
             GenerateContentResponse::Gemini(_) => {}
         },
-        Response::CountTokens(_) => {}
+        Response::CountTokens(_)
+        | Response::ResponseGet(_)
+        | Response::ResponseDelete(_)
+        | Response::ResponseCancel(_)
+        | Response::ResponseListInputItems(_)
+        | Response::ResponseCompact(_)
+        | Response::MemoryTraceSummarize(_) => {}
     }
 
     resp

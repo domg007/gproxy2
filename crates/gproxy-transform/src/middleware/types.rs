@@ -19,6 +19,10 @@ use gproxy_protocol::gemini::list_models::request::ListModelsRequest as GeminiLi
 use gproxy_protocol::gemini::list_models::response::ListModelsResponse as GeminiListModelsResponse;
 use gproxy_protocol::gemini::stream_content::request::StreamGenerateContentRequest as GeminiStreamGenerateContentRequest;
 use gproxy_protocol::gemini::stream_content::response::StreamGenerateContentResponse;
+use gproxy_protocol::openai::cancel_response::request::CancelResponseRequest as OpenAICancelResponseRequest;
+use gproxy_protocol::openai::cancel_response::response::CancelResponseResponse as OpenAICancelResponseResponse;
+use gproxy_protocol::openai::compact_response::request::CompactResponseRequest as OpenAICompactResponseRequest;
+use gproxy_protocol::openai::compact_response::response::CompactResponseResponse as OpenAICompactResponseResponse;
 use gproxy_protocol::openai::count_tokens::request::InputTokenCountRequest as OpenAICountTokensRequest;
 use gproxy_protocol::openai::count_tokens::response::InputTokenCountResponse as OpenAICountTokensResponse;
 use gproxy_protocol::openai::create_chat_completions::request::CreateChatCompletionRequest as OpenAIChatCompletionRequest;
@@ -27,10 +31,18 @@ use gproxy_protocol::openai::create_chat_completions::stream::CreateChatCompleti
 use gproxy_protocol::openai::create_response::request::CreateResponseRequest as OpenAIResponseRequest;
 use gproxy_protocol::openai::create_response::response::Response as OpenAIResponse;
 use gproxy_protocol::openai::create_response::stream::ResponseStreamEvent;
+use gproxy_protocol::openai::delete_response::request::DeleteResponseRequest as OpenAIDeleteResponseRequest;
+use gproxy_protocol::openai::delete_response::response::DeleteResponseResponse as OpenAIDeleteResponseResponse;
 use gproxy_protocol::openai::get_model::request::GetModelRequest as OpenAIGetModelRequest;
 use gproxy_protocol::openai::get_model::response::GetModelResponse as OpenAIGetModelResponse;
+use gproxy_protocol::openai::get_response::request::GetResponseRequest as OpenAIGetResponseRequest;
+use gproxy_protocol::openai::get_response::response::GetResponseResponse as OpenAIGetResponseResponse;
+use gproxy_protocol::openai::list_input_items::request::ListInputItemsRequest as OpenAIListInputItemsRequest;
+use gproxy_protocol::openai::list_input_items::response::ListInputItemsResponse as OpenAIListInputItemsResponse;
 use gproxy_protocol::openai::list_models::request::ListModelsRequest as OpenAIListModelsRequest;
 use gproxy_protocol::openai::list_models::response::ListModelsResponse as OpenAIListModelsResponse;
+use gproxy_protocol::openai::trace_summarize::request::TraceSummarizeRequest as OpenAITraceSummarizeRequest;
+use gproxy_protocol::openai::trace_summarize::response::TraceSummarizeResponse as OpenAITraceSummarizeResponse;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Proto {
@@ -54,6 +66,12 @@ pub enum Op {
     CountTokens,
     GenerateContent,
     StreamGenerateContent,
+    ResponseGet,
+    ResponseDelete,
+    ResponseCancel,
+    ResponseListInputItems,
+    ResponseCompact,
+    MemoryTraceSummarize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -89,6 +107,12 @@ pub enum Request {
     ModelGet(ModelGetRequest),
     CountTokens(CountTokensRequest),
     GenerateContent(GenerateContentRequest),
+    ResponseGet(ResponseGetRequest),
+    ResponseDelete(ResponseDeleteRequest),
+    ResponseCancel(ResponseCancelRequest),
+    ResponseListInputItems(ResponseListInputItemsRequest),
+    ResponseCompact(ResponseCompactRequest),
+    MemoryTraceSummarize(MemoryTraceSummarizeRequest),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -98,6 +122,12 @@ pub enum Response {
     ModelGet(ModelGetResponse),
     CountTokens(CountTokensResponse),
     GenerateContent(GenerateContentResponse),
+    ResponseGet(ResponseGetResponse),
+    ResponseDelete(ResponseDeleteResponse),
+    ResponseCancel(ResponseCancelResponse),
+    ResponseListInputItems(ResponseListInputItemsResponse),
+    ResponseCompact(ResponseCompactResponse),
+    MemoryTraceSummarize(MemoryTraceSummarizeResponse),
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +188,66 @@ pub enum GenerateContentResponse {
     OpenAIChat(OpenAIChatCompletionResponse),
     OpenAIResponse(OpenAIResponse),
     Gemini(GeminiGenerateContentResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseGetRequest {
+    OpenAI(OpenAIGetResponseRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseGetResponse {
+    OpenAI(OpenAIGetResponseResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseDeleteRequest {
+    OpenAI(OpenAIDeleteResponseRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseDeleteResponse {
+    OpenAI(OpenAIDeleteResponseResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseCancelRequest {
+    OpenAI(OpenAICancelResponseRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseCancelResponse {
+    OpenAI(OpenAICancelResponseResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseListInputItemsRequest {
+    OpenAI(OpenAIListInputItemsRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseListInputItemsResponse {
+    OpenAI(OpenAIListInputItemsResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseCompactRequest {
+    OpenAI(OpenAICompactResponseRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseCompactResponse {
+    OpenAI(OpenAICompactResponseResponse),
+}
+
+#[derive(Debug, Clone)]
+pub enum MemoryTraceSummarizeRequest {
+    OpenAI(OpenAITraceSummarizeRequest),
+}
+
+#[derive(Debug, Clone)]
+pub enum MemoryTraceSummarizeResponse {
+    OpenAI(OpenAITraceSummarizeResponse),
 }
 
 #[allow(clippy::large_enum_variant)]

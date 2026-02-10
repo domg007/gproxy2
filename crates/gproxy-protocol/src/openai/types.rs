@@ -24,10 +24,10 @@ pub use crate::openai::create_response::types::*;
 pub use crate::openai::delete_response::{
     DeleteResponseObjectType, DeleteResponsePath, DeleteResponseRequest, DeleteResponseResponse,
 };
+pub use crate::openai::get_model::{GetModelPath, GetModelRequest, GetModelResponse, Model};
 pub use crate::openai::get_response::{
     GetResponsePath, GetResponseQuery, GetResponseRequest, GetResponseResponse,
 };
-pub use crate::openai::get_model::{GetModelPath, GetModelRequest, GetModelResponse, Model};
 pub use crate::openai::list_input_items::{
     ListInputItemsPath, ListInputItemsQuery, ListInputItemsRequest, ListInputItemsResponse,
     ListOrder,

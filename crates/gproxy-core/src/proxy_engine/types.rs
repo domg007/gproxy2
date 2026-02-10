@@ -1,6 +1,4 @@
-use gproxy_provider_core::{
-    OAuthCallbackRequest, OAuthStartRequest, Op, OpenAIResponsesPassthroughRequest, Proto, Request,
-};
+use gproxy_provider_core::{OAuthCallbackRequest, OAuthStartRequest, Op, Proto, Request};
 
 #[derive(Debug, Clone)]
 pub struct ProxyAuth {
@@ -19,12 +17,6 @@ pub enum ProxyCall {
         user_proto: Proto,
         user_op: Op,
         req: Box<Request>,
-    },
-    OpenAIResponsesPassthrough {
-        trace_id: Option<String>,
-        auth: ProxyAuth,
-        provider: String,
-        req: OpenAIResponsesPassthroughRequest,
     },
     OAuthStart {
         trace_id: Option<String>,

@@ -73,18 +73,6 @@ pub struct UpstreamHttpRequest {
     pub is_stream: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct OpenAIResponsesPassthroughRequest {
-    pub method: HttpMethod,
-    /// Downstream path, e.g. `/v1/responses` or `/v1/responses/{id}`.
-    pub path: String,
-    /// Raw downstream query string without leading `?`.
-    pub query: Option<String>,
-    pub headers: Headers,
-    pub body: Option<Bytes>,
-    pub is_stream: bool,
-}
-
 /// Downstream request for provider-managed OAuth start.
 ///
 /// This is *not* part of protocol transform; it is a provider internal ability.
@@ -245,6 +233,12 @@ type GeminiModelsGetRequest = gemini::get_model::request::GetModelRequest;
 type OpenAIChatCompletionRequest =
     openai::create_chat_completions::request::CreateChatCompletionRequest;
 type OpenAIResponseRequest = openai::create_response::request::CreateResponseRequest;
+type OpenAIResponseGetRequest = openai::get_response::request::GetResponseRequest;
+type OpenAIResponseDeleteRequest = openai::delete_response::request::DeleteResponseRequest;
+type OpenAIResponseCancelRequest = openai::cancel_response::request::CancelResponseRequest;
+type OpenAIResponseListInputItemsRequest = openai::list_input_items::request::ListInputItemsRequest;
+type OpenAIResponseCompactRequest = openai::compact_response::request::CompactResponseRequest;
+type OpenAIMemoryTraceSummarizeRequest = openai::trace_summarize::request::TraceSummarizeRequest;
 type OpenAIInputTokensRequest = openai::count_tokens::request::InputTokenCountRequest;
 type OpenAIModelsListRequest = openai::list_models::request::ListModelsRequest;
 type OpenAIModelsGetRequest = openai::get_model::request::GetModelRequest;
@@ -373,14 +367,68 @@ pub trait UpstreamProvider: Send + Sync {
         Err(ProviderError::Unsupported("openai.responses"))
     }
 
-    async fn build_openai_responses_passthrough(
+    async fn build_openai_response_get(
         &self,
         _ctx: &UpstreamCtx,
         _config: &ProviderConfig,
         _credential: &Credential,
-        _req: &OpenAIResponsesPassthroughRequest,
+        _req: &OpenAIResponseGetRequest,
     ) -> ProviderResult<UpstreamHttpRequest> {
-        Err(ProviderError::Unsupported("openai.responses_passthrough"))
+        Err(ProviderError::Unsupported("openai.responses_get"))
+    }
+
+    async fn build_openai_response_delete(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIResponseDeleteRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported("openai.responses_delete"))
+    }
+
+    async fn build_openai_response_cancel(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIResponseCancelRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported("openai.responses_cancel"))
+    }
+
+    async fn build_openai_response_list_input_items(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIResponseListInputItemsRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported(
+            "openai.responses_list_input_items",
+        ))
+    }
+
+    async fn build_openai_response_compact(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIResponseCompactRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported("openai.responses_compact"))
+    }
+
+    async fn build_openai_memory_trace_summarize(
+        &self,
+        _ctx: &UpstreamCtx,
+        _config: &ProviderConfig,
+        _credential: &Credential,
+        _req: &OpenAIMemoryTraceSummarizeRequest,
+    ) -> ProviderResult<UpstreamHttpRequest> {
+        Err(ProviderError::Unsupported(
+            "openai.memories_trace_summarize",
+        ))
     }
 
     async fn build_openai_input_tokens(

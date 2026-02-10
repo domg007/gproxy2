@@ -10,8 +10,12 @@ mod tests;
 
 pub use types::{
     CountTokensRequest, CountTokensResponse, GenerateContentRequest, GenerateContentResponse,
-    ModelGetRequest, ModelGetResponse, ModelListRequest, ModelListResponse, Op, Proto, Request,
-    Response, StreamEvent, StreamFormat, TransformContext, TransformError, stream_format,
+    MemoryTraceSummarizeRequest, MemoryTraceSummarizeResponse, ModelGetRequest, ModelGetResponse,
+    ModelListRequest, ModelListResponse, Op, Proto, Request, Response, ResponseCancelRequest,
+    ResponseCancelResponse, ResponseCompactRequest, ResponseCompactResponse, ResponseDeleteRequest,
+    ResponseDeleteResponse, ResponseGetRequest, ResponseGetResponse, ResponseListInputItemsRequest,
+    ResponseListInputItemsResponse, StreamEvent, StreamFormat, TransformContext, TransformError,
+    stream_format,
 };
 
 pub use ops::{transform_request, transform_response};
