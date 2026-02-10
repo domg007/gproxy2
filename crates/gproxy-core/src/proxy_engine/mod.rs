@@ -1751,6 +1751,11 @@ impl ProxyEngine {
             let mut response_body = Vec::new();
             let mut error_kind: Option<String> = None;
             let mut error_message: Option<String> = None;
+            // For same-proto OpenAI streams, prefer raw passthrough to avoid dropping
+            // forward-compatible events during decode/re-encode.
+            let passthrough_raw = provider_proto == user_proto
+                && user_proto != Proto::Gemini
+                && prefix_provider.is_none();
 
             let mut transformer = if provider_proto == user_proto {
                 None
@@ -1791,6 +1796,19 @@ impl ProxyEngine {
                     chunk.as_ref(),
                     MAX_UPSTREAM_LOG_BODY_BYTES,
                 );
+                if passthrough_raw {
+                    for ev in decoder.push_bytes(&chunk) {
+                        let _ = usage_acc.push(&ev);
+                        out_acc.push(&ev);
+                    }
+                    if tx_out.send(chunk).await.is_err() {
+                        error_kind = Some("stream_forward_error".to_string());
+                        error_message = Some("downstream_stream_closed".to_string());
+                        break 'stream_loop;
+                    }
+                    continue;
+                }
+
                 for ev in decoder.push_bytes(&chunk) {
                     let _ = usage_acc.push(&ev);
                     out_acc.push(&ev);
@@ -1827,6 +1845,9 @@ impl ProxyEngine {
                 for ev in decoder.finish() {
                     let _ = usage_acc.push(&ev);
                     out_acc.push(&ev);
+                    if passthrough_raw {
+                        continue;
+                    }
 
                     let mut out_events: Vec<StreamEvent> = Vec::new();
                     if let Some(t) = transformer.as_mut() {
@@ -1860,6 +1881,7 @@ impl ProxyEngine {
             }
 
             if error_kind.is_none()
+                && !passthrough_raw
                 && user_proto == Proto::OpenAIChat
                 && tx_out.send(encode_openai_chat_done()).await.is_err()
             {
