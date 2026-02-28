@@ -1,4 +1,6 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
+
+ARG TARGETARCH
 
 FROM node:lts-alpine AS frontend
 
@@ -13,41 +15,90 @@ RUN corepack enable \
 COPY apps/gproxy/frontend ./apps/gproxy/frontend
 RUN cd apps/gproxy/frontend && pnpm build
 
-FROM rust:1.92-alpine3.23 AS builder
+FROM --platform=$BUILDPLATFORM ghcr.io/cross-rs/x86_64-unknown-linux-musl:latest AS builder-amd64
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-        build-base \
+RUN if command -v apt-get >/dev/null 2>&1; then \
+      apt-get update && apt-get install -y --no-install-recommends \
         clang \
-        clang21-libclang \
         cmake \
         file \
-        git \
-        musl-dev \
-        ninja \
+        libclang-dev \
+        ninja-build \
         perl \
-        pkgconfig
-
-ENV LIBCLANG_PATH=/usr/lib
+        pkg-config \
+      && rm -rf /var/lib/apt/lists/*; \
+    elif command -v apk >/dev/null 2>&1; then \
+      apk add --no-cache \
+        clang \
+        clang-dev \
+        cmake \
+        file \
+        ninja-build \
+        perl \
+        pkgconf; \
+    else \
+      echo "unsupported package manager in builder-amd64" >&2; \
+      exit 1; \
+    fi
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY apps ./apps
-
 COPY --from=frontend /app/apps/gproxy/frontend/dist ./apps/gproxy/frontend/dist
 
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-      "amd64") export RUST_TARGET="x86_64-unknown-linux-musl" ;; \
-      "arm64") export RUST_TARGET="aarch64-unknown-linux-musl" ;; \
-      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && rustup target add "${RUST_TARGET}" \
-    && cargo build --release --target "${RUST_TARGET}" -p gproxy \
+RUN libclang_so="$(find /usr -name 'libclang.so*' | head -n 1)" \
+    && test -n "${libclang_so}" \
+    && ln -sf "${libclang_so}" /usr/lib/libclang.so \
+    && LIBCLANG_PATH=/usr/lib cargo build --release --target x86_64-unknown-linux-musl -p gproxy \
     && mkdir -p /tmp/app/data \
-    && cp "target/${RUST_TARGET}/release/gproxy" /tmp/gproxy \
+    && cp target/x86_64-unknown-linux-musl/release/gproxy /tmp/gproxy \
     && file /tmp/gproxy | grep -q "statically linked"
+
+FROM --platform=$BUILDPLATFORM ghcr.io/cross-rs/aarch64-unknown-linux-musl:latest AS builder-arm64
+
+WORKDIR /app
+
+RUN if command -v apt-get >/dev/null 2>&1; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        clang \
+        cmake \
+        file \
+        libclang-dev \
+        ninja-build \
+        perl \
+        pkg-config \
+      && rm -rf /var/lib/apt/lists/*; \
+    elif command -v apk >/dev/null 2>&1; then \
+      apk add --no-cache \
+        clang \
+        clang-dev \
+        cmake \
+        file \
+        ninja-build \
+        perl \
+        pkgconf; \
+    else \
+      echo "unsupported package manager in builder-arm64" >&2; \
+      exit 1; \
+    fi
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY apps ./apps
+COPY --from=frontend /app/apps/gproxy/frontend/dist ./apps/gproxy/frontend/dist
+
+RUN libclang_so="$(find /usr -name 'libclang.so*' | head -n 1)" \
+    && test -n "${libclang_so}" \
+    && ln -sf "${libclang_so}" /usr/lib/libclang.so \
+    && LIBCLANG_PATH=/usr/lib cargo build --release --target aarch64-unknown-linux-musl -p gproxy \
+    && mkdir -p /tmp/app/data \
+    && cp target/aarch64-unknown-linux-musl/release/gproxy /tmp/gproxy \
+    && file /tmp/gproxy | grep -q "statically linked"
+
+ARG TARGETARCH
+FROM builder-${TARGETARCH} AS builder
 
 FROM gcr.io/distroless/static
 
@@ -60,7 +111,6 @@ ENV GPROXY_HOST=0.0.0.0
 ENV GPROXY_PORT=8787
 ENV GPROXY_DATA_DIR=/app/data
 ENV GPROXY_DSN=sqlite://app/data/gproxy.db?mode=rwc
-ENV GPROXY_ADMIN_KEY=pwd
 
 EXPOSE 8787
 
