@@ -4,6 +4,7 @@ FROM node:lts-alpine AS frontend
 
 WORKDIR /app
 
+COPY Cargo.toml ./Cargo.toml
 COPY apps/gproxy/frontend/package.json apps/gproxy/frontend/pnpm-lock.yaml ./apps/gproxy/frontend/
 RUN corepack enable \
     && cd apps/gproxy/frontend \
