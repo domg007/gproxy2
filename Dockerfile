@@ -98,14 +98,14 @@ RUN libclang_so="$(find /usr -name 'libclang.so*' | head -n 1)" \
     && file /tmp/gproxy | grep -q "statically linked"
 
 ARG TARGETARCH
-FROM builder-${TARGETARCH} AS builder
 
 FROM gcr.io/distroless/static
 
 WORKDIR /app
 
-COPY --from=builder /tmp/gproxy /usr/local/bin/gproxy
-COPY --from=builder /tmp/app/data /app/data
+ARG TARGETARCH
+COPY --from=builder-${TARGETARCH} /tmp/gproxy /usr/local/bin/gproxy
+COPY --from=builder-${TARGETARCH} /tmp/app/data /app/data
 
 ENV GPROXY_HOST=0.0.0.0
 ENV GPROXY_PORT=8787
