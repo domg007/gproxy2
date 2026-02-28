@@ -1,181 +1,132 @@
-export type AdminGlobalConfig = {
+export type Scope<T> = "All" | { Eq: T };
+
+export type UserRole = "admin" | "user";
+export type ThemeMode = "light" | "dark" | "system";
+
+export interface GlobalSettingsRow {
+  id: number;
   host: string;
   port: number;
   admin_key: string;
-  proxy?: string | null;
+  hf_token: string | null;
+  hf_url: string | null;
+  proxy: string | null;
   dsn: string;
-  event_redact_sensitive: boolean;
-};
+  data_dir: string;
+  mask_sensitive_info: boolean;
+  updated_at: string;
+}
 
-export type ProviderSummary = {
+export interface ProviderQueryRow {
   id: number;
   name: string;
-  enabled: boolean;
-  updated_at: string;
-};
-
-export type ProviderDetail = {
-  id: number;
-  name: string;
-  enabled: boolean;
-  config_json: Record<string, unknown>;
-  updated_at: string;
-};
-
-export type CredentialRow = {
-  id: number;
-  name?: string | null;
+  channel: string;
   settings_json: Record<string, unknown>;
+  dispatch_json: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CredentialQueryRow {
+  id: number;
+  provider_id: number;
+  name: string | null;
+  kind: string;
+  settings_json: Record<string, unknown> | null;
   secret_json: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
   updated_at: string;
-  runtime_status?: CredentialRuntimeStatus;
-};
+}
 
-export type CredentialListRow = {
+export interface CredentialStatusQueryRow {
   id: number;
-  provider_id: number;
-  name?: string | null;
-  settings_json: Record<string, unknown>;
-  enabled: boolean;
-  created_at: string;
+  credential_id: number;
+  channel: string;
+  health_kind: string;
+  health_json: Record<string, unknown> | null;
+  checked_at: string | null;
+  last_error: string | null;
   updated_at: string;
-  runtime_status?: CredentialRuntimeStatus;
-};
+}
 
-export type CredentialUnavailableInfo = {
-  reason: string;
-  remaining_secs: number;
-  remaining_ms?: number;
-  until_epoch_ms?: number | null;
-};
-
-export type ModelUnavailableInfo = {
-  model: string;
-  reason: string;
-  remaining_secs: number;
-  remaining_ms?: number;
-  until_epoch_ms?: number | null;
-};
-
-export type CredentialRuntimeStatus = {
-  summary: "active" | "partial_unavailable" | "fully_unavailable" | "disabled";
-  credential_unavailable: CredentialUnavailableInfo | null;
-  model_unavailable: ModelUnavailableInfo[];
-};
-
-export type UserRow = {
+export interface UserQueryRow {
   id: number;
   name: string;
   enabled: boolean;
-  created_at: string;
-  updated_at: string;
-};
+}
 
-export type UserKeyRow = {
+export interface UserKeyQueryRow {
   id: number;
   user_id: number;
-  label?: string | null;
-  enabled: boolean;
-  created_at: string;
-  updated_at: string;
-};
+  api_key: string;
+}
 
-export type UsageResponse = {
-  scope: string;
-  provider?: string;
-  credential_id?: number;
-  model?: string;
-  from: string;
-  to: string;
-  matched_rows: number;
-  call_count: number;
+export interface UpstreamRequestQueryRow {
+  trace_id: number;
+  downstream_trace_id: number | null;
+  at: string;
+  internal: boolean;
+  provider_id: number | null;
+  credential_id: number | null;
+  request_method: string;
+  request_headers_json: Record<string, unknown>;
+  request_url: string | null;
+  request_body: number[] | null;
+  response_status: number | null;
+  response_headers_json: Record<string, unknown>;
+  response_body: number[] | null;
+  created_at: string;
+}
+
+export interface DownstreamRequestQueryRow {
+  trace_id: number;
+  at: string;
+  internal: boolean;
+  user_id: number | null;
+  user_key_id: number | null;
+  operation: string | null;
+  protocol: string | null;
+  request_method: string;
+  request_headers_json: Record<string, unknown>;
+  request_path: string;
+  request_query: string | null;
+  request_body: number[] | null;
+  response_status: number | null;
+  response_headers_json: Record<string, unknown>;
+  response_body: number[] | null;
+  created_at: string;
+}
+
+export interface UsageQueryRow {
+  trace_id: number;
+  upstream_trace_id: number;
+  downstream_trace_id: number | null;
+  at: string;
+  provider_id: number | null;
+  provider_channel: string | null;
+  credential_id: number | null;
+  user_id: number | null;
+  user_key_id: number | null;
+  operation: string;
+  protocol: string;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+}
+
+export interface UsageSummary {
+  count: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
-  total_tokens: number;
-};
+}
 
-export type LogRecordKind = "upstream" | "downstream";
-
-export type LogQueryRow = {
-  id: number;
-  kind: LogRecordKind;
-  at: string;
-  trace_id?: string | null;
-  provider?: string | null;
-  credential_id?: number | null;
-  user_id?: number | null;
-  user_key_id?: number | null;
-  attempt_no?: number | null;
-  operation?: string | null;
-  request_method: string;
-  request_path: string;
-  request_body?: string | null;
-  response_status?: number | null;
-  response_body?: string | null;
-  error_kind?: string | null;
-  error_message?: string | null;
-};
-
-export type LogQueryResponse = {
-  from: string;
-  to: string;
-  kind: "all" | LogRecordKind;
-  limit: number;
-  include_body: boolean;
-  has_more: boolean;
-  next_cursor_at?: string | null;
-  next_cursor_id?: number | null;
-  rows: LogQueryRow[];
-};
-
-export type ToastKind = "success" | "error" | "info";
-
-export type ToastState = {
-  kind: ToastKind;
+export interface ApiErrorData {
+  status: number;
   message: string;
-} | null;
-
-export type ProviderKind =
-  | "openai"
-  | "claude"
-  | "aistudio"
-  | "vertexexpress"
-  | "vertex"
-  | "geminicli"
-  | "claudecode"
-  | "codex"
-  | "antigravity"
-  | "nvidia"
-  | "deepseek"
-  | "custom";
-
-export type OAuthStartResponse = {
-  mode?: string;
-  auth_url?: string;
-  verification_uri?: string;
-  user_code?: string;
-  interval?: number;
-  state?: string;
-  redirect_uri?: string;
-  instructions?: string;
-  [key: string]: unknown;
-};
-
-export type OAuthCallbackResponse = {
-  [key: string]: unknown;
-};
-
-export type SelfUpdateResponse = {
-  ok: boolean;
-  from_version: string;
-  release_tag: string;
-  asset: string;
-  installed_to: string;
-  restart_required: boolean;
-  restart_scheduled?: boolean;
-  note?: string;
-};
+}

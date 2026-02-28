@@ -1,43 +1,92 @@
 use anyhow::Result;
+use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
+use axum::middleware::from_fn_with_state;
 use axum::routing::get;
-
+use gproxy_core::management_router;
+use tokio::net::TcpListener;
 mod admin_ui;
+mod bootstrap;
+mod middleware;
+
+const MAX_AXUM_BODY_BYTES: usize = 32 * 1024 * 1024;
+
+fn parse_author_and_email(authors: &str) -> (String, String) {
+    let first = authors
+        .split(':')
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .unwrap_or_default();
+    if first.is_empty() {
+        return ("unknown".to_string(), "unknown".to_string());
+    }
+
+    if let Some((name, rest)) = first.split_once('<') {
+        let email = rest.split_once('>').map(|(value, _)| value).unwrap_or(rest);
+        let name = name.trim();
+        let email = email.trim();
+        return (
+            if name.is_empty() {
+                "unknown".to_string()
+            } else {
+                name.to_string()
+            },
+            if email.is_empty() {
+                "unknown".to_string()
+            } else {
+                email.to_string()
+            },
+        );
+    }
+
+    (first.to_string(), "unknown".to_string())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let boot = gproxy_core::bootstrap::bootstrap_from_env().await?;
-    let global = boot.state.global.load();
-    let state_for_proxy = boot.state.clone();
-
-    let upstream_cfg = gproxy_core::upstream_client::UpstreamClientConfig::from_global(&global);
-    let upstream_client: std::sync::Arc<dyn gproxy_core::upstream_client::UpstreamClient> =
-        std::sync::Arc::new(
-            gproxy_core::upstream_client::WreqUpstreamClient::new_with_proxy_resolver(
-                upstream_cfg,
-                move || state_for_proxy.global.load().proxy.clone(),
-            )?,
-        );
-    let engine = std::sync::Arc::new(gproxy_core::proxy_engine::ProxyEngine::new(
-        boot.state.clone(),
-        boot.registry.clone(),
-        upstream_client,
-        boot.storage.clone(),
-    ));
-
-    let app = axum::Router::new()
-        .merge(gproxy_router::proxy_router(engine))
-        .nest(
-            "/admin",
-            gproxy_router::admin_router(boot.state.clone(), boot.storage.clone()),
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
+        .with_target(false)
+        .compact()
+        .init();
+
+    let boot = bootstrap::bootstrap_from_env().await?;
+    let config = boot.state.config.load();
+    let host = config.global.host.clone();
+    let port = config.global.port;
+    let password = config.global.admin_key.clone();
+    let bind_addr = format!("{host}:{port}");
+    let (author, email) = parse_author_and_email(env!("CARGO_PKG_AUTHORS"));
+
+    println!("========================================");
+    println!(
+        "gproxy | author: {} | email: {} | version: {}",
+        author,
+        email,
+        env!("CARGO_PKG_VERSION")
+    );
+    println!("listen: http://{bind_addr}");
+    println!("password: {password}");
+    println!("========================================");
+
+    let _ = (&boot.config_path, &boot.config, &boot.storage_write_worker);
+    let _storage = boot.storage.connection();
+
+    let app = Router::new()
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .route("/", get(admin_ui::index))
-        .route("/assets/{*path}", get(admin_ui::asset));
-
-    let bind = format!("{}:{}", global.host, global.port);
-    let listener = tokio::net::TcpListener::bind(&bind).await?;
-    println!("listening on {bind}");
+        .route("/assets/{*path}", get(admin_ui::asset))
+        .merge(management_router(boot.state.clone()))
+        .layer(from_fn_with_state(
+            boot.state.clone(),
+            middleware::downstream_event::middleware,
+        ))
+        .layer(DefaultBodyLimit::max(MAX_AXUM_BODY_BYTES));
+    let listener = TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
+
     Ok(())
 }

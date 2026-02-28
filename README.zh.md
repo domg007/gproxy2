@@ -1,222 +1,399 @@
 # gproxy
 
-[English](README.MD) | [简体中文](README.zh.md)
+`gproxy` 是一个基于 Rust 的多通道 LLM 代理服务，统一对外提供 OpenAI / Claude / Gemini 风格接口，并内置管理后台、用户与密钥管理、请求与用量审计。
 
-一个用 Rust 编写的高性能多渠道 LLM 网关，内嵌管理 SPA。
+## 主要能力
 
-gproxy 提供：
-- 统一下游 API（OpenAI / Claude / Gemini 风格路由）
-- 渠道与凭证级路由能力
-- 支持渠道的 OAuth 辅助流程
-- Usage 聚合统计 + 部分渠道实时用量查询
-- 内置管理 API + React 19 + Tailwind 4 管理界面（`/`）
+- 多通道统一入口：按 `channel` 路由到不同上游（内置 + 自定义）。
+- 多协议转换：同一上游可接收 OpenAI/Claude/Gemini 不同协议请求（由 dispatch 决定）。
+- 凭证池与健康状态：支持 `healthy / partial / dead`，并按模型级冷却重试。
+- OAuth 与 API Key 并存：支持 OAuth 类通道（Codex、ClaudeCode、GeminiCli、Antigravity）和 API Key 类通道。
+- 管理后台（Web UI）：根路径 `/` 直接访问控制台，支持中英文。
+- 可观测性：记录 upstream/downstream 请求与 usage 统计（可按用户、模型、时间过滤）。
+- 异步批量写库：写入通过队列聚合，降低高并发下数据库压力。
 
-## 一键部署
+## 内置通道
 
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/68HULI)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeenHawk/gproxy)
+| Channel ID | 默认上游 | 认证方式 |
+|---|---|---|
+| `openai` | `https://api.openai.com` | API Key |
+| `claude` | `https://api.anthropic.com` | API Key |
+| `aistudio` | `https://generativelanguage.googleapis.com` | API Key |
+| `vertexexpress` | `https://aiplatform.googleapis.com` | API Key |
+| `vertex` | `https://aiplatform.googleapis.com` | GCP Service Account（builtin 对象） |
+| `geminicli` | `https://cloudcode-pa.googleapis.com` | OAuth（builtin 对象） |
+| `claudecode` | `https://api.anthropic.com` | OAuth/Cookie（builtin 对象） |
+| `codex` | `https://chatgpt.com/backend-api/codex` | OAuth（builtin 对象） |
+| `antigravity` | `https://daily-cloudcode-pa.sandbox.googleapis.com` | OAuth（builtin 对象） |
+| `nvidia` | `https://integrate.api.nvidia.com` | API Key |
+| `deepseek` | `https://api.deepseek.com` | API Key |
+| 自定义 `mycustom` | 你配置的 `base_url` | API Key（`secret`） |
 
-- Zeabur 模板文件：`zeabur.yaml`
-- Render Blueprint 文件：`render.yaml`
-- Render Blueprint 默认不创建托管 PostgreSQL；`GPROXY_DSN` 保留为可选项，便于接入外部数据库。
-- Render Blueprint 默认不挂载持久磁盘；`GPROXY_DATA_DIR` 默认为临时目录（`/tmp/gproxy-data`），如需持久化请使用外部存储。
+## 快速开始
 
-## Star 增长趋势
+### 1. 准备依赖
 
-[![Star History Chart](https://api.star-history.com/svg?repos=LeenHawk/gproxy&type=Date)](https://star-history.com/#LeenHawk/gproxy&Date)
+- Rust（需支持 `edition = 2024`）
+- SQLite（默认 DSN 使用 sqlite）
+- 可选：Node.js + `pnpm`（如果你要重新构建管理前端）
 
-## 内置渠道
-
-首次启动会自动写入以下内置渠道：
-
-- `openai`
-- `claude`
-- `aistudio`
-- `vertexexpress`
-- `vertex`
-- `geminicli`
-- `claudecode`
-- `codex`
-- `antigravity`
-- `nvidia`
-- `deepseek`
-
-你也可以在管理界面/API 中新增 `custom` 类型渠道。
-
-## 工程结构（workspace）
-
-- `apps/gproxy`：可运行服务（二进制，包含 proxy + admin API + 内嵌前端）
-- `crates/gproxy-core`：启动引导、内存状态、代理引擎
-- `crates/gproxy-router`：HTTP 路由（`/` 与 `/admin`）
-- `crates/gproxy-provider-core`：渠道抽象、配置、凭证/运行时状态
-- `crates/gproxy-provider-impl`：内置渠道实现
-- `crates/gproxy-storage`：SeaORM 存储与 usage 持久化
-- `apps/gproxy/frontend`：管理前端源码（React 19 + Tailwind 4）
-
-## 本地快速启动
-
-前置条件：
-- Rust stable
-- Node.js + pnpm（仅在需要重建前端资源时需要）
-
-1. 构建管理前端资源
+### 2. 准备配置
 
 ```bash
-pnpm -C apps/gproxy/frontend install --frozen-lockfile
-pnpm -C apps/gproxy/frontend build
+cp gproxy.example.toml gproxy.toml
 ```
 
-2. 启动服务
+至少填写：
+
+- `global.admin_key`
+- 至少一个启用通道的 `credentials.secret`（或 builtin 凭证对象）
+
+### 3. 启动
 
 ```bash
-cargo run -p gproxy -- --admin-key your-admin-key
+cargo run -p gproxy
 ```
 
-3. 打开管理界面
+启动后会打印：
 
-- 管理端：`http://127.0.0.1:8787/`
+- 监听地址（默认 `http://0.0.0.0:8787`）
+- 当前 admin key（`password:`）
 
-默认监听 `0.0.0.0:8787`，可通过 CLI/环境变量/DB 合并配置覆盖。
+> 如果 `./gproxy.toml` 不存在，服务会使用内存默认配置启动，并自动生成一个 16 位 admin key（打印在控制台）。
 
-## 配置说明
+### 4. 最小验证
 
-启动时全局配置合并顺序：`CLI > ENV > DB`，合并结果会回写数据库。
-
-CLI / ENV（来自 `gproxy_core::bootstrap::CliArgs`）：
-
-- `--dsn` / `GPROXY_DSN`（默认：`sqlite://gproxy.db?mode=rwc`）
-- `--host` / `GPROXY_HOST`（合并后默认：`0.0.0.0`）
-- `--port` / `GPROXY_PORT`（合并后默认：`8787`）
-- `--admin-key` / `GPROXY_ADMIN_KEY`（明文输入，明文存储）
-- `--proxy` / `GPROXY_PROXY`（可选，上游出口代理）
-- `--event-redact-sensitive` / `GPROXY_EVENT_REDACT_SENSITIVE`（默认：`true`）
-
-说明：
-- 若未提供 `admin_key` 且 DB 中也不存在，启动时会自动生成；每次启动都会打印最终生效的 `admin_key`。
-- 若缺失内置渠道，会在启动时自动补种子。
-- 对文件型 SQLite DSN，gproxy 启动时会自动创建缺失的父目录；当使用 `mode=rwc` 时，数据库文件不存在也会自动创建。
-
-### `custom` 渠道 JSON 参数屏蔽
-
-`custom` 渠道支持 `channel_settings.json_param_mask`，可在请求发往上游前，将指定 JSON 字段强制置为 `null`。
-
-- 仅对 JSON 请求体生效（`content-type: application/json`）
-- 非 JSON 请求不受影响
-- 路径不存在时会忽略，不报错
-
-支持的路径写法（每行/每项一个）：
-
-- 顶层字段：`temperature`
-- 点路径/索引：`messages[1].content`
-- 通配符：`messages[*].content`
-- JSON Pointer：`/messages/0/content`
-
-示例：
-
-```json
-{
-  "kind": "custom",
-  "channel_settings": {
-    "id": "custom-openai",
-    "enabled": true,
-    "proto": "openai_response",
-    "base_url": "https://api.example.com",
-    "dispatch": { "ops": [] },
-    "count_tokens": "upstream",
-    "json_param_mask": [
-      "temperature",
-      "top_p",
-      "messages[*].content"
-    ]
-  }
-}
+```bash
+curl -sS http://127.0.0.1:8787/openai/v1/models \
+  -H "x-api-key: <你的用户key或admin key>"
 ```
 
-## 认证模型
+## 前端控制台
 
-### 管理端（`/admin/...`）
+- 控制台入口：`GET /`
+- 静态资源：`/assets/*`
+- 前端构建产物目录：`apps/gproxy/frontend/dist`
+- 后端通过 `rust-embed` 把 `dist` 打进二进制
 
-支持以下 admin key 来源（按顺序匹配）：
-- `x-admin-key: <key>`
-- `Authorization: Bearer <key>`
-- Query `?admin_key=<key>`
+如果你改了前端代码，请先构建：
 
-### 代理下游（`/v1/...` 或 `/{provider}/...`）
+```bash
+cd apps/gproxy/frontend
+pnpm install
+pnpm build
+cd ../../..
+cargo run -p gproxy
+```
 
-支持以下 user key 来源（按顺序匹配）：
-- `Authorization: Bearer <key>`
-- `x-api-key: <key>`
-- `x-goog-api-key: <key>`
-- Query `?key=<key>`
+## 配置说明（`gproxy.toml`）
 
-启动时会自动创建 `user0`，并插入一条与 admin key 相同的 user key，因此早期测试时可直接用同一 key 访问 proxy。
+完整示例见：
+
+- `gproxy.example.toml`（最小）
+- `gproxy.example.full.toml`（全量）
+
+### `global`
+
+| 字段 | 说明 |
+|---|---|
+| `host` | 监听地址，默认 `0.0.0.0` |
+| `port` | 监听端口，默认 `8787` |
+| `proxy` | 上游代理（空字符串表示不使用） |
+| `hf_token` | HuggingFace token（本地 tokenizer 下载时可用） |
+| `hf_url` | HuggingFace 基址，默认 `https://huggingface.co` |
+| `admin_key` | 管理员 API Key；为空时首次自动生成 |
+| `mask_sensitive_info` | 是否在日志/事件存储中隐藏敏感请求与响应体 |
+| `data_dir` | 数据目录，默认 `./data` |
+| `dsn` | 数据库 DSN；若未设置且改了 `data_dir`，会自动派生 sqlite DSN |
+
+### `runtime`
+
+| 字段 | 默认值 | 说明 |
+|---|---:|---|
+| `storage_write_queue_capacity` | `4096` | 存储写队列长度 |
+| `storage_write_max_batch_size` | `1024` | 单批最大聚合写入事件数 |
+| `storage_write_aggregate_window_ms` | `25` | 聚合窗口（毫秒） |
+
+### `channels`
+
+每个通道通过 `[[channels]]` 声明：
+
+- `id`: 通道 ID（如 `openai`、`claude`、`mycustom`）
+- `enabled`: 是否启用（`false` 时运行时不会路由到该通道）
+- `settings`: 通道配置（至少包含 `base_url`）
+- `dispatch`: 可选；不填则用该通道默认 dispatch
+- `credentials`: 凭证列表（支持多凭证轮询/回退）
+
+### `channels.credentials`
+
+每个凭证可包含：
+
+- `id` / `label`: 可选标识
+- `secret`: API Key 场景使用
+- `builtin`: OAuth/ServiceAccount 场景使用结构化对象
+- `state`: 可选健康状态种子
+
+`state.health.kind` 支持：
+
+- `healthy`
+- `partial`（带 `models` 冷却列表）
+- `dead`
+
+## CLI 与环境变量覆盖
+
+配置优先级：`CLI 参数 / 环境变量 > gproxy.toml > 默认值`
+
+支持覆盖项：
+
+- `--config` / `GPROXY_CONFIG_PATH`
+- `--host` / `GPROXY_HOST`
+- `--port` / `GPROXY_PORT`
+- `--proxy` / `GPROXY_PROXY`
+- `--admin-key` / `GPROXY_ADMIN_KEY`
+- `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
+- `--data-dir` / `GPROXY_DATA_DIR`
+- `--dsn` / `GPROXY_DSN`
+- `--storage-write-queue-capacity` / `GPROXY_STORAGE_WRITE_QUEUE_CAPACITY`
+- `--storage-write-max-batch-size` / `GPROXY_STORAGE_WRITE_MAX_BATCH_SIZE`
+- `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
 
 ## API 概览
 
-完整路由请看 [`route.md`](route.zh.md)。
+所有错误统一返回：
+
+```json
+{ "error": "..." }
+```
+
+### 认证头
+
+- 管理/用户接口：使用 `x-api-key`
+- Provider 接口支持：
+  - `x-api-key`
+  - `x-goog-api-key`
+  - `Authorization: Bearer ...`
+  - Gemini 场景 query `?key=...`（会被归一化到 `x-api-key`）
+
+### Provider 路由
+
+#### 1) Scoped（推荐）
+
+带 provider 前缀路径，示例：
+
+- `POST /openai/v1/chat/completions`
+- `POST /claude/v1/messages`
+- `POST /aistudio/v1beta/models/{model}:generateContent`
+
+#### 2) Unscoped（统一入口）
+
+不带 provider 前缀路径，通道由 `model` 前缀决定：
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/messages`
+- `GET /v1/models`
+- `GET /v1/models/{provider}/{model}`
+
+约束：
+
+- OpenAI/Claude 风格 body 的 `model` 必须是 `<provider>/<model>`，如 `openai/gpt-4.1`
+- Gemini path 风格 target 需带 provider 前缀，如 `models/aistudio/gemini-2.5-flash:generateContent`
+
+### OAuth 与上游 usage
+
+- `GET /{provider}/v1/oauth`
+- `GET /{provider}/v1/oauth/callback`
+- `GET /{provider}/v1/usage`
+
+支持 OAuth 的通道：`codex`、`claudecode`、`geminicli`、`antigravity`
+
+### 管理接口（`/admin/*`）
 
 主要分组：
-- 无渠道前缀的聚合代理路由（如 `/v1/chat/completions`、`/v1/models`）
-- 带渠道前缀的代理路由（如 `/openai/v1/chat/completions`）
-- 渠道内部能力路由：
-  - `GET /{provider}/oauth`
-  - `GET /{provider}/oauth/callback`
-  - `GET /{provider}/usage?credential_id=<id>`
-- 管理路由 `/admin/...`（渠道、凭证、用户、usage、日志）
 
-## 管理前端
+- 全局设置：`/admin/global-settings`、`/admin/global-settings/upsert`
+- 配置导入导出：`/admin/config/export-toml`、`/admin/config/import-toml`
+- 自更新：`/admin/system/self_update`
+- Providers/Credentials/CredentialStatuses：`query/upsert/delete`
+- Users/UserKeys：`query/upsert/delete`
+- Requests：`/admin/requests/upstream/query`、`/admin/requests/downstream/query`
+- Usage：`/admin/usages/query`、`/admin/usages/summary`
 
-管理 SPA 挂载在 `/`，静态资源在 `/assets/*`。
+### 用户接口（`/user/*`）
 
-当前前端模块包括：
-- 渠道配置（含 `custom` 渠道编辑）
-- 凭证管理（查看/编辑/删除/启停，运行时状态）
-- 批量凭证导入（key/json）
-- OAuth 助手（支持的渠道）
-- 凭证级实时用量/额度视图
-- 用户与 API key 管理
-- 日志表格查询（`/admin/logs`）
-- 多语言（`zh_cn` / `en`）
+- `POST /user/keys/query`
+- `POST /user/keys/upsert`
+- `POST /user/keys/delete`
+- `POST /user/usages/query`
+- `POST /user/usages/summary`
 
-## 构建与发布
+> 用户 key 归一化规则：保存时会自动变为 `u{user_id}_<raw_key>`；如果已带该前缀则保持不变。
 
-### 二进制
+## 请求示例
+
+### Scoped OpenAI Chat
 
 ```bash
-cargo build --release -p gproxy
+curl -sS http://127.0.0.1:8787/openai/v1/chat/completions \
+  -H "x-api-key: <key>" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "gpt-4.1",
+    "messages": [{"role":"user","content":"hello"}],
+    "stream": false
+  }'
 ```
 
-### Docker 镜像
-
-构建：
+### Unscoped OpenAI Chat（model 前缀路由）
 
 ```bash
-docker build -t gproxy:local .
+curl -sS http://127.0.0.1:8787/v1/chat/completions \
+  -H "x-api-key: <key>" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "openai/gpt-4.1",
+    "messages": [{"role":"user","content":"hello"}],
+    "stream": false
+  }'
 ```
 
-运行：
+### Scoped Gemini GenerateContent
 
 ```bash
-docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=0.0.0.0 \
-  -e GPROXY_PORT=8787 \
-  -e GPROXY_ADMIN_KEY=your-admin-key \
-  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
-  -v $(pwd)/data:/app/data \
-  gproxy:local
+curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generateContent" \
+  -H "x-api-key: <key>" \
+  -H "content-type: application/json" \
+  -d '{
+    "contents":[{"role":"user","parts":[{"text":"hello"}]}]
+  }'
 ```
 
-### GitHub Actions
+## 架构总览
 
-- `.github/workflows/docker.yml`：构建并推送多架构 GHCR 镜像
-- `.github/workflows/release-binary.yml`：跨 OS/arch 构建发布二进制
+### Workspace 结构
 
-## 相关文档
+| 路径 | 作用 |
+|---|---|
+| `apps/gproxy` | 可执行服务入口（Axum + 管理前端静态资源） |
+| `crates/gproxy-core` | AppState、路由编排、鉴权与请求执行 |
+| `crates/gproxy-provider` | 通道实现、重试、OAuth、dispatch、tokenizer |
+| `crates/gproxy-middleware` | 协议变换中间件、usage 提取 |
+| `crates/gproxy-protocol` | OpenAI/Claude/Gemini 类型与转换模型 |
+| `crates/gproxy-storage` | SeaORM 存储层、查询模型、异步写队列 |
+| `crates/gproxy-admin` | 管理域逻辑（admin/user） |
 
-- `route.md`：路由与行为说明
-- `provider.md`：各渠道凭证/配置细节
-- `PLAN.md`：项目计划草案
+### 运行机制
+
+- 启动时：
+  - 加载配置并应用 CLI/ENV 覆盖
+  - 建立数据库连接并自动 schema sync
+  - 初始化 provider registry、凭证与状态
+  - 确保 admin 用户（`id=0`）和 admin key 存在
+- 请求时：
+  - 用户 key 鉴权
+  - 依据路由 + dispatch 进行协议转换/透传
+  - 从可用凭证中随机选择并重试回退
+  - 记录 upstream/downstream request 与 usage
+
+### 凭证状态与冷却
+
+- `healthy`: 可用
+- `partial`: 指定模型冷却（模型级）
+- `dead`: 凭证不可用
+
+默认冷却时间：
+
+- rate limit：`60s`
+- transient failure：`15s`
+
+## 测试
+
+仓库提供了 provider smoke/regression 脚本：
+
+- `tests/provider/curl_provider.sh`
+- `tests/provider/run_channel_regression.sh`
+
+示例：
+
+```bash
+API_KEY='<key>' tests/provider/curl_provider.sh \
+  --provider openai \
+  --method openai_chat \
+  --model gpt-4.1
+```
+
+```bash
+API_KEY='<key>' tests/provider/run_channel_regression.sh \
+  --provider openai \
+  --model gpt-5-nano \
+  --embedding-model text-embedding-3-small
+```
+
+## 常见问题
+
+### 1) `401 unauthorized`
+
+- 检查 `x-api-key` 是否存在且对应用户/密钥均为 enabled。
+
+### 2) `403 forbidden`（admin 路由）
+
+- 你使用的 key 不是 admin 用户（`id=0`）的 key。
+
+### 3) `503 all eligible credentials exhausted`
+
+- 检查：
+  - 通道下是否有可用凭证
+  - `credential_status` 是否被标记为 `dead` 或模型处于 `partial` 冷却
+  - 上游是否在持续 429/5xx
+
+### 4) `model must be prefixed as <provider>/...`
+
+- 你调用的是 unscoped 路由，`model` 没写 provider 前缀。
+
+### 5) 实时 WebSocket 不可用
+
+- `/v1/realtime` 目前返回“未实现”，请使用 `/v1/responses`（HTTP）路径。
+
+## 安全建议
+
+- 生产环境务必设置强 `admin_key`，避免使用默认自动生成后长期不变更。
+- 建议保持 `mask_sensitive_info = true`，避免请求体/响应体明文落盘。
+- 若启用上游代理，确认代理链路可信且具备访问控制。
+
+## 数据与目录
+
+默认情况下：
+
+- 数据目录：`./data`
+- 默认数据库：`sqlite://./data/gproxy.db?mode=rwc`
+- tokenizer 缓存目录：`./data/tokenizers`
+
+`gproxy-storage` 同时支持 sqlite / mysql / postgres（通过 `dsn` 选择）。
+
+## 开发命令
+
+```bash
+# 后端格式化/检查
+cargo fmt
+cargo check
+cargo clippy --workspace --all-targets
+
+# 测试
+cargo test --workspace
+
+# 启动服务
+cargo run -p gproxy
+```
+
+前端：
+
+```bash
+cd apps/gproxy/frontend
+pnpm install
+pnpm typecheck
+pnpm build
+```
 
 ## License
 
-AGPL-3.0-or-later
+本项目采用 `AGPL-3.0-or-later`（见 `LICENSE`）。

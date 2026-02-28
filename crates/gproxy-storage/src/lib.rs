@@ -1,15 +1,12 @@
-pub mod entities;
-pub mod seaorm;
-pub mod sinks;
-pub mod snapshot;
-pub mod storage;
+//! Storage layer for gproxy.
+//! This crate defines SeaORM entities and storage-facing types.
 
+pub mod query;
+pub mod seaorm;
+pub mod write;
+
+pub use query::*;
 pub use seaorm::SeaOrmStorage;
-pub use sinks::DbEventSink;
-pub use snapshot::{
-    CredentialRow, GlobalConfigRow, ProviderRow, StorageSnapshot, UserKeyRow, UserRow,
-};
-pub use storage::{
-    LogCursor, LogQueryFilter, LogQueryResult, LogRecord, LogRecordKind, Storage, StorageError,
-    StorageResult, UsageAggregate, UsageAggregateFilter,
-};
+pub use seaorm::entities;
+pub use seaorm::entities::prelude;
+pub use write::*;

@@ -5,18 +5,18 @@ use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
 #[folder = "frontend/dist"]
-struct AdminUi;
+struct AdminUiAssets;
 
 pub async fn index() -> Response {
     render("index.html")
 }
 
 pub async fn asset(Path(path): Path<String>) -> Response {
-    render(&format!("assets/{path}"))
+    render(format!("assets/{path}").as_str())
 }
 
 fn render(path: &str) -> Response {
-    let Some(content) = AdminUi::get(path) else {
+    let Some(content) = AdminUiAssets::get(path) else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     };
 

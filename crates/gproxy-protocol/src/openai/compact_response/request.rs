@@ -1,43 +1,58 @@
 use serde::{Deserialize, Serialize};
 
-use crate::openai::create_response::types::InputParam;
+use crate::openai::compact_response::types::{HttpMethod, ResponseInput};
 
+/// Request descriptor for OpenAI `responses.compact` endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct CompactResponseRequestBody {
-    /// Model ID used to compact the response context.
-    pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input: Option<InputParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_response_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
+pub struct OpenAiCompactRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CompactResponseRequest {
-    pub body: CompactResponseRequestBody,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serializes_compact_request_fields_as_snake_case() {
-        let req = CompactResponseRequest {
-            body: CompactResponseRequestBody {
-                model: "gpt-5.2".to_string(),
-                input: None,
-                previous_response_id: Some("resp_prev".to_string()),
-                instructions: Some("keep this short".to_string()),
-            },
-        };
-
-        let value = serde_json::to_value(&req).expect("serialize compact response request");
-        assert_eq!(value["body"]["model"], "gpt-5.2");
-        assert_eq!(value["body"]["previous_response_id"], "resp_prev");
-        assert_eq!(value["body"]["instructions"], "keep this short");
+impl Default for OpenAiCompactRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
     }
+}
+
+/// `responses.compact` does not define path params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {}
+
+/// `responses.compact` does not define query params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
+
+/// Proxy-side request model does not carry auth headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {}
+
+/// Request body for `POST /responses/compact`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RequestBody {
+    /// Model ID used to compact the response.
+    pub model: String,
+    /// Optional input override for compaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<ResponseInput>,
+    /// Optional system/developer instructions inserted into context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// Previous response ID to compact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
 }

@@ -1,8 +1,5 @@
 /target
-/samples
-/PLAN.md
-
-/provider.md
-
-/data
-gproxy.db*
+AGENTS.md
+samples
+gproxy.toml
+data

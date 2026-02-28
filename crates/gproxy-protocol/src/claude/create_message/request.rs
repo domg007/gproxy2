@@ -1,68 +1,149 @@
 use serde::{Deserialize, Serialize};
 
-use crate::claude::count_tokens::types::{
-    BetaContextManagementConfig, BetaJSONOutputFormat, BetaMessageParam, BetaOutputConfig,
-    BetaRequestMCPServerURLDefinition, BetaSystemParam, BetaThinkingConfigParam, BetaTool,
-    BetaToolChoice, Model,
-};
 use crate::claude::create_message::types::{
-    BetaContainerParam, BetaMetadata, BetaServiceTier, BetaSpeed,
+    AnthropicBeta, AnthropicVersion, BetaContainerRef, BetaContextManagementConfig,
+    BetaJsonOutputFormat, BetaMessageParam, BetaMetadata, BetaOutputConfig,
+    BetaRequestMcpServerUrlDefinition, BetaServiceTierParam, BetaSpeed, BetaSystemPrompt,
+    BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
 };
-use crate::claude::types::AnthropicHeaders;
 
-pub type CreateMessageHeaders = AnthropicHeaders;
+/// Request descriptor for Claude "Create a Message" endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClaudeCreateMessageRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateMessageRequestBody {
-    /// Maximum tokens to generate; model-specific maximums apply.
-    pub max_tokens: u32,
-    /// Up to 100,000 messages; consecutive user/assistant turns are combined.
+impl Default for ClaudeCreateMessageRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+/// Create-message endpoint does not define path params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {}
+
+/// Create-message endpoint does not define query params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {
+    /// Anthropic API version.
+    #[serde(rename = "anthropic-version")]
+    pub anthropic_version: AnthropicVersion,
+    /// Optional beta version(s).
+    #[serde(
+        rename = "anthropic-beta",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub anthropic_beta: Option<Vec<AnthropicBeta>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RequestBody {
+    /// Maximum number of tokens to generate.
+    pub max_tokens: u64,
+    /// Input messages.
     pub messages: Vec<BetaMessageParam>,
+    /// Target model identifier.
     pub model: Model,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub container: Option<BetaContainerParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional container id or container parameters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<BetaContainerRef>,
+    /// Optional context management rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_management: Option<BetaContextManagementConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional inference geography hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference_geo: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_servers: Option<Vec<BetaRequestMCPServerURLDefinition>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional MCP servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<BetaRequestMcpServerUrlDefinition>>,
+    /// Optional per-request metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BetaMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional output configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_config: Option<BetaOutputConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<BetaJSONOutputFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<BetaServiceTier>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional deprecated output format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<BetaJsonOutputFormat>,
+    /// Optional service tier selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<BetaServiceTierParam>,
+    /// Optional inference speed mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed: Option<BetaSpeed>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional custom stop sequences.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
-    /// If true, the response is streamed as SSE events instead of a single message.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional streaming toggle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<BetaSystemParam>,
-    /// Range 0.0-1.0. Avoid setting both temperature and top_p.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional system prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BetaSystemPrompt>,
+    /// Optional temperature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional thinking configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<BetaThinkingConfigParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional tool choice policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<BetaToolChoice>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<BetaTool>>,
-    /// Recommended for advanced use cases only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_k: Option<u32>,
-    /// Range 0.0-1.0. Avoid setting both top_p and temperature.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional tool definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<BetaToolUnion>>,
+    /// Optional top-k sampling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u64>,
+    /// Optional top-p sampling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CreateMessageRequest {
-    pub headers: CreateMessageHeaders,
-    pub body: CreateMessageRequestBody,
+impl Default for RequestBody {
+    fn default() -> Self {
+        Self {
+            max_tokens: 0,
+            messages: Vec::new(),
+            model: Model::Custom(String::new()),
+            container: None,
+            context_management: None,
+            inference_geo: None,
+            mcp_servers: None,
+            metadata: None,
+            output_config: None,
+            output_format: None,
+            service_tier: None,
+            speed: None,
+            stop_sequences: None,
+            stream: None,
+            system: None,
+            temperature: None,
+            thinking: None,
+            tool_choice: None,
+            tools: None,
+            top_k: None,
+            top_p: None,
+        }
+    }
 }

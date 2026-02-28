@@ -2,14 +2,28 @@
 name = "gproxy"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
-anyhow.workspace = true
+anyhow = "1"
+axum = { version = "0.8", features = ["http2"] }
+clap = { version = "4", features = ["derive", "env"] }
 gproxy-core = { path = "../../crates/gproxy-core" }
-gproxy-router = { path = "../../crates/gproxy-router" }
-axum = { version = "0.8", features = ["ws", "http2"] }
-rust-embed = "8"
+gproxy-admin = { path = "../../crates/gproxy-admin" }
+gproxy-provider = { path = "../../crates/gproxy-provider" }
+gproxy-storage = { path = "../../crates/gproxy-storage" }
 mime_guess = "2"
+rand = "0.10"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = "1"
+wreq = { version = "6.0.0-rc.28", features = ["cookies", "gzip", "json", "socks", "stream"] }
+wreq-util = "3.0.0-rc.10"

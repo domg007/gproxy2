@@ -1,0 +1,20 @@
+pub mod aistudio;
+pub mod antigravity;
+pub mod claude;
+pub mod claudecode;
+pub mod codex;
+pub mod credential;
+pub mod custom;
+pub mod deepseek;
+pub mod geminicli;
+pub mod nvidia;
+pub mod openai;
+pub mod retry;
+pub mod settings;
+pub mod upstream;
+pub mod utils;
+pub mod vertex;
+pub mod vertexexpress;
+
+pub use credential::{BuiltinChannelCredential, ChannelCredential};
+pub use settings::{BuiltinChannelSettings, ChannelSettings};

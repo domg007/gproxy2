@@ -1,40 +1,91 @@
 use serde::{Deserialize, Serialize};
 
-use crate::gemini::count_tokens::types::Content;
-use crate::gemini::generate_content::types::{GenerationConfig, SafetySetting, Tool, ToolConfig};
+use crate::gemini::generate_content::types::{
+    GeminiContent, GeminiGenerationConfig, GeminiSafetySetting, GeminiTool, GeminiToolConfig,
+    HttpMethod,
+};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateContentPath {
-    /// Format: models/{model}. It takes the form models/{model}.
+/// Request descriptor for Gemini `models.generateContent` endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GeminiGenerateContentRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
+}
+
+impl Default for GeminiGenerateContentRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {
+    /// Resource name in form `models/{model}`.
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GenerateContentRequestBody {
-    /// Required. The content of the current conversation with the model.
-    pub contents: Vec<Content>,
-    /// Optional. Only used when GenerateContentRequestBody is embedded in countTokens
-    /// (generateContentRequest). Normal generateContent uses the path model.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_config: Option<ToolConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_settings: Option<Vec<SafetySetting>>,
-    /// System instruction (text-only Content).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_instruction: Option<Content>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generation_config: Option<GenerationConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<String>,
-}
+/// Proxy-side request model does not carry query parameters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
 
-#[derive(Debug, Clone)]
-pub struct GenerateContentRequest {
-    pub path: GenerateContentPath,
-    pub body: GenerateContentRequestBody,
+/// Proxy-side request model does not carry auth headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RequestBody {
+    /// Conversation content for this turn.
+    pub contents: Vec<GeminiContent>,
+    /// Optional tool definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<GeminiTool>>,
+    /// Optional tool configuration.
+    #[serde(
+        rename = "toolConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_config: Option<GeminiToolConfig>,
+    /// Optional safety settings.
+    #[serde(
+        rename = "safetySettings",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub safety_settings: Option<Vec<GeminiSafetySetting>>,
+    /// Optional system instruction content.
+    #[serde(
+        rename = "systemInstruction",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub system_instruction: Option<GeminiContent>,
+    /// Optional generation controls.
+    #[serde(
+        rename = "generationConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub generation_config: Option<GeminiGenerationConfig>,
+    /// Optional cache reference, e.g. `cachedContents/{id}`.
+    #[serde(
+        rename = "cachedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cached_content: Option<String>,
 }

@@ -1,26 +1,62 @@
 use serde::{Deserialize, Serialize};
 
-use crate::gemini::count_tokens::types::{Content, GenerateContentRequest};
+use crate::gemini::count_tokens::types::{GeminiContent, GeminiGenerateContentRequest, HttpMethod};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CountTokensPath {
-    /// Format: models/{model}. It takes the form models/{model}.
+/// Request descriptor for Gemini `models.countTokens` endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GeminiCountTokensRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
+}
+
+impl Default for GeminiCountTokensRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {
+    /// Resource name in form `models/{model}`.
     pub model: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CountTokensRequestBody {
-    /// Mutually exclusive with generateContentRequest.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contents: Option<Vec<Content>>,
-    /// Mutually exclusive with contents.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generate_content_request: Option<GenerateContentRequest>,
-}
+/// Proxy-side request model does not carry query parameters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
 
-#[derive(Debug, Clone)]
-pub struct CountTokensRequest {
-    pub path: CountTokensPath,
-    pub body: CountTokensRequestBody,
+/// Proxy-side request model does not carry auth headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RequestBody {
+    /// Prompt input content.
+    ///
+    /// This is ignored when `generate_content_request` is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contents: Option<Vec<GeminiContent>>,
+    /// Full generation request used for counting tokens.
+    ///
+    /// This field is mutually exclusive with `contents`.
+    #[serde(
+        rename = "generateContentRequest",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub generate_content_request: Option<GeminiGenerateContentRequest>,
 }

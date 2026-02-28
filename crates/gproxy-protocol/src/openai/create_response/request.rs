@@ -1,83 +1,110 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openai::create_response::types::{
-    ContextManagement, ConversationParam, InputParam, Metadata, Prompt, PromptCacheRetention,
-    Reasoning, ResponseInclude, ResponseStreamOptions, ResponseTextParam, ServiceTier, Tool,
-    ToolChoiceParam, Truncation,
+    HttpMethod, Metadata, Model, ResponseContextManagementEntry, ResponseConversation,
+    ResponseIncludable, ResponseInput, ResponsePrompt, ResponsePromptCacheRetention,
+    ResponseReasoning, ResponseServiceTier, ResponseStreamOptions, ResponseTextConfig,
+    ResponseTool, ResponseToolChoice, ResponseTruncation,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct CreateResponseRequestBody {
-    /// Model ID used to generate the response.
-    pub model: String,
-    /// Text, image, or file inputs to the model.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input: Option<InputParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<ResponseInclude>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parallel_tool_calls: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub store: Option<bool>,
-    /// When used with `previous_response_id`, prior instructions are not carried over (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream: Option<bool>,
-    /// Only valid when `stream` is true (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_options: Option<ResponseStreamOptions>,
-    /// Cannot be used together with `previous_response_id` (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<ConversationParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_response_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<Reasoning>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_management: Option<Vec<ContextManagement>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub background: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_output_tokens: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tool_calls: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<ResponseTextParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoiceParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<Prompt>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation: Option<Truncation>,
-    /// Range is 0..=20 (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_logprobs: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Metadata>,
-    /// Range is 0..=2.0 (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f64>,
-    /// Range is 0..=1.0 (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f64>,
-    /// Deprecated; prefer `safety_identifier` or `prompt_cache_key` (not enforced here).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<ServiceTier>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_retention: Option<PromptCacheRetention>,
+/// Request descriptor for OpenAI `responses.create` endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiCreateResponseRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
 }
 
-#[derive(Debug, Clone)]
-pub struct CreateResponseRequest {
-    pub body: CreateResponseRequestBody,
+impl Default for OpenAiCreateResponseRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+/// `responses.create` does not define path params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {}
+
+/// `responses.create` does not define query params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
+
+/// Proxy-side request model does not carry auth headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {}
+
+/// Body payload for `POST /responses`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_management: Option<Vec<ResponseContextManagementEntry>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ResponseConversation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<ResponseIncludable>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<ResponseInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tool_calls: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<Model>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<ResponsePrompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<ResponsePromptCacheRetention>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ResponseReasoning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ResponseServiceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<ResponseStreamOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<ResponseTextConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ResponseToolChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ResponseTool>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_logprobs: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<ResponseTruncation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }

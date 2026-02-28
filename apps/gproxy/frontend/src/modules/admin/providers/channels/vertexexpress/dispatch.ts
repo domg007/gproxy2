@@ -1,0 +1,23 @@
+import type { TemplateRoute } from "../../types";
+
+export const DISPATCH_TEMPLATE_ROUTES: readonly TemplateRoute[] = [
+  ["ModelList", "Gemini", "ModelList", "Gemini"],
+  ["ModelList", "OpenAi", "ModelList", "Gemini"],
+  ["ModelList", "Claude", "ModelList", "Gemini"],
+  ["ModelGet", "Gemini", "ModelGet", "Gemini"],
+  ["ModelGet", "OpenAi", "ModelGet", "Gemini"],
+  ["ModelGet", "Claude", "ModelGet", "Gemini"],
+  ["CountToken", "Gemini", "CountToken", "Gemini"],
+  ["CountToken", "OpenAi", "CountToken", "Gemini"],
+  ["CountToken", "Claude", "CountToken", "Gemini"],
+  ["GenerateContent", "Gemini", "GenerateContent", "Gemini"],
+  ["GenerateContent", "OpenAi", "GenerateContent", "Gemini"],
+  ["GenerateContent", "OpenAiChatCompletion", "GenerateContent", "Gemini"],
+  ["GenerateContent", "Claude", "GenerateContent", "Gemini"],
+  ["StreamGenerateContent", "Gemini", "StreamGenerateContent", "Gemini"],
+  ["StreamGenerateContent", "GeminiNDJson", "StreamGenerateContent", "GeminiNDJson"],
+  ["StreamGenerateContent", "OpenAi", "StreamGenerateContent", "Gemini"],
+  ["StreamGenerateContent", "OpenAiChatCompletion", "StreamGenerateContent", "Gemini"],
+  ["StreamGenerateContent", "Claude", "StreamGenerateContent", "Gemini"],
+  ["Compact", "OpenAi", "GenerateContent", "Gemini"],
+];

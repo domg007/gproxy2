@@ -1,7 +1,9 @@
+export interface ToastState {
+  kind: "success" | "error" | "info";
+  message: string;
+}
 
-import type { ToastState } from "../lib/types";
-
-export function Toast({ toast }: { toast: ToastState }) {
+export function Toast({ toast }: { toast: ToastState | null }) {
   if (!toast) {
     return null;
   }

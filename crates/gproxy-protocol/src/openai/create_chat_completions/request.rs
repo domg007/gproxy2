@@ -1,115 +1,153 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 
-use crate::openai::create_chat_completions::types::{
-    ChatCompletionFunctionCallChoice, ChatCompletionFunctions, ChatCompletionRequestAudio,
-    ChatCompletionRequestMessage, ChatCompletionResponseFormat, ChatCompletionStreamOptions,
-    ChatCompletionToolChoiceOption, ChatCompletionToolDefinition, LogitBias, Metadata,
-    PredictionContent, PromptCacheRetention, ReasoningEffort, ResponseModality, ServiceTier,
-    Verbosity, WebSearchOptions,
-};
+use crate::openai::create_chat_completions::types::{self, HttpMethod};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct CreateChatCompletionRequestBody {
-    /// A list of messages comprising the conversation so far.
-    /// Must contain at least 1 message (not enforced here).
-    pub messages: Vec<ChatCompletionRequestMessage>,
-    /// Model ID used to generate the response.
-    pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modalities: Option<Vec<ResponseModality>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verbosity: Option<Verbosity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<ReasoningEffort>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Total prompt tokens plus `max_completion_tokens` must fit the model context (not enforced here).
-    pub max_completion_tokens: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Range is -2.0..=2.0 (not enforced here).
-    pub frequency_penalty: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Range is -2.0..=2.0 (not enforced here).
-    pub presence_penalty: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub web_search_options: Option<WebSearchOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Range is 0..=20 and requires `logprobs = true` (not enforced here).
-    pub top_logprobs: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<ChatCompletionResponseFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Required when requesting audio in `modalities` (not enforced here).
-    pub audio: Option<ChatCompletionRequestAudio>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub store: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop: Option<StopConfiguration>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logit_bias: Option<LogitBias>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Must be true when `top_logprobs` is set (not enforced here).
-    pub logprobs: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Deprecated; total prompt tokens plus `max_tokens` must fit the model context (not enforced here).
-    pub max_tokens: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Must be at least 1; the service may enforce an upper bound (not enforced here).
-    pub n: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prediction: Option<PredictionContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Only valid when `stream` is true (not enforced here).
-    pub stream_options: Option<ChatCompletionStreamOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<ChatCompletionToolDefinition>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ChatCompletionToolChoiceOption>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parallel_tool_calls: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<ChatCompletionFunctionCallChoice>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Deprecated; maximum of 128 entries (not enforced here).
-    pub functions: Option<Vec<ChatCompletionFunctions>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Metadata>,
-    /// Provider-specific extensions for OpenAI-compatible endpoints.
-    /// This is forwarded to adapters and parsed on a best-effort basis.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_body: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Range is 0..=2.0; generally avoid setting both temperature and top_p (not enforced here).
-    pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Range is 0.0..=1.0; generally avoid setting both top_p and temperature (not enforced here).
-    pub top_p: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<ServiceTier>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_retention: Option<PromptCacheRetention>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateChatCompletionRequest {
-    pub body: CreateChatCompletionRequestBody,
-}
-
-/// Up to 4 stop sequences are allowed, but this limit is not enforced here.
+/// Request descriptor for OpenAI `chat.completions.create` endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum StopConfiguration {
-    Single(String),
-    Many(Vec<String>),
+pub struct OpenAiChatCompletionsRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
+}
+
+impl Default for OpenAiChatCompletionsRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+/// `chat.completions.create` does not define path params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {}
+
+/// `chat.completions.create` does not define query params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
+
+/// Proxy-side request model does not carry auth headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {}
+
+/// Body payload for `POST /chat/completions`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RequestBody {
+    /// A list of messages comprising the conversation so far.
+    pub messages: Vec<types::ChatCompletionMessageParam>,
+    /// Model identifier.
+    pub model: types::Model,
+    /// Audio output configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<types::ChatCompletionAudioParam>,
+    /// Frequency penalty in range [-2.0, 2.0].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f64>,
+    /// Deprecated function-call control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<types::ChatCompletionFunctionCallOptionParam>,
+    /// Deprecated function definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub functions: Option<Vec<types::ChatCompletionLegacyFunction>>,
+    /// Token-level logit bias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logit_bias: Option<types::LogitBias>,
+    /// Whether to return logprobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<bool>,
+    /// Upper bound of generated tokens including reasoning tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u64>,
+    /// Deprecated maximum generated tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    /// Request metadata key-value map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<types::Metadata>,
+    /// Output modalities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<Vec<types::ChatCompletionModality>>,
+    /// Number of choices to generate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    /// Enable parallel tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    /// Predicted output content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prediction: Option<types::ChatCompletionPredictionContent>,
+    /// Presence penalty in range [-2.0, 2.0].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f64>,
+    /// Prompt cache bucketing key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    /// Prompt cache retention policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<types::ChatCompletionPromptCacheRetention>,
+    /// Reasoning effort level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<types::ChatCompletionReasoningEffort>,
+    /// Output format control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<types::ChatCompletionResponseFormat>,
+    /// Stable safety identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
+    /// Best-effort deterministic seed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    /// Requested processing tier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<types::ChatCompletionServiceTier>,
+    /// Stop sequence(s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<types::ChatCompletionStop>,
+    /// Whether to store output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    /// Whether to stream with SSE.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    /// Streaming options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<types::ChatCompletionStreamOptions>,
+    /// Sampling temperature in range [0, 2].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Tool selection policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<types::ChatCompletionToolChoiceOption>,
+    /// Available tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<types::ChatCompletionTool>>,
+    /// Number of top candidate tokens in logprobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_logprobs: Option<u32>,
+    /// Nucleus sampling probability mass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    /// Deprecated user identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// Verbosity hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verbosity: Option<types::ChatCompletionVerbosity>,
+    /// Provider-specific OpenAI-compatible extension payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_body: Option<types::ChatCompletionExtraBody>,
+    /// Web-search tool options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search_options: Option<types::ChatCompletionWebSearchOptions>,
 }

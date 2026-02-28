@@ -1,20 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/gproxy-protocol",
-  "crates/gproxy-transform",
-  "crates/gproxy-common",
-  "crates/gproxy-provider-core",
-  "crates/gproxy-provider-impl",
-  "crates/gproxy-storage",
-  "crates/gproxy-core",
-  "crates/gproxy-router",
-  "crates/gproxy-admin",
   "apps/gproxy",
+  "crates/gproxy-admin",
+  "crates/gproxy-core",
+  "crates/gproxy-storage",
+  "crates/gproxy-protocol",
+  "crates/gproxy-middleware",
+  "crates/gproxy-provider",
 ]
 
 [workspace.package]
-version = "0.2.31"
+version = "0.3.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 authors = ["LeenHawk <leenhawk@leenhawk.com>"]
@@ -22,15 +19,6 @@ description = "A high-performance LLM proxy server written in Rust."
 homepage = "https://gproxy.leenhawk.com"
 repository = "https://github.com/LeenHawk/gproxy"
 readme = "README.md"
-
-[workspace.dependencies]
-anyhow = "1"
-async-trait = "0.1"
-bytes = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-time = "0.3"
-tokio = "1"
 
 [profile.release]
 strip = true

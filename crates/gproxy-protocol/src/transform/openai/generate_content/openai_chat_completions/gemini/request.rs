@@ -1,0 +1,376 @@
+use super::utils::parse_tool_use_args;
+use crate::gemini::count_tokens::types as gt;
+use crate::gemini::generate_content::request::{
+    GeminiGenerateContentRequest, PathParameters, QueryParameters, RequestBody, RequestHeaders,
+};
+use crate::gemini::generate_content::types::HttpMethod as GeminiHttpMethod;
+use crate::openai::count_tokens::types as ot;
+use crate::openai::create_chat_completions::request::OpenAiChatCompletionsRequest;
+use crate::openai::create_chat_completions::types as oct;
+use crate::transform::gemini::model_get::utils::ensure_models_prefix;
+use crate::transform::openai::count_tokens::gemini::utils::{
+    openai_generation_config, openai_message_content_to_gemini_parts, openai_role_to_gemini,
+    openai_tool_choice_to_gemini, openai_tool_to_gemini, output_text_to_json_object,
+};
+use crate::transform::openai::generate_content::openai_chat_completions::openai::utils::{
+    chat_reasoning_to_response_reasoning, chat_response_text_config, chat_stop_to_vec,
+    chat_text_content_to_plain_text, chat_text_content_to_response_input_message_content,
+    chat_tool_choice_to_response_tool_choice, chat_tools_to_response_tools,
+    chat_user_content_to_response_input_message_content,
+};
+use crate::transform::utils::TransformError;
+
+impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: OpenAiChatCompletionsRequest) -> Result<Self, TransformError> {
+        let crate::openai::create_chat_completions::request::RequestBody {
+            messages: chat_messages,
+            model,
+            function_call,
+            functions,
+            frequency_penalty,
+            max_completion_tokens,
+            max_tokens,
+            n,
+            presence_penalty,
+            reasoning_effort,
+            response_format,
+            seed,
+            stop,
+            temperature,
+            tool_choice,
+            tools,
+            top_logprobs,
+            top_p,
+            verbosity,
+            extra_body,
+            web_search_options,
+            ..
+        } = value.body;
+
+        let response_reasoning = chat_reasoning_to_response_reasoning(reasoning_effort);
+        let response_text = chat_response_text_config(response_format, verbosity);
+        let response_tool_choice =
+            chat_tool_choice_to_response_tool_choice(tool_choice, function_call);
+        let response_tools = chat_tools_to_response_tools(tools, functions, web_search_options);
+        let model = ensure_models_prefix(&model);
+
+        let mut contents = Vec::new();
+        let mut system_parts = Vec::new();
+        let mut seen_non_system = false;
+
+        for message in chat_messages {
+            match message {
+                oct::ChatCompletionMessageParam::Developer(message) => {
+                    let content =
+                        chat_text_content_to_response_input_message_content(message.content);
+                    let parts = openai_message_content_to_gemini_parts(content);
+                    if parts.is_empty() {
+                        continue;
+                    }
+                    if seen_non_system {
+                        contents.push(gt::GeminiContent {
+                            parts,
+                            role: Some(openai_role_to_gemini(
+                                ot::ResponseInputMessageRole::Developer,
+                            )),
+                        });
+                    } else {
+                        system_parts.extend(parts);
+                    }
+                }
+                oct::ChatCompletionMessageParam::System(message) => {
+                    let content =
+                        chat_text_content_to_response_input_message_content(message.content);
+                    let parts = openai_message_content_to_gemini_parts(content);
+                    if parts.is_empty() {
+                        continue;
+                    }
+                    if seen_non_system {
+                        contents.push(gt::GeminiContent {
+                            parts,
+                            role: Some(openai_role_to_gemini(ot::ResponseInputMessageRole::System)),
+                        });
+                    } else {
+                        system_parts.extend(parts);
+                    }
+                }
+                oct::ChatCompletionMessageParam::User(message) => {
+                    seen_non_system = true;
+                    let content =
+                        chat_user_content_to_response_input_message_content(message.content);
+                    let parts = openai_message_content_to_gemini_parts(content);
+                    if !parts.is_empty() {
+                        contents.push(gt::GeminiContent {
+                            parts,
+                            role: Some(openai_role_to_gemini(ot::ResponseInputMessageRole::User)),
+                        });
+                    }
+                }
+                oct::ChatCompletionMessageParam::Assistant(message) => {
+                    seen_non_system = true;
+                    let oct::ChatCompletionAssistantMessageParam {
+                        content,
+                        refusal,
+                        function_call,
+                        tool_calls,
+                        ..
+                    } = message;
+                    let mut parts = Vec::new();
+
+                    if let Some(content) = content {
+                        match content {
+                            oct::ChatCompletionAssistantContent::Text(text) => {
+                                if !text.is_empty() {
+                                    parts.push(gt::GeminiPart {
+                                        text: Some(text),
+                                        ..gt::GeminiPart::default()
+                                    });
+                                }
+                            }
+                            oct::ChatCompletionAssistantContent::Parts(content_parts) => {
+                                for part in content_parts {
+                                    match part {
+                                        oct::ChatCompletionAssistantContentPart::Text(part) => {
+                                            if !part.text.is_empty() {
+                                                parts.push(gt::GeminiPart {
+                                                    text: Some(part.text),
+                                                    ..gt::GeminiPart::default()
+                                                });
+                                            }
+                                        }
+                                        oct::ChatCompletionAssistantContentPart::Refusal(part) => {
+                                            if !part.refusal.is_empty() {
+                                                parts.push(gt::GeminiPart {
+                                                    text: Some(part.refusal),
+                                                    ..gt::GeminiPart::default()
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(refusal) = refusal
+                        && !refusal.is_empty()
+                    {
+                        parts.push(gt::GeminiPart {
+                            text: Some(refusal),
+                            ..gt::GeminiPart::default()
+                        });
+                    }
+
+                    if let Some(function_call) = function_call {
+                        parts.push(gt::GeminiPart {
+                            function_call: Some(gt::GeminiFunctionCall {
+                                id: Some(format!("function_call_{}", function_call.name)),
+                                name: function_call.name,
+                                args: Some(parse_tool_use_args(function_call.arguments)),
+                            }),
+                            ..gt::GeminiPart::default()
+                        });
+                    }
+
+                    if let Some(tool_calls) = tool_calls {
+                        for call in tool_calls {
+                            match call {
+                                oct::ChatCompletionMessageToolCall::Function(call) => {
+                                    parts.push(gt::GeminiPart {
+                                        function_call: Some(gt::GeminiFunctionCall {
+                                            id: Some(call.id),
+                                            name: call.function.name,
+                                            args: Some(parse_tool_use_args(
+                                                call.function.arguments,
+                                            )),
+                                        }),
+                                        ..gt::GeminiPart::default()
+                                    });
+                                }
+                                oct::ChatCompletionMessageToolCall::Custom(call) => {
+                                    parts.push(gt::GeminiPart {
+                                        function_call: Some(gt::GeminiFunctionCall {
+                                            id: Some(call.id),
+                                            name: call.custom.name,
+                                            args: Some(parse_tool_use_args(call.custom.input)),
+                                        }),
+                                        ..gt::GeminiPart::default()
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if !parts.is_empty() {
+                        contents.push(gt::GeminiContent {
+                            parts,
+                            role: Some(gt::GeminiContentRole::Model),
+                        });
+                    }
+                }
+                oct::ChatCompletionMessageParam::Tool(message) => {
+                    seen_non_system = true;
+                    let output_text = chat_text_content_to_plain_text(&message.content);
+                    contents.push(gt::GeminiContent {
+                        parts: vec![gt::GeminiPart {
+                            function_response: Some(gt::GeminiFunctionResponse {
+                                id: Some(message.tool_call_id.clone()),
+                                name: message.tool_call_id,
+                                response: output_text_to_json_object(&output_text),
+                                parts: None,
+                                will_continue: None,
+                                scheduling: None,
+                            }),
+                            ..gt::GeminiPart::default()
+                        }],
+                        role: Some(gt::GeminiContentRole::User),
+                    });
+                }
+                oct::ChatCompletionMessageParam::Function(message) => {
+                    seen_non_system = true;
+                    contents.push(gt::GeminiContent {
+                        parts: vec![gt::GeminiPart {
+                            function_response: Some(gt::GeminiFunctionResponse {
+                                id: Some(message.name.clone()),
+                                name: message.name,
+                                response: output_text_to_json_object(&message.content),
+                                parts: None,
+                                will_continue: None,
+                                scheduling: None,
+                            }),
+                            ..gt::GeminiPart::default()
+                        }],
+                        role: Some(gt::GeminiContentRole::User),
+                    });
+                }
+            }
+        }
+
+        let tools = response_tools.and_then(|tools| {
+            let converted = tools
+                .into_iter()
+                .filter_map(openai_tool_to_gemini)
+                .collect::<Vec<_>>();
+            if converted.is_empty() {
+                None
+            } else {
+                Some(converted)
+            }
+        });
+
+        let tool_config = openai_tool_choice_to_gemini(response_tool_choice);
+
+        let mut generation_config = openai_generation_config(
+            response_reasoning,
+            response_text,
+            max_completion_tokens.or(max_tokens),
+            temperature,
+            top_p,
+            top_logprobs,
+        );
+        let mut has_generation_config = generation_config.is_some();
+        let extra_google = extra_body.and_then(|extra| {
+            extra
+                .google
+                .or_else(|| extra.extra_body.and_then(|nested| nested.google))
+        });
+        let mut cached_content = None;
+        if let Some(extra_google) = extra_google {
+            cached_content = extra_google.cached_content;
+            if let Some(thinking_config) = extra_google.thinking_config {
+                let converted_thinking = gt::GeminiThinkingConfig {
+                    include_thoughts: thinking_config.include_thoughts,
+                    thinking_budget: thinking_config.thinking_budget,
+                    thinking_level: thinking_config.thinking_level.map(|level| match level {
+                        oct::ChatCompletionGeminiExtraThinkingLevel::Minimal => {
+                            gt::GeminiThinkingLevel::Minimal
+                        }
+                        oct::ChatCompletionGeminiExtraThinkingLevel::Low => {
+                            gt::GeminiThinkingLevel::Low
+                        }
+                        oct::ChatCompletionGeminiExtraThinkingLevel::Medium => {
+                            gt::GeminiThinkingLevel::Medium
+                        }
+                        oct::ChatCompletionGeminiExtraThinkingLevel::High => {
+                            gt::GeminiThinkingLevel::High
+                        }
+                    }),
+                };
+                generation_config
+                    .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                    .thinking_config = Some(converted_thinking);
+                has_generation_config = true;
+            }
+        }
+
+        if let Some(stop_sequences) = chat_stop_to_vec(stop) {
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .stop_sequences = Some(stop_sequences);
+            has_generation_config = true;
+        }
+
+        if let Some(seed) = seed.and_then(|value| u32::try_from(value).ok()) {
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .seed = Some(seed);
+            has_generation_config = true;
+        }
+
+        if let Some(value) = frequency_penalty {
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .frequency_penalty = Some(value);
+            has_generation_config = true;
+        }
+
+        if let Some(value) = presence_penalty {
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .presence_penalty = Some(value);
+            has_generation_config = true;
+        }
+
+        if let Some(value) = n
+            && value > 0
+        {
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .candidate_count = Some(value);
+            has_generation_config = true;
+        }
+
+        let generation_config = if has_generation_config {
+            generation_config
+        } else {
+            None
+        };
+
+        let system_instruction = if system_parts.is_empty() {
+            None
+        } else {
+            Some(gt::GeminiContent {
+                parts: system_parts,
+                role: None,
+            })
+        };
+
+        Ok(GeminiGenerateContentRequest {
+            method: GeminiHttpMethod::Post,
+            path: PathParameters { model },
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody {
+                contents,
+                tools,
+                tool_config,
+                safety_settings: None,
+                system_instruction,
+                generation_config,
+                cached_content,
+            },
+        })
+    }
+}

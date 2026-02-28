@@ -2,9 +2,6 @@ name: build-binaries
 
 on:
   push:
-    branches:
-      - main
-      - master
   release:
     types:
       - published
@@ -14,9 +11,23 @@ permissions:
   contents: write
 
 jobs:
-  build-frontend:
-    name: Build frontend
+  build:
+    name: Build (${{ matrix.target }})
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            artifact: gproxy-linux-x86_64-musl.zip
+            run_check: true
+          - target: aarch64-unknown-linux-musl
+            artifact: gproxy-linux-aarch64-musl.zip
+            run_check: false
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,83 +51,6 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: apps/gproxy/frontend/dist
-          retention-days: 1
-
-  build:
-    name: Build (${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.libc || 'std' }})
-    needs: build-frontend
-    runs-on: ${{ matrix.runner }}
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux
-            runner: ubuntu-latest
-            arch: x86_64
-            libc: gnu
-            run_check: true
-          - platform: linux
-            runner: ubuntu-24.04-arm
-            arch: aarch64
-            libc: gnu
-            run_check: true
-          - platform: linux
-            runner: ubuntu-latest
-            arch: x86_64
-            libc: musl
-            cross: true
-            run_check: true
-          - platform: linux
-            runner: ubuntu-latest
-            arch: aarch64
-            libc: musl
-            cross: true
-            run_check: false
-          - platform: android
-            runner: ubuntu-latest
-            arch: x86_64
-            android_abi: x86_64
-            run_check: false
-          - platform: android
-            runner: ubuntu-latest
-            arch: aarch64
-            android_abi: arm64-v8a
-            run_check: false
-          - platform: windows
-            runner: windows-latest
-            arch: x86_64
-            run_check: true
-          - platform: windows
-            runner: windows-latest
-            arch: aarch64
-            run_check: false
-          - platform: macos
-            runner: macos-latest
-            arch: x86_64
-            run_check: true
-          - platform: macos
-            runner: macos-latest
-            arch: aarch64
-            run_check: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: apps/gproxy/frontend/dist
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -127,156 +61,35 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.libc || 'std' }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.libc || 'std' }}-
-
-      - name: Derive target metadata
-        shell: bash
-        run: |
-          case "${{ matrix.platform }}" in
-            linux)
-              target="${{ matrix.arch }}-unknown-linux-${{ matrix.libc }}"
-              artifact="gproxy-linux-${{ matrix.arch }}"
-              if [ "${{ matrix.libc }}" = "musl" ]; then
-                artifact="${artifact}-musl"
-              fi
-              artifact="${artifact}.zip"
-              ext=""
-              ;;
-            android)
-              target="${{ matrix.arch }}-linux-android"
-              artifact="gproxy-android-${{ matrix.arch }}.zip"
-              ext=""
-              ;;
-            windows)
-              target="${{ matrix.arch }}-pc-windows-msvc"
-              artifact="gproxy-windows-${{ matrix.arch }}.zip"
-              ext=".exe"
-              ;;
-            macos)
-              target="${{ matrix.arch }}-apple-darwin"
-              artifact="gproxy-macos-${{ matrix.arch }}.zip"
-              ext=""
-              ;;
-            *)
-              echo "unknown platform: ${{ matrix.platform }}" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "TARGET=$target" >> "$GITHUB_ENV"
-          echo "ARTIFACT=$artifact" >> "$GITHUB_ENV"
-          echo "BIN_EXT=$ext" >> "$GITHUB_ENV"
-
-      - name: Install target
-        run: rustup target add "$TARGET"
-
-      - name: Install Android NDK
-        if: ${{ matrix.platform == 'android' }}
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android toolchain
-        if: ${{ matrix.platform == 'android' }}
-        run: |
-          sdkmanager "ndk;26.1.10909125"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
-          cargo install cargo-ndk --locked
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
 
       - name: Install cross
-        if: ${{ matrix.cross }}
-        run: |
-          cargo install cross --locked
-          echo "CROSS_TARGET=$TARGET" >> "$GITHUB_ENV"
-          echo "CROSS_NO_DEFAULT_TOOLCHAIN=1" >> "$GITHUB_ENV"
+        run: cargo install cross --locked
 
-      - name: Build (unix)
-        if: ${{ runner.os != 'Windows' }}
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target "$TARGET" -p gproxy
-          elif [ "${{ matrix.platform }}" = "android" ]; then
-            cargo ndk -t ${{ matrix.android_abi }} build --release -p gproxy
-          else
-            cargo build --release --target "$TARGET" -p gproxy
-          fi
+      - name: Build
+        run: cross build --release --target "${{ matrix.target }}" -p gproxy
 
-      - name: Build (windows)
-        if: ${{ runner.os == 'Windows' }}
-        shell: pwsh
-        env:
-          RUSTFLAGS: -C target-feature=+crt-static
-          BORINGSSL_DISABLE_ASM: ${{ matrix.boringssl_disable_asm }}
-        run: cargo build --release --target "$env:TARGET" -p gproxy
+      - name: Run -h check
+        if: ${{ matrix.run_check }}
+        run: target/${{ matrix.target }}/release/gproxy -h
 
-      - name: Run -h check (unix)
-        if: ${{ runner.os != 'Windows' && matrix.run_check }}
-        run: target/$TARGET/release/gproxy -h
-
-      - name: Run -h check (windows)
-        if: ${{ runner.os == 'Windows' && matrix.run_check }}
-        shell: pwsh
-        run: |
-          $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
-          & $bin -h
-
-      - name: Install UPX (linux)
-        if: ${{ runner.os == 'Linux' }}
+      - name: Install pack tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends upx-ucl zip
 
-      - name: Install UPX (macos)
-        if: ${{ runner.os == 'macOS' }}
-        run: brew install upx
+      - name: Compress binary
+        run: upx --best --lzma target/${{ matrix.target }}/release/gproxy
 
-      - name: Install UPX (windows)
-        if: ${{ runner.os == 'Windows' }}
-        shell: pwsh
-        run: choco install upx -y
-
-      - name: Compress binary (non-macos)
-        if: ${{ runner.os != 'macOS' && !(matrix.platform == 'windows' && matrix.arch == 'aarch64') }}
-        run: upx --best --lzma target/$TARGET/release/gproxy$BIN_EXT
-
-      - name: Compress binary (macos)
-        if: ${{ runner.os == 'macOS' }}
-        run: upx --best --lzma --force-macos target/$TARGET/release/gproxy$BIN_EXT
-
-      - name: Codesign (macos)
-        if: ${{ runner.os == 'macOS' }}
-        run: codesign --force --sign - target/$TARGET/release/gproxy$BIN_EXT
-
-      - name: Package (unix)
-        if: ${{ runner.os != 'Windows' }}
+      - name: Package
         run: |
           mkdir -p dist
-          cp target/$TARGET/release/gproxy$BIN_EXT dist/gproxy$BIN_EXT
-          cp LICENSE README.md route.md dist/
-          (cd dist && zip -9 ../$ARTIFACT gproxy$BIN_EXT LICENSE README.md route.md)
-          shasum -a 256 "$ARTIFACT" > "$ARTIFACT.sha256"
-
-      - name: Package (windows)
-        if: ${{ runner.os == 'Windows' }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
-          $outBin = Join-Path -Path "dist" -ChildPath "gproxy$env:BIN_EXT"
-          Copy-Item -Path $bin -Destination $outBin
-          Copy-Item -Path LICENSE,README.md,route.md -Destination dist\
-          Compress-Archive -Path $outBin,dist\LICENSE,dist\README.md,dist\route.md -DestinationPath $env:ARTIFACT -Force
-          $hash = (Get-FileHash $env:ARTIFACT -Algorithm SHA256).Hash.ToLower()
-          "${hash}  $env:ARTIFACT" | Out-File -Encoding ASCII "$env:ARTIFACT.sha256"
-
-      - name: Upload artifact (push/debug)
-        if: ${{ github.event_name == 'push' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.libc || 'std' }}
-          path: |
-            *.zip
-            *.zip.sha256
+          cp target/${{ matrix.target }}/release/gproxy dist/gproxy
+          cp LICENSE README.md dist/
+          (cd dist && zip -9 ../${{ matrix.artifact }} gproxy LICENSE README.md)
+          sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Upload release assets
         if: ${{ github.event_name == 'release' }}

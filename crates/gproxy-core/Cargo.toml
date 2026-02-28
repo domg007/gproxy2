@@ -2,27 +2,26 @@
 name = "gproxy-core"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-arc-swap = "1"
-bytes.workspace = true
-clap = { version = "4", features = ["derive", "env"] }
-gproxy-common = { path = "../gproxy-common" }
+gproxy-admin = { path = "../gproxy-admin" }
+gproxy-middleware = { path = "../gproxy-middleware" }
+gproxy-provider = { path = "../gproxy-provider" }
 gproxy-protocol = { path = "../gproxy-protocol" }
-gproxy-provider-core = { path = "../gproxy-provider-core" }
-gproxy-provider-impl = { path = "../gproxy-provider-impl" }
 gproxy-storage = { path = "../gproxy-storage" }
-gproxy-transform = { path = "../gproxy-transform" }
-http = "1"
+arc-swap = "1"
+axum = { version = "0.8", features = ["json"] }
+async-stream = "0.3"
 futures-util = "0.3"
-rand = "0.9"
-serde_json.workspace = true
-serde_urlencoded = "0.7"
-time.workspace = true
-tokio = { workspace = true, features = ["net", "rt", "sync", "time"] }
-uuid = { version = "1", features = ["v4"] }
-wreq = { version = "6.0.0-rc.27", features = ["stream"] }
-wreq-util = "3.0.0-rc.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+time = "0.3"
+tokio = { version = "1", features = ["rt", "macros"] }
+uuid = { version = "1", features = ["serde", "v5"] }
+wreq = { version = "6.0.0-rc.28", features = ["json","cookies", "socks", "gzip", "stream"] }
+zip = "8"

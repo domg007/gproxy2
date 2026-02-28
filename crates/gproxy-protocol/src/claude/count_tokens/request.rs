@@ -1,41 +1,109 @@
 use serde::{Deserialize, Serialize};
 
-use crate::claude::count_tokens::types::Model;
-use crate::claude::types::{
-    AnthropicHeaders, BetaContextManagementConfig, BetaJSONOutputFormat, BetaMessageParam,
-    BetaOutputConfig, BetaRequestMCPServerURLDefinition, BetaSystemParam, BetaThinkingConfigParam,
-    BetaTool, BetaToolChoice,
+use crate::claude::count_tokens::types::{
+    AnthropicBeta, AnthropicVersion, BetaContextManagementConfig, BetaJsonOutputFormat,
+    BetaMessageParam, BetaOutputConfig, BetaRequestMcpServerUrlDefinition, BetaSystemPrompt,
+    BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
 };
 
-pub type CountTokensHeaders = AnthropicHeaders;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CountTokensRequestBody {
-    pub messages: Vec<BetaMessageParam>,
-    pub model: Model,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<BetaSystemParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<BetaTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<BetaToolChoice>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<BetaThinkingConfigParam>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_config: Option<BetaOutputConfig>,
-    /// Requires the `structured-outputs-2025-11-13` beta header.
-    /// Structured outputs are currently available as a public beta feature in the Claude API for
-    /// Claude Sonnet 4.5, Claude Opus 4.1, Claude Opus 4.5, and Claude Haiku 4.5.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<BetaJSONOutputFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_management: Option<BetaContextManagementConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_servers: Option<Vec<BetaRequestMCPServerURLDefinition>>,
+/// Request descriptor for Claude "Count Tokens" endpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClaudeCountTokensRequest {
+    /// HTTP method.
+    pub method: HttpMethod,
+    /// Path parameters.
+    pub path: PathParameters,
+    /// Query parameters.
+    pub query: QueryParameters,
+    /// Request headers.
+    pub headers: RequestHeaders,
+    /// Request body.
+    pub body: RequestBody,
 }
 
-#[derive(Debug, Clone)]
-pub struct CountTokensRequest {
-    pub headers: CountTokensHeaders,
-    pub body: CountTokensRequestBody,
+impl Default for ClaudeCountTokensRequest {
+    fn default() -> Self {
+        Self {
+            method: HttpMethod::Post,
+            path: PathParameters::default(),
+            query: QueryParameters::default(),
+            headers: RequestHeaders::default(),
+            body: RequestBody::default(),
+        }
+    }
+}
+
+/// Count tokens endpoint does not define path params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PathParameters {}
+
+/// Count tokens endpoint does not define query params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct QueryParameters {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {
+    /// Anthropic API version.
+    #[serde(rename = "anthropic-version")]
+    pub anthropic_version: AnthropicVersion,
+    /// Optional beta version(s).
+    #[serde(
+        rename = "anthropic-beta",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub anthropic_beta: Option<Vec<AnthropicBeta>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RequestBody {
+    /// Input messages.
+    pub messages: Vec<BetaMessageParam>,
+    /// Target model identifier.
+    pub model: Model,
+    /// Optional context management rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_management: Option<BetaContextManagementConfig>,
+    /// Optional MCP servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<BetaRequestMcpServerUrlDefinition>>,
+    /// Optional output configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<BetaOutputConfig>,
+    /// Optional deprecated output format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<BetaJsonOutputFormat>,
+    /// Optional speed mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+    /// Optional system prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BetaSystemPrompt>,
+    /// Optional thinking configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<BetaThinkingConfigParam>,
+    /// Optional tool choice policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<BetaToolChoice>,
+    /// Optional tool definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<BetaToolUnion>>,
+}
+
+impl Default for RequestBody {
+    fn default() -> Self {
+        Self {
+            messages: Vec::new(),
+            model: Model::Custom(String::new()),
+            context_management: None,
+            mcp_servers: None,
+            output_config: None,
+            output_format: None,
+            speed: None,
+            system: None,
+            thinking: None,
+            tool_choice: None,
+            tools: None,
+        }
+    }
 }

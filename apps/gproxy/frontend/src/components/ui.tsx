@@ -1,5 +1,4 @@
-
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 
 export function Card({
   title,
@@ -14,15 +13,15 @@ export function Card({
 }) {
   return (
     <section className="card-shell">
-      {(title || subtitle || action) && (
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      {title || subtitle || action ? (
+        <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            {title ? <h3 className="text-lg font-semibold text-slate-900">{title}</h3> : null}
-            {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+            {title ? <h2 className="text-lg font-semibold text-text">{title}</h2> : null}
+            {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
           </div>
           {action}
         </header>
-      )}
+      ) : null}
       {children}
     </section>
   );
@@ -30,40 +29,47 @@ export function Card({
 
 export function Button({
   children,
-  type = "button",
+  onClick,
   variant = "primary",
-  disabled,
-  onClick
+  type = "button",
+  disabled
 }: {
   children: ReactNode;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
+  variant?: "primary" | "neutral" | "danger" | "secondary";
   type?: "button" | "submit";
-  variant?: "primary" | "neutral" | "danger";
   disabled?: boolean;
-  onClick?: () => void;
 }) {
+  const normalized = variant === "secondary" ? "neutral" : variant;
   return (
-    <button type={type} disabled={disabled} onClick={onClick} className={`btn btn-${variant}`}>
+    <button className={`btn btn-${normalized}`} onClick={onClick} type={type} disabled={disabled}>
       {children}
     </button>
   );
 }
 
-export function FieldLabel({ children }: { children: ReactNode }) {
-  return <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</label>;
+export function Label({ children }: { children: ReactNode }) {
+  return (
+    <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-muted">
+      {children}
+    </label>
+  );
 }
 
-export function TextInput({
+export function Input({
   value,
   onChange,
   placeholder,
   type = "text",
-  disabled
+  disabled,
+  readOnly
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  type?: "text" | "password" | "number";
+  type?: "text" | "number" | "password" | "datetime-local";
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <input
@@ -71,6 +77,7 @@ export function TextInput({
       value={value}
       type={type}
       disabled={disabled}
+      readOnly={readOnly}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
     />
@@ -80,49 +87,101 @@ export function TextInput({
 export function TextArea({
   value,
   onChange,
-  rows = 4,
-  placeholder
+  rows = 5,
+  placeholder,
+  readOnly
 }: {
   value: string;
   onChange: (value: string) => void;
   rows?: number;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <textarea
-      rows={rows}
       className="textarea"
       value={value}
+      rows={rows}
+      readOnly={readOnly}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
     />
   );
 }
 
-export function SelectInput({
+export function Select({
   value,
+  onChange,
   options,
-  onChange
+  disabled
 }: {
   value: string;
-  options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
 }) {
   return (
-    <select className="select" value={value} onChange={(event) => onChange(event.target.value)}>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
+    <select
+      className="select"
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((item) => (
+        <option key={item.value} value={item.value}>
+          {item.label}
         </option>
       ))}
     </select>
   );
 }
 
-export function Badge({ children, active }: { children: ReactNode; active?: boolean }) {
-  return <span className={`badge ${active ? "badge-active" : ""}`}>{children}</span>;
+export function Table({
+  columns,
+  rows
+}: {
+  columns: string[];
+  rows: Array<Record<string, ReactNode>>;
+}) {
+  return (
+    <div className="data-table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column}>{column}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index}>
+              {columns.map((column) => (
+                <td key={column}>{row[column]}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-export function Divider() {
-  return <div className="h-px w-full bg-slate-200/80" />;
+export function MetricCard({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="metric-card">
+      <div className="text-xs uppercase tracking-[0.08em] text-muted">{label}</div>
+      <div className="mt-2 text-2xl font-semibold text-text">{value}</div>
+    </div>
+  );
+}
+
+export function Badge({
+  children,
+  active
+}: {
+  children: ReactNode;
+  active?: boolean;
+}) {
+  return <span className={`badge ${active ? "badge-active" : ""}`}>{children}</span>;
 }

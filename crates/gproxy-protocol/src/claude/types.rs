@@ -1,59 +1,86 @@
+use std::collections::BTreeMap;
+
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
-pub type RequestId = String;
-pub type AnthropicOrganizationId = String;
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AnthropicHeaders {
-    #[serde(rename = "anthropic-version")]
-    pub anthropic_version: AnthropicVersion,
-    #[serde(rename = "anthropic-beta", skip_serializing_if = "Option::is_none")]
-    pub anthropic_beta: Option<AnthropicBetaHeader>,
-}
-
+/// API version for the `anthropic-version` request header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum AnthropicVersion {
+    /// Latest stable API version.
     #[default]
     #[serde(rename = "2023-06-01")]
     V20230601,
+    /// Initial API release version.
     #[serde(rename = "2023-01-01")]
     V20230101,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AnthropicResponseHeaders {
-    #[serde(rename = "request-id")]
-    pub request_id: RequestId,
-    #[serde(
-        rename = "anthropic-organization-id",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub anthropic_organization_id: Option<AnthropicOrganizationId>,
+/// HTTP method used by generated request descriptors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
 }
 
-pub use crate::claude::count_tokens::types::*;
-pub use crate::claude::count_tokens::{
-    BetaCountTokensContextManagementResponse, BetaMessageTokensCount, CountTokensHeaders,
-    CountTokensRequest, CountTokensRequestBody, CountTokensResponse,
-};
-pub use crate::claude::create_message::stream::{
-    BetaStreamContentBlock, BetaStreamContentBlockDelta, BetaStreamEvent, BetaStreamEventKnown,
-    BetaStreamMessage, BetaStreamMessageDelta, BetaStreamUsage,
-};
-pub use crate::claude::create_message::types::BetaMessage;
-pub use crate::claude::create_message::{
-    CreateMessageHeaders, CreateMessageRequest, CreateMessageRequestBody, CreateMessageResponse,
-};
-pub use crate::claude::error::{ErrorDetail, ErrorResponse, ErrorResponseType, ErrorType};
-pub use crate::claude::get_model::{
-    GetModelHeaders, GetModelPath, GetModelRequest, GetModelResponse, ModelInfo,
-};
-pub use crate::claude::list_models::{
-    BetaModelInfo, ListModelsHeaders, ListModelsQuery, ListModelsRequest, ListModelsResponse,
-    ModelType,
-};
+/// Common envelope for HTTP responses from Claude endpoints.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClaudeApiResponse<T> {
+    /// HTTP status code returned by server.
+    #[serde(with = "crate::claude::types::status_code_serde")]
+    pub stats_code: StatusCode,
+    /// Response headers.
+    pub headers: ClaudeResponseHeaders,
+    /// Response body.
+    pub body: T,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Common response headers returned by Claude endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaudeResponseHeaders {
+    /// Additional response headers.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
+}
+
+/// Serde helpers for `http::StatusCode` as numeric code (e.g. 200, 404, 529).
+pub mod status_code_serde {
+    use http::StatusCode;
+    use serde::de::Error as _;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &StatusCode, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u16(value.as_u16())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<StatusCode, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let code = u16::deserialize(deserializer)?;
+        StatusCode::from_u16(code).map_err(D::Error::custom)
+    }
+}
+
+/// Anthropic beta header value.
+///
+/// The API accepts both known beta tags and arbitrary strings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AnthropicBeta {
+    Known(AnthropicBetaKnown),
+    Custom(String),
+}
+
+/// Known Anthropic beta tags documented by upstream specs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnthropicBetaKnown {
     #[serde(rename = "message-batches-2024-09-24")]
     MessageBatches20240924,
@@ -95,20 +122,207 @@ pub enum AnthropicBetaKnown {
     Skills20251002,
     #[serde(rename = "fast-mode-2026-02-01")]
     FastMode20260201,
-    #[serde(rename = "structured-outputs-2025-11-13")]
-    StructuredOutputs20251113,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AnthropicBeta {
-    Known(AnthropicBetaKnown),
-    Custom(String),
+/// Claude model metadata returned by list/get model endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaModelInfo {
+    /// Unique model identifier.
+    pub id: String,
+    /// RFC 3339 datetime representing model release timestamp.
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    /// Human-readable model name.
+    pub display_name: String,
+    /// Object type, always "model".
+    #[serde(rename = "type")]
+    pub type_: BetaModelType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaModelType {
+    #[serde(rename = "model")]
+    Model,
+}
+
+/// Typed beta error codes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaErrorType {
+    /// HTTP 400 (and may be used for other unlisted 4XX errors).
+    #[serde(rename = "invalid_request_error")]
+    InvalidRequestError,
+    /// HTTP 401.
+    #[serde(rename = "authentication_error")]
+    AuthenticationError,
+    /// Billing-related error type; HTTP status is not explicitly defined in `Errors.md`.
+    #[serde(rename = "billing_error")]
+    BillingError,
+    /// HTTP 403.
+    #[serde(rename = "permission_error")]
+    PermissionError,
+    /// HTTP 413.
+    #[serde(rename = "request_too_large")]
+    RequestTooLarge,
+    /// HTTP 404.
+    #[serde(rename = "not_found_error")]
+    NotFoundError,
+    /// HTTP 429.
+    #[serde(rename = "rate_limit_error")]
+    RateLimitError,
+    /// Timeout-related error type; HTTP status is not explicitly defined in `Errors.md`.
+    #[serde(rename = "timeout_error")]
+    TimeoutError,
+    /// HTTP 500.
+    #[serde(rename = "api_error")]
+    ApiError,
+    /// HTTP 529.
+    #[serde(rename = "overloaded_error")]
+    OverloadedError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaApiError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaApiErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaApiErrorType {
+    #[serde(rename = "api_error")]
+    ApiError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaAuthenticationError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaAuthenticationErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaAuthenticationErrorType {
+    #[serde(rename = "authentication_error")]
+    AuthenticationError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaBillingError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaBillingErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaBillingErrorType {
+    #[serde(rename = "billing_error")]
+    BillingError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaGatewayTimeoutError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaGatewayTimeoutErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaGatewayTimeoutErrorType {
+    #[serde(rename = "timeout_error")]
+    TimeoutError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaInvalidRequestError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaInvalidRequestErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaInvalidRequestErrorType {
+    #[serde(rename = "invalid_request_error")]
+    InvalidRequestError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaNotFoundError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaNotFoundErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaNotFoundErrorType {
+    #[serde(rename = "not_found_error")]
+    NotFoundError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaOverloadedError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaOverloadedErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaOverloadedErrorType {
+    #[serde(rename = "overloaded_error")]
+    OverloadedError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaPermissionError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaPermissionErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaPermissionErrorType {
+    #[serde(rename = "permission_error")]
+    PermissionError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaRateLimitError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: BetaRateLimitErrorType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaRateLimitErrorType {
+    #[serde(rename = "rate_limit_error")]
+    RateLimitError,
+}
+
+/// Error union returned by beta endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum AnthropicBetaHeader {
-    Single(AnthropicBeta),
-    Multiple(Vec<AnthropicBeta>),
+pub enum BetaError {
+    InvalidRequest(BetaInvalidRequestError),
+    Authentication(BetaAuthenticationError),
+    Billing(BetaBillingError),
+    Permission(BetaPermissionError),
+    NotFound(BetaNotFoundError),
+    RateLimit(BetaRateLimitError),
+    GatewayTimeout(BetaGatewayTimeoutError),
+    Api(BetaApiError),
+    Overloaded(BetaOverloadedError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BetaErrorResponseType {
+    #[serde(rename = "error")]
+    Error,
+}
+
+/// Top-level beta error response wrapper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BetaErrorResponse {
+    pub error: BetaError,
+    pub request_id: String,
+    #[serde(rename = "type")]
+    pub type_: BetaErrorResponseType,
 }

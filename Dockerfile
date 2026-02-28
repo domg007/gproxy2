@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:lts-alpine3.23 AS frontend
+FROM node:lts-alpine AS frontend
 
 WORKDIR /app
 
@@ -12,43 +12,45 @@ RUN corepack enable \
 COPY apps/gproxy/frontend ./apps/gproxy/frontend
 RUN cd apps/gproxy/frontend && pnpm build
 
-FROM rust:1.92-slim-trixie AS builder
+FROM rust:1.92-alpine3.23 AS builder
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        git \
-        pkg-config \
-        libssl-dev \
-        ca-certificates \
+RUN apk add --no-cache \
+        build-base \
+        clang \
         cmake \
-        ninja-build \
+        file \
+        git \
+        musl-dev \
+        ninja \
         perl \
-        upx-ucl \
-        libclang-dev \
-    && rm -rf /var/lib/apt/lists/*
+        pkgconfig
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY apps ./apps
-COPY route.md ./route.md
 
 COPY --from=frontend /app/apps/gproxy/frontend/dist ./apps/gproxy/frontend/dist
 
-RUN cargo build --release -p gproxy \
-    && upx --best --lzma target/release/gproxy
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      "amd64") export RUST_TARGET="x86_64-unknown-linux-musl" ;; \
+      "arm64") export RUST_TARGET="aarch64-unknown-linux-musl" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && rustup target add "${RUST_TARGET}" \
+    && cargo build --release --target "${RUST_TARGET}" -p gproxy \
+    && mkdir -p /tmp/app/data \
+    && cp "target/${RUST_TARGET}/release/gproxy" /tmp/gproxy \
+    && file /tmp/gproxy | grep -q "statically linked"
 
-FROM debian:trixie-slim
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM gcr.io/distroless/static
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/gproxy /usr/local/bin/gproxy
+COPY --from=builder /tmp/gproxy /usr/local/bin/gproxy
+COPY --from=builder /tmp/app/data /app/data
 
 ENV GPROXY_HOST=0.0.0.0
 ENV GPROXY_PORT=8787
@@ -58,4 +60,4 @@ ENV GPROXY_ADMIN_KEY=pwd
 
 EXPOSE 8787
 
-CMD ["/usr/local/bin/gproxy"]
+ENTRYPOINT ["/usr/local/bin/gproxy"]

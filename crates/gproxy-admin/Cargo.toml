@@ -2,15 +2,14 @@
 name = "gproxy-admin"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-axum = { version = "0.8", features = ["ws","http2"] }
-gproxy-core = { path = "../gproxy-core" }
 gproxy-storage = { path = "../gproxy-storage" }
-serde.workspace = true
-serde_json.workspace = true
-serde_urlencoded = "0.7"
-tokio = { workspace = true, features = ["rt", "macros"] }
+sea-orm = "2.0.0-rc.32"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v7"] }
