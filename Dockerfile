@@ -20,6 +20,7 @@ WORKDIR /app
 RUN apk add --no-cache \
         build-base \
         clang \
+        clang21-libclang \
         cmake \
         file \
         git \
@@ -27,6 +28,8 @@ RUN apk add --no-cache \
         ninja \
         perl \
         pkgconfig
+
+ENV LIBCLANG_PATH=/usr/lib
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
