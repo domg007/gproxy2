@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs;
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{fs, io::Read};
 
 use axum::body::Body;
 use axum::extract::State;
@@ -314,6 +313,7 @@ struct SelfUpdateResult {
     release_tag: String,
     asset_name: String,
     installed_to: String,
+    staged_binary_path: Option<PathBuf>,
 }
 
 async fn system_self_update(
@@ -330,7 +330,7 @@ async fn system_self_update(
         )
     })?;
 
-    schedule_self_restart().map_err(|err| {
+    schedule_self_restart(result.staged_binary_path.clone()).map_err(|err| {
         HttpError::new(
             StatusCode::BAD_GATEWAY,
             format!("self_restart_schedule_failed: {err}"),
@@ -352,8 +352,25 @@ async fn system_self_update(
 async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpdateResult, String> {
     #[cfg(windows)]
     {
-        let _ = proxy;
-        return Err("self_update_not_supported_on_windows_running_binary".to_string());
+        let target_asset = target_release_asset_name()?;
+        let client = build_self_update_client(proxy)?;
+        let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
+
+        let zip_bytes =
+            download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
+        let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
+        let staged_binary_path = stage_windows_binary_bytes(binary_bytes)?;
+
+        let installed_to = env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "<unknown>".to_string());
+
+        return Ok(SelfUpdateResult {
+            release_tag,
+            asset_name: asset.name,
+            installed_to,
+            staged_binary_path: Some(staged_binary_path),
+        });
     }
 
     #[cfg(not(windows))]
@@ -375,6 +392,7 @@ async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpda
             release_tag,
             asset_name: asset.name,
             installed_to,
+            staged_binary_path: None,
         })
     }
 }
@@ -544,6 +562,7 @@ fn extract_binary_from_zip(zip_bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+#[cfg(not(windows))]
 fn install_binary_bytes(binary: Vec<u8>) -> Result<(), String> {
     let current = env::current_exe().map_err(|err| format!("current_exe:{err}"))?;
     let parent = current
@@ -576,6 +595,18 @@ fn install_binary_bytes(binary: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn stage_windows_binary_bytes(binary: Vec<u8>) -> Result<PathBuf, String> {
+    let current = env::current_exe().map_err(|err| format!("current_exe:{err}"))?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "current_exe_parent_missing".to_string())?;
+    let staged = temp_update_path(parent);
+    fs::write(&staged, &binary)
+        .map_err(|err| format!("write_staged_binary:{}:{err}", staged.display()))?;
+    Ok(staged)
+}
+
 fn temp_update_path(parent: &std::path::Path) -> PathBuf {
     let pid = std::process::id();
     let nanos = SystemTime::now()
@@ -589,16 +620,123 @@ fn temp_update_path(parent: &std::path::Path) -> PathBuf {
     }
 }
 
-fn schedule_self_restart() -> Result<(), String> {
+fn schedule_self_restart(staged_binary_path: Option<PathBuf>) -> Result<(), String> {
     let exe = env::current_exe().map_err(|err| format!("current_exe_for_restart:{err}"))?;
     let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
 
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(500));
+        #[cfg(windows)]
+        if let Some(staged_binary_path) = staged_binary_path.as_ref() {
+            match spawn_windows_update_worker(staged_binary_path.as_path(), exe.as_path(), &args) {
+                Ok(()) => std::process::exit(0),
+                Err(err) => {
+                    eprintln!(
+                        "self_update windows updater spawn failed for {} using staged {}: {err}",
+                        exe.display(),
+                        staged_binary_path.display()
+                    );
+                }
+            }
+        }
+
+        #[cfg(not(windows))]
+        let _ = &staged_binary_path;
+
         restart_current_process(exe, args);
     });
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn spawn_windows_update_worker(
+    staged_binary: &std::path::Path,
+    target_binary: &std::path::Path,
+    args: &[std::ffi::OsString],
+) -> Result<(), String> {
+    let parent = target_binary
+        .parent()
+        .ok_or_else(|| "windows_target_binary_parent_missing".to_string())?;
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let script_path = parent.join(format!("gproxy-update-worker-{pid}-{nanos}.cmd"));
+
+    let src = escape_cmd_set_value(staged_binary.to_string_lossy().as_ref());
+    let dst = escape_cmd_set_value(target_binary.to_string_lossy().as_ref());
+    let args_line = if args.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " {}",
+            args.iter()
+                .map(|arg| quote_cmd_arg(arg.to_string_lossy().as_ref()))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+
+    let script = format!(
+        "@echo off\r\n\
+setlocal enableextensions\r\n\
+set \"SRC={src}\"\r\n\
+set \"DST={dst}\"\r\n\
+:retry\r\n\
+move /Y \"%SRC%\" \"%DST%\" >nul 2>&1\r\n\
+if errorlevel 1 (\r\n\
+  timeout /t 1 /nobreak >nul\r\n\
+  goto retry\r\n\
+)\r\n\
+start \"\" \"%DST%\"{args_line}\r\n\
+del \"%~f0\" >nul 2>&1\r\n"
+    );
+
+    fs::write(&script_path, script)
+        .map_err(|err| format!("write_windows_update_script:{}:{err}", script_path.display()))?;
+
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .arg(script_path.as_os_str())
+        .spawn()
+        .map_err(|err| format!("spawn_windows_update_script:{}:{err}", script_path.display()))?;
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn escape_cmd_set_value(value: &str) -> String {
+    value.replace('%', "%%")
+}
+
+#[cfg(windows)]
+fn quote_cmd_arg(value: &str) -> String {
+    if value.is_empty() {
+        return "\"\"".to_string();
+    }
+
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for ch in value.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                quoted.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                quoted.push(ch);
+            }
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
 }
 
 #[cfg(unix)]
