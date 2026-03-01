@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
     let config = boot.state.config.load();
     let host = config.global.host.clone();
     let port = config.global.port;
+    let username = boot.state.users[0].username.clone();
     let password = config.global.admin_key.clone();
     let bind_addr = format!("{host}:{port}");
     let (author, email) = parse_author_and_email(env!("CARGO_PKG_AUTHORS"));
@@ -69,6 +70,7 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
     println!("listen: http://{bind_addr}");
+    println!("username: {username}");
     println!("password: {password}");
     println!("========================================");
 
