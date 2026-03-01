@@ -23,11 +23,18 @@ struct DeleteMyKeyPayload {
     id: i64,
 }
 
+#[derive(Debug, Deserialize)]
+struct ChangeMyPasswordPayload {
+    current_password: String,
+    new_password: String,
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/keys/query", post(query_my_keys))
         .route("/keys/generate", post(generate_my_key))
         .route("/keys/delete", post(delete_my_key))
+        .route("/password/change", post(change_my_password))
         .route("/usages/query", post(query_my_usages))
         .route("/usages/summary", post(summarize_my_usages))
 }
@@ -89,6 +96,41 @@ async fn delete_my_key(
     gproxy_admin::delete_my_user_key(&state.storage_writes, api_key, &users, &keys, payload.id)
         .await?;
     state.delete_user_key_in_memory(payload.id);
+    Ok(Json(Ack { ok: true }))
+}
+
+async fn change_my_password(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<ChangeMyPasswordPayload>,
+) -> Result<Json<Ack>, HttpError> {
+    let api_key = api_key_from_headers(&headers)?;
+    let users = state.load_users();
+    let keys = state.load_keys();
+    let me = gproxy_admin::authenticate_user_key(&users, &keys, api_key).await?;
+    let Some(user) = users.iter().find(|row| row.id == me.user_id) else {
+        return Err(HttpError::from(gproxy_admin::AdminApiError::Unauthorized));
+    };
+
+    if payload.current_password.trim() != user.password {
+        return Err(HttpError::from(gproxy_admin::AdminApiError::Unauthorized));
+    }
+
+    let new_password = payload.new_password.trim();
+    if new_password.is_empty() {
+        return Err(HttpError::from(gproxy_admin::AdminApiError::InvalidInput(
+            "new password cannot be empty".to_string(),
+        )));
+    }
+
+    let write = gproxy_storage::UserWrite {
+        id: user.id,
+        name: user.name.clone(),
+        password: new_password.to_string(),
+        enabled: user.enabled,
+    };
+    state.upsert_user_in_memory(write.clone());
+    gproxy_admin::upsert_user(&state.storage_writes, write).await?;
     Ok(Json(Ack { ok: true }))
 }
 

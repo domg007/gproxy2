@@ -4,7 +4,7 @@ import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import type { UserKeyQueryRow } from "../../lib/types";
-import { Button, Card, Table } from "../../components/ui";
+import { Button, Card, Input, Label, Table } from "../../components/ui";
 
 interface GeneratedMyKey {
   id: number;
@@ -22,6 +22,9 @@ export function MyKeysModule({
   const { t } = useI18n();
   const [rows, setRows] = useState<UserKeyQueryRow[]>([]);
   const [revealedKeyIds, setRevealedKeyIds] = useState<Set<number>>(() => new Set());
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
   const maskApiKey = (value: string): string => {
     const key = value.trim();
@@ -150,10 +153,77 @@ export function MyKeysModule({
     }
   };
 
+  const changeMyPassword = async () => {
+    if (!currentPassword.trim()) {
+      notify("error", t("myPassword.currentRequired"));
+      return;
+    }
+    if (!newPassword.trim()) {
+      notify("error", t("myPassword.newRequired"));
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      notify("error", t("myPassword.confirmMismatch"));
+      return;
+    }
+
+    try {
+      await apiRequest("/user/password/change", {
+        apiKey,
+        method: "POST",
+        body: {
+          current_password: currentPassword,
+          new_password: newPassword
+        }
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      notify("success", t("myPassword.changed"));
+    } catch (error) {
+      notify("error", formatError(error));
+    }
+  };
+
   const tableColumns = [t("table.id"), t("table.user_id"), t("table.api_key"), t("common.action")];
 
   return (
     <div className="space-y-4">
+      <Card title={t("myPassword.title")} subtitle={t("myPassword.subtitle")}>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div>
+            <Label>{t("myPassword.current")}</Label>
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              placeholder={t("myPassword.currentPlaceholder")}
+            />
+          </div>
+          <div>
+            <Label>{t("myPassword.new")}</Label>
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={setNewPassword}
+              placeholder={t("myPassword.newPlaceholder")}
+            />
+          </div>
+          <div>
+            <Label>{t("myPassword.confirm")}</Label>
+            <Input
+              type="password"
+              value={confirmNewPassword}
+              onChange={setConfirmNewPassword}
+              placeholder={t("myPassword.confirmPlaceholder")}
+            />
+          </div>
+        </div>
+        <div className="mt-3">
+          <Button onClick={() => void changeMyPassword()}>{t("myPassword.submit")}</Button>
+        </div>
+      </Card>
+
       <Card
         title={t("myKeys.title")}
         subtitle={t("myKeys.subtitle")}
