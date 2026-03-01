@@ -80,6 +80,7 @@ pub fn claude_model_to_string(model: &Model) -> String {
             ModelKnown::Claude4Sonnet20250514 => "claude-4-sonnet-20250514",
             ModelKnown::ClaudeSonnet45 => "claude-sonnet-4-5",
             ModelKnown::ClaudeSonnet4520250929 => "claude-sonnet-4-5-20250929",
+            ModelKnown::ClaudeSonnet46 => "claude-sonnet-4-6",
             ModelKnown::ClaudeOpus40 => "claude-opus-4-0",
             ModelKnown::ClaudeOpus420250514 => "claude-opus-4-20250514",
             ModelKnown::Claude4Opus20250514 => "claude-4-opus-20250514",

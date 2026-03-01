@@ -22,6 +22,7 @@ pub type BetaRequestMcpServerUrlDefinition = ct::BetaRequestMcpServerUrlDefiniti
 pub type BetaOutputConfig = ct::BetaOutputConfig;
 pub type BetaJsonOutputFormat = ct::BetaJsonOutputFormat;
 pub type BetaSystemPrompt = ct::BetaSystemPrompt;
+pub type BetaCacheControlEphemeral = ct::BetaCacheControlEphemeral;
 pub type BetaThinkingConfigParam = ct::BetaThinkingConfigParam;
 pub type BetaToolChoice = ct::BetaToolChoice;
 pub type BetaToolUnion = ct::BetaToolUnion;

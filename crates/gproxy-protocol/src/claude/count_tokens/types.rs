@@ -50,6 +50,8 @@ pub enum ModelKnown {
     ClaudeSonnet45,
     #[serde(rename = "claude-sonnet-4-5-20250929")]
     ClaudeSonnet4520250929,
+    #[serde(rename = "claude-sonnet-4-6")]
+    ClaudeSonnet46,
     #[serde(rename = "claude-opus-4-0")]
     ClaudeOpus40,
     #[serde(rename = "claude-opus-4-20250514")]

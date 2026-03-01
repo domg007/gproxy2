@@ -129,6 +129,7 @@ impl TryFrom<OpenAiCompactRequest> for ClaudeCreateMessageRequest {
                 inference_geo: None,
                 mcp_servers: None,
                 metadata: None,
+                cache_control: None,
                 output_config: None,
                 output_format: None,
                 service_tier: None,

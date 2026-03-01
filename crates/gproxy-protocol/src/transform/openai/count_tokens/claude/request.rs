@@ -303,6 +303,7 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
                 } else {
                     Some(mcp_servers)
                 },
+                cache_control: None,
                 output_config,
                 output_format,
                 speed: None,

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::claude::count_tokens::types::{
-    AnthropicBeta, AnthropicVersion, BetaContextManagementConfig, BetaJsonOutputFormat,
-    BetaMessageParam, BetaOutputConfig, BetaRequestMcpServerUrlDefinition, BetaSystemPrompt,
-    BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
+    AnthropicBeta, AnthropicVersion, BetaCacheControlEphemeral, BetaContextManagementConfig,
+    BetaJsonOutputFormat, BetaMessageParam, BetaOutputConfig, BetaRequestMcpServerUrlDefinition,
+    BetaSystemPrompt, BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
 };
 
 /// Request descriptor for Claude "Count Tokens" endpoint.
@@ -67,6 +67,9 @@ pub struct RequestBody {
     /// Optional MCP servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp_servers: Option<Vec<BetaRequestMcpServerUrlDefinition>>,
+    /// Optional top-level cache control for automatic prompt caching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<BetaCacheControlEphemeral>,
     /// Optional output configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_config: Option<BetaOutputConfig>,
@@ -97,6 +100,7 @@ impl Default for RequestBody {
             model: Model::Custom(String::new()),
             context_management: None,
             mcp_servers: None,
+            cache_control: None,
             output_config: None,
             output_format: None,
             speed: None,

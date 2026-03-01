@@ -464,6 +464,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                     Some(mcp_servers)
                 },
                 metadata,
+                cache_control: None,
                 output_config,
                 output_format,
                 service_tier: claude_service_tier,

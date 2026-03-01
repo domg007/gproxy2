@@ -59,6 +59,7 @@ impl TryFrom<GeminiGenerateContentRequest> for ClaudeCreateMessageRequest {
                 inference_geo: None,
                 mcp_servers: None,
                 metadata: None,
+                cache_control: None,
                 output_config,
                 output_format,
                 service_tier: None,

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::claude::create_message::types::{
-    AnthropicBeta, AnthropicVersion, BetaContainerRef, BetaContextManagementConfig,
-    BetaJsonOutputFormat, BetaMessageParam, BetaMetadata, BetaOutputConfig,
-    BetaRequestMcpServerUrlDefinition, BetaServiceTierParam, BetaSpeed, BetaSystemPrompt,
-    BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
+    AnthropicBeta, AnthropicVersion, BetaCacheControlEphemeral, BetaContainerRef,
+    BetaContextManagementConfig, BetaJsonOutputFormat, BetaMessageParam, BetaMetadata,
+    BetaOutputConfig, BetaRequestMcpServerUrlDefinition, BetaServiceTierParam, BetaSpeed,
+    BetaSystemPrompt, BetaThinkingConfigParam, BetaToolChoice, BetaToolUnion, HttpMethod, Model,
 };
 
 /// Request descriptor for Claude "Create a Message" endpoint.
@@ -79,6 +79,9 @@ pub struct RequestBody {
     /// Optional per-request metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BetaMetadata>,
+    /// Optional top-level cache control for automatic prompt caching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<BetaCacheControlEphemeral>,
     /// Optional output configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_config: Option<BetaOutputConfig>,
@@ -131,6 +134,7 @@ impl Default for RequestBody {
             inference_geo: None,
             mcp_servers: None,
             metadata: None,
+            cache_control: None,
             output_config: None,
             output_format: None,
             service_tier: None,
