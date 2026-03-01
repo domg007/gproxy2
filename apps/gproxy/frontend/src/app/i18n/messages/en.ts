@@ -259,6 +259,7 @@ export const enMessages = {
     "field.host": "host",
     "field.port": "port",
     "field.proxy": "proxy",
+    "field.spoof_emulation": "spoof_emulation",
     "field.hf_token": "hf_token",
     "field.hf_url": "hf_url",
     "field.admin_key": "admin_key",

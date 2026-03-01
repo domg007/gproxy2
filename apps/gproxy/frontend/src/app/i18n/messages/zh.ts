@@ -259,6 +259,7 @@ export const zhMessages = {
     "field.host": "监听地址",
     "field.port": "监听端口",
     "field.proxy": "代理",
+    "field.spoof_emulation": "Spoof 仿真类型",
     "field.hf_token": "HF Token",
     "field.hf_url": "HF URL",
     "field.admin_key": "管理员密钥",

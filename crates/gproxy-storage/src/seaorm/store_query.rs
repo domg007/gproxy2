@@ -32,6 +32,7 @@ impl SeaOrmStorage {
             hf_token: row.hf_token,
             hf_url: row.hf_url,
             proxy: row.proxy,
+            spoof_emulation: row.spoof_emulation,
             dsn: row.dsn,
             data_dir: row.data_dir,
             mask_sensitive_info: row.mask_sensitive_info,

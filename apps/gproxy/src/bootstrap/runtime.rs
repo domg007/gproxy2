@@ -5,7 +5,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::Parser;
 use gproxy_admin::{MemoryUser, MemoryUserKey};
-use gproxy_core::{AppState, AppStateInit, GlobalSettings};
+use gproxy_core::{
+    AppState, AppStateInit, GlobalSettings, build_claudecode_spoof_client, build_http_client,
+    normalize_spoof_emulation,
+};
 use gproxy_provider::{
     ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialRef,
     LocalTokenizerStore, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
@@ -21,11 +24,9 @@ use crate::bootstrap::config::{
     BootstrapConfig, CredentialConfigFile, CredentialHealthConfigFile, DEFAULT_CONFIG_PATH,
 };
 
-mod http_clients;
 mod principal;
 mod storage_seed;
 
-use self::http_clients::{build_claudecode_spoof_client, build_http_client};
 use self::principal::{ensure_admin_principal, seed_admin_principal};
 use self::storage_seed::{
     seed_global_settings, seed_registry_credentials_and_statuses, seed_registry_providers,
@@ -148,8 +149,9 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
 
     let http_client = build_http_client(global.proxy.as_deref())
         .context("build standard upstream http client")?;
-    let spoof_http_client = build_claudecode_spoof_client(global.proxy.as_deref())
-        .context("build claudecode spoof http client")?;
+    let spoof_http_client =
+        build_claudecode_spoof_client(global.proxy.as_deref(), global.spoof_emulation.as_str())
+            .context("build claudecode spoof http client")?;
     let tokenizer_store = Arc::new(LocalTokenizerStore::new(tokenizer_cache_dir));
     if let Err(err) = tokenizer_store.ensure_deepseek_fallback() {
         eprintln!("bootstrap: preload deepseek fallback tokenizer failed: {err}");
@@ -187,6 +189,7 @@ fn merge_global_settings(config: &BootstrapConfig) -> GlobalSettings {
     if let Some(proxy) = config.global.proxy.as_ref() {
         global.proxy = Some(proxy.clone());
     }
+    global.spoof_emulation = normalize_spoof_emulation(config.global.spoof_emulation.as_deref());
     if let Some(hf_token) = config.global.hf_token.as_ref() {
         global.hf_token = Some(hf_token.clone());
     }

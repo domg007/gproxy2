@@ -2,11 +2,17 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+fn default_spoof_emulation() -> String {
+    "chrome_136".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalSettingsWrite {
     pub host: String,
     pub port: u16,
     pub proxy: Option<String>,
+    #[serde(default = "default_spoof_emulation")]
+    pub spoof_emulation: String,
     pub admin_key: String,
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,

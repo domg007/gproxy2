@@ -41,6 +41,7 @@ pub struct GlobalConfigFile {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub proxy: Option<String>,
+    pub spoof_emulation: Option<String>,
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,
     pub admin_key: Option<String>,

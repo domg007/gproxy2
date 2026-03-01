@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use wreq::Client as WreqClient;
 
 use crate::http_clients::UpstreamHttpClients;
+use crate::upstream_http::DEFAULT_SPOOF_EMULATION;
 
 pub const DEFAULT_HOST: &str = "0.0.0.0";
 pub const DEFAULT_PORT: u16 = 8787;
@@ -30,6 +31,7 @@ pub struct GlobalSettings {
     pub host: String,
     pub port: u16,
     pub proxy: Option<String>,
+    pub spoof_emulation: String,
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,
     pub admin_key: String,
@@ -46,6 +48,7 @@ impl Default for GlobalSettings {
             host: DEFAULT_HOST.to_string(),
             port: DEFAULT_PORT,
             proxy: None,
+            spoof_emulation: DEFAULT_SPOOF_EMULATION.to_string(),
             hf_token: None,
             hf_url: Some(DEFAULT_HF_URL.to_string()),
             admin_key: String::new(),

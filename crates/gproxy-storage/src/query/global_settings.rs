@@ -10,6 +10,7 @@ pub struct GlobalSettingsRow {
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,
     pub proxy: Option<String>,
+    pub spoof_emulation: Option<String>,
     pub dsn: String,
     pub data_dir: String,
     pub mask_sensitive_info: bool,

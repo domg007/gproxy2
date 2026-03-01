@@ -13,7 +13,9 @@ use gproxy_provider::{
 };
 use gproxy_storage::Scope;
 
-use crate::AppState;
+use crate::{
+    AppState, build_claudecode_spoof_client, build_http_client, normalize_spoof_emulation,
+};
 
 use super::{
     Ack, ExportBootstrapConfig, ExportChannelConfig, ExportCredentialConfig,
@@ -141,6 +143,7 @@ pub(super) async fn export_config_toml(
             host: snapshot.global.host.clone(),
             port: snapshot.global.port,
             proxy: snapshot.global.proxy.clone().unwrap_or_default(),
+            spoof_emulation: snapshot.global.spoof_emulation.clone(),
             hf_token: snapshot.global.hf_token.clone().unwrap_or_default(),
             hf_url: snapshot.global.hf_url.clone().unwrap_or_default(),
             admin_key: snapshot.global.admin_key.clone(),
@@ -217,6 +220,9 @@ pub(super) async fn apply_imported_global(
             Some(proxy.clone())
         };
     }
+    if let Some(spoof_emulation) = imported.spoof_emulation.as_ref() {
+        global.spoof_emulation = normalize_spoof_emulation(Some(spoof_emulation.as_str()));
+    }
     if let Some(hf_token) = imported.hf_token.as_ref() {
         global.hf_token = if hf_token.trim().is_empty() {
             None
@@ -244,25 +250,43 @@ pub(super) async fn apply_imported_global(
         global.data_dir = data_dir.clone();
     }
 
-    let mut snapshot = (*state.config.load_full()).clone();
-    snapshot.global = global.clone();
-    state.replace_config(snapshot);
+    let http = Arc::new(build_http_client(global.proxy.as_deref()).map_err(|err| {
+        HttpError::new(
+            StatusCode::BAD_REQUEST,
+            format!("build standard upstream http client failed: {err}"),
+        )
+    })?);
+    let spoof_http = Arc::new(
+        build_claudecode_spoof_client(global.proxy.as_deref(), global.spoof_emulation.as_str())
+            .map_err(|err| {
+                HttpError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("build claudecode spoof http client failed: {err}"),
+                )
+            })?,
+    );
 
     gproxy_admin::upsert_global_settings(
         &state.storage_writes,
         gproxy_storage::GlobalSettingsWrite {
-            host: global.host,
+            host: global.host.clone(),
             port: global.port,
-            proxy: global.proxy,
-            hf_token: global.hf_token,
-            hf_url: global.hf_url,
-            admin_key: global.admin_key,
+            proxy: global.proxy.clone(),
+            spoof_emulation: global.spoof_emulation.clone(),
+            hf_token: global.hf_token.clone(),
+            hf_url: global.hf_url.clone(),
+            admin_key: global.admin_key.clone(),
             mask_sensitive_info: global.mask_sensitive_info,
-            dsn: global.dsn,
-            data_dir: global.data_dir,
+            dsn: global.dsn.clone(),
+            data_dir: global.data_dir.clone(),
         },
     )
     .await?;
+
+    let mut snapshot = (*state.config.load_full()).clone();
+    snapshot.global = global;
+    state.replace_config(snapshot);
+    state.replace_http_clients(http, spoof_http);
 
     Ok(())
 }

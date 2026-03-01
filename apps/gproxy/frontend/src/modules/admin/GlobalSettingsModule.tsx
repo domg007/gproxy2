@@ -3,9 +3,20 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
 import type { GlobalSettingsRow } from "../../lib/types";
-import { Button, Card, Input, Label } from "../../components/ui";
+import { Button, Card, Input, Label, Select } from "../../components/ui";
 
 const DEFAULT_HF_URL = "https://huggingface.co";
+const DEFAULT_SPOOF_EMULATION = "chrome_136";
+const SPOOF_EMULATION_OPTIONS = [
+  { value: "chrome_136", label: "Chrome 136" },
+  { value: "chrome_137", label: "Chrome 137" },
+  { value: "chrome_138", label: "Chrome 138" },
+  { value: "edge_136", label: "Edge 136" },
+  { value: "edge_137", label: "Edge 137" },
+  { value: "firefox_136", label: "Firefox 136" },
+  { value: "firefox_139", label: "Firefox 139" },
+  { value: "safari_18_5", label: "Safari 18.5" }
+];
 
 export function GlobalSettingsModule({
   apiKey,
@@ -26,6 +37,7 @@ export function GlobalSettingsModule({
     hfToken: "",
     hfUrl: DEFAULT_HF_URL,
     proxy: "",
+    spoofEmulation: DEFAULT_SPOOF_EMULATION,
     adminKey: "",
     dsn: "",
     dataDir: "",
@@ -46,6 +58,7 @@ export function GlobalSettingsModule({
           hfToken: row.hf_token ?? "",
           hfUrl: row.hf_url ?? DEFAULT_HF_URL,
           proxy: row.proxy ?? "",
+          spoofEmulation: row.spoof_emulation ?? DEFAULT_SPOOF_EMULATION,
           adminKey: row.admin_key,
           dsn: row.dsn,
           dataDir: row.data_dir,
@@ -74,6 +87,7 @@ export function GlobalSettingsModule({
           hf_token: form.hfToken.trim() || null,
           hf_url: form.hfUrl.trim() || null,
           proxy: form.proxy.trim() || null,
+          spoof_emulation: form.spoofEmulation,
           admin_key: form.adminKey.trim(),
           mask_sensitive_info: form.maskSensitiveInfo,
           dsn: form.dsn.trim(),
@@ -231,6 +245,14 @@ export function GlobalSettingsModule({
         <div>
           <Label>{t("field.proxy")}</Label>
           <Input value={form.proxy} onChange={(v) => setForm((p) => ({ ...p, proxy: v }))} />
+        </div>
+        <div>
+          <Label>{t("field.spoof_emulation")}</Label>
+          <Select
+            value={form.spoofEmulation}
+            onChange={(v) => setForm((p) => ({ ...p, spoofEmulation: v }))}
+            options={SPOOF_EMULATION_OPTIONS}
+          />
         </div>
         <div>
           <Label>{t("field.hf_token")}</Label>
