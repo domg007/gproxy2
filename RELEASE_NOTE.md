@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.3.2
+
+### Changed
+
+- Improved model route protocol selection (`/v1/models`, `/{provider}/v1/models`, and model get routes):
+  - prioritize Gemini model flow when `x-goog-api-key` or query `?key=` is provided
+  - treat `anthropic-version` as Claude preference only when `Authorization: Bearer ...` exists
+  - keep OpenAI as default fallback when no explicit Gemini/Claude preference is detected
+- Updated request log UI to expose richer request context with payload drill-down (headers/body preview) for faster debugging.
+- Added additional request normalization for Codex channel:
+  - normalize model ids by stripping `codex/` prefix when needed
+  - convert `system`/`developer` input messages into `instructions` before forwarding to upstream `/responses`
+
+### Fixed
+
+- Fixed local transformed responses for model endpoints not being unwrapped correctly:
+  - removed enum wrapper shells like `ModelListOpenAi`
+  - removed HTTP wrapper envelope (`stats_code/headers/body`) and returned normalized body payload directly
+- Fixed Codex chat completion replay failures caused by upstream rejecting `system` messages (`System messages are not allowed`).
+- Fixed GeminiCli long/stream chat completion replay compatibility by stripping unsupported `generationConfig.logprobs` and `generationConfig.responseLogprobs`, avoiding upstream `400` empty-body responses in this scenario.
+
 ## v0.3.1
 
 ### Changed
