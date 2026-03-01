@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:lts-alpine AS frontend
+FROM node:lts AS frontend
 
 WORKDIR /app
 
@@ -63,7 +63,7 @@ RUN ARCH="${TARGETARCH:-$(uname -m)}" \
     && install -d /usr/local/bin \
     && ln -sf "${MUSL_CC}" "/usr/local/bin/${MUSL_TRIPLE}-gcc" \
     && if command -v "${MUSL_TRIPLE}-g++" >/dev/null 2>&1; then \
-         MUSL_CXX="$(command -v "${MUSL_TRIPLE}-g++)"; \
+         MUSL_CXX="$(command -v "${MUSL_TRIPLE}-g++")"; \
        else \
          MUSL_CXX="/usr/local/bin/${MUSL_TRIPLE}-gcc"; \
        fi \
