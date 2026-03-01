@@ -327,6 +327,44 @@ body {
   resize: vertical;
 }
 
+.search-select {
+  position: relative;
+}
+
+.search-select-list {
+  position: absolute;
+  z-index: 40;
+  margin-top: 0.25rem;
+  max-height: 240px;
+  width: 100%;
+  overflow-y: auto;
+  border-radius: 0.74rem;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-strong) 98%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.search-select-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.86rem;
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+}
+
+.search-select-item:hover {
+  background: color-mix(in srgb, var(--bg-soft) 92%, transparent);
+}
+
+.search-select-empty {
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding: 0.58rem 0.7rem;
+}
+
 .data-table-wrap {
   overflow-x: auto;
 }

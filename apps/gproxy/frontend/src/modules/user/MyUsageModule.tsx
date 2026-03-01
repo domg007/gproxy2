@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
 import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
-import type { UsageQueryRow, UsageSummary } from "../../lib/types";
-import { Button, Card, Input, Label, MetricCard, Table } from "../../components/ui";
+import type { UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
+import { Button, Card, Input, Label, MetricCard, Select, Table } from "../../components/ui";
 
 function emptySummary(): UsageSummary {
   return {
@@ -28,6 +28,7 @@ export function MyUsageModule({
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
+  const [userKeyRows, setUserKeyRows] = useState<UserKeyQueryRow[]>([]);
   const [filters, setFilters] = useState({
     channel: "",
     model: "",
@@ -53,6 +54,22 @@ export function MyUsageModule({
       limit
     };
   };
+
+  const loadUserKeys = async () => {
+    try {
+      const data = await apiRequest<UserKeyQueryRow[]>("/user/keys/query", {
+        apiKey,
+        method: "POST"
+      });
+      setUserKeyRows([...data].sort((a, b) => a.id - b.id));
+    } catch (error) {
+      notify("error", formatError(error));
+    }
+  };
+
+  useEffect(() => {
+    void loadUserKeys();
+  }, [apiKey]);
 
   const query = async () => {
     try {
@@ -84,6 +101,17 @@ export function MyUsageModule({
     t("table.at")
   ];
 
+  const userKeyOptions = useMemo(
+    () => [
+      { value: "", label: t("common.all") },
+      ...userKeyRows.map((row) => ({
+        value: String(row.id),
+        label: `#${row.id} · ${row.api_key}`
+      }))
+    ],
+    [t, userKeyRows]
+  );
+
   return (
     <div className="space-y-4">
       <Card title={t("myUsage.title")} subtitle={t("myUsage.subtitle")}>
@@ -98,9 +126,10 @@ export function MyUsageModule({
           </div>
           <div>
             <Label>{t("field.user_key_id")}</Label>
-            <Input
+            <Select
               value={filters.userKeyId}
               onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
+              options={userKeyOptions}
             />
           </div>
           <div>

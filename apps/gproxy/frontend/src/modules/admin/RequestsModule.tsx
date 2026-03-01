@@ -6,7 +6,8 @@ import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetim
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
 import type { DownstreamRequestQueryRow, UpstreamRequestQueryRow } from "../../lib/types";
-import { Button, Card, Input, Label, Select, Table } from "../../components/ui";
+import { Button, Card, Input, Label, SearchableSelect, Select, Table } from "../../components/ui";
+import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
 export function RequestsModule({
   apiKey,
@@ -18,6 +19,17 @@ export function RequestsModule({
   const { t } = useI18n();
   const [kind, setKind] = useState<"upstream" | "downstream">("upstream");
   const [rows, setRows] = useState<Array<UpstreamRequestQueryRow | DownstreamRequestQueryRow>>([]);
+  const {
+    isLoading: isFilterOptionsLoading,
+    providerOptions,
+    credentialOptions,
+    userOptions,
+    userKeyOptions
+  } = useAdminFilterOptions({
+    apiKey,
+    notify,
+    t
+  });
   const [filters, setFilters] = useState({
     providerId: "",
     credentialId: "",
@@ -94,29 +106,42 @@ export function RequestsModule({
         </div>
         <div>
           <Label>{t("field.provider_id")}</Label>
-          <Input
+          <Select
             value={filters.providerId}
             onChange={(v) => setFilters((p) => ({ ...p, providerId: v }))}
-            placeholder={t("requests.placeholder.upstream")}
+            options={providerOptions}
+            disabled={kind !== "upstream" || isFilterOptionsLoading}
           />
         </div>
         <div>
           <Label>{t("field.credential_id")}</Label>
-          <Input
+          <Select
             value={filters.credentialId}
             onChange={(v) => setFilters((p) => ({ ...p, credentialId: v }))}
-            placeholder={t("requests.placeholder.upstream")}
+            options={credentialOptions}
+            disabled={kind !== "upstream" || isFilterOptionsLoading}
           />
         </div>
         <div>
           <Label>{t("field.user_id")}</Label>
-          <Input value={filters.userId} onChange={(v) => setFilters((p) => ({ ...p, userId: v }))} />
+          <SearchableSelect
+            value={filters.userId}
+            onChange={(v) => setFilters((p) => ({ ...p, userId: v }))}
+            options={userOptions}
+            placeholder={t("common.all")}
+            noResultLabel={t("common.none")}
+            disabled={kind !== "downstream" || isFilterOptionsLoading}
+          />
         </div>
         <div>
           <Label>{t("field.user_key_id")}</Label>
-          <Input
+          <SearchableSelect
             value={filters.userKeyId}
             onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
+            options={userKeyOptions}
+            placeholder={t("common.all")}
+            noResultLabel={t("common.none")}
+            disabled={kind !== "downstream" || isFilterOptionsLoading}
           />
         </div>
         <div>

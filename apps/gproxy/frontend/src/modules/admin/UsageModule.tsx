@@ -6,7 +6,8 @@ import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetim
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
 import type { UsageQueryRow, UsageSummary } from "../../lib/types";
-import { Button, Card, Input, Label, MetricCard, Table } from "../../components/ui";
+import { Button, Card, Input, Label, MetricCard, Select, Table } from "../../components/ui";
+import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
 function emptySummary(): UsageSummary {
   return {
@@ -28,6 +29,11 @@ export function UsageModule({
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
+  const { isLoading: isFilterOptionsLoading, userOptions, userKeyOptions } = useAdminFilterOptions({
+    apiKey,
+    notify,
+    t
+  });
   const [filters, setFilters] = useState({
     channel: "",
     model: "",
@@ -100,13 +106,20 @@ export function UsageModule({
           </div>
           <div>
             <Label>{t("field.user_id")}</Label>
-            <Input value={filters.userId} onChange={(v) => setFilters((p) => ({ ...p, userId: v }))} />
+            <Select
+              value={filters.userId}
+              onChange={(v) => setFilters((p) => ({ ...p, userId: v }))}
+              options={userOptions}
+              disabled={isFilterOptionsLoading}
+            />
           </div>
           <div>
             <Label>{t("field.user_key_id")}</Label>
-            <Input
+            <Select
               value={filters.userKeyId}
               onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
+              options={userKeyOptions}
+              disabled={isFilterOptionsLoading}
             />
           </div>
           <div>
