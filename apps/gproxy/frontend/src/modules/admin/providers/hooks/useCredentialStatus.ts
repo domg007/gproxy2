@@ -2,7 +2,11 @@ import { useCallback, useState } from "react";
 
 import { apiRequest, formatError } from "../../../../lib/api";
 import { parseOptionalI64, parseRequiredI64 } from "../../../../lib/form";
-import type { ProviderQueryRow } from "../../../../lib/types";
+import type {
+  CredentialQueryRow,
+  CredentialStatusQueryRow,
+  ProviderQueryRow
+} from "../../../../lib/types";
 import type { StatusFormState } from "../types";
 
 type NotifyFn = (kind: "success" | "error" | "info", message: string) => void;
@@ -30,7 +34,10 @@ export function useCredentialStatus({
   notify: NotifyFn;
   t: TranslateFn;
   selectedProvider: ProviderQueryRow | null;
-  loadProviderScopedData: (provider: ProviderQueryRow | null) => Promise<void>;
+  loadProviderScopedData: (provider: ProviderQueryRow | null) => Promise<{
+    credentials: CredentialQueryRow[];
+    statuses: CredentialStatusQueryRow[];
+  }>;
 }) {
   const [statusEditorCredentialId, setStatusEditorCredentialId] = useState<number | null>(null);
   const [statusForm, setStatusForm] = useState<StatusFormState>(createInitialStatusForm);

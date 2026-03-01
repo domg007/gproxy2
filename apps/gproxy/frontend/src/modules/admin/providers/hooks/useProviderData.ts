@@ -72,8 +72,10 @@ export function useProviderData({
         }
         return null;
       });
+      return sorted;
     } catch (error) {
       notify("error", formatError(error));
+      return [];
     }
   }, [apiKey, notify]);
 
@@ -82,7 +84,7 @@ export function useProviderData({
       if (!provider) {
         setCredentialRows([]);
         setStatusRows([]);
-        return;
+        return { credentials: [], statuses: [] };
       }
       try {
         const [credentials, statuses] = await Promise.all([
@@ -110,8 +112,10 @@ export function useProviderData({
         ]);
         setCredentialRows(credentials);
         setStatusRows(statuses);
+        return { credentials, statuses };
       } catch (error) {
         notify("error", formatError(error));
+        return { credentials: [], statuses: [] };
       }
     },
     [apiKey, notify]

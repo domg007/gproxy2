@@ -1,7 +1,11 @@
 import { useCallback, useState } from "react";
 
 import { apiRequest, formatError } from "../../../../lib/api";
-import type { ProviderQueryRow } from "../../../../lib/types";
+import type {
+  CredentialQueryRow,
+  CredentialStatusQueryRow,
+  ProviderQueryRow
+} from "../../../../lib/types";
 import { mergeQueryString, usagePayloadToText } from "../index";
 
 type NotifyFn = (kind: "success" | "error" | "info", message: string) => void;
@@ -41,14 +45,19 @@ export function useCredentialOAuth({
   t,
   selectedProvider,
   providerRouteKey,
-  loadProviderScopedData
+  loadProviderScopedData,
+  refreshProviderScopedData
 }: {
   apiKey: string;
   notify: NotifyFn;
   t: TranslateFn;
   selectedProvider: ProviderQueryRow | null;
   providerRouteKey: string;
-  loadProviderScopedData: (provider: ProviderQueryRow | null) => Promise<void>;
+  loadProviderScopedData: (provider: ProviderQueryRow | null) => Promise<{
+    credentials: CredentialQueryRow[];
+    statuses: CredentialStatusQueryRow[];
+  }>;
+  refreshProviderScopedData?: () => Promise<void>;
 }) {
   const [oauthStartQueryByCredential, setOauthStartQueryByCredential] = useState<
     Record<number, string>
@@ -132,7 +141,11 @@ export function useCredentialOAuth({
           [key]: usagePayloadToText(payload)
         }));
         notify("success", t("providers.oauth.callbackDone"));
-        await loadProviderScopedData(selectedProvider);
+        if (refreshProviderScopedData) {
+          await refreshProviderScopedData();
+        } else {
+          await loadProviderScopedData(selectedProvider);
+        }
       } catch (error) {
         notify("error", formatError(error));
       }
@@ -143,6 +156,7 @@ export function useCredentialOAuth({
       notify,
       oauthCallbackQueryByCredential,
       providerRouteKey,
+      refreshProviderScopedData,
       selectedProvider,
       t
     ]

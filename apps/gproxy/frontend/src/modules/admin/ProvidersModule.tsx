@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
@@ -72,6 +72,34 @@ export function ProvidersModule({
 
   const providerRouteKey = selectedProvider ? encodeURIComponent(selectedProvider.channel) : "";
 
+  const refreshProviderScopedData = useCallback(
+    async (expectedCredentialIds?: number[]) => {
+      const expected = new Set(
+        (expectedCredentialIds ?? []).filter((id) => Number.isInteger(id) && id >= 0)
+      );
+      const targetProviderId = selectedProviderId ?? selectedProvider?.id ?? null;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const latestProviders = await loadProviders();
+        const latestProvider =
+          targetProviderId === null
+            ? selectedProvider
+            : latestProviders.find((row) => row.id === targetProviderId) ?? selectedProvider;
+        const { credentials } = await loadProviderScopedData(latestProvider);
+        if (expected.size === 0) {
+          return;
+        }
+        const idSet = new Set(credentials.map((row) => row.id));
+        if (Array.from(expected).every((id) => idSet.has(id))) {
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 120 + attempt * 80);
+        });
+      }
+    },
+    [loadProviderScopedData, loadProviders, selectedProvider, selectedProviderId]
+  );
+
   const {
     usageByCredential,
     liveUsageRowsByCredential,
@@ -105,7 +133,8 @@ export function ProvidersModule({
     t,
     selectedProvider,
     providerRouteKey,
-    loadProviderScopedData
+    loadProviderScopedData,
+    refreshProviderScopedData: () => refreshProviderScopedData()
   });
 
   const {
@@ -357,9 +386,7 @@ export function ProvidersModule({
         return next;
       });
       notify("success", t("providers.credentials.saved"));
-      window.setTimeout(() => {
-        void loadProviderScopedData(selectedProvider);
-      }, 250);
+      await refreshProviderScopedData([id]);
     } catch (error) {
       notify("error", formatError(error));
     }
@@ -378,6 +405,7 @@ export function ProvidersModule({
     try {
       const takenIds = new Set(credentialRows.map((row) => row.id));
       const usedInBatch = new Set<number>();
+      const importedIds: number[] = [];
       let nextId = credentialRows.reduce((max, row) => Math.max(max, row.id), 0) + 1;
 
       for (const entry of entries) {
@@ -414,10 +442,11 @@ export function ProvidersModule({
             enabled: entry.enabled ?? true
           }
         });
+        importedIds.push(id);
       }
 
       notify("success", t("providers.bulk.imported", { count: entries.length }));
-      await loadProviderScopedData(selectedProvider);
+      await refreshProviderScopedData(importedIds);
     } catch (error) {
       notify("error", formatError(error));
     }
