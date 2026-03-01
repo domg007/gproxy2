@@ -555,6 +555,60 @@ export function ProvidersModule({
     setActiveTab("credentials");
   };
 
+  const credentialsViewModel = {
+    selectedProvider,
+    credentialSchema: currentCredentialSchema,
+    supportsUpstreamUsage: providerSupportsUpstreamUsage,
+    supportsOAuth: providerSupportsOAuth,
+    credentialRows,
+    statusesByCredential,
+    usageByCredential,
+    liveUsageRowsByCredential,
+    usageDisplayKindByCredential,
+    usageDisplayRowsByCredential,
+    usageLoadingByCredential,
+    usageErrorByCredential,
+    oauthStartQueryByCredential,
+    oauthCallbackQueryByCredential,
+    oauthResultByCredential,
+    statusEditorCredentialId,
+    statusForm,
+    credentialForm
+  };
+
+  const credentialsActions = {
+    setOauthStartQueryByCredential,
+    setOauthCallbackQueryByCredential,
+    setStatusEditorCredentialId,
+    setStatusForm,
+    setCredentialForm,
+    onEditCredential: editCredential,
+    onRemoveCredential: (id: number) => void removeCredential(id),
+    onToggleCredentialEnabled: (row: CredentialQueryRow) => void toggleCredentialEnabled(row),
+    onSetCredentialHealth: (payload: {
+      credentialId: number;
+      statusId?: number;
+      healthKind: "healthy" | "partial" | "dead";
+      healthJson: Record<string, unknown> | null;
+      lastError?: string | null;
+    }) => void upsertCredentialHealthState(payload),
+    onQueryUpstreamUsage: (id: number) => void queryUpstreamUsage(id),
+    onUpsertStatus: () => void upsertStatus(),
+    onRunCredentialOAuthStart: (
+      id?: number,
+      mode?: string,
+      queryDefaults?: Record<string, string | null | undefined>
+    ) => void runCredentialOAuthStart(id, mode, queryDefaults),
+    onRunCredentialOAuthCallback: (
+      id?: number,
+      mode?: string,
+      queryDefaults?: Record<string, string | null | undefined>
+    ) => void runCredentialOAuthCallback(id, mode, queryDefaults),
+    onUpsertCredential: () => void upsertCredential(),
+    onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) =>
+      void upsertCredentialsBatch(entries)
+  };
+
   return (
     <div className="space-y-4">
       <Card
@@ -626,46 +680,7 @@ export function ProvidersModule({
               ) : null}
 
               {activeTab === "credentials" ? (
-                <CredentialsTab
-                  selectedProvider={selectedProvider}
-                  credentialSchema={currentCredentialSchema}
-                  supportsUpstreamUsage={providerSupportsUpstreamUsage}
-                  supportsOAuth={providerSupportsOAuth}
-                  credentialRows={credentialRows}
-                  statusesByCredential={statusesByCredential}
-                  usageByCredential={usageByCredential}
-                  liveUsageRowsByCredential={liveUsageRowsByCredential}
-                  usageDisplayKindByCredential={usageDisplayKindByCredential}
-                  usageDisplayRowsByCredential={usageDisplayRowsByCredential}
-                  usageLoadingByCredential={usageLoadingByCredential}
-                  usageErrorByCredential={usageErrorByCredential}
-                  oauthStartQueryByCredential={oauthStartQueryByCredential}
-                  setOauthStartQueryByCredential={setOauthStartQueryByCredential}
-                  oauthCallbackQueryByCredential={oauthCallbackQueryByCredential}
-                  setOauthCallbackQueryByCredential={setOauthCallbackQueryByCredential}
-                  oauthResultByCredential={oauthResultByCredential}
-                  statusEditorCredentialId={statusEditorCredentialId}
-                  setStatusEditorCredentialId={setStatusEditorCredentialId}
-                  statusForm={statusForm}
-                  setStatusForm={setStatusForm}
-                  credentialForm={credentialForm}
-                  setCredentialForm={setCredentialForm}
-                  onEditCredential={editCredential}
-                  onRemoveCredential={(id) => void removeCredential(id)}
-                  onToggleCredentialEnabled={(row) => void toggleCredentialEnabled(row)}
-                  onSetCredentialHealth={(payload) => void upsertCredentialHealthState(payload)}
-                  onQueryUpstreamUsage={(id) => void queryUpstreamUsage(id)}
-                  onUpsertStatus={() => void upsertStatus()}
-                  onRunCredentialOAuthStart={(id, mode, queryDefaults) =>
-                    void runCredentialOAuthStart(id, mode, queryDefaults)
-                  }
-                  onRunCredentialOAuthCallback={(id, mode, queryDefaults) =>
-                    void runCredentialOAuthCallback(id, mode, queryDefaults)
-                  }
-                  onUpsertCredential={() => void upsertCredential()}
-                  onUpsertCredentialsBatch={(entries) => void upsertCredentialsBatch(entries)}
-                  t={t}
-                />
+                <CredentialsTab viewModel={credentialsViewModel} actions={credentialsActions} t={t} />
               ) : null}
             </div>
           )}

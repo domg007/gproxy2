@@ -13,21 +13,24 @@ import type {
   CredentialStatusQueryRow,
   ProviderQueryRow
 } from "../../../lib/types";
-import { formatAtForViewer } from "../../../lib/datetime";
-import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
+import { Input, Label, Select } from "../../../components/ui";
+import { CredentialBulkSection } from "./credentials-tab/CredentialBulkSection";
+import { CredentialCardsSection } from "./credentials-tab/CredentialCardsSection";
+import { CredentialSingleSection } from "./credentials-tab/CredentialSingleSection";
+import { CredentialsSubTabs } from "./credentials-tab/CredentialsSubTabs";
+import type { CooldownItem, CredentialHealthKind, TranslateFn } from "./credentials-tab/shared";
 import {
   availableBulkModes,
   buildBulkExportText,
   defaultBulkMode,
-  formatUsagePercent,
   getChannelConfig,
   parseBulkCredentialText,
   type BulkCredentialImportEntry,
   type CredentialBulkMode,
   type CredentialsSubTab,
+  type LiveUsageRow,
   type UsageDisplayKind,
   type UsageDisplayRow,
-  type LiveUsageRow,
   ChannelCredentialSchema,
   CredentialFieldSchema,
   CredentialFieldValue,
@@ -35,20 +38,65 @@ import {
   StatusFormState
 } from "./index";
 
-type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
-type CredentialHealthKind = "healthy" | "partial" | "dead";
-
-type CooldownItem = {
-  model: string;
-  untilUnixMs: number;
-};
-
 type OAuthReadableResult = {
   authUrl?: string;
   verificationUri?: string;
   userCode?: string;
   interval?: string;
   instructions?: string;
+};
+
+export type CredentialsTabViewModel = {
+  selectedProvider: ProviderQueryRow | null;
+  credentialSchema: ChannelCredentialSchema;
+  supportsUpstreamUsage: boolean;
+  supportsOAuth: boolean;
+  credentialRows: CredentialQueryRow[];
+  statusesByCredential: Map<number, CredentialStatusQueryRow[]>;
+  usageByCredential: Record<number, string>;
+  liveUsageRowsByCredential: Record<number, LiveUsageRow[]>;
+  usageDisplayKindByCredential: Record<number, UsageDisplayKind>;
+  usageDisplayRowsByCredential: Record<number, UsageDisplayRow[]>;
+  usageLoadingByCredential: Record<number, boolean>;
+  usageErrorByCredential: Record<number, string>;
+  oauthStartQueryByCredential: Record<number, string>;
+  oauthCallbackQueryByCredential: Record<number, string>;
+  oauthResultByCredential: Record<number, string>;
+  statusEditorCredentialId: number | null;
+  statusForm: StatusFormState;
+  credentialForm: CredentialFormState;
+};
+
+export type CredentialsTabActions = {
+  setOauthStartQueryByCredential: Dispatch<SetStateAction<Record<number, string>>>;
+  setOauthCallbackQueryByCredential: Dispatch<SetStateAction<Record<number, string>>>;
+  setStatusEditorCredentialId: Dispatch<SetStateAction<number | null>>;
+  setStatusForm: Dispatch<SetStateAction<StatusFormState>>;
+  setCredentialForm: Dispatch<SetStateAction<CredentialFormState>>;
+  onEditCredential: (row: CredentialQueryRow) => void;
+  onRemoveCredential: (id: number) => void;
+  onToggleCredentialEnabled: (row: CredentialQueryRow) => void;
+  onSetCredentialHealth: (payload: {
+    credentialId: number;
+    statusId?: number;
+    healthKind: CredentialHealthKind;
+    healthJson: Record<string, unknown> | null;
+    lastError?: string | null;
+  }) => void;
+  onQueryUpstreamUsage: (credentialId: number) => void;
+  onUpsertStatus: () => void;
+  onRunCredentialOAuthStart: (
+    credentialId?: number,
+    mode?: string,
+    queryDefaults?: Record<string, string | null | undefined>
+  ) => void;
+  onRunCredentialOAuthCallback: (
+    credentialId?: number,
+    mode?: string,
+    queryDefaults?: Record<string, string | null | undefined>
+  ) => void;
+  onUpsertCredential: () => void;
+  onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void;
 };
 
 function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
@@ -98,90 +146,52 @@ function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
 }
 
 export function CredentialsTab({
-  selectedProvider,
-  credentialSchema,
-  supportsUpstreamUsage,
-  supportsOAuth,
-  credentialRows,
-  statusesByCredential,
-  usageByCredential,
-  liveUsageRowsByCredential,
-  usageDisplayKindByCredential,
-  usageDisplayRowsByCredential,
-  usageLoadingByCredential,
-  usageErrorByCredential,
-  oauthStartQueryByCredential,
-  setOauthStartQueryByCredential,
-  oauthCallbackQueryByCredential,
-  setOauthCallbackQueryByCredential,
-  oauthResultByCredential,
-  statusEditorCredentialId,
-  setStatusEditorCredentialId,
-  statusForm,
-  setStatusForm,
-  credentialForm,
-  setCredentialForm,
-  onEditCredential,
-  onRemoveCredential,
-  onToggleCredentialEnabled,
-  onSetCredentialHealth,
-  onQueryUpstreamUsage,
-  onUpsertStatus,
-  onRunCredentialOAuthStart,
-  onRunCredentialOAuthCallback,
-  onUpsertCredential,
-  onUpsertCredentialsBatch,
+  viewModel,
+  actions,
   t
 }: {
-  selectedProvider: ProviderQueryRow | null;
-  credentialSchema: ChannelCredentialSchema;
-  supportsUpstreamUsage: boolean;
-  supportsOAuth: boolean;
-  credentialRows: CredentialQueryRow[];
-  statusesByCredential: Map<number, CredentialStatusQueryRow[]>;
-  usageByCredential: Record<number, string>;
-  liveUsageRowsByCredential: Record<number, LiveUsageRow[]>;
-  usageDisplayKindByCredential: Record<number, UsageDisplayKind>;
-  usageDisplayRowsByCredential: Record<number, UsageDisplayRow[]>;
-  usageLoadingByCredential: Record<number, boolean>;
-  usageErrorByCredential: Record<number, string>;
-  oauthStartQueryByCredential: Record<number, string>;
-  setOauthStartQueryByCredential: Dispatch<SetStateAction<Record<number, string>>>;
-  oauthCallbackQueryByCredential: Record<number, string>;
-  setOauthCallbackQueryByCredential: Dispatch<SetStateAction<Record<number, string>>>;
-  oauthResultByCredential: Record<number, string>;
-  statusEditorCredentialId: number | null;
-  setStatusEditorCredentialId: Dispatch<SetStateAction<number | null>>;
-  statusForm: StatusFormState;
-  setStatusForm: Dispatch<SetStateAction<StatusFormState>>;
-  credentialForm: CredentialFormState;
-  setCredentialForm: Dispatch<SetStateAction<CredentialFormState>>;
-  onEditCredential: (row: CredentialQueryRow) => void;
-  onRemoveCredential: (id: number) => void;
-  onToggleCredentialEnabled: (row: CredentialQueryRow) => void;
-  onSetCredentialHealth: (payload: {
-    credentialId: number;
-    statusId?: number;
-    healthKind: CredentialHealthKind;
-    healthJson: Record<string, unknown> | null;
-    lastError?: string | null;
-  }) => void;
-  onQueryUpstreamUsage: (credentialId: number) => void;
-  onUpsertStatus: () => void;
-  onRunCredentialOAuthStart: (
-    credentialId?: number,
-    mode?: string,
-    queryDefaults?: Record<string, string | null | undefined>
-  ) => void;
-  onRunCredentialOAuthCallback: (
-    credentialId?: number,
-    mode?: string,
-    queryDefaults?: Record<string, string | null | undefined>
-  ) => void;
-  onUpsertCredential: () => void;
-  onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void;
+  viewModel: CredentialsTabViewModel;
+  actions: CredentialsTabActions;
   t: TranslateFn;
 }) {
+  const {
+    selectedProvider,
+    credentialSchema,
+    supportsUpstreamUsage,
+    supportsOAuth,
+    credentialRows,
+    statusesByCredential,
+    usageByCredential,
+    liveUsageRowsByCredential,
+    usageDisplayKindByCredential,
+    usageDisplayRowsByCredential,
+    usageLoadingByCredential,
+    usageErrorByCredential,
+    oauthStartQueryByCredential,
+    oauthCallbackQueryByCredential,
+    oauthResultByCredential,
+    statusEditorCredentialId,
+    statusForm,
+    credentialForm
+  } = viewModel;
+  const {
+    setOauthStartQueryByCredential,
+    setOauthCallbackQueryByCredential,
+    setStatusEditorCredentialId,
+    setStatusForm,
+    setCredentialForm,
+    onEditCredential,
+    onRemoveCredential,
+    onToggleCredentialEnabled,
+    onSetCredentialHealth,
+    onQueryUpstreamUsage,
+    onUpsertStatus,
+    onRunCredentialOAuthStart,
+    onRunCredentialOAuthCallback,
+    onUpsertCredential,
+    onUpsertCredentialsBatch
+  } = actions;
+
   if (!selectedProvider) {
     return <p className="text-sm text-muted">{t("providers.needProvider")}</p>;
   }
@@ -485,18 +495,14 @@ export function CredentialsTab({
     const labelKey = `field.${field}`;
     const translated = t(labelKey);
     const placeholder =
-      kind === "start"
-        ? oauthUi?.startDefaults?.[field]
-        : oauthUi?.callbackDefaults?.[field];
+      kind === "start" ? oauthUi?.startDefaults?.[field] : oauthUi?.callbackDefaults?.[field];
     return (
       <div key={`${kind}-${field}`}>
         <Label>{translated === labelKey ? field : translated}</Label>
         <Input
           value={readQueryParam(rawQuery, field)}
           onChange={(value) =>
-            kind === "start"
-              ? setOAuthStartParam(field, value)
-              : setOAuthCallbackParam(field, value)
+            kind === "start" ? setOAuthStartParam(field, value) : setOAuthCallbackParam(field, value)
           }
           placeholder={placeholder}
         />
@@ -529,10 +535,7 @@ export function CredentialsTab({
           <Select
             value={selected}
             onChange={(next) =>
-              setSecretField(
-                field.key,
-                next === "true" ? true : next === "false" ? false : null
-              )
+              setSecretField(field.key, next === "true" ? true : next === "false" ? false : null)
             }
             options={[
               { value: "", label: t("common.unset") },
@@ -557,589 +560,83 @@ export function CredentialsTab({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        {credentialRows.map((row) => {
-          const statusList = statusesByCredential.get(row.id) ?? [];
-          const primaryStatus = statusList[0];
-          const healthKind = normalizeHealthKind(primaryStatus?.health_kind);
-          const cooldowns = parseCooldowns(primaryStatus);
-          const selectedCooldownKeys = new Set(
-            selectedCooldownKeysByCredential[row.id] ?? []
-          );
-          const selectedCooldowns = cooldowns.filter((item) =>
-            selectedCooldownKeys.has(cooldownKey(item))
-          );
-          const showCooldowns =
-            expandedCooldownCredentialId === row.id && healthKind === "partial";
-          const usageContent = usageByCredential[row.id] ?? "";
-          const liveRows = liveUsageRowsByCredential[row.id] ?? [];
-          const usageDisplayKind = usageDisplayKindByCredential[row.id] ?? "calls";
-          const usageDisplayRows = usageDisplayRowsByCredential[row.id] ?? [];
-          const usageLoading = Boolean(usageLoadingByCredential[row.id]);
-          const usageError = usageErrorByCredential[row.id];
-          const showStatusEditor = statusEditorCredentialId === row.id;
-          const applyCooldownDeletion = (targets: CooldownItem[]) => {
-            if (targets.length === 0) {
-              return;
-            }
-            const targetKeys = new Set(targets.map((item) => cooldownKey(item)));
-            const nextModels = cooldowns.filter((item) => !targetKeys.has(cooldownKey(item)));
-            onSetCredentialHealth({
-              credentialId: row.id,
-              statusId: primaryStatus?.id,
-              healthKind: nextModels.length > 0 ? "partial" : "healthy",
-              healthJson:
-                nextModels.length > 0
-                  ? {
-                      models: nextModels.map((cooldown) => ({
-                        model: cooldown.model,
-                        until_unix_ms: cooldown.untilUnixMs
-                      }))
-                    }
-                  : null,
-              lastError: nextModels.length > 0 ? primaryStatus?.last_error : null
-            });
-            setSelectedCooldownKeysByCredential((prev) => {
-              const next = { ...prev };
-              delete next[row.id];
-              return next;
-            });
-            if (nextModels.length === 0) {
-              setExpandedCooldownCredentialId(null);
-            }
-          };
-          return (
-            <div key={row.id} className="provider-card space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-text">
-                    {row.name ?? t("providers.credentialUnnamed")}
-                  </div>
-                  <div className="truncate text-xs text-muted">#{row.id}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={
-                      healthKind === "dead"
-                        ? "danger"
-                        : healthKind === "partial"
-                          ? "neutral"
-                          : "primary"
-                    }
-                    onClick={() => {
-                      if (healthKind === "partial") {
-                        setExpandedCooldownCredentialId((prev) =>
-                          prev === row.id ? null : row.id
-                        );
-                        return;
-                      }
-                      if (healthKind === "dead") {
-                        onSetCredentialHealth({
-                          credentialId: row.id,
-                          statusId: primaryStatus?.id,
-                          healthKind: "healthy",
-                          healthJson: null,
-                          lastError: null
-                        });
-                        return;
-                      }
-                      onSetCredentialHealth({
-                        credentialId: row.id,
-                        statusId: primaryStatus?.id,
-                        healthKind: "dead",
-                        healthJson: null,
-                        lastError: "manually_marked_unavailable"
-                      });
-                    }}
-                  >
-                    {healthLabel(healthKind)}
-                  </Button>
-                  <Button
-                    variant={row.enabled ? "primary" : "neutral"}
-                    onClick={() => onToggleCredentialEnabled(row)}
-                  >
-                    {row.enabled ? t("common.enabled") : t("common.disabled")}
-                  </Button>
-                </div>
-              </div>
+      <CredentialCardsSection
+        channel={channel}
+        credentialRows={credentialRows}
+        statusesByCredential={statusesByCredential}
+        usageByCredential={usageByCredential}
+        liveUsageRowsByCredential={liveUsageRowsByCredential}
+        usageDisplayKindByCredential={usageDisplayKindByCredential}
+        usageDisplayRowsByCredential={usageDisplayRowsByCredential}
+        usageLoadingByCredential={usageLoadingByCredential}
+        usageErrorByCredential={usageErrorByCredential}
+        supportsUpstreamUsage={supportsUpstreamUsage}
+        expandedCooldownCredentialId={expandedCooldownCredentialId}
+        setExpandedCooldownCredentialId={setExpandedCooldownCredentialId}
+        selectedCooldownKeysByCredential={selectedCooldownKeysByCredential}
+        setSelectedCooldownKeysByCredential={setSelectedCooldownKeysByCredential}
+        statusEditorCredentialId={statusEditorCredentialId}
+        setStatusEditorCredentialId={setStatusEditorCredentialId}
+        statusForm={statusForm}
+        setStatusForm={setStatusForm}
+        onEditCredential={onEditCredential}
+        onRemoveCredential={onRemoveCredential}
+        onToggleCredentialEnabled={onToggleCredentialEnabled}
+        onSetCredentialHealth={onSetCredentialHealth}
+        onQueryUpstreamUsage={onQueryUpstreamUsage}
+        onUpsertStatus={onUpsertStatus}
+        normalizeHealthKind={normalizeHealthKind}
+        parseCooldowns={parseCooldowns}
+        healthLabel={healthLabel}
+        cooldownKey={cooldownKey}
+        formatWindowLabel={formatWindowLabel}
+        resolveUsageGroupLabel={resolveUsageGroupLabel}
+        resolveLiveLimitLabel={resolveLiveLimitLabel}
+        t={t}
+      />
 
-              <div className="flex flex-wrap gap-2">
-                <Button variant="neutral" onClick={() => onEditCredential(row)}>
-                  {t("common.edit")}
-                </Button>
-                <Button variant="danger" onClick={() => onRemoveCredential(row.id)}>
-                  {t("common.delete")}
-                </Button>
-                {supportsUpstreamUsage ? (
-                  <Button
-                    variant="neutral"
-                    onClick={() => onQueryUpstreamUsage(row.id)}
-                    disabled={usageLoading}
-                  >
-                    {usageLoading ? t("common.loading") : t("providers.usage.fetch")}
-                  </Button>
-                ) : null}
-              </div>
-
-              {showCooldowns ? (
-                <div className="space-y-2 rounded-lg border border-border px-3 py-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                      {t("providers.health.cooldowns")}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="neutral"
-                        disabled={selectedCooldowns.length === 0}
-                        onClick={() => applyCooldownDeletion(selectedCooldowns)}
-                      >
-                        {t("providers.health.deleteSelected")}
-                      </Button>
-                      <Button
-                        variant="danger"
-                        disabled={cooldowns.length === 0}
-                        onClick={() => applyCooldownDeletion(cooldowns)}
-                      >
-                        {t("providers.health.deleteAll")}
-                      </Button>
-                    </div>
-                  </div>
-                  {cooldowns.length === 0 ? (
-                    <div className="text-xs text-muted">{t("providers.health.noCooldowns")}</div>
-                  ) : (
-                    cooldowns.map((item) => (
-                      <div
-                        key={`${row.id}-${item.model}-${item.untilUnixMs}`}
-                        className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1"
-                      >
-                        <label className="flex min-w-0 items-center gap-2 text-xs text-text">
-                          <input
-                            type="checkbox"
-                            checked={selectedCooldownKeys.has(cooldownKey(item))}
-                            onChange={(event) => {
-                              setSelectedCooldownKeysByCredential((prev) => {
-                                const current = new Set(prev[row.id] ?? []);
-                                const key = cooldownKey(item);
-                                if (event.target.checked) {
-                                  current.add(key);
-                                } else {
-                                  current.delete(key);
-                                }
-                                return {
-                                  ...prev,
-                                  [row.id]: Array.from(current)
-                                };
-                              });
-                            }}
-                          />
-                          <span className="font-semibold">{item.model}</span>{" "}
-                          <span className="text-muted">
-                            ({new Date(item.untilUnixMs).toLocaleString()})
-                          </span>
-                        </label>
-                      </div>
-                    ))
-                  )}
-                </div>
-              ) : null}
-
-              {showStatusEditor ? (
-                <div className="space-y-2 rounded-lg border border-border p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                    {t("providers.status.editor", { id: row.id })}
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <div>
-                      <Label>{t("field.idOptional")}</Label>
-                      <Input value={statusForm.id} onChange={(v) => setStatusForm((p) => ({ ...p, id: v }))} />
-                    </div>
-                    <div>
-                      <Label>{t("field.health_kind")}</Label>
-                      <Input
-                        value={statusForm.healthKind}
-                        onChange={(v) => setStatusForm((p) => ({ ...p, healthKind: v }))}
-                      />
-                    </div>
-                    <div>
-                      <Label>{t("field.checked_at_unix_ms")}</Label>
-                      <Input
-                        value={statusForm.checkedAtUnixMs}
-                        onChange={(v) => setStatusForm((p) => ({ ...p, checkedAtUnixMs: v }))}
-                      />
-                    </div>
-                    <div>
-                      <Label>{t("field.last_error")}</Label>
-                      <Input
-                        value={statusForm.lastError}
-                        onChange={(v) => setStatusForm((p) => ({ ...p, lastError: v }))}
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <Label>{t("field.health_json")}</Label>
-                      <TextArea
-                        rows={4}
-                        value={statusForm.healthJson}
-                        onChange={(v) => setStatusForm((p) => ({ ...p, healthJson: v }))}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={onUpsertStatus}>{t("common.save")}</Button>
-                    <Button variant="neutral" onClick={() => setStatusEditorCredentialId(null)}>
-                      {t("common.close")}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {supportsUpstreamUsage && (usageContent || liveRows.length > 0 || usageDisplayRows.length > 0 || usageError) ? (
-                <div className="space-y-1">
-                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                    {t("providers.section.usage")}
-                  </div>
-                  {liveRows.length > 0 ? (
-                    <div className="overflow-hidden rounded-lg border border-border">
-                      <div className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                        <span>{t("providers.usage.live_limit")}</span>
-                        <span>{t("providers.usage.live_percent")}</span>
-                        <span>{t("providers.usage.live_reset")}</span>
-                      </div>
-                      <div className="divide-y divide-border">
-                        {liveRows.map((item) => (
-                          <div
-                            key={`${row.id}-usage-live-${item.name}-${item.resetAt ?? "none"}`}
-                            className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 px-3 py-2 text-xs text-text"
-                          >
-                            <span className="truncate">{resolveLiveLimitLabel(item.name)}</span>
-                            <span>{formatUsagePercent(item.percent)}</span>
-                            <span>{item.resetAt === null ? "-" : formatAtForViewer(item.resetAt)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    usageContent ? (
-                      <div className="text-xs text-muted">{t("providers.usage.live_no_limits")}</div>
-                    ) : null
-                  )}
-
-                  {usageDisplayRows.length > 0 ? (
-                    (() => {
-                      const preferredWindowOrder: UsageDisplayRow["window"][] =
-                        channel === "codex"
-                          ? ["primary", "secondary", "code_review"]
-                          : ["5h", "1d", "1w", "sum"];
-                      const presentWindowSet = new Set(
-                        usageDisplayRows.map((item) => item.window)
-                      );
-                      const windows = preferredWindowOrder.filter((window) =>
-                        presentWindowSet.has(window)
-                      );
-                      const byLabel = new Map<
-                        string,
-                        Partial<Record<UsageDisplayRow["window"], UsageDisplayRow>>
-                      >();
-                      for (const item of usageDisplayRows) {
-                        const current = byLabel.get(item.label) ?? {};
-                        current[item.window] = item;
-                        byLabel.set(item.label, current);
-                      }
-                      const labels = Array.from(byLabel.keys()).sort((a, b) => a.localeCompare(b));
-
-                      return (
-                        <div className="space-y-2">
-                          {usageDisplayKind === "tokens" ? (
-                            <div className="text-xs text-muted">
-                              {t("providers.usage.calls")}/{t("providers.usage.tokens_input")}/
-                              {t("providers.usage.tokens_output")}/{t("providers.usage.tokens_cache")}/
-                              {t("providers.usage.tokens_total")}
-                            </div>
-                          ) : null}
-                          <div className="overflow-x-auto rounded-lg border border-border">
-                            <table className="min-w-[980px] w-full border-collapse text-xs">
-                              <thead>
-                                <tr className="border-b border-border bg-card text-muted">
-                                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]">
-                                    {t("providers.usage.label")}
-                                  </th>
-                                  {windows.map((window) => (
-                                    <th
-                                      key={`usage-head-${window}`}
-                                      className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]"
-                                    >
-                                      {formatWindowLabel(window)}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {labels.map((label) => {
-                                  const rowByWindow = byLabel.get(label) ?? {};
-                                  return (
-                                    <tr key={`${row.id}-usage-row-${label}`} className="border-b border-border last:border-b-0">
-                                      <td className="px-3 py-2 font-semibold text-text">
-                                        {resolveUsageGroupLabel(label)}
-                                      </td>
-                                      {windows.map((window) => {
-                                        const item = rowByWindow[window];
-                                        if (!item) {
-                                          return (
-                                            <td key={`${row.id}-usage-cell-${label}-${window}`} className="px-3 py-2 text-muted">
-                                              -
-                                            </td>
-                                          );
-                                        }
-                                        const rangeText = `${formatAtForViewer(item.fromUnixMs)} - ${formatAtForViewer(item.toUnixMs)}`;
-                                        const cellText =
-                                          usageDisplayKind === "tokens"
-                                            ? `${item.calls}/${item.inputTokens}/${item.outputTokens}/${item.cacheTokens}/${item.totalTokens}`
-                                            : `${item.calls}`;
-                                        return (
-                                          <td
-                                            key={`${row.id}-usage-cell-${label}-${window}`}
-                                            className="px-3 py-2 text-text whitespace-nowrap"
-                                            title={rangeText}
-                                          >
-                                            {cellText}
-                                          </td>
-                                        );
-                                      })}
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    usageContent ? (
-                      <div className="text-xs text-muted">{t("providers.usage.no_calls")}</div>
-                    ) : null
-                  )}
-
-                  {usageError ? (
-                    <div className="text-xs text-amber-700">{usageError}</div>
-                  ) : null}
-
-                  {usageContent ? (
-                    <details className="rounded-lg border border-border px-3 py-2">
-                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                        {t("providers.usage.raw")}
-                      </summary>
-                      <div className="mt-2">
-                        <TextArea value={usageContent} rows={8} readOnly onChange={() => {}} />
-                      </div>
-                    </details>
-                  ) : null}
-                </div>
-              ) : null}
-
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={`workspace-tab ${subTab === "single" ? "workspace-tab-active" : ""}`}
-          onClick={() => setSubTab("single")}
-        >
-          {t("providers.subtab.single")}
-        </button>
-        <button
-          type="button"
-          className={`workspace-tab ${subTab === "bulk" ? "workspace-tab-active" : ""}`}
-          onClick={() => setSubTab("bulk")}
-        >
-          {t("providers.subtab.bulk")}
-        </button>
-      </div>
+      <CredentialsSubTabs subTab={subTab} setSubTab={setSubTab} t={t} />
 
       {subTab === "single" ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <Label>{t("field.id")}</Label>
-              <Input value={credentialForm.id} onChange={(v) => setCredentialForm((p) => ({ ...p, id: v }))} />
-            </div>
-            <div>
-              <Label>{t("field.nameOptional")}</Label>
-              <Input
-                value={credentialForm.name}
-                onChange={(v) => setCredentialForm((p) => ({ ...p, name: v }))}
-              />
-            </div>
-            {credentialSchema.fields.map((field) => renderCredentialField(field))}
-          </div>
-
-          <div>
-            <Button onClick={onUpsertCredential}>{t("common.save")}</Button>
-          </div>
-
-          {supportsOAuth ? (
-            <div className="provider-card space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                {t("providers.section.oauth")}
-              </div>
-              {oauthUi?.startFields.map((field) => renderOAuthField("start", field, oauthStartQuery))}
-              <div className="flex flex-wrap gap-2">
-                {oauthStartButtons.map((button) => (
-                  <Button
-                    key={button.labelKey}
-                    variant={button.mode ? "neutral" : "primary"}
-                    onClick={() =>
-                      onRunCredentialOAuthStart(undefined, button.mode, button.queryDefaults)
-                    }
-                  >
-                    {t(button.labelKey)}
-                  </Button>
-                ))}
-                {oauthOpenUrl ? (
-                  <a
-                    className="btn btn-primary inline-flex"
-                    href={oauthOpenUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t("providers.oauth.openAuthUrl")}
-                  </a>
-                ) : null}
-                {!oauthCallbackUsesCustomFields
-                  ? oauthCallbackButtons.map((button) => (
-                      <Button
-                        key={button.labelKey}
-                        variant={button.mode ? "neutral" : "primary"}
-                        onClick={() =>
-                          onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
-                        }
-                      >
-                        {t(button.labelKey)}
-                      </Button>
-                    ))
-                  : null}
-              </div>
-              {!oauthCallbackUsesCustomFields
-                ? oauthUi?.callbackFields.map((field) =>
-                    renderOAuthField("callback", field, oauthCallbackQuery)
-                  )
-                : null}
-              {oauthCallbackUsesCustomFields ? (
-                <div className="space-y-2">
-                  {oauthCallbackButtons.map((button) => {
-                    const fields = button.fields ?? oauthUi?.callbackFields ?? [];
-                    return (
-                      <div
-                        key={`callback-${button.labelKey}`}
-                        className="space-y-2 rounded-lg border border-border p-3"
-                      >
-                        <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                          {t(button.labelKey)}
-                        </div>
-                        {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
-                        <Button
-                          variant={button.mode ? "neutral" : "primary"}
-                          onClick={() =>
-                            onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
-                          }
-                        >
-                          {t(button.labelKey)}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-              {oauthRawResult ? (
-                <div className="space-y-2 rounded-lg border border-border p-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                    {t("providers.oauth.response")}
-                  </div>
-                  <TextArea value={oauthRawResult} rows={10} readOnly onChange={() => {}} />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </>
+        <CredentialSingleSection
+          credentialForm={credentialForm}
+          setCredentialForm={setCredentialForm}
+          credentialSchema={credentialSchema}
+          renderCredentialField={renderCredentialField}
+          onUpsertCredential={onUpsertCredential}
+          supportsOAuth={supportsOAuth}
+          oauthUi={oauthUi}
+          oauthStartButtons={oauthStartButtons}
+          oauthCallbackButtons={oauthCallbackButtons}
+          oauthCallbackUsesCustomFields={oauthCallbackUsesCustomFields}
+          oauthStartQuery={oauthStartQuery}
+          oauthCallbackQuery={oauthCallbackQuery}
+          oauthRawResult={oauthRawResult}
+          oauthOpenUrl={oauthOpenUrl}
+          renderOAuthField={renderOAuthField}
+          onRunCredentialOAuthStart={onRunCredentialOAuthStart}
+          onRunCredentialOAuthCallback={onRunCredentialOAuthCallback}
+          t={t}
+        />
       ) : (
-        <div className="space-y-3 rounded-xl border border-border p-3">
-          <div className="text-sm text-muted">{t("providers.bulk.hint")}</div>
-
-          {bulkModes.length > 1 ? (
-            <div>
-              <Label>{t("providers.bulk.mode")}</Label>
-              <Select
-                value={bulkMode}
-                onChange={(value) => {
-                  setBulkMode(value as CredentialBulkMode);
-                  setBulkError("");
-                }}
-                options={bulkModes.map((mode) => ({
-                  value: mode,
-                  label: t(`providers.bulk.mode.${mode}`)
-                }))}
-              />
-            </div>
-          ) : null}
-
-          <div>
-            <Label>{t("providers.bulk.input")}</Label>
-            <TextArea
-              rows={10}
-              value={bulkInputText}
-              onChange={(value) => {
-                setBulkInputText(value);
-                setBulkError("");
-              }}
-              placeholder={bulkPlaceholder}
-            />
-          </div>
-
-          {bulkError ? <div className="text-sm text-red-500">{bulkError}</div> : null}
-
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={runBulkImport}>{t("providers.bulk.import")}</Button>
-            <Button variant="neutral" onClick={runBulkExport}>
-              {t("providers.bulk.export")}
-            </Button>
-            <Button variant="neutral" onClick={() => setBulkInputText("")}>
-              {t("providers.bulk.clearInput")}
-            </Button>
-            {bulkMode === "json" ? (
-              <>
-                <Button variant="neutral" onClick={openBulkImportFilePicker}>
-                  {t("providers.bulk.importFile")}
-                </Button>
-                <Button variant="neutral" onClick={runBulkExportFile}>
-                  {t("providers.bulk.exportFile")}
-                </Button>
-              </>
-            ) : null}
-          </div>
-
-          {bulkMode === "json" ? (
-            <input
-              ref={bulkFileInputRef}
-              type="file"
-              accept=".json,.jsonl,application/json,text/plain"
-              className="hidden"
-              onChange={onBulkImportFileChange}
-            />
-          ) : null}
-
-          <div>
-            <Label>{t("providers.bulk.exportData")}</Label>
-            <TextArea
-              rows={10}
-              value={bulkExportText}
-              onChange={() => {}}
-              readOnly
-              placeholder={t("providers.bulk.exportPlaceholder")}
-            />
-          </div>
-        </div>
+        <CredentialBulkSection
+          bulkModes={bulkModes}
+          bulkMode={bulkMode}
+          setBulkMode={setBulkMode}
+          bulkInputText={bulkInputText}
+          setBulkInputText={setBulkInputText}
+          bulkPlaceholder={bulkPlaceholder}
+          bulkError={bulkError}
+          setBulkError={setBulkError}
+          runBulkImport={runBulkImport}
+          runBulkExport={runBulkExport}
+          openBulkImportFilePicker={openBulkImportFilePicker}
+          runBulkExportFile={runBulkExportFile}
+          bulkFileInputRef={bulkFileInputRef}
+          onBulkImportFileChange={onBulkImportFileChange}
+          bulkExportText={bulkExportText}
+          t={t}
+        />
       )}
     </div>
   );
