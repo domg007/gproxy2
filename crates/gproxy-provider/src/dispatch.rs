@@ -1,7 +1,7 @@
 use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRoute};
 use serde::{Deserialize, Serialize};
 
-use crate::{channel::BuiltinChannel, channels};
+use crate::{channel::BuiltinChannel, registry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RouteKey {
@@ -92,19 +92,7 @@ impl ProviderDispatchTable {
     }
 
     pub fn default_for_builtin(channel: BuiltinChannel) -> Self {
-        match channel {
-            BuiltinChannel::OpenAi => channels::openai::default_dispatch_table(),
-            BuiltinChannel::Claude => channels::claude::default_dispatch_table(),
-            BuiltinChannel::AiStudio => channels::aistudio::default_dispatch_table(),
-            BuiltinChannel::VertexExpress => channels::vertexexpress::default_dispatch_table(),
-            BuiltinChannel::Vertex => channels::vertex::default_dispatch_table(),
-            BuiltinChannel::GeminiCli => channels::geminicli::default_dispatch_table(),
-            BuiltinChannel::ClaudeCode => channels::claudecode::default_dispatch_table(),
-            BuiltinChannel::Codex => channels::codex::default_dispatch_table(),
-            BuiltinChannel::Antigravity => channels::antigravity::default_dispatch_table(),
-            BuiltinChannel::Nvidia => channels::nvidia::default_dispatch_table(),
-            BuiltinChannel::Deepseek => channels::deepseek::default_dispatch_table(),
-        }
+        registry::default_dispatch_table_for_builtin(channel)
     }
 
     pub fn default_for_custom() -> Self {

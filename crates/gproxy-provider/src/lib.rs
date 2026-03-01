@@ -5,6 +5,7 @@ pub mod credential_state;
 pub mod dispatch;
 pub mod facade;
 pub mod provider;
+mod registry;
 pub mod settings;
 pub mod storage_codec;
 pub mod tokenizers;

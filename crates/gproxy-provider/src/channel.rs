@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use crate::registry::BUILTIN_CHANNELS;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BuiltinChannel {
     OpenAi,
@@ -33,36 +35,9 @@ impl BuiltinChannel {
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "openai" => Some(Self::OpenAi),
-            "claude" => Some(Self::Claude),
-            "aistudio" => Some(Self::AiStudio),
-            "vertexexpress" => Some(Self::VertexExpress),
-            "vertex" => Some(Self::Vertex),
-            "geminicli" => Some(Self::GeminiCli),
-            "claudecode" => Some(Self::ClaudeCode),
-            "codex" => Some(Self::Codex),
-            "antigravity" => Some(Self::Antigravity),
-            "nvidia" => Some(Self::Nvidia),
-            "deepseek" => Some(Self::Deepseek),
-            _ => None,
-        }
+        crate::registry::parse_builtin_channel(value)
     }
 }
-
-pub const BUILTIN_CHANNELS: [BuiltinChannel; 11] = [
-    BuiltinChannel::OpenAi,
-    BuiltinChannel::Claude,
-    BuiltinChannel::AiStudio,
-    BuiltinChannel::VertexExpress,
-    BuiltinChannel::Vertex,
-    BuiltinChannel::GeminiCli,
-    BuiltinChannel::ClaudeCode,
-    BuiltinChannel::Codex,
-    BuiltinChannel::Antigravity,
-    BuiltinChannel::Nvidia,
-    BuiltinChannel::Deepseek,
-];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ChannelId {
