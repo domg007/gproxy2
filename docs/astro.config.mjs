@@ -33,6 +33,7 @@ export default defineConfig({
 					translations: { 'zh-CN': '核心指南' },
 					items: [
 						{ label: 'Configuration', translations: { 'zh-CN': '配置说明' }, slug: 'guides/configuration' },
+						{ label: 'Deployment', translations: { 'zh-CN': '部署' }, slug: 'guides/deployment' },
 						{
 							label: 'Custom Channels',
 							translations: { 'zh-CN': '自定义渠道' },

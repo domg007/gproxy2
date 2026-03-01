@@ -68,6 +68,54 @@ curl -sS http://127.0.0.1:8787/openai/v1/models \
   -H "x-api-key: <你的用户key或admin key>"
 ```
 
+## 部署
+
+### 本地部署
+
+#### 二进制
+
+1. 从 [Releases](https://github.com/LeenHawk/gproxy/releases) 下载对应平台二进制。
+2. 准备配置文件：
+
+```bash
+cp gproxy.example.toml gproxy.toml
+```
+
+3. 启动二进制：
+
+```bash
+./gproxy
+```
+
+#### Docker
+
+构建：
+
+```bash
+docker build -t gproxy:local .
+```
+
+运行：
+
+```bash
+docker run --rm -p 8787:8787 \
+  -e GPROXY_HOST=0.0.0.0 \
+  -e GPROXY_PORT=8787 \
+  -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
+  -v $(pwd)/data:/app/data \
+  gproxy:local
+```
+
+### 云端部署
+
+#### Zeabur
+
+- 模板文件：[`zeabur.yaml`](./zeabur.yaml)
+- 可通过文档/示例里的 Zeabur 按钮部署，或在 Zeabur 导入本仓库并使用模板部署。
+- 必填环境变量：`GPROXY_ADMIN_KEY`
+- 建议将 `/app/data` 挂载为持久化卷。
+
 ## 前端控制台
 
 - 控制台入口：`GET /`

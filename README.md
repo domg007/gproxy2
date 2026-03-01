@@ -70,6 +70,54 @@ curl -sS http://127.0.0.1:8787/openai/v1/models \
   -H "x-api-key: <your user key or admin key>"
 ```
 
+## Deployment
+
+### Local deployment
+
+#### Binary
+
+1. Download the binary from [Releases](https://github.com/LeenHawk/gproxy/releases).
+2. Prepare config:
+
+```bash
+cp gproxy.example.toml gproxy.toml
+```
+
+3. Run binary:
+
+```bash
+./gproxy
+```
+
+#### Docker
+
+Build:
+
+```bash
+docker build -t gproxy:local .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8787:8787 \
+  -e GPROXY_HOST=0.0.0.0 \
+  -e GPROXY_PORT=8787 \
+  -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e GPROXY_DSN='sqlite://app/data/gproxy.db?mode=rwc' \
+  -v $(pwd)/data:/app/data \
+  gproxy:local
+```
+
+### Cloud deployment
+
+#### Zeabur
+
+- Template file: [`zeabur.yaml`](./zeabur.yaml)
+- You can use the Zeabur button from docs/samples, or import this repository in Zeabur and deploy from the template.
+- Required env: `GPROXY_ADMIN_KEY`
+- Recommended persistence: mount `/app/data` as a persistent volume.
+
 ## Admin Frontend
 
 - Console entry: `GET /`
