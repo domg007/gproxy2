@@ -165,6 +165,7 @@ impl SeaOrmStorage {
             .map(|row| UserQueryRow {
                 id: row.id,
                 name: row.name,
+                password: row.password.unwrap_or_default(),
                 enabled: row.enabled,
             })
             .collect())

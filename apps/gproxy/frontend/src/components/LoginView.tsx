@@ -7,11 +7,12 @@ export function LoginView({
   onLogin,
   loading
 }: {
-  onLogin: (key: string) => Promise<void>;
+  onLogin: (name: string, password: string) => Promise<void>;
   loading: boolean;
 }) {
   const { t } = useI18n();
-  const [apiKey, setApiKey] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   return (
@@ -23,19 +24,27 @@ export function LoginView({
             event.preventDefault();
             setError("");
             try {
-              await onLogin(apiKey.trim());
+              await onLogin(name.trim(), password);
             } catch (err) {
               setError(err instanceof Error ? err.message : String(err));
             }
           }}
         >
           <div>
-            <Label>{t("login.apiKey")}</Label>
+            <Label>{t("login.username")}</Label>
+            <Input
+              value={name}
+              onChange={setName}
+              placeholder={t("login.usernamePlaceholder")}
+            />
+          </div>
+          <div>
+            <Label>{t("login.password")}</Label>
             <Input
               type="password"
-              value={apiKey}
-              onChange={setApiKey}
-              placeholder={t("login.placeholder")}
+              value={password}
+              onChange={setPassword}
+              placeholder={t("login.passwordPlaceholder")}
             />
           </div>
           {error ? <p className="text-sm text-red-500">{error}</p> : null}

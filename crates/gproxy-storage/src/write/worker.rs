@@ -142,6 +142,7 @@ mod tests {
         tx.enqueue(StorageWriteEvent::UpsertUser(UserWrite {
             id: user_id,
             name: "alice".to_string(),
+            password: "p1".to_string(),
             enabled: true,
         }))
         .await
@@ -149,6 +150,7 @@ mod tests {
         tx.enqueue(StorageWriteEvent::UpsertUser(UserWrite {
             id: user_id,
             name: "alice-renamed".to_string(),
+            password: "p2".to_string(),
             enabled: true,
         }))
         .await

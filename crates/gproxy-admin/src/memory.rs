@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryUser {
     pub id: i64,
     pub name: String,
+    pub password: String,
     pub enabled: bool,
 }
 
@@ -15,14 +17,14 @@ pub struct MemoryUserKey {
     pub enabled: bool,
 }
 
-pub fn normalize_user_api_key(user_id: i64, api_key: &str) -> Option<String> {
+pub fn normalize_user_api_key(api_key: &str) -> Option<String> {
     let raw = api_key.trim();
     if raw.is_empty() {
         return None;
     }
-    let prefix = format!("u{user_id}_");
-    if raw.starts_with(prefix.as_str()) {
-        return Some(raw.to_string());
-    }
-    Some(format!("{prefix}{raw}"))
+    Some(raw.to_string())
+}
+
+pub fn generate_user_api_key() -> String {
+    Uuid::now_v7().as_simple().to_string()
 }

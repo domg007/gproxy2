@@ -257,12 +257,14 @@ impl AppState {
             let mut rows = (**current).clone();
             if let Some(existing) = rows.iter_mut().find(|row| row.id == payload.id) {
                 existing.name = payload.name.clone();
+                existing.password = payload.password.clone();
                 existing.enabled = payload.enabled;
                 return Arc::new(rows);
             }
             rows.push(MemoryUser {
                 id: payload.id,
                 name: payload.name.clone(),
+                password: payload.password.clone(),
                 enabled: payload.enabled,
             });
             Arc::new(rows)

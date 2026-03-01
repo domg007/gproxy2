@@ -54,6 +54,7 @@ export interface CredentialStatusQueryRow {
 export interface UserQueryRow {
   id: number;
   name: string;
+  password: string;
   enabled: boolean;
 }
 

@@ -9,7 +9,7 @@ use gproxy_storage::{
 use std::collections::HashMap;
 
 use crate::error::AdminApiError;
-use crate::{MemoryUser, MemoryUserKey, normalize_user_api_key};
+use crate::{MemoryUser, MemoryUserKey};
 
 pub async fn get_global_settings(
     storage: &gproxy_storage::SeaOrmStorage,
@@ -111,6 +111,7 @@ pub async fn query_users(
         .map(|user| UserQueryRow {
             id: user.id,
             name: user.name.clone(),
+            password: user.password.clone(),
             enabled: user.enabled,
         })
         .collect();
@@ -167,24 +168,12 @@ pub async fn upsert_user_key(
     writer: &StorageWriteSender,
     mut payload: UserKeyWrite,
 ) -> Result<UserKeyWrite, AdminApiError> {
-    let normalized_api_key = normalize_user_api_key(payload.user_id, payload.api_key.as_str())
-        .ok_or_else(|| {
-            AdminApiError::InvalidInput("user key api_key cannot be empty".to_string())
-        })?;
-    payload.api_key = normalized_api_key;
-
-    if payload.api_key.trim().is_empty() {
-        return Err(AdminApiError::InvalidInput(
-            "user key api_key cannot be empty".to_string(),
-        ));
-    }
-    if let Some(existing) = keys.get(payload.api_key.as_str())
-        && existing.id != payload.id
-    {
-        return Err(AdminApiError::InvalidInput(
-            "user key already exists".to_string(),
-        ));
-    }
+    let existing_by_id = keys.values().find(|row| row.id == payload.id);
+    payload.api_key = if let Some(existing) = existing_by_id {
+        existing.api_key.clone()
+    } else {
+        crate::generate_unique_user_api_key(keys)?
+    };
     writer
         .enqueue(StorageWriteEvent::UpsertUserKey(payload.clone()))
         .await?;

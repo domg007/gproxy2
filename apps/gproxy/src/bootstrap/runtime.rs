@@ -111,6 +111,7 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
         .map(|row| MemoryUser {
             id: row.id,
             name: row.name,
+            password: row.password,
             enabled: row.enabled,
         })
         .collect::<Vec<_>>();

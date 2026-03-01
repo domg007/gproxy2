@@ -7,5 +7,5 @@ pub mod user;
 
 pub use admin::*;
 pub use error::AdminApiError;
-pub use memory::{MemoryUser, MemoryUserKey, normalize_user_api_key};
+pub use memory::{MemoryUser, MemoryUserKey, generate_user_api_key, normalize_user_api_key};
 pub use user::*;

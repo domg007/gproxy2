@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod error;
+pub mod login;
 pub mod provider;
 pub mod router;
 pub mod user;

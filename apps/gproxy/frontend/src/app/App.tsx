@@ -4,6 +4,7 @@ import { LoginView } from "../components/LoginView";
 import { Nav, type NavItem } from "../components/Nav";
 import { Toast, type ToastState } from "../components/Toast";
 import { Badge, Button, Select } from "../components/ui";
+import { apiRequest } from "../lib/api";
 import type { ThemeMode, UserRole } from "../lib/types";
 import { detectRole } from "./session";
 import { applyTheme, persistTheme, readStoredTheme } from "./theme";
@@ -32,6 +33,11 @@ const USER_NAV_IDS = ["my-keys", "my-usage", "about"] as const;
 
 type AdminNavId = (typeof ADMIN_NAV_IDS)[number];
 type UserNavId = (typeof USER_NAV_IDS)[number];
+
+type LoginResponse = {
+  user_id: number;
+  api_key: string;
+};
 
 function defaultModule(role: UserRole): string {
   return role === "admin" ? ADMIN_NAV_IDS[0] : USER_NAV_IDS[0];
@@ -197,22 +203,30 @@ export function App() {
   }, [role, syncModuleWithHash]);
 
   const onLogin = useCallback(
-    async (value: string) => {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        throw new Error(t("app.error.apiKeyEmpty"));
+    async (name: string, password: string) => {
+      const userName = name.trim();
+      if (!userName) {
+        throw new Error(t("app.error.usernameEmpty"));
+      }
+      if (!password.trim()) {
+        throw new Error(t("app.error.passwordEmpty"));
       }
       setLoginLoading(true);
       try {
-        const session = await detectRole(trimmed);
-        setApiKey(trimmed);
-        setRole(session.role);
-        localStorage.setItem(API_KEY_STORAGE_KEY, trimmed);
-        localStorage.setItem(ROLE_STORAGE_KEY, session.role);
-        const fallback = defaultModule(session.role);
+        const login = await apiRequest<LoginResponse>("/login", {
+          method: "POST",
+          body: { name: userName, password }
+        });
+        const nextApiKey = login.api_key;
+        const nextRole: UserRole = login.user_id === 0 ? "admin" : "user";
+        setApiKey(nextApiKey);
+        setRole(nextRole);
+        localStorage.setItem(API_KEY_STORAGE_KEY, nextApiKey);
+        localStorage.setItem(ROLE_STORAGE_KEY, nextRole);
+        const fallback = defaultModule(nextRole);
         setActiveModule(fallback);
-        setHashRoute(session.role, fallback);
-        notify("success", t("app.loginAs", { role: session.role }));
+        setHashRoute(nextRole, fallback);
+        notify("success", t("app.loginAs", { role: nextRole }));
       } finally {
         setLoginLoading(false);
       }

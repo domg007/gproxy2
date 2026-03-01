@@ -11,7 +11,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  apiKey: string;
+  apiKey?: string;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 }
@@ -21,7 +21,9 @@ export async function apiRequest<T>(
   { apiKey, method = "GET", body }: RequestOptions
 ): Promise<T> {
   const headers = new Headers();
-  headers.set("x-api-key", apiKey);
+  if (apiKey && apiKey.trim()) {
+    headers.set("x-api-key", apiKey);
+  }
 
   let payload: string | undefined;
   if (body !== undefined) {

@@ -30,6 +30,12 @@ pub(super) async fn upsert_user(
             "user name cannot be empty".to_string(),
         )));
     }
+    let password = payload.password.trim();
+    if password.is_empty() {
+        return Err(HttpError::from(gproxy_admin::AdminApiError::InvalidInput(
+            "user password cannot be empty".to_string(),
+        )));
+    }
     let id = payload.id.unwrap_or_else(|| {
         state
             .load_users()
@@ -42,6 +48,7 @@ pub(super) async fn upsert_user(
     let write = gproxy_storage::UserWrite {
         id,
         name: name.to_string(),
+        password: password.to_string(),
         enabled: payload.enabled,
     };
     state.upsert_user_in_memory(write.clone());

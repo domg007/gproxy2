@@ -320,6 +320,7 @@ async fn upsert_users<C: ConnectionTrait>(
         .map(|item| users::ActiveModel {
             id: Set(item.id),
             name: Set(item.name),
+            password: Set(Some(item.password)),
             enabled: Set(item.enabled),
             created_at: Set(now),
             updated_at: Set(now),
@@ -337,6 +338,7 @@ async fn upsert_users<C: ConnectionTrait>(
                 OnConflict::column(users::Column::Id)
                     .update_columns([
                         users::Column::Name,
+                        users::Column::Password,
                         users::Column::Enabled,
                         users::Column::UpdatedAt,
                     ])

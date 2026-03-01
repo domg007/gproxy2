@@ -37,15 +37,10 @@ pub(super) fn ensure_admin_principal(
         users.push(MemoryUser {
             id,
             name: "admin".to_string(),
+            password: String::new(),
             enabled: true,
         });
         id
-    };
-
-    let user_write = UserWrite {
-        id: admin_user_id,
-        name: "admin".to_string(),
-        enabled: true,
     };
 
     let admin_key = if global.admin_key.trim().is_empty() {
@@ -62,6 +57,17 @@ pub(super) fn ensure_admin_principal(
         let normalized = global.admin_key.trim().to_string();
         global.admin_key = normalized.clone();
         normalized
+    };
+
+    if let Some(existing) = users.iter_mut().find(|row| row.id == admin_user_id) {
+        existing.password = admin_key.clone();
+    }
+
+    let user_write = UserWrite {
+        id: admin_user_id,
+        name: "admin".to_string(),
+        password: admin_key.clone(),
+        enabled: true,
     };
 
     let admin_key_id = keys

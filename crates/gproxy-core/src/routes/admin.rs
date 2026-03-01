@@ -55,6 +55,7 @@ struct UpsertUserPayload {
     #[serde(default)]
     id: Option<i64>,
     name: String,
+    password: String,
     enabled: bool,
 }
 
@@ -237,7 +238,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/users/upsert", post(upsert_user))
         .route("/users/delete", post(delete_user))
         .route("/user-keys/query", post(query_user_keys))
-        .route("/user-keys/upsert", post(upsert_user_key))
+        .route("/user-keys/generate", post(generate_user_key))
         .route("/user-keys/delete", post(delete_user_key))
         .route("/requests/upstream/query", post(query_upstream_requests))
         .route(

@@ -26,7 +26,7 @@ struct DeleteMyKeyPayload {
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/keys/query", post(query_my_keys))
-        .route("/keys/upsert", post(upsert_my_key))
+        .route("/keys/generate", post(generate_my_key))
         .route("/keys/delete", post(delete_my_key))
         .route("/usages/query", post(query_my_usages))
         .route("/usages/summary", post(summarize_my_usages))
@@ -49,19 +49,33 @@ async fn query_my_keys(
     ))
 }
 
-async fn upsert_my_key(
+async fn generate_my_key(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(payload): Json<gproxy_admin::UpsertMyKeyInput>,
 ) -> Result<Json<gproxy_storage::UserKeyWrite>, HttpError> {
     let api_key = api_key_from_headers(&headers)?;
     let users = state.load_users();
     let keys = state.load_keys();
-    let row =
-        gproxy_admin::upsert_my_user_key(&state.storage_writes, api_key, &users, &keys, payload)
-            .await?;
-    state.upsert_user_key_in_memory(row.clone());
-    Ok(Json(row))
+    let me = gproxy_admin::authenticate_user_key(&users, &keys, api_key).await?;
+    let generated = gproxy_admin::generate_unique_user_api_key(&keys)?;
+    let next_id = keys.values().map(|row| row.id).max().unwrap_or(-1) + 1;
+    let write = gproxy_storage::UserKeyWrite {
+        id: next_id,
+        user_id: me.user_id,
+        api_key: generated,
+        label: Some("auto-generated".to_string()),
+        enabled: true,
+    };
+    state
+        .storage_writes
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserKey(
+            write.clone(),
+        ))
+        .await
+        .map_err(gproxy_admin::AdminApiError::from)
+        .map_err(HttpError::from)?;
+    state.upsert_user_key_in_memory(write.clone());
+    Ok(Json(write))
 }
 
 async fn delete_my_key(

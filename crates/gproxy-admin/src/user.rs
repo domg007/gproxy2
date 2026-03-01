@@ -6,10 +6,32 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::error::AdminApiError;
-use crate::{MemoryUser, MemoryUserKey, normalize_user_api_key};
+use crate::{MemoryUser, MemoryUserKey, generate_user_api_key};
+
+const MAX_GENERATE_KEY_ATTEMPTS: usize = 32;
 
 pub fn extract_api_key(provided: Option<&str>) -> Result<&str, AdminApiError> {
     provided.ok_or(AdminApiError::Unauthorized)
+}
+
+pub fn authenticate_user_password(
+    users: &[MemoryUser],
+    username: &str,
+    password: &str,
+) -> Result<MemoryUser, AdminApiError> {
+    let name = username.trim();
+    let pass = password.trim();
+    if name.is_empty() || pass.is_empty() {
+        return Err(AdminApiError::Unauthorized);
+    }
+    let user = users
+        .iter()
+        .find(|item| item.enabled && item.name == name)
+        .ok_or(AdminApiError::Unauthorized)?;
+    if user.password != pass {
+        return Err(AdminApiError::Unauthorized);
+    }
+    Ok(user.clone())
 }
 
 pub async fn authenticate_user_key(
@@ -69,26 +91,23 @@ pub async fn upsert_my_user_key(
     input: UpsertMyKeyInput,
 ) -> Result<UserKeyWrite, AdminApiError> {
     let me = authenticate_user_key(users, keys, current_api_key).await?;
-    let normalized_api_key = normalize_user_api_key(me.user_id, input.api_key.as_str())
-        .ok_or_else(|| AdminApiError::InvalidInput("api_key cannot be empty".to_string()))?;
-    if let Some(existing) = keys.get(normalized_api_key.as_str()) {
-        if let Some(target_id) = input.id {
-            if existing.id != target_id {
-                return Err(AdminApiError::InvalidInput(
-                    "user key already exists".to_string(),
-                ));
-            }
-        } else {
-            return Err(AdminApiError::InvalidInput(
-                "user key already exists".to_string(),
-            ));
-        }
+    let existing_by_id = input.id.and_then(|id| keys.values().find(|row| row.id == id));
+    if let Some(existing) = existing_by_id
+        && existing.user_id != me.user_id
+    {
+        return Err(AdminApiError::Forbidden);
     }
+
+    let api_key = if let Some(existing) = existing_by_id {
+        existing.api_key.clone()
+    } else {
+        generate_unique_user_api_key(keys)?
+    };
 
     let payload = UserKeyWrite {
         id: input.id.unwrap_or_else(|| next_local_id(keys)),
         user_id: me.user_id,
-        api_key: normalized_api_key,
+        api_key,
         label: input.label,
         enabled: input.enabled,
     };
@@ -97,6 +116,20 @@ pub async fn upsert_my_user_key(
         .enqueue(StorageWriteEvent::UpsertUserKey(payload.clone()))
         .await?;
     Ok(payload)
+}
+
+pub fn generate_unique_user_api_key(
+    keys: &HashMap<String, MemoryUserKey>,
+) -> Result<String, AdminApiError> {
+    for _ in 0..MAX_GENERATE_KEY_ATTEMPTS {
+        let candidate = generate_user_api_key();
+        if !keys.contains_key(candidate.as_str()) {
+            return Ok(candidate);
+        }
+    }
+    Err(AdminApiError::InvalidInput(
+        "failed to generate unique user key".to_string(),
+    ))
 }
 
 pub async fn delete_my_user_key(

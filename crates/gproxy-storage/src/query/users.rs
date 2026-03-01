@@ -12,6 +12,7 @@ pub struct UserQuery {
 pub struct UserQueryRow {
     pub id: i64,
     pub name: String,
+    pub password: String,
     pub enabled: bool,
 }
 

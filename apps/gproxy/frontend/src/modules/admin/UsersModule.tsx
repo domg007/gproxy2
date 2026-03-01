@@ -8,7 +8,13 @@ import type { UserKeyQueryRow, UserQueryRow } from "../../lib/types";
 import { Button, Card } from "../../components/ui";
 import { UserKeysPane } from "./users/UserKeysPane";
 import { UserListPane } from "./users/UserListPane";
-import type { UserFormState, UserKeyFormState } from "./users/types";
+import type { UserFormState } from "./users/types";
+
+type GeneratedUserKey = {
+  id: number;
+  user_id: number;
+  api_key: string;
+};
 
 export function UsersModule({
   apiKey,
@@ -22,18 +28,11 @@ export function UsersModule({
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [keyRows, setKeyRows] = useState<UserKeyQueryRow[]>([]);
   const [showUserEditor, setShowUserEditor] = useState(false);
-  const [showKeyEditor, setShowKeyEditor] = useState(false);
 
   const [form, setForm] = useState<UserFormState>({
     id: "",
     name: "",
-    enabled: true
-  });
-
-  const [keyForm, setKeyForm] = useState<UserKeyFormState>({
-    id: "",
-    apiKey: "",
-    label: "",
+    password: "",
     enabled: true
   });
 
@@ -104,6 +103,7 @@ export function UsersModule({
         body: {
           id,
           name: form.name.trim(),
+          password: form.password.trim(),
           enabled: form.enabled
         }
       });
@@ -136,6 +136,7 @@ export function UsersModule({
     setForm({
       id: String(row.id),
       name: row.name,
+      password: row.password,
       enabled: row.enabled
     });
     setShowUserEditor(true);
@@ -155,6 +156,7 @@ export function UsersModule({
         body: {
           id: row.id,
           name: row.name,
+          password: row.password,
           enabled: nextEnabled
         }
       });
@@ -171,25 +173,20 @@ export function UsersModule({
     }
   };
 
-  const upsertUserKey = async () => {
+  const generateUserKey = async () => {
     if (selectedUserId === null) {
       notify("error", t("users.needUser"));
       return;
     }
     try {
-      await apiRequest("/admin/user-keys/upsert", {
+      const generated = await apiRequest<GeneratedUserKey>("/admin/user-keys/generate", {
         apiKey,
         method: "POST",
         body: {
-          id: parseRequiredI64(keyForm.id, "id"),
-          user_id: selectedUserId,
-          api_key: keyForm.apiKey.trim(),
-          label: keyForm.label.trim() || null,
-          enabled: keyForm.enabled
+          user_id: selectedUserId
         }
       });
-      notify("success", t("users.keySaved"));
-      setShowKeyEditor(false);
+      notify("success", t("users.keyGenerated", { key: generated.api_key }));
       await loadUserKeys(selectedUserId);
     } catch (error) {
       notify("error", formatError(error));
@@ -213,17 +210,6 @@ export function UsersModule({
     }
   };
 
-  const editUserKey = (row: UserKeyQueryRow) => {
-    setSelectedUserId(row.user_id);
-    setKeyForm({
-      id: String(row.id),
-      apiKey: row.api_key,
-      label: "",
-      enabled: true
-    });
-    setShowKeyEditor(true);
-  };
-
   return (
     <div className="space-y-4">
       <Card
@@ -244,7 +230,7 @@ export function UsersModule({
               form={form}
               onToggleEditor={() => {
                 if (!showUserEditor) {
-                  setForm({ id: "", name: "", enabled: true });
+                  setForm({ id: "", name: "", password: "", enabled: true });
                 }
                 setShowUserEditor((prev) => !prev);
               }}
@@ -262,18 +248,8 @@ export function UsersModule({
               selectedUser={selectedUser}
               selectedUserId={selectedUserId}
               keyRows={keyRows}
-              showKeyEditor={showKeyEditor}
-              keyForm={keyForm}
-              onToggleEditor={() => {
-                if (!showKeyEditor) {
-                  setKeyForm({ id: "", apiKey: "", label: "", enabled: true });
-                }
-                setShowKeyEditor((prev) => !prev);
-              }}
+              onGenerateKey={() => void generateUserKey()}
               onRefreshKeys={() => void loadUserKeys(selectedUserId)}
-              onChangeKeyForm={(patch) => setKeyForm((prev) => ({ ...prev, ...patch }))}
-              onSaveKey={() => void upsertUserKey()}
-              onEditKey={editUserKey}
               onDeleteKey={(id) => void removeUserKey(id)}
             />
           </div>

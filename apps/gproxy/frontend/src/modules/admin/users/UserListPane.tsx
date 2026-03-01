@@ -52,6 +52,14 @@ export function UserListPane({
               <Label>{t("field.name")}</Label>
               <Input value={form.name} onChange={(value) => onChangeForm({ name: value })} />
             </div>
+            <div>
+              <Label>{t("field.password")}</Label>
+              <Input
+                type="password"
+                value={form.password}
+                onChange={(value) => onChangeForm({ password: value })}
+              />
+            </div>
             <div className="flex items-end gap-2 pb-1">
               <input
                 id="user-enabled"
