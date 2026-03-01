@@ -6,6 +6,7 @@ use crate::channels::antigravity::{
     ensure_antigravity_project_id, normalize_antigravity_upstream_response_body,
     normalize_antigravity_upstream_stream_ndjson_chunk,
 };
+use crate::channels::deepseek::normalize_deepseek_upstream_response_body;
 use crate::channels::geminicli::{
     ensure_geminicli_project_id, normalize_geminicli_upstream_response_body,
     normalize_geminicli_upstream_stream_ndjson_chunk,
@@ -155,6 +156,9 @@ pub fn normalize_upstream_response_body_for_channel(
     match channel {
         ChannelId::Builtin(BuiltinChannel::GeminiCli) => {
             normalize_geminicli_upstream_response_body(body)
+        }
+        ChannelId::Builtin(BuiltinChannel::Deepseek) => {
+            normalize_deepseek_upstream_response_body(body)
         }
         ChannelId::Builtin(BuiltinChannel::Antigravity) => {
             normalize_antigravity_upstream_response_body(body)
