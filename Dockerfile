@@ -64,8 +64,13 @@ RUN ARCH="${TARGETARCH:-$(uname -m)}" \
     && ln -sf "${MUSL_CC}" "/usr/local/bin/${MUSL_TRIPLE}-gcc" \
     && if command -v "${MUSL_TRIPLE}-g++" >/dev/null 2>&1; then \
          MUSL_CXX="$(command -v "${MUSL_TRIPLE}-g++")"; \
+       elif command -v g++ >/dev/null 2>&1; then \
+         MUSL_CXX="$(command -v g++)"; \
+       elif command -v clang++ >/dev/null 2>&1; then \
+         MUSL_CXX="$(command -v clang++)"; \
        else \
-         MUSL_CXX="/usr/local/bin/${MUSL_TRIPLE}-gcc"; \
+         echo "missing musl C++ compiler for ${MUSL_TRIPLE}" >&2; \
+         exit 1; \
        fi \
     && ln -sf "${MUSL_CXX}" "/usr/local/bin/${MUSL_TRIPLE}-g++" \
     && case "${RUST_TARGET}" in \
