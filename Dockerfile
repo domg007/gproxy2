@@ -55,7 +55,7 @@ COPY --from=builder /tmp/app/data /app/data
 ENV GPROXY_HOST=0.0.0.0
 ENV GPROXY_PORT=8787
 ENV GPROXY_DATA_DIR=/app/data
-ENV GPROXY_DSN=sqlite://app/data/gproxy.db?mode=rwc
+ENV GPROXY_DSN=sqlite:///app/data/gproxy.db?mode=rwc
 
 EXPOSE 8787
 
