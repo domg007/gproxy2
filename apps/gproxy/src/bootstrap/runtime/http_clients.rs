@@ -6,9 +6,8 @@ use wreq::Proxy;
 use wreq::header::{ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, HeaderMap, HeaderValue};
 use wreq_util::Emulation;
 
-const CLIENT_CONNECT_TIMEOUT_SECS: u64 = 5;
-const CLIENT_REQUEST_TIMEOUT_SECS: u64 = 86400;
-const CLIENT_STREAM_IDLE_TIMEOUT_SECS: u64 = 30;
+const CLIENT_CONNECT_TIMEOUT_SECS: u64 = 600;
+const CLIENT_STREAM_IDLE_TIMEOUT_SECS: u64 = 3600;
 
 fn normalize_proxy(proxy: Option<&str>) -> Option<&str> {
     proxy.and_then(|value| {
@@ -20,7 +19,6 @@ fn normalize_proxy(proxy: Option<&str>) -> Option<&str> {
 pub(super) fn build_http_client(proxy: Option<&str>) -> Result<WreqClient> {
     let mut builder = WreqClient::builder()
         .connect_timeout(Duration::from_secs(CLIENT_CONNECT_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(CLIENT_REQUEST_TIMEOUT_SECS))
         .read_timeout(Duration::from_secs(CLIENT_STREAM_IDLE_TIMEOUT_SECS));
 
     if let Some(proxy_url) = normalize_proxy(proxy) {
@@ -41,7 +39,6 @@ pub(super) fn build_claudecode_spoof_client(proxy: Option<&str>) -> Result<WreqC
 
     let mut builder = WreqClient::builder()
         .connect_timeout(Duration::from_secs(CLIENT_CONNECT_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(CLIENT_REQUEST_TIMEOUT_SECS))
         .read_timeout(Duration::from_secs(CLIENT_STREAM_IDLE_TIMEOUT_SECS))
         .cookie_store(true)
         .emulation(Emulation::Chrome136)
