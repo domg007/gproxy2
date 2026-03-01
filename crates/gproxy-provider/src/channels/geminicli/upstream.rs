@@ -72,6 +72,12 @@ pub async fn execute_geminicli_with_retry(
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
     let base_url_template = base_url.to_string();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
     retry_with_eligible_credentials(
         provider,
@@ -94,6 +100,7 @@ pub async fn execute_geminicli_with_retry(
             let model = model_template.clone();
             let kind = kind_template.clone();
             let base_url = base_url_template.clone();
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let path_with_query = match query.as_deref() {
@@ -176,6 +183,7 @@ pub async fn execute_geminicli_with_retry(
                     method.clone(),
                     url.as_str(),
                     resolved_access_token.access_token.as_str(),
+                    user_agent.as_deref(),
                     model.as_deref(),
                     body_bytes.as_deref(),
                 )
@@ -250,6 +258,7 @@ pub async fn execute_geminicli_with_retry(
                         method,
                         url.as_str(),
                         refreshed_access_token.access_token.as_str(),
+                        user_agent.as_deref(),
                         model.as_deref(),
                         body_bytes.as_deref(),
                     )
@@ -493,6 +502,12 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
     let state_manager = CredentialStateManager::new(now_unix_ms);
     let usage_url_template = usage_url.clone();
     let channel_template = scoped_provider.channel.clone();
+    let user_agent_template = scoped_provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
     retry_with_eligible_credentials(
         &scoped_provider,
@@ -510,6 +525,7 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
         |attempt| {
             let usage_url = usage_url_template.clone();
             let channel = channel_template.clone();
+            let user_agent = user_agent_template.clone();
             async move {
                 if attempt.material.project_id.trim().is_empty() {
                     let message = "missing project_id in geminicli credential".to_string();
@@ -603,6 +619,7 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
                     WreqMethod::POST,
                     usage_url.as_str(),
                     resolved_access_token.access_token.as_str(),
+                    user_agent.as_deref(),
                     None,
                     Some(usage_body_bytes.as_slice()),
                 )
@@ -717,16 +734,22 @@ async fn send_geminicli_request(
     method: WreqMethod,
     url: &str,
     access_token: &str,
+    custom_user_agent: Option<&str>,
     model_for_ua: Option<&str>,
     body: Option<&[u8]>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
+    let user_agent = custom_user_agent
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| geminicli_user_agent(model_for_ua));
     let mut headers = vec![
         ("accept".to_string(), "application/json".to_string()),
         (
             "authorization".to_string(),
             format!("Bearer {access_token}"),
         ),
-        ("user-agent".to_string(), geminicli_user_agent(model_for_ua)),
+        ("user-agent".to_string(), user_agent),
         ("accept-encoding".to_string(), "gzip".to_string()),
     ];
     if body.is_some() {

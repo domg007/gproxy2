@@ -67,6 +67,13 @@ pub async fn execute_codex_with_retry(
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
     let base_url_template = base_url.to_string();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(USER_AGENT_VALUE)
+        .to_string();
 
     retry_with_eligible_credentials(
         provider,
@@ -88,6 +95,7 @@ pub async fn execute_codex_with_retry(
             let model = model_template.clone();
             let kind = kind_template.clone();
             let base_url = base_url_template.clone();
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let url = join_base_url_and_path(base_url.as_str(), path.as_str());
@@ -144,6 +152,7 @@ pub async fn execute_codex_with_retry(
                     url.as_str(),
                     access_token.as_str(),
                     attempt.material.account_id.as_str(),
+                    user_agent.as_str(),
                     body.as_ref(),
                 )
                 .await
@@ -218,6 +227,7 @@ pub async fn execute_codex_with_retry(
                         url.as_str(),
                         refreshed_token.as_str(),
                         attempt.material.account_id.as_str(),
+                        user_agent.as_str(),
                         body.as_ref(),
                     )
                     .await
@@ -426,6 +436,13 @@ pub async fn execute_codex_upstream_usage_with_retry(
     let state_manager = CredentialStateManager::new(now_unix_ms);
     let usage_url_template = usage_url.clone();
     let channel_id = scoped_provider.channel.clone();
+    let user_agent_template = scoped_provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(USER_AGENT_VALUE)
+        .to_string();
 
     retry_with_eligible_credentials(
         &scoped_provider,
@@ -443,6 +460,7 @@ pub async fn execute_codex_upstream_usage_with_retry(
         |attempt| {
             let usage_url = usage_url_template.clone();
             let channel_id = channel_id.clone();
+            let user_agent = user_agent_template.clone();
             async move {
                 let token_cache_key = format!("{}::{}", channel_id.as_str(), attempt.credential_id);
                 let mut credential_update = None;
@@ -495,6 +513,7 @@ pub async fn execute_codex_upstream_usage_with_retry(
                     usage_url.as_str(),
                     access_token.as_str(),
                     attempt.material.account_id.as_str(),
+                    user_agent.as_str(),
                 )
                 .await
                 {
@@ -567,6 +586,7 @@ pub async fn execute_codex_upstream_usage_with_retry(
                         usage_url.as_str(),
                         refreshed_token.as_str(),
                         attempt.material.account_id.as_str(),
+                        user_agent.as_str(),
                     )
                     .await
                     {
@@ -668,6 +688,7 @@ async fn send_codex_request(
     url: &str,
     access_token: &str,
     account_id: &str,
+    user_agent: &str,
     body: Option<&Vec<u8>>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let mut headers = vec![
@@ -677,7 +698,7 @@ async fn send_codex_request(
         ),
         (ACCOUNT_ID_HEADER.to_string(), account_id.to_string()),
         (ORIGINATOR_HEADER.to_string(), ORIGINATOR_VALUE.to_string()),
-        (USER_AGENT_HEADER.to_string(), USER_AGENT_VALUE.to_string()),
+        (USER_AGENT_HEADER.to_string(), user_agent.to_string()),
     ];
     if body.is_some() {
         headers.push(("content-type".to_string(), "application/json".to_string()));
@@ -691,6 +712,7 @@ async fn send_codex_usage_request(
     url: &str,
     access_token: &str,
     account_id: &str,
+    user_agent: &str,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let headers = vec![
         (
@@ -699,7 +721,7 @@ async fn send_codex_usage_request(
         ),
         (ACCOUNT_ID_HEADER.to_string(), account_id.to_string()),
         (ORIGINATOR_HEADER.to_string(), ORIGINATOR_VALUE.to_string()),
-        (USER_AGENT_HEADER.to_string(), USER_AGENT_VALUE.to_string()),
+        (USER_AGENT_HEADER.to_string(), user_agent.to_string()),
         ("accept".to_string(), "application/json".to_string()),
     ];
     crate::channels::upstream::tracked_send_request(client, WreqMethod::GET, url, headers, None)

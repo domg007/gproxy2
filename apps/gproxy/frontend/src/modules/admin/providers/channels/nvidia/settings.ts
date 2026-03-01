@@ -1,9 +1,10 @@
-import { createSettingsCodec } from "../shared";
+import { DEFAULT_GPROXY_USER_AGENT_DRAFT, createSettingsCodec } from "../shared";
 
 const DEFAULTS = {
-  "base_url": "https://integrate.api.nvidia.com"
+  "base_url": "https://integrate.api.nvidia.com",
+  "user_agent": DEFAULT_GPROXY_USER_AGENT_DRAFT
 } as const;
-const OPTIONAL_KEYS = [] as const;
+const OPTIONAL_KEYS = ["user_agent"] as const;
 
 export const {
   defaultSettingsDraft,

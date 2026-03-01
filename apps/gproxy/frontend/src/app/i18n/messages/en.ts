@@ -205,6 +205,7 @@ export const enMessages = {
     "field.nameOptional": "name (optional)",
     "field.channel": "channel",
     "field.base_url": "base_url",
+    "field.user_agent": "user_agent",
     "field.custom_mask_table": "custom_mask_table",
     "field.kind": "kind",
     "field.user_id": "user_id",

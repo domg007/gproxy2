@@ -37,6 +37,15 @@ pub fn join_base_url_and_path(base_url: &str, path: &str) -> String {
     format!("{base}{normalized_path}")
 }
 
+pub fn default_gproxy_user_agent() -> String {
+    format!(
+        "gproxy/{}({},{})",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
+}
+
 pub const fn is_auth_failure(status_code: u16) -> bool {
     status_code == 401 || status_code == 403
 }

@@ -76,6 +76,13 @@ pub async fn execute_antigravity_with_retry(
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
     let base_url_template = base_url.to_string();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(ANTIGRAVITY_USER_AGENT)
+        .to_string();
 
     retry_with_eligible_credentials(
         provider,
@@ -98,6 +105,7 @@ pub async fn execute_antigravity_with_retry(
             let model = model_template.clone();
             let kind = kind_template.clone();
             let base_url = base_url_template.clone();
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let path_with_query = match query.as_deref() {
@@ -184,6 +192,7 @@ pub async fn execute_antigravity_with_retry(
                     method.clone(),
                     url.as_str(),
                     resolved_access_token.access_token.as_str(),
+                    user_agent.as_str(),
                     request_type,
                     body_bytes.as_deref(),
                     request_id.as_str(),
@@ -260,6 +269,7 @@ pub async fn execute_antigravity_with_retry(
                         method,
                         url.as_str(),
                         refreshed_access_token.access_token.as_str(),
+                        user_agent.as_str(),
                         request_type,
                         body_bytes.as_deref(),
                         request_id.as_str(),
@@ -473,6 +483,13 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
     let state_manager = CredentialStateManager::new(now_unix_ms);
     let usage_url_template = usage_url.clone();
     let channel_id = scoped_provider.channel.clone();
+    let user_agent_template = scoped_provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(ANTIGRAVITY_USER_AGENT)
+        .to_string();
 
     retry_with_eligible_credentials(
         &scoped_provider,
@@ -491,6 +508,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
             let usage_url = usage_url_template.clone();
             let channel_id = channel_id.clone();
             let usage_body = usage_body.clone();
+            let user_agent = user_agent_template.clone();
             async move {
                 let token_cache_key = format!("{}::{}", channel_id.as_str(), attempt.credential_id);
                 let mut credential_update = None;
@@ -544,6 +562,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
                     WreqMethod::POST,
                     usage_url.as_str(),
                     resolved_access_token.access_token.as_str(),
+                    user_agent.as_str(),
                     None,
                     Some(usage_body.as_slice()),
                     request_id.as_str(),
@@ -620,6 +639,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
                         WreqMethod::POST,
                         usage_url.as_str(),
                         refreshed_access_token.access_token.as_str(),
+                        user_agent.as_str(),
                         None,
                         Some(usage_body.as_slice()),
                         request_id.as_str(),
@@ -723,6 +743,7 @@ async fn send_antigravity_request(
     method: WreqMethod,
     url: &str,
     access_token: &str,
+    user_agent: &str,
     request_type: Option<&str>,
     body: Option<&[u8]>,
     request_id: &str,
@@ -733,7 +754,7 @@ async fn send_antigravity_request(
             "authorization".to_string(),
             format!("Bearer {access_token}"),
         ),
-        ("user-agent".to_string(), ANTIGRAVITY_USER_AGENT.to_string()),
+        ("user-agent".to_string(), user_agent.to_string()),
         ("accept-encoding".to_string(), "gzip".to_string()),
         ("requestid".to_string(), request_id.to_string()),
     ];

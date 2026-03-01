@@ -9,8 +9,8 @@ use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
 };
 use crate::channels::utils::{
-    gemini_model_list_query_string, is_auth_failure, is_transient_server_failure,
-    join_base_url_and_path, retry_after_to_millis, to_wreq_method,
+    default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
+    is_transient_server_failure, join_base_url_and_path, retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -39,6 +39,13 @@ pub async fn execute_vertex_with_retry(
     let model_response_kind_template = prepared.model_response_kind;
     let base_url_template = base_url.to_string();
     let location_template = DEFAULT_LOCATION.to_string();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,
@@ -62,6 +69,7 @@ pub async fn execute_vertex_with_retry(
             let model_response_kind = model_response_kind_template;
             let base_url = base_url_template.clone();
             let location = location_template.clone();
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let path = build_vertex_path(
@@ -135,6 +143,7 @@ pub async fn execute_vertex_with_retry(
                     &method,
                     url.as_str(),
                     resolved_access_token.access_token.as_str(),
+                    user_agent.as_str(),
                     &body,
                 )
                 .await
@@ -263,6 +272,7 @@ pub async fn execute_vertex_with_retry(
                         &method,
                         url.as_str(),
                         refreshed_token.access_token.as_str(),
+                        user_agent.as_str(),
                         &body,
                     )
                     .await
@@ -418,12 +428,14 @@ async fn send_vertex_request(
     method: &WreqMethod,
     url: &str,
     access_token: &str,
+    user_agent: &str,
     body: &Option<Vec<u8>>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
     let mut headers = vec![(
         "authorization".to_string(),
         format!("Bearer {access_token}"),
     )];
+    headers.push(("user-agent".to_string(), user_agent.to_string()));
     if body.is_some() {
         headers.push(("content-type".to_string(), "application/json".to_string()));
     }

@@ -72,6 +72,30 @@ impl ChannelSettings {
         }
     }
 
+    pub fn user_agent(&self) -> Option<&str> {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::OpenAi(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::AiStudio(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::VertexExpress(value)) => {
+                value.user_agent.as_deref()
+            }
+            Self::Builtin(BuiltinChannelSettings::Vertex(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::GeminiCli(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
+                value.user_agent.as_deref()
+            }
+            Self::Builtin(BuiltinChannelSettings::Codex(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Antigravity(value)) => {
+                value.user_agent.as_deref()
+            }
+            Self::Builtin(BuiltinChannelSettings::Nvidia(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Deepseek(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Groq(value)) => value.user_agent.as_deref(),
+            Self::Custom(value) => value.user_agent.as_deref(),
+        }
+    }
+
     pub fn oauth_issuer_url(&self) -> Option<&str> {
         match self {
             Self::Builtin(BuiltinChannelSettings::Codex(value)) => {

@@ -58,6 +58,13 @@ pub async fn execute_claudecode_with_retry(
     let url_template = url.clone();
     let base_url_template = base_url.to_string();
     let claude_ai_base_url_template = claude_ai_base_url.clone();
+    let request_user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(CLAUDE_CODE_UA)
+        .to_string();
 
     retry_with_eligible_credentials(
         provider,
@@ -79,6 +86,7 @@ pub async fn execute_claudecode_with_retry(
             let url = url_template.clone();
             let base_url = base_url_template.clone();
             let claude_ai_base_url = claude_ai_base_url_template.clone();
+            let request_user_agent = request_user_agent_template.clone();
 
             async move {
                 let active_client = if attempt.material.has_cookie() {
@@ -150,6 +158,7 @@ pub async fn execute_claudecode_with_retry(
                     method.clone(),
                     url.as_str(),
                     active_access_token.as_str(),
+                    request_user_agent.as_str(),
                     request_headers.as_slice(),
                     body.as_ref(),
                 )
@@ -229,6 +238,7 @@ pub async fn execute_claudecode_with_retry(
                         method.clone(),
                         url.as_str(),
                         active_access_token.as_str(),
+                        request_user_agent.as_str(),
                         request_headers.as_slice(),
                         body.as_ref(),
                     )
@@ -283,6 +293,7 @@ pub async fn execute_claudecode_with_retry(
                         method.clone(),
                         url.as_str(),
                         active_access_token.as_str(),
+                        request_user_agent.as_str(),
                         retry_headers_without_context.as_slice(),
                         body.as_ref(),
                     )
@@ -414,6 +425,13 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_CLAUDE_AI_BASE_URL)
         .to_string();
+    let request_user_agent_template = scoped_provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(CLAUDE_CODE_UA)
+        .to_string();
 
     retry_with_eligible_credentials(
         &scoped_provider,
@@ -431,6 +449,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
             let usage_url = usage_url.clone();
             let base_url = scoped_provider.settings.base_url().to_string();
             let claude_ai_base_url = claude_ai_base_url.clone();
+            let request_user_agent = request_user_agent_template.clone();
 
             async move {
                 let active_client = if attempt.material.has_cookie() {
@@ -492,6 +511,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
                     active_client,
                     usage_url.as_str(),
                     access_token.as_str(),
+                    request_user_agent.as_str(),
                 )
                 .await
                 {
@@ -567,6 +587,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
                         active_client,
                         usage_url.as_str(),
                         refreshed_token.as_str(),
+                        request_user_agent.as_str(),
                     )
                     .await
                     {
@@ -668,6 +689,7 @@ async fn send_claudecode_request(
     method: WreqMethod,
     url: &str,
     access_token: &str,
+    user_agent: &str,
     request_headers: &[(String, String)],
     body: Option<&Vec<u8>>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
@@ -695,7 +717,7 @@ async fn send_claudecode_request(
             "authorization".to_string(),
             format!("Bearer {}", access_token),
         ),
-        ("user-agent".to_string(), CLAUDE_CODE_UA.to_string()),
+        ("user-agent".to_string(), user_agent.to_string()),
         ("anthropic-beta".to_string(), beta_values.join(",")),
     ];
     for (name, value) in request_headers {
@@ -722,6 +744,7 @@ async fn send_claudecode_usage_request(
     client: &WreqClient,
     usage_url: &str,
     access_token: &str,
+    user_agent: &str,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let sent_headers = vec![
         (
@@ -730,7 +753,7 @@ async fn send_claudecode_usage_request(
         ),
         ("accept".to_string(), "application/json".to_string()),
         ("content-type".to_string(), "application/json".to_string()),
-        ("user-agent".to_string(), CLAUDE_CODE_UA.to_string()),
+        ("user-agent".to_string(), user_agent.to_string()),
         ("anthropic-beta".to_string(), OAUTH_BETA.to_string()),
     ];
     crate::channels::upstream::tracked_send_request(

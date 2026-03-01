@@ -115,6 +115,18 @@ export function ConfigTab({
             }
           />
         </div>
+        <div className="md:col-span-2">
+          <Label>{t("field.user_agent")}</Label>
+          <Input
+            value={providerForm.settings.user_agent ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, user_agent: value }
+              }))
+            }
+          />
+        </div>
         {showCustomMaskTable ? (
           <div className="md:col-span-2 rounded-lg border border-border p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">

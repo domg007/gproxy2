@@ -5,8 +5,8 @@ use wreq::{Client as WreqClient, Method as WreqMethod};
 use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_credentials};
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
-    count_openai_input_tokens_with_resolution, is_auth_failure, is_transient_server_failure,
-    join_base_url_and_path, retry_after_to_millis, to_wreq_method,
+    count_openai_input_tokens_with_resolution, default_gproxy_user_agent, is_auth_failure,
+    is_transient_server_failure, join_base_url_and_path, retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -80,6 +80,13 @@ pub async fn execute_groq_with_retry(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let url_template = url.clone();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,
@@ -102,11 +109,13 @@ pub async fn execute_groq_with_retry(
             let body = body_template.clone();
             let model = model_template.clone();
             let url = url_template.clone();
+            let user_agent = user_agent_template.clone();
             async move {
                 let mut sent_headers = vec![(
                     "authorization".to_string(),
                     format!("Bearer {}", attempt.material),
                 )];
+                sent_headers.push(("user-agent".to_string(), user_agent));
                 if body.is_some() {
                     sent_headers.push(("content-type".to_string(), "application/json".to_string()));
                 }

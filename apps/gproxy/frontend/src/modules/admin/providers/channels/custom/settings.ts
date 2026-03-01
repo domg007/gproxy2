@@ -1,7 +1,9 @@
 import type { ChannelSettingsDraft } from "../../types";
+import { DEFAULT_GPROXY_USER_AGENT_DRAFT } from "../shared";
 
 const DEFAULTS = {
   base_url: "",
+  user_agent: DEFAULT_GPROXY_USER_AGENT_DRAFT,
   mask_table: ""
 } as const;
 
@@ -37,6 +39,9 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof root.base_url === "string") {
     out.base_url = root.base_url;
   }
+  if (typeof root.user_agent === "string") {
+    out.user_agent = root.user_agent;
+  }
 
   const rawMaskTable = root.mask_table;
   if (typeof rawMaskTable === "string") {
@@ -55,6 +60,10 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
   const payload: Record<string, unknown> = {
     base_url: (settings.base_url ?? DEFAULTS.base_url).trim()
   };
+  const userAgent = (settings.user_agent ?? DEFAULTS.user_agent).trim();
+  if (userAgent) {
+    payload.user_agent = userAgent;
+  }
   const rawMaskTable = settings.mask_table ?? DEFAULTS.mask_table;
   const trimmed = rawMaskTable.trim();
   if (trimmed) {

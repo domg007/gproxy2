@@ -205,6 +205,7 @@ export const zhMessages = {
     "field.nameOptional": "名称（可选）",
     "field.channel": "渠道",
     "field.base_url": "基础 URL",
+    "field.user_agent": "User-Agent",
     "field.custom_mask_table": "遮蔽表（JSON）",
     "field.kind": "类型",
     "field.user_id": "用户 ID",

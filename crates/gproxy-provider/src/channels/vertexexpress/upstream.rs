@@ -6,8 +6,9 @@ use super::constants::MODELS_GEMINI_JSON;
 use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_credentials};
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
-    gemini_model_list_query_string, is_auth_failure, is_transient_server_failure,
-    retry_after_to_millis, to_wreq_method, try_local_gemini_model_response,
+    default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
+    is_transient_server_failure, retry_after_to_millis, to_wreq_method,
+    try_local_gemini_model_response,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -45,6 +46,13 @@ pub async fn execute_vertexexpress_with_retry(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let base_url_template = base_url.to_string();
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,
@@ -69,6 +77,7 @@ pub async fn execute_vertexexpress_with_retry(
             let body = body_template.clone();
             let model = model_template.clone();
             let base_url = base_url_template.clone();
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let url = build_vertexexpress_url(
@@ -78,6 +87,7 @@ pub async fn execute_vertexexpress_with_retry(
                     attempt.material.as_str(),
                 );
                 let mut request_headers = Vec::new();
+                request_headers.push(("user-agent".to_string(), user_agent));
 
                 if body.is_some() {
                     request_headers

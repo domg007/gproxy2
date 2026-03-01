@@ -3,8 +3,8 @@ use wreq::{Client as WreqClient, Method as WreqMethod};
 use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_credentials};
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
-    gemini_model_list_query_string, is_auth_failure, is_transient_server_failure,
-    join_base_url_and_path, retry_after_to_millis, to_wreq_method,
+    default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
+    is_transient_server_failure, join_base_url_and_path, retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -34,6 +34,13 @@ pub async fn execute_aistudio_with_retry(
     let url_template = url.clone();
     let model_template = prepared.model.clone();
     let auth_template = prepared.auth_scheme;
+    let user_agent_template = provider
+        .settings
+        .user_agent()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,
@@ -57,9 +64,11 @@ pub async fn execute_aistudio_with_retry(
             let model = model_template.clone();
             let url = url_template.clone();
             let auth_scheme = auth_template;
+            let user_agent = user_agent_template.clone();
 
             async move {
                 let mut request_headers = Vec::new();
+                request_headers.push(("user-agent".to_string(), user_agent));
 
                 match auth_scheme {
                     AuthScheme::Bearer => {
