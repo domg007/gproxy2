@@ -32,6 +32,7 @@ import {
   isCustomChannel,
   normalizeChannel,
   normalizeDispatchRules,
+  secretValuesFromSecretJson,
   supportsOAuth,
   supportsUpstreamUsage
 } from "./providers";
@@ -557,15 +558,42 @@ export function ProvidersModule({
   };
 
   const copyCredential = async (row: CredentialQueryRow) => {
-    const payload = {
-      id: row.id,
-      name: row.name,
-      enabled: row.enabled,
-      settings_json: row.settings_json,
-      secret_json: row.secret_json
+    const channel = selectedProvider?.channel ?? providerForm.channel;
+    const isKeyChannel =
+      currentCredentialSchema.fields.length === 1 &&
+      currentCredentialSchema.fields[0]?.key === "api_key";
+    const unwrapSecretJson = (value: Record<string, unknown>): Record<string, unknown> => {
+      const custom = value.Custom;
+      if (custom && typeof custom === "object" && !Array.isArray(custom)) {
+        return custom as Record<string, unknown>;
+      }
+      const builtin = value.Builtin;
+      if (builtin && typeof builtin === "object" && !Array.isArray(builtin)) {
+        const entries = Object.values(builtin as Record<string, unknown>);
+        if (
+          entries.length === 1 &&
+          entries[0] &&
+          typeof entries[0] === "object" &&
+          !Array.isArray(entries[0])
+        ) {
+          return entries[0] as Record<string, unknown>;
+        }
+      }
+      return value;
     };
+    const copiedText = (() => {
+      if (!isKeyChannel) {
+        return JSON.stringify(unwrapSecretJson(row.secret_json));
+      }
+      const secretValues = secretValuesFromSecretJson(channel, row.secret_json);
+      const key = secretValues.api_key;
+      if (typeof key === "string" && key.trim()) {
+        return key.trim();
+      }
+      return JSON.stringify(row.secret_json);
+    })();
     try {
-      await copyTextToClipboard(JSON.stringify(payload));
+      await copyTextToClipboard(copiedText);
       notify("success", t("common.copied"));
     } catch {
       notify("error", t("common.copyFailed"));

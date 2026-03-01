@@ -4,7 +4,8 @@ import {
   buildCredentialSecretJson,
   createEmptyCredentialFormState,
   credentialFormFromRow,
-  credentialSchemaForChannel
+  credentialSchemaForChannel,
+  secretValuesFromSecretJson
 } from "./credentials";
 import {
   availableBulkModes,
@@ -80,6 +81,7 @@ export {
   defaultBulkMode,
   credentialFormFromRow,
   credentialSchemaForChannel,
+  secretValuesFromSecretJson,
   defaultChannelSettingsDraft,
   defaultDispatchRulesForChannel,
   isCustomChannel,
