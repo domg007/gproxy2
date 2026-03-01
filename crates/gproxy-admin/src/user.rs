@@ -91,7 +91,9 @@ pub async fn upsert_my_user_key(
     input: UpsertMyKeyInput,
 ) -> Result<UserKeyWrite, AdminApiError> {
     let me = authenticate_user_key(users, keys, current_api_key).await?;
-    let existing_by_id = input.id.and_then(|id| keys.values().find(|row| row.id == id));
+    let existing_by_id = input
+        .id
+        .and_then(|id| keys.values().find(|row| row.id == id));
     if let Some(existing) = existing_by_id
         && existing.user_id != me.user_id
     {

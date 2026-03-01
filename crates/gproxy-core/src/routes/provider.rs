@@ -590,18 +590,11 @@ async fn collect_provider_model_ids(
         ],
     };
 
-    let response = match execute_transform_candidates(
-        state,
-        channel,
-        provider,
-        auth,
-        candidates,
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(_) => return Vec::new(),
-    };
+    let response =
+        match execute_transform_candidates(state, channel, provider, auth, candidates).await {
+            Ok(response) => response,
+            Err(_) => return Vec::new(),
+        };
 
     if !response.status().is_success() {
         return Vec::new();
