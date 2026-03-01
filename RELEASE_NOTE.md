@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.3.3
+
+### Added
+
+- Added per-channel `user_agent` settings across builtin/custom providers in admin config and backend settings schemas.
+- Added global `spoof_emulation` setting with admin UI, persistence, and runtime HTTP client wiring.
+- Enhanced credential management UX:
+  - added OAuth as a dedicated credentials sub-tab
+  - added quick single-credential add (raw key or JSON payload)
+  - added clipboard copy actions for user keys and credential cards.
+- Added automatic provider credential refresh after successful single add, OAuth completion, and batch import.
+
+### Changed
+
+- Refactored provider settings parsing architecture:
+  - removed legacy monolithic parser approach
+  - moved JSON patch parsing into each channel `settings.rs` via `from_provider_settings_value`
+  - kept top-level parser focused on channel `match` dispatch.
+- Improved upstream `user_agent` resolution and normalization flow, while preserving channel-specific default UA behaviors.
+- ClaudeCode OAuth refresh flow now backfills missing account metadata (for example subscription/rate-limit profile fields) from profile endpoints.
+
+### Fixed
+
+- Improved self-update reliability for GitHub release fetch/download:
+  - added proxy/direct client fallback flow for update requests
+  - direct self-update client now explicitly disables inherited system proxy (`no_proxy`) to reduce `ProxyConnect` failures.
+- Fixed credential copy payload behavior:
+  - key-based channels now return/copy plain key value
+  - JSON-based channels now return/copy normalized `secret_json`.
+- Fixed explicit empty `user_agent` handling so empty UA can be intentionally configured and forwarded.
+- Reduced default log noise by suppressing SQL statement-level logs (`sqlx` / `sea_orm` default to `warn` unless `RUST_LOG` overrides).
+
 ## v0.3.2
 
 ### Changed
