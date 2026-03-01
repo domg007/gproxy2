@@ -523,6 +523,8 @@ async fn upsert_usages<C: ConnectionTrait>(
             output_tokens: Set(item.output_tokens),
             cache_read_input_tokens: Set(item.cache_read_input_tokens),
             cache_creation_input_tokens: Set(item.cache_creation_input_tokens),
+            cache_creation_input_tokens_5min: Set(item.cache_creation_input_tokens_5min),
+            cache_creation_input_tokens_1h: Set(item.cache_creation_input_tokens_1h),
             created_at: Set(now),
         });
     }

@@ -199,6 +199,8 @@ pub(super) struct UsageMetrics {
     pub(super) output_tokens: Option<i64>,
     pub(super) cache_read_input_tokens: Option<i64>,
     pub(super) cache_creation_input_tokens: Option<i64>,
+    pub(super) cache_creation_input_tokens_5min: Option<i64>,
+    pub(super) cache_creation_input_tokens_1h: Option<i64>,
 }
 
 pub(super) fn u64_to_i64(value: u64) -> i64 {
@@ -211,6 +213,8 @@ pub(super) fn usage_metrics_from_openai_response_usage(usage: &ResponseUsage) ->
         output_tokens: Some(u64_to_i64(usage.output_tokens)),
         cache_read_input_tokens: Some(u64_to_i64(usage.input_tokens_details.cached_tokens)),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
     }
 }
 
@@ -222,6 +226,8 @@ pub(super) fn usage_metrics_from_openai_compact_usage(
         output_tokens: Some(u64_to_i64(usage.output_tokens)),
         cache_read_input_tokens: Some(u64_to_i64(usage.input_tokens_details.cached_tokens)),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
     }
 }
 
@@ -237,6 +243,8 @@ pub(super) fn usage_metrics_from_openai_chat_completion_usage(
             .and_then(|value| value.cached_tokens)
             .map(u64_to_i64),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
     }
 }
 
@@ -250,6 +258,12 @@ pub(super) fn usage_metrics_from_claude_usage(usage: &BetaUsage) -> UsageMetrics
         output_tokens: Some(u64_to_i64(usage.output_tokens)),
         cache_read_input_tokens: Some(u64_to_i64(usage.cache_read_input_tokens)),
         cache_creation_input_tokens: Some(u64_to_i64(usage.cache_creation_input_tokens)),
+        cache_creation_input_tokens_5min: Some(u64_to_i64(
+            usage.cache_creation.ephemeral_5m_input_tokens,
+        )),
+        cache_creation_input_tokens_1h: Some(u64_to_i64(
+            usage.cache_creation.ephemeral_1h_input_tokens,
+        )),
     }
 }
 
@@ -266,6 +280,8 @@ pub(super) fn usage_metrics_from_gemini_usage(usage: &GeminiUsageMetadata) -> Us
         output_tokens: usage.candidates_token_count.map(u64_to_i64),
         cache_read_input_tokens: usage.cached_content_token_count.map(u64_to_i64),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
     }
 }
 
@@ -279,6 +295,8 @@ pub(super) fn usage_metrics_from_openai_embeddings_usage(
         output_tokens: Some(total_tokens.saturating_sub(prompt_tokens)),
         cache_read_input_tokens: None,
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
     }
 }
 
@@ -293,6 +311,8 @@ pub(super) fn extract_usage_from_local_response(
             output_tokens: Some(0),
             cache_read_input_tokens: None,
             cache_creation_input_tokens: None,
+            cache_creation_input_tokens_5min: None,
+            cache_creation_input_tokens_1h: None,
         }),
         gproxy_middleware::TransformResponse::CountTokenClaude(
             claude_count_tokens_response::ClaudeCountTokensResponse::Success { body, .. },
@@ -301,6 +321,8 @@ pub(super) fn extract_usage_from_local_response(
             output_tokens: Some(0),
             cache_read_input_tokens: None,
             cache_creation_input_tokens: None,
+            cache_creation_input_tokens_5min: None,
+            cache_creation_input_tokens_1h: None,
         }),
         gproxy_middleware::TransformResponse::CountTokenGemini(
             gemini_count_tokens_response::GeminiCountTokensResponse::Success { body, .. },
@@ -309,6 +331,8 @@ pub(super) fn extract_usage_from_local_response(
             output_tokens: Some(0),
             cache_read_input_tokens: None,
             cache_creation_input_tokens: None,
+            cache_creation_input_tokens_5min: None,
+            cache_creation_input_tokens_1h: None,
         }),
         gproxy_middleware::TransformResponse::GenerateContentOpenAiResponse(
             openai_create_response_response::OpenAiCreateResponseResponse::Success { body, .. },
@@ -622,6 +646,12 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
     let cache_creation_input_tokens = usage
         .and_then(|value| value.cache_creation_input_tokens)
         .map(u64_to_i64);
+    let cache_creation_input_tokens_5min = usage
+        .and_then(|value| value.cache_creation_input_tokens_5min)
+        .map(u64_to_i64);
+    let cache_creation_input_tokens_1h = usage
+        .and_then(|value| value.cache_creation_input_tokens_1h)
+        .map(u64_to_i64);
 
     if let Some(total) = usage.and_then(|value| value.total_tokens).map(u64_to_i64) {
         match (input_tokens, output_tokens) {
@@ -639,6 +669,8 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
         && output_tokens.is_none()
         && cache_read_input_tokens.is_none()
         && cache_creation_input_tokens.is_none()
+        && cache_creation_input_tokens_5min.is_none()
+        && cache_creation_input_tokens_1h.is_none()
     {
         let request_text = serde_json::to_string(&context.request).unwrap_or_default();
         let response_text = String::from_utf8_lossy(stream_response_body).to_string();
@@ -662,6 +694,8 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
         output_tokens: output_tokens.map(|value| value.max(0)),
         cache_read_input_tokens,
         cache_creation_input_tokens,
+        cache_creation_input_tokens_5min,
+        cache_creation_input_tokens_1h,
     };
     if let Err(err) = context
         .state
@@ -832,6 +866,10 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     let cache_read_input_tokens = extracted_usage.and_then(|value| value.cache_read_input_tokens);
     let cache_creation_input_tokens =
         extracted_usage.and_then(|value| value.cache_creation_input_tokens);
+    let cache_creation_input_tokens_5min =
+        extracted_usage.and_then(|value| value.cache_creation_input_tokens_5min);
+    let cache_creation_input_tokens_1h =
+        extracted_usage.and_then(|value| value.cache_creation_input_tokens_1h);
 
     if request.operation() == OperationFamily::Embedding && input_tokens.is_none() {
         input_tokens = estimate_embedding_input_tokens_from_request(state, request).await;
@@ -854,6 +892,8 @@ pub(super) async fn enqueue_upstream_and_usage_event(
         output_tokens,
         cache_read_input_tokens,
         cache_creation_input_tokens,
+        cache_creation_input_tokens_5min,
+        cache_creation_input_tokens_1h,
     };
     if let Err(err) = state
         .enqueue_storage_write(StorageWriteEvent::UpsertUsage(usage_event))

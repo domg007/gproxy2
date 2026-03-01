@@ -10,7 +10,7 @@ use gproxy_protocol::claude::create_message::response::ClaudeCreateMessageRespon
 use gproxy_protocol::claude::create_message::stream::{
     BetaMessageDeltaUsage, ClaudeCreateMessageStreamEvent,
 };
-use gproxy_protocol::claude::create_message::types::BetaUsage;
+use gproxy_protocol::claude::create_message::types::{BetaIterationUsage, BetaUsage};
 use gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse;
 use gproxy_protocol::gemini::generate_content::types::GeminiUsageMetadata;
 use gproxy_protocol::openai::create_chat_completions::response::OpenAiChatCompletionsResponse;
@@ -30,6 +30,8 @@ pub struct UsageSnapshot {
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
     pub cache_creation_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens_5min: Option<u64>,
+    pub cache_creation_input_tokens_1h: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
     pub thoughts_tokens: Option<u64>,
@@ -593,6 +595,8 @@ fn usage_from_openai_response_usage(usage: &ResponseUsage) -> UsageSnapshot {
         output_tokens: Some(usage.output_tokens),
         total_tokens: Some(usage.total_tokens),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
         cache_read_input_tokens: Some(usage.input_tokens_details.cached_tokens),
         reasoning_tokens: Some(usage.output_tokens_details.reasoning_tokens),
         thoughts_tokens: None,
@@ -606,6 +610,8 @@ fn usage_from_openai_chat_completion_usage(usage: &CompletionUsage) -> UsageSnap
         output_tokens: Some(usage.completion_tokens),
         total_tokens: Some(usage.total_tokens),
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
         cache_read_input_tokens: usage
             .prompt_tokens_details
             .as_ref()
@@ -630,6 +636,8 @@ fn usage_from_claude_usage(usage: &BetaUsage) -> UsageSnapshot {
         output_tokens: Some(usage.output_tokens),
         total_tokens: Some(input_tokens.saturating_add(usage.output_tokens)),
         cache_creation_input_tokens: Some(usage.cache_creation_input_tokens),
+        cache_creation_input_tokens_5min: Some(usage.cache_creation.ephemeral_5m_input_tokens),
+        cache_creation_input_tokens_1h: Some(usage.cache_creation.ephemeral_1h_input_tokens),
         cache_read_input_tokens: Some(usage.cache_read_input_tokens),
         reasoning_tokens: None,
         thoughts_tokens: None,
@@ -638,6 +646,8 @@ fn usage_from_claude_usage(usage: &BetaUsage) -> UsageSnapshot {
 }
 
 fn usage_from_claude_delta_usage(usage: &BetaMessageDeltaUsage) -> UsageSnapshot {
+    let (cache_creation_input_tokens_5min, cache_creation_input_tokens_1h) =
+        usage.cache_creation_windows_from_iterations();
     let has_input = usage.input_tokens.is_some()
         || usage.cache_creation_input_tokens.is_some()
         || usage.cache_read_input_tokens.is_some();
@@ -652,6 +662,8 @@ fn usage_from_claude_delta_usage(usage: &BetaMessageDeltaUsage) -> UsageSnapshot
         output_tokens: Some(usage.output_tokens),
         total_tokens: has_input.then_some(input_tokens.saturating_add(usage.output_tokens)),
         cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_creation_input_tokens_5min,
+        cache_creation_input_tokens_1h,
         cache_read_input_tokens: usage.cache_read_input_tokens,
         reasoning_tokens: None,
         thoughts_tokens: None,
@@ -672,9 +684,36 @@ fn usage_from_gemini_usage(usage: &GeminiUsageMetadata) -> UsageSnapshot {
         output_tokens: usage.candidates_token_count,
         total_tokens: usage.total_token_count,
         cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
         cache_read_input_tokens: usage.cached_content_token_count,
         reasoning_tokens: None,
         thoughts_tokens: usage.thoughts_token_count,
         tool_use_prompt_tokens: usage.tool_use_prompt_token_count,
+    }
+}
+
+trait ClaudeDeltaCacheCreationWindows {
+    fn cache_creation_windows_from_iterations(&self) -> (Option<u64>, Option<u64>);
+}
+
+impl ClaudeDeltaCacheCreationWindows for BetaMessageDeltaUsage {
+    fn cache_creation_windows_from_iterations(&self) -> (Option<u64>, Option<u64>) {
+        let Some(iterations) = self.iterations.as_ref() else {
+            return (None, None);
+        };
+        let Some(last) = iterations.last() else {
+            return (None, None);
+        };
+        match last {
+            BetaIterationUsage::Message(item) => (
+                Some(item.cache_creation.ephemeral_5m_input_tokens),
+                Some(item.cache_creation.ephemeral_1h_input_tokens),
+            ),
+            BetaIterationUsage::Compaction(item) => (
+                Some(item.cache_creation.ephemeral_5m_input_tokens),
+                Some(item.cache_creation.ephemeral_1h_input_tokens),
+            ),
+        }
     }
 }

@@ -30,6 +30,8 @@ pub struct UsageQueryRow {
     pub output_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
     pub cache_creation_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens_5min: Option<i64>,
+    pub cache_creation_input_tokens_1h: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -39,4 +41,6 @@ pub struct UsageSummary {
     pub output_tokens: i64,
     pub cache_read_input_tokens: i64,
     pub cache_creation_input_tokens: i64,
+    pub cache_creation_input_tokens_5min: i64,
+    pub cache_creation_input_tokens_1h: i64,
 }

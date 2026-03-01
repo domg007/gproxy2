@@ -340,6 +340,8 @@ impl SeaOrmStorage {
             .column(usages::Column::OutputTokens)
             .column(usages::Column::CacheReadInputTokens)
             .column(usages::Column::CacheCreationInputTokens)
+            .column(usages::Column::CacheCreationInputTokens5min)
+            .column(usages::Column::CacheCreationInputTokens1h)
             .order_by(usages::Column::At, Order::Desc)
             .order_by(usages::Column::TraceId, Order::Desc);
 
@@ -374,6 +376,14 @@ impl SeaOrmStorage {
             .column_as(
                 Expr::col(usages::Column::CacheCreationInputTokens).sum(),
                 "cache_creation_input_tokens",
+            )
+            .column_as(
+                Expr::col(usages::Column::CacheCreationInputTokens5min).sum(),
+                "cache_creation_input_tokens_5min",
+            )
+            .column_as(
+                Expr::col(usages::Column::CacheCreationInputTokens1h).sum(),
+                "cache_creation_input_tokens_1h",
             );
 
         stmt = apply_usage_filters(stmt, query);
@@ -392,6 +402,8 @@ impl SeaOrmStorage {
             output_tokens: row.output_tokens.unwrap_or(0),
             cache_read_input_tokens: row.cache_read_input_tokens.unwrap_or(0),
             cache_creation_input_tokens: row.cache_creation_input_tokens.unwrap_or(0),
+            cache_creation_input_tokens_5min: row.cache_creation_input_tokens_5min.unwrap_or(0),
+            cache_creation_input_tokens_1h: row.cache_creation_input_tokens_1h.unwrap_or(0),
         })
     }
 }
@@ -444,6 +456,8 @@ struct UsageQueryRowModel {
     pub output_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
     pub cache_creation_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens_5min: Option<i64>,
+    pub cache_creation_input_tokens_1h: Option<i64>,
 }
 
 impl From<UsageQueryRowModel> for UsageQueryRow {
@@ -463,6 +477,8 @@ impl From<UsageQueryRowModel> for UsageQueryRow {
             output_tokens: value.output_tokens,
             cache_read_input_tokens: value.cache_read_input_tokens,
             cache_creation_input_tokens: value.cache_creation_input_tokens,
+            cache_creation_input_tokens_5min: value.cache_creation_input_tokens_5min,
+            cache_creation_input_tokens_1h: value.cache_creation_input_tokens_1h,
         }
     }
 }
@@ -474,6 +490,8 @@ struct UsageSummaryModel {
     pub output_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
     pub cache_creation_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens_5min: Option<i64>,
+    pub cache_creation_input_tokens_1h: Option<i64>,
 }
 
 fn unix_ms_to_offset_datetime(unix_ms: i64) -> Result<OffsetDateTime, time::error::ComponentRange> {

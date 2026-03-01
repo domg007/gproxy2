@@ -20,6 +20,8 @@ pub struct Model {
     pub output_tokens: Option<i64>,
     pub cache_read_input_tokens: Option<i64>,
     pub cache_creation_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens_5min: Option<i64>,
+    pub cache_creation_input_tokens_1h: Option<i64>,
     pub created_at: OffsetDateTime,
     #[sea_orm(belongs_to, from = "provider_id", to = "id", on_delete = "SetNull")]
     pub provider: HasOne<super::providers::Entity>,
