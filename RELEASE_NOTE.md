@@ -1,5 +1,20 @@
 # Release Notes
 
+
+## v0.3.7
+
+### Changed
+
+- Updated workspace/package release version to `0.3.6`.
+- Reverted the temporary OAuth-specific provider fallback patch; provider availability now follows unified bootstrap seeding.
+
+### Fixed
+
+- Fixed startup provider bootstrap when `config.toml` is absent:
+  - builtin providers are now loaded into in-memory registry during bootstrap seeding
+  - builtin providers are persisted to storage with stable IDs at the same time
+  - provider-dependent endpoints (including OAuth and usage routes) no longer fail due to missing in-memory providers.
+
 ## v0.3.6
 
 ### Added

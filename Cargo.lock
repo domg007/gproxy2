@@ -1590,7 +1590,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1650,7 +1650,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "http",
  "serde",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "base64 0.22.1",
  "dashmap",
@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "sea-orm",
  "serde",
