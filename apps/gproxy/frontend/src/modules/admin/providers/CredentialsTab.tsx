@@ -637,7 +637,10 @@ export function CredentialsTab({
         setStatusEditorCredentialId={setStatusEditorCredentialId}
         statusForm={statusForm}
         setStatusForm={setStatusForm}
-        onEditCredential={onEditCredential}
+        onEditCredential={(row) => {
+          setSubTab("single");
+          onEditCredential(row);
+        }}
         onCopyCredential={onCopyCredential}
         onRemoveCredential={onRemoveCredential}
         onToggleCredentialEnabled={onToggleCredentialEnabled}
