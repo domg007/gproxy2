@@ -418,19 +418,30 @@ fn serialize_local_response_body(
 ) -> Result<Vec<u8>, UpstreamError> {
     let value = serde_json::to_value(response)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-    match value {
+    let inner = match value {
         serde_json::Value::Object(object) if object.len() == 1 => {
             if let Some((_, inner)) = object.into_iter().next() {
-                return serde_json::to_vec(&inner)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()));
+                inner
+            } else {
+                return Ok(Vec::new());
             }
-            Ok(Vec::new())
         }
-        other => {
-            serde_json::to_vec(&other)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
-        }
+        other => other,
+    };
+
+    if let serde_json::Value::Object(wrapper) = &inner
+        && wrapper.contains_key("stats_code")
+        && wrapper.contains_key("body")
+    {
+        let body = wrapper.get("body").cloned().unwrap_or(serde_json::Value::Null);
+        return match body {
+            serde_json::Value::String(text) => Ok(text.into_bytes()),
+            other => serde_json::to_vec(&other)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string())),
+        };
     }
+
+    serde_json::to_vec(&inner).map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
 }
 
 #[cfg(test)]
@@ -442,7 +453,7 @@ mod tests {
     use super::serialize_local_response_body;
 
     #[test]
-    fn local_response_body_is_unwrapped_from_enum_shell() {
+    fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
         let response: OpenAiModelListResponse = serde_json::from_value(json!({
             "stats_code": 200,
             "headers": {},
@@ -459,8 +470,9 @@ mod tests {
             serde_json::from_slice(&bytes).expect("decode serialized local response");
 
         assert!(value.get("ModelListOpenAi").is_none());
-        assert_eq!(value.get("stats_code").and_then(|v| v.as_u64()), Some(200));
-        assert!(value.get("body").is_some());
+        assert!(value.get("stats_code").is_none());
+        assert_eq!(value.get("object").and_then(|v| v.as_str()), Some("list"));
+        assert!(value.get("data").is_some());
     }
 }
 

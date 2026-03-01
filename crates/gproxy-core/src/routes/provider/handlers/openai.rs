@@ -24,13 +24,14 @@ use serde_json::json;
 use crate::AppState;
 
 use super::super::{
-    HttpError, anthropic_headers_from_request, apply_credential_update_and_persist,
+    HttpError, ModelProtocolPreference, anthropic_headers_from_request,
+    apply_credential_update_and_persist,
     authorize_provider_access, bad_request, collect_headers, collect_unscoped_model_ids,
     deserialize_json_scalar, enqueue_upstream_request_event_from_meta,
     execute_transform_candidates, execute_transform_request, internal_error,
-    normalize_gemini_model_path, now_unix_ms, oauth_callback_response_to_axum,
-    oauth_response_to_axum, parse_optional_query_value, persist_provider_and_credential,
-    resolve_credential_id, resolve_provider, resolve_provider_id,
+    model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
+    oauth_callback_response_to_axum, oauth_response_to_axum, parse_optional_query_value,
+    persist_provider_and_credential, resolve_credential_id, resolve_provider, resolve_provider_id,
     response_from_status_headers_and_bytes, serialize_json_scalar,
     split_provider_prefixed_plain_model, upstream_error_request_meta, upstream_error_status,
     websocket_upgrade_required_response,
@@ -548,16 +549,26 @@ pub(in crate::routes::provider) async fn v1_model_list(
 
     openai.query = openai_model_list_request::QueryParameters::default();
 
+    let candidates = match model_protocol_preference(&headers, query.as_deref()) {
+        ModelProtocolPreference::Claude => vec![
+            TransformRequest::ModelListClaude(claude),
+            TransformRequest::ModelListOpenAi(openai),
+            TransformRequest::ModelListGemini(gemini),
+        ],
+        ModelProtocolPreference::Gemini => vec![TransformRequest::ModelListGemini(gemini)],
+        ModelProtocolPreference::OpenAi => vec![
+            TransformRequest::ModelListOpenAi(openai),
+            TransformRequest::ModelListClaude(claude),
+            TransformRequest::ModelListGemini(gemini),
+        ],
+    };
+
     execute_transform_candidates(
         state,
         channel,
         provider,
         auth,
-        vec![
-            TransformRequest::ModelListOpenAi(openai),
-            TransformRequest::ModelListClaude(claude),
-            TransformRequest::ModelListGemini(gemini),
-        ],
+        candidates,
     )
     .await
 }
@@ -595,6 +606,7 @@ pub(in crate::routes::provider) async fn v1_model_list_unscoped(
 pub(in crate::routes::provider) async fn v1_model_get(
     State(state): State<Arc<AppState>>,
     Path((provider_name, model_id)): Path<(String, String)>,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
@@ -614,16 +626,26 @@ pub(in crate::routes::provider) async fn v1_model_get(
     let mut gemini = gemini_model_get_request::GeminiModelGetRequest::default();
     gemini.path.name = normalize_gemini_model_path(model_id.as_str())?;
 
+    let candidates = match model_protocol_preference(&headers, query.as_deref()) {
+        ModelProtocolPreference::Claude => vec![
+            TransformRequest::ModelGetClaude(claude),
+            TransformRequest::ModelGetOpenAi(openai),
+            TransformRequest::ModelGetGemini(gemini),
+        ],
+        ModelProtocolPreference::Gemini => vec![TransformRequest::ModelGetGemini(gemini)],
+        ModelProtocolPreference::OpenAi => vec![
+            TransformRequest::ModelGetOpenAi(openai),
+            TransformRequest::ModelGetClaude(claude),
+            TransformRequest::ModelGetGemini(gemini),
+        ],
+    };
+
     execute_transform_candidates(
         state,
         channel,
         provider,
         auth,
-        vec![
-            TransformRequest::ModelGetOpenAi(openai),
-            TransformRequest::ModelGetClaude(claude),
-            TransformRequest::ModelGetGemini(gemini),
-        ],
+        candidates,
     )
     .await
 }
@@ -631,6 +653,7 @@ pub(in crate::routes::provider) async fn v1_model_get(
 pub(in crate::routes::provider) async fn v1_model_get_unscoped(
     State(state): State<Arc<AppState>>,
     Path(model_id): Path<String>,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
@@ -652,16 +675,26 @@ pub(in crate::routes::provider) async fn v1_model_get_unscoped(
     let mut gemini = gemini_model_get_request::GeminiModelGetRequest::default();
     gemini.path.name = normalize_gemini_model_path(stripped_model_id.as_str())?;
 
+    let candidates = match model_protocol_preference(&headers, query.as_deref()) {
+        ModelProtocolPreference::Claude => vec![
+            TransformRequest::ModelGetClaude(claude),
+            TransformRequest::ModelGetOpenAi(openai),
+            TransformRequest::ModelGetGemini(gemini),
+        ],
+        ModelProtocolPreference::Gemini => vec![TransformRequest::ModelGetGemini(gemini)],
+        ModelProtocolPreference::OpenAi => vec![
+            TransformRequest::ModelGetOpenAi(openai),
+            TransformRequest::ModelGetClaude(claude),
+            TransformRequest::ModelGetGemini(gemini),
+        ],
+    };
+
     execute_transform_candidates(
         state,
         channel,
         provider,
         auth,
-        vec![
-            TransformRequest::ModelGetOpenAi(openai),
-            TransformRequest::ModelGetClaude(claude),
-            TransformRequest::ModelGetGemini(gemini),
-        ],
+        candidates,
     )
     .await
 }

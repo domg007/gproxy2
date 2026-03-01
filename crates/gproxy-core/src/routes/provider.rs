@@ -73,6 +73,35 @@ const CLAUDE_ANTHROPIC_VERSION_HEADER: &str = "anthropic-version";
 const CLAUDE_ANTHROPIC_BETA_HEADER: &str = "anthropic-beta";
 const BODY_CAPTURE_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ModelProtocolPreference {
+    OpenAi,
+    Claude,
+    Gemini,
+}
+
+pub(super) fn model_protocol_preference(
+    headers: &HeaderMap,
+    raw_query: Option<&str>,
+) -> ModelProtocolPreference {
+    let has_gemini_auth = has_gemini_model_auth(headers, raw_query);
+    if has_gemini_auth {
+        return ModelProtocolPreference::Gemini;
+    }
+    let has_bearer = header_value(headers, AUTHORIZATION).is_some();
+    if has_bearer && headers.contains_key(CLAUDE_ANTHROPIC_VERSION_HEADER) {
+        return ModelProtocolPreference::Claude;
+    }
+    if has_bearer {
+        return ModelProtocolPreference::OpenAi;
+    }
+    ModelProtocolPreference::OpenAi
+}
+
+pub(super) fn has_gemini_model_auth(headers: &HeaderMap, raw_query: Option<&str>) -> bool {
+    headers.contains_key(X_GOOG_API_KEY) || parse_query_value(raw_query, "key").is_some()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct RequestAuthContext {
     user_id: i64,
@@ -547,17 +576,26 @@ async fn collect_provider_model_ids(
 
     let gemini = gemini_model_list_request::GeminiModelListRequest::default();
     openai.query = openai_model_list_request::QueryParameters::default();
+    let candidates = match model_protocol_preference(headers, None) {
+        ModelProtocolPreference::Claude => vec![
+            TransformRequest::ModelListClaude(claude),
+            TransformRequest::ModelListOpenAi(openai),
+            TransformRequest::ModelListGemini(gemini),
+        ],
+        ModelProtocolPreference::Gemini => vec![TransformRequest::ModelListGemini(gemini)],
+        ModelProtocolPreference::OpenAi => vec![
+            TransformRequest::ModelListOpenAi(openai),
+            TransformRequest::ModelListClaude(claude),
+            TransformRequest::ModelListGemini(gemini),
+        ],
+    };
 
     let response = match execute_transform_candidates(
         state,
         channel,
         provider,
         auth,
-        vec![
-            TransformRequest::ModelListOpenAi(openai),
-            TransformRequest::ModelListClaude(claude),
-            TransformRequest::ModelListGemini(gemini),
-        ],
+        candidates,
     )
     .await
     {
@@ -610,4 +648,80 @@ async fn collect_unscoped_model_ids(
     let mut dedup = std::collections::BTreeSet::new();
     ids.retain(|id| dedup.insert(id.clone()));
     ids
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+
+    use super::{ModelProtocolPreference, model_protocol_preference};
+
+    fn headers(values: &[(&str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in values {
+            let header_name = HeaderName::from_bytes(name.as_bytes()).expect("valid header name");
+            headers.insert(
+                header_name,
+                HeaderValue::from_str(value).expect("valid header value"),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn model_list_prefers_openai_for_x_api_key_without_bearer() {
+        let headers = headers(&[("x-api-key", "test")]);
+        assert_eq!(
+            model_protocol_preference(&headers, None),
+            ModelProtocolPreference::OpenAi
+        );
+    }
+
+    #[test]
+    fn model_list_prefers_openai_for_anthropic_version_without_bearer() {
+        let headers = headers(&[("anthropic-version", "2023-06-01")]);
+        assert_eq!(
+            model_protocol_preference(&headers, None),
+            ModelProtocolPreference::OpenAi
+        );
+    }
+
+    #[test]
+    fn model_list_prefers_claude_for_anthropic_version_even_with_bearer() {
+        let headers = headers(&[
+            ("anthropic-version", "2023-06-01"),
+            ("authorization", "Bearer test"),
+        ]);
+        assert_eq!(
+            model_protocol_preference(&headers, None),
+            ModelProtocolPreference::Claude
+        );
+    }
+
+    #[test]
+    fn model_list_prefers_gemini_for_query_key() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            model_protocol_preference(&headers, Some("key=test")),
+            ModelProtocolPreference::Gemini
+        );
+    }
+
+    #[test]
+    fn model_list_prefers_gemini_for_x_goog_api_key() {
+        let headers = headers(&[("x-goog-api-key", "test")]);
+        assert_eq!(
+            model_protocol_preference(&headers, None),
+            ModelProtocolPreference::Gemini
+        );
+    }
+
+    #[test]
+    fn model_list_uses_openai_for_bearer_by_default() {
+        let headers = headers(&[("authorization", "Bearer test")]);
+        assert_eq!(
+            model_protocol_preference(&headers, None),
+            ModelProtocolPreference::OpenAi
+        );
+    }
 }
