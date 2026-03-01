@@ -19,6 +19,7 @@ use gproxy_protocol::openai::model_list::request as openai_model_list_request;
 use gproxy_provider::{
     BuiltinChannel, ChannelId, CredentialRef, UpstreamOAuthRequest, parse_query_value,
 };
+use gproxy_storage::{ProviderQuery, Scope};
 use serde_json::json;
 
 use crate::AppState;
@@ -36,6 +37,56 @@ use super::super::{
     websocket_upgrade_required_response,
 };
 
+async fn resolve_provider_for_oauth(
+    state: &Arc<AppState>,
+    provider_name: &str,
+) -> Result<(ChannelId, gproxy_provider::ProviderDefinition), HttpError> {
+    if let Ok(resolved) = resolve_provider(state, provider_name) {
+        return Ok(resolved);
+    }
+
+    let channel = ChannelId::parse(provider_name);
+    let storage = state.load_storage();
+    let rows = storage
+        .list_providers(&ProviderQuery {
+            channel: Scope::Eq(channel.as_str().to_string()),
+            name: Scope::All,
+            enabled: Scope::Eq(true),
+            limit: Some(1),
+        })
+        .await
+        .map_err(|err| internal_error(err.to_string()))?;
+    let Some(row) = rows.into_iter().next() else {
+        return resolve_provider(state, provider_name);
+    };
+
+    let settings =
+        gproxy_provider::parse_provider_settings_value_for_channel(&channel, &row.settings_json)
+            .or_else(|_| {
+                gproxy_provider::parse_provider_settings_value_for_channel(
+                    &channel,
+                    &serde_json::json!({}),
+                )
+            })
+            .map_err(|err| {
+                internal_error(format!(
+                    "parse provider settings failed channel={}: {err}",
+                    channel.as_str()
+                ))
+            })?;
+    let dispatch = serde_json::from_value::<gproxy_provider::ProviderDispatchTable>(
+        row.dispatch_json.clone(),
+    )
+    .unwrap_or_else(|_| match &channel {
+        ChannelId::Builtin(builtin) => {
+            gproxy_provider::ProviderDispatchTable::default_for_builtin(*builtin)
+        }
+        ChannelId::Custom(_) => gproxy_provider::ProviderDispatchTable::default_for_custom(),
+    });
+    state.upsert_provider_in_memory(channel.clone(), settings, dispatch, true);
+    resolve_provider(state, provider_name)
+}
+
 pub(in crate::routes::provider) async fn oauth_start(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
@@ -43,7 +94,7 @@ pub(in crate::routes::provider) async fn oauth_start(
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     authorize_provider_access(&headers, &state)?;
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let (channel, provider) = resolve_provider_for_oauth(&state, provider_name.as_str()).await?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
     let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
         state.load_spoof_http()
@@ -92,7 +143,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
     authorize_provider_access(&headers, &state)?;
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let (channel, provider) = resolve_provider_for_oauth(&state, provider_name.as_str()).await?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
     let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
         state.load_spoof_http()
@@ -146,6 +197,12 @@ pub(in crate::routes::provider) async fn oauth_callback(
             label: oauth_credential.label.clone(),
             credential: oauth_credential.credential.clone(),
         };
+        state.upsert_provider_in_memory(
+            channel.clone(),
+            provider.settings.clone(),
+            provider.dispatch.clone(),
+            true,
+        );
         state.upsert_provider_credential_in_memory(&channel, credential_ref.clone());
         persist_provider_and_credential(&state, &channel, &provider, &credential_ref).await?;
     }
