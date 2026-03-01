@@ -2,6 +2,11 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 
 import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import {
+  BUILD_UA_ARCH,
+  BUILD_UA_OS,
+  DEFAULT_GPROXY_USER_AGENT_DRAFT,
+} from "./channels/shared";
+import {
   CLAUDE_AGENT_SDK_PRELUDE_TEXT,
   CLAUDE_CODE_SYSTEM_PRELUDE_TEXT,
   OPERATION_OPTIONS,
@@ -73,6 +78,38 @@ export function ConfigTab({
       value: CLAUDE_AGENT_SDK_PRELUDE_TEXT
     }
   ] as const;
+  const geminiCliTemplate = `GeminiCLI/0.30.0/gemini-2.5-pro (${BUILD_UA_OS}; ${BUILD_UA_ARCH})`;
+  const userAgentTemplateOptions = [
+    { value: "", label: t("providers.uaTemplate.placeholder") },
+    {
+      value: DEFAULT_GPROXY_USER_AGENT_DRAFT,
+      label: t("providers.uaTemplate.channel.gproxy")
+    },
+    { value: "codex_vscode/0.99.0", label: t("providers.uaTemplate.channel.codex") },
+    { value: "claude-code/2.1.62", label: t("providers.uaTemplate.channel.claudecode") },
+    { value: geminiCliTemplate, label: t("providers.uaTemplate.channel.geminicli") },
+    {
+      value: "antigravity/1.15.8 (Windows; AMD64)",
+      label: t("providers.uaTemplate.channel.antigravity")
+    },
+    {
+      value: "Visual Studio Code/1.99.0",
+      label: t("providers.uaTemplate.ide.vscode")
+    },
+    {
+      value: "IntelliJIdea/2025.3.2",
+      label: t("providers.uaTemplate.ide.intellij")
+    },
+    { value: "PyCharm/2024.5.2", label: t("providers.uaTemplate.ide.pycharm") },
+    {
+      value: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      label: t("providers.uaTemplate.bot.googlebot")
+    },
+    {
+      value: "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+      label: t("providers.uaTemplate.bot.bingbot")
+    }
+  ];
 
   return (
     <div className="space-y-4">
@@ -115,17 +152,32 @@ export function ConfigTab({
             }
           />
         </div>
-        <div className="md:col-span-2">
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
           <Label>{t("field.user_agent")}</Label>
-          <Input
-            value={providerForm.settings.user_agent ?? ""}
-            onChange={(value) =>
-              setProviderForm((prev) => ({
-                ...prev,
-                settings: { ...prev.settings, user_agent: value }
-              }))
-            }
-          />
+          <div className="space-y-2">
+            <Select
+              value=""
+              onChange={(value) => {
+                if (!value) {
+                  return;
+                }
+                setProviderForm((prev) => ({
+                  ...prev,
+                  settings: { ...prev.settings, user_agent: value }
+                }));
+              }}
+              options={userAgentTemplateOptions}
+            />
+            <Input
+              value={providerForm.settings.user_agent ?? ""}
+              onChange={(value) =>
+                setProviderForm((prev) => ({
+                  ...prev,
+                  settings: { ...prev.settings, user_agent: value }
+                }))
+              }
+            />
+          </div>
         </div>
         {showCustomMaskTable ? (
           <div className="md:col-span-2 rounded-lg border border-border p-3">

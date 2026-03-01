@@ -1,6 +1,8 @@
 import type { ChannelSettingsDraft } from "../types";
 
-export const DEFAULT_GPROXY_USER_AGENT_DRAFT = `gproxy/${__APP_VERSION__}(os,arch)`;
+export const BUILD_UA_OS = __APP_OS__;
+export const BUILD_UA_ARCH = __APP_ARCH__;
+export const DEFAULT_GPROXY_USER_AGENT_DRAFT = `gproxy/${__APP_VERSION__}(${BUILD_UA_OS},${BUILD_UA_ARCH})`;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);

@@ -4,3 +4,5 @@ declare const __APP_AUTHOR__: string;
 declare const __APP_EMAIL__: string;
 declare const __APP_HOMEPAGE__: string;
 declare const __APP_REPOSITORY__: string;
+declare const __APP_OS__: string;
+declare const __APP_ARCH__: string;
