@@ -1,7 +1,7 @@
 [package]
 name = "gproxy-protocol"
-version = "0.3.3"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 authors.workspace = true
 description.workspace = true
 homepage.workspace = true
