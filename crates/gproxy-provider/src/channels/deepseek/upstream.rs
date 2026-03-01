@@ -1,7 +1,6 @@
 use gproxy_middleware::{TransformRequest, TransformResponse};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
-use super::constants::{MODEL_CHAT, MODEL_REASONER};
 use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_credentials};
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
@@ -21,54 +20,6 @@ pub async fn try_local_deepseek_response(
     token_resolution: TokenizerResolutionContext<'_>,
 ) -> Result<Option<TransformResponse>, UpstreamError> {
     match request {
-        TransformRequest::ModelListOpenAi(_) => {
-            let response_json = serde_json::json!({
-                "stats_code": 200,
-                "headers": {},
-                "body": {
-                    "object": "list",
-                    "data": deepseek_models_json(),
-                }
-            });
-            let response = serde_json::from_value(response_json)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-            Ok(Some(TransformResponse::ModelListOpenAi(response)))
-        }
-        TransformRequest::ModelGetOpenAi(value) => {
-            let requested = normalize_deepseek_model_name(value.path.model.as_str());
-            let found = deepseek_models_json().into_iter().find(|model| {
-                model
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .map(|id| id == requested.as_str())
-                    .unwrap_or(false)
-            });
-            if let Some(found) = found {
-                let response_json = serde_json::json!({
-                    "stats_code": 200,
-                    "headers": {},
-                    "body": found,
-                });
-                let response = serde_json::from_value(response_json)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                return Ok(Some(TransformResponse::ModelGetOpenAi(response)));
-            }
-            let response_json = serde_json::json!({
-                "stats_code": 404,
-                "headers": {},
-                "body": {
-                    "error": {
-                        "message": format!("model {requested} not found"),
-                        "type": "invalid_request_error",
-                        "param": "model",
-                        "code": "model_not_found",
-                    }
-                }
-            });
-            let response = serde_json::from_value(response_json)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-            Ok(Some(TransformResponse::ModelGetOpenAi(response)))
-        }
         TransformRequest::CountTokenOpenAi(value) => {
             let input_tokens = count_openai_input_tokens_with_resolution(
                 token_resolution.tokenizer_store,
@@ -300,9 +251,24 @@ struct DeepseekPreparedRequest {
 impl DeepseekPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
         match request {
+            TransformRequest::ModelListOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/models".to_string(),
+                body: None,
+                model: None,
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+            }),
+            TransformRequest::ModelGetOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: format!("/v1/models/{}", value.path.model),
+                body: None,
+                model: Some(value.path.model.clone()),
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+            }),
             TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 let mut body = value.body.clone();
-                body.model = normalize_deepseek_model_name(body.model.as_str());
                 if let Some(max_tokens) = body.max_tokens {
                     body.max_tokens = Some(max_tokens.min(8192));
                 }
@@ -326,7 +292,6 @@ impl DeepseekPreparedRequest {
             }
             TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
                 let mut body = value.body.clone();
-                body.model = normalize_deepseek_model_name(body.model.as_str());
                 if let Some(max_tokens) = body.max_tokens {
                     body.max_tokens = Some(max_tokens.min(8192));
                 }
@@ -349,9 +314,7 @@ impl DeepseekPreparedRequest {
                 })
             }
             TransformRequest::GenerateContentClaude(value) => {
-                let model = normalize_deepseek_model_name(
-                    claude_model_to_string(&value.body.model)?.as_str(),
-                );
+                let model = claude_model_to_string(&value.body.model)?;
                 let mut body = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
                 if let Some(map) = body.as_object_mut() {
@@ -376,9 +339,7 @@ impl DeepseekPreparedRequest {
                 })
             }
             TransformRequest::StreamGenerateContentClaude(value) => {
-                let model = normalize_deepseek_model_name(
-                    claude_model_to_string(&value.body.model)?.as_str(),
-                );
+                let model = claude_model_to_string(&value.body.model)?;
                 let mut body = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
                 if let Some(map) = body.as_object_mut() {
@@ -404,36 +365,6 @@ impl DeepseekPreparedRequest {
             }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
-    }
-}
-
-fn deepseek_models_json() -> Vec<serde_json::Value> {
-    vec![
-        serde_json::json!({
-            "id": MODEL_CHAT,
-            "created": 0,
-            "object": "model",
-            "owned_by": "deepseek",
-        }),
-        serde_json::json!({
-            "id": MODEL_REASONER,
-            "created": 0,
-            "object": "model",
-            "owned_by": "deepseek",
-        }),
-    ]
-}
-
-fn normalize_deepseek_model_name(model: &str) -> String {
-    let model = model.trim().trim_start_matches('/').trim();
-    let model = model.strip_prefix("models/").unwrap_or(model);
-    match model {
-        "" => MODEL_CHAT.to_string(),
-        "chat" | MODEL_CHAT => MODEL_CHAT.to_string(),
-        "reasoner" | "resaoner" | MODEL_REASONER | "deepseek-resaoner" => {
-            MODEL_REASONER.to_string()
-        }
-        _ => MODEL_CHAT.to_string(),
     }
 }
 
