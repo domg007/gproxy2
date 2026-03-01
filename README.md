@@ -4,6 +4,8 @@
 
 Chinese version: [README.zh.md](./README.zh.md)
 
+If you want to look at the full docs, click [here](https://gproxy-docs.leenhawk.com/).
+
 ## Key Features
 
 - Unified multi-channel gateway: route requests to different upstreams by `channel` (builtin + custom).

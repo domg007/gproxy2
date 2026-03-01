@@ -2,6 +2,8 @@
 
 `gproxy` 是一个基于 Rust 的多通道 LLM 代理服务，统一对外提供 OpenAI / Claude / Gemini 风格接口，并内置管理后台、用户与密钥管理、请求与用量审计。
 
+假如你打算查看完整文档，查看[此处](https://gproxy-docs.leenhawk.com/).
+
 ## 主要能力
 
 - 多通道统一入口：按 `channel` 路由到不同上游（内置 + 自定义）。
