@@ -399,6 +399,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                             id: format!("{}_message_0", body.id),
                             content: message_content,
                             role: ot::ResponseOutputMessageRole::Assistant,
+                            phase: Some(ot::ResponseMessagePhase::FinalAnswer),
                             status: ot::ResponseItemStatus::Completed,
                             type_: ot::ResponseOutputMessageType::Message,
                         }),

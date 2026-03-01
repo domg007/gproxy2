@@ -11,8 +11,9 @@ pub use crate::openai::count_tokens::types::{
     ResponseImageGenerationCall, ResponseInput, ResponseInputFile, ResponseInputImage,
     ResponseInputItem, ResponseInputText, ResponseItemReference, ResponseLocalShellCall,
     ResponseLocalShellCallOutput, ResponseMcpApprovalRequest, ResponseMcpApprovalResponse,
-    ResponseMcpCall, ResponseMcpListTools, ResponseOutputMessage, ResponseOutputRefusal,
-    ResponseOutputText, ResponseReasoning, ResponseReasoningItem, ResponseReasoningTextContent,
+    ResponseMcpCall, ResponseMcpListTools, ResponseMessagePhase, ResponseOutputMessage,
+    ResponseOutputRefusal, ResponseOutputText, ResponseReasoning, ResponseReasoningItem,
+    ResponseReasoningTextContent,
     ResponseShellCall, ResponseShellCallOutput, ResponseSummaryTextContent, ResponseTextConfig,
     ResponseTool, ResponseToolChoice, ResponseTruncation,
 };

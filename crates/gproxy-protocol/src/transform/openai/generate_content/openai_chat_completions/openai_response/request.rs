@@ -58,6 +58,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                             message.content,
                         ),
                         role: ot::ResponseInputMessageRole::Developer,
+                        phase: None,
                         status: None,
                         type_: Some(ot::ResponseInputMessageType::Message),
                     }));
@@ -68,6 +69,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                             message.content,
                         ),
                         role: ot::ResponseInputMessageRole::System,
+                        phase: None,
                         status: None,
                         type_: Some(ot::ResponseInputMessageType::Message),
                     }));
@@ -78,6 +80,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                             message.content,
                         ),
                         role: ot::ResponseInputMessageRole::User,
+                        phase: None,
                         status: None,
                         type_: Some(ot::ResponseInputMessageType::Message),
                     }));
@@ -151,6 +154,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                                 id: format!("assistant_{index}"),
                                 content: output_content,
                                 role: ot::ResponseOutputMessageRole::Assistant,
+                                phase: Some(ot::ResponseMessagePhase::FinalAnswer),
                                 status: ot::ResponseItemStatus::Completed,
                                 type_: ot::ResponseOutputMessageType::Message,
                             },

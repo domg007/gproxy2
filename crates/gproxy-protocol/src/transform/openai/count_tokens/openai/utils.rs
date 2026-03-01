@@ -10,6 +10,7 @@ pub fn openai_input_to_items(input: Option<ResponseInput>) -> Vec<ResponseInputI
         Some(ResponseInput::Text(text)) => vec![ResponseInputItem::Message(ResponseInputMessage {
             content: ResponseInputMessageContent::Text(text),
             role: ResponseInputMessageRole::User,
+            phase: None,
             status: None,
             type_: Some(ResponseInputMessageType::Message),
         })],

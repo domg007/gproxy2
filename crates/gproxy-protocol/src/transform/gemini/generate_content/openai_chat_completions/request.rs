@@ -99,6 +99,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiChatCompletionsRequest {
                                 file: ChatCompletionFileInput {
                                     file_data: Some(inline_data.data),
                                     file_id: None,
+                                    file_url: None,
                                     filename: Some(inline_data.mime_type),
                                 },
                                 type_: ChatCompletionContentPartFileType::File,
@@ -129,7 +130,8 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiChatCompletionsRequest {
                                 file: ChatCompletionFileInput {
                                     file_data: None,
                                     file_id: None,
-                                    filename: Some(file_data.file_uri),
+                                    file_url: Some(file_data.file_uri),
+                                    filename: None,
                                 },
                                 type_: ChatCompletionContentPartFileType::File,
                             },

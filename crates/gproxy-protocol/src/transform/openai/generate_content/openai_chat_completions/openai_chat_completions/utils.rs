@@ -55,7 +55,7 @@ fn chat_content_part_to_response_input_content(
                 type_: ot::ResponseInputFileType::InputFile,
                 file_data: part.file.file_data,
                 file_id: part.file.file_id,
-                file_url: None,
+                file_url: part.file.file_url,
                 filename: part.file.filename,
             })
         }

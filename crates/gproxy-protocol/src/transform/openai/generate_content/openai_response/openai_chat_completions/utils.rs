@@ -52,7 +52,8 @@ fn input_content_to_chat_part(
                 file: ct::ChatCompletionFileInput {
                     file_data: part.file_data,
                     file_id: part.file_id,
-                    filename: part.filename.or(part.file_url),
+                    file_url: part.file_url,
+                    filename: part.filename,
                 },
                 type_: ct::ChatCompletionContentPartFileType::File,
             },

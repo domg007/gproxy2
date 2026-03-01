@@ -141,6 +141,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiChatCompletionsRequest {
                                             file: ChatCompletionFileInput {
                                                 file_data: None,
                                                 file_id: Some(source.file_id),
+                                                file_url: None,
                                                 filename: None,
                                             },
                                             type_: ChatCompletionContentPartFileType::File,
@@ -157,6 +158,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiChatCompletionsRequest {
                                             file: ChatCompletionFileInput {
                                                 file_data: Some(source.data),
                                                 file_id: None,
+                                                file_url: None,
                                                 filename: block.title.clone(),
                                             },
                                             type_: ChatCompletionContentPartFileType::File,
@@ -171,6 +173,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiChatCompletionsRequest {
                                             file: ChatCompletionFileInput {
                                                 file_data: Some(source.data),
                                                 file_id: None,
+                                                file_url: None,
                                                 filename: block.title.clone(),
                                             },
                                             type_: ChatCompletionContentPartFileType::File,
@@ -185,6 +188,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiChatCompletionsRequest {
                                             file: ChatCompletionFileInput {
                                                 file_data: None,
                                                 file_id: Some(source.file_id),
+                                                file_url: None,
                                                 filename: block.title.clone(),
                                             },
                                             type_: ChatCompletionContentPartFileType::File,

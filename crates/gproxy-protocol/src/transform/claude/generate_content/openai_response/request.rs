@@ -71,6 +71,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                         BetaMessageRole::User => ResponseInputMessageRole::User,
                         BetaMessageRole::Assistant => ResponseInputMessageRole::Assistant,
                     },
+                    phase: None,
                     status: None,
                     type_: Some(ResponseInputMessageType::Message),
                 })

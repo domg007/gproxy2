@@ -66,6 +66,7 @@ impl TryFrom<ClaudeCountTokensRequest> for OpenAiCountTokensRequest {
                         BetaMessageRole::User => ResponseInputMessageRole::User,
                         BetaMessageRole::Assistant => ResponseInputMessageRole::Assistant,
                     },
+                    phase: None,
                     status: None,
                     type_: Some(ResponseInputMessageType::Message),
                 })

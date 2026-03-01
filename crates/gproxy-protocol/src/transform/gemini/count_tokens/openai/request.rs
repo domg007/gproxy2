@@ -119,6 +119,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                             input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                                 content,
                                 role: role.clone(),
+                                phase: None,
                                 status: None,
                                 type_: Some(ResponseInputMessageType::Message),
                             }));
@@ -244,6 +245,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                         input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                             content,
                             role: role.clone(),
+                            phase: None,
                             status: None,
                             type_: Some(ResponseInputMessageType::Message),
                         }));
@@ -287,6 +289,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                         input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                             content,
                             role: role.clone(),
+                            phase: None,
                             status: None,
                             type_: Some(ResponseInputMessageType::Message),
                         }));
@@ -331,6 +334,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                 input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                     content,
                     role,
+                    phase: None,
                     status: None,
                     type_: Some(ResponseInputMessageType::Message),
                 }));

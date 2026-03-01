@@ -263,6 +263,7 @@ impl TryFrom<GeminiGenerateContentResponse> for OpenAiCreateResponseResponse {
                             id: format!("{}_message_{}", response_id, candidate_index),
                             content: message_content,
                             role: ot::ResponseOutputMessageRole::Assistant,
+                            phase: Some(ot::ResponseMessagePhase::FinalAnswer),
                             status: ot::ResponseItemStatus::Completed,
                             type_: ot::ResponseOutputMessageType::Message,
                         }));
@@ -281,6 +282,7 @@ impl TryFrom<GeminiGenerateContentResponse> for OpenAiCreateResponseResponse {
                             },
                         )],
                         role: ot::ResponseOutputMessageRole::Assistant,
+                        phase: Some(ot::ResponseMessagePhase::FinalAnswer),
                         status: ot::ResponseItemStatus::Completed,
                         type_: ot::ResponseOutputMessageType::Message,
                     }));

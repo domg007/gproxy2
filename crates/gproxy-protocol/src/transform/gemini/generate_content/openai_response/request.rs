@@ -69,6 +69,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                             input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                                 content,
                                 role: role.clone(),
+                                phase: None,
                                 status: None,
                                 type_: Some(ResponseInputMessageType::Message),
                             }));
@@ -164,6 +165,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                         input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                             content,
                             role: role.clone(),
+                            phase: None,
                             status: None,
                             type_: Some(ResponseInputMessageType::Message),
                         }));
@@ -207,6 +209,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                         input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                             content,
                             role: role.clone(),
+                            phase: None,
                             status: None,
                             type_: Some(ResponseInputMessageType::Message),
                         }));
@@ -249,6 +252,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                 input_items.push(ResponseInputItem::Message(ResponseInputMessage {
                     content,
                     role,
+                    phase: None,
                     status: None,
                     type_: Some(ResponseInputMessageType::Message),
                 }));

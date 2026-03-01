@@ -65,6 +65,8 @@ pub struct ResponseInputMessage {
     pub content: ResponseInputMessageContent,
     pub role: ResponseInputMessageRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<ResponseMessagePhase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<ResponseItemStatus>,
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub type_: Option<ResponseInputMessageType>,
@@ -165,6 +167,14 @@ pub enum ResponseInputMessageType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseMessagePhase {
+    #[serde(rename = "commentary")]
+    Commentary,
+    #[serde(rename = "final_answer")]
+    FinalAnswer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ResponseItemStatus {
     #[serde(rename = "in_progress")]
     InProgress,
@@ -180,6 +190,8 @@ pub struct ResponseOutputMessage {
     pub id: String,
     pub content: Vec<ResponseOutputContent>,
     pub role: ResponseOutputMessageRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<ResponseMessagePhase>,
     #[serde(default = "default_response_item_status")]
     pub status: ResponseItemStatus,
     #[serde(rename = "type")]
