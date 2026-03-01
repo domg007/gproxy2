@@ -48,6 +48,11 @@ cp gproxy.example.toml gproxy.toml
 - `global.admin_key`
 - 至少一个启用通道的 `credentials.secret`（或 builtin 凭证对象）
 
+首次登录默认关系：
+
+- 用户名：`admin`
+- 密码：`global.admin_key` 的值
+
 ### 3. 启动
 
 ```bash
@@ -66,6 +71,17 @@ cargo run -p gproxy
 ```bash
 curl -sS http://127.0.0.1:8787/openai/v1/models \
   -H "x-api-key: <你的用户key或admin key>"
+```
+
+也可以先通过用户名密码换取 `api_key`：
+
+```bash
+curl -sS http://127.0.0.1:8787/login \
+  -H "content-type: application/json" \
+  -d '{
+    "name": "admin",
+    "password": "<你的 admin_key>"
+  }'
 ```
 
 ## 部署
@@ -149,7 +165,7 @@ cargo run -p gproxy
 | `proxy` | 上游代理（空字符串表示不使用） |
 | `hf_token` | HuggingFace token（本地 tokenizer 下载时可用） |
 | `hf_url` | HuggingFace 基址，默认 `https://huggingface.co` |
-| `admin_key` | 管理员 API Key；为空时首次自动生成 |
+| `admin_key` | 管理员启动凭据；启动时会作为 admin 密码与 admin API Key，留空则首次自动生成 |
 | `mask_sensitive_info` | 是否在日志/事件存储中隐藏敏感请求与响应体 |
 | `data_dir` | 数据目录，默认 `./data` |
 | `dsn` | 数据库 DSN；若未设置且改了 `data_dir`，会自动派生 sqlite DSN |
@@ -215,7 +231,8 @@ cargo run -p gproxy
 
 ### 认证头
 
-- 管理/用户接口：使用 `x-api-key`
+- `POST /login` 使用 JSON 请求体 `{ "name": "...", "password": "..." }`，返回 `api_key`
+- 管理/用户接口（除 `/login` 外）：使用 `x-api-key`
 - Provider 接口支持：
   - `x-api-key`
   - `x-goog-api-key`
@@ -263,19 +280,18 @@ cargo run -p gproxy
 - 配置导入导出：`/admin/config/export-toml`、`/admin/config/import-toml`
 - 自更新：`/admin/system/self_update`
 - Providers/Credentials/CredentialStatuses：`query/upsert/delete`
-- Users/UserKeys：`query/upsert/delete`
+- Users：`query/upsert/delete`（`/admin/users/upsert` 需要 `password`）
+- UserKeys：`query/generate/delete`
 - Requests：`/admin/requests/upstream/query`、`/admin/requests/downstream/query`
 - Usage：`/admin/usages/query`、`/admin/usages/summary`
 
 ### 用户接口（`/user/*`）
 
 - `POST /user/keys/query`
-- `POST /user/keys/upsert`
+- `POST /user/keys/generate`
 - `POST /user/keys/delete`
 - `POST /user/usages/query`
 - `POST /user/usages/summary`
-
-> 用户 key 归一化规则：保存时会自动变为 `u{user_id}_<raw_key>`；如果已带该前缀则保持不变。
 
 ## 请求示例
 
@@ -381,7 +397,8 @@ API_KEY='<key>' tests/provider/run_channel_regression.sh \
 
 ### 1) `401 unauthorized`
 
-- 检查 `x-api-key` 是否存在且对应用户/密钥均为 enabled。
+- 对需要 key 的接口，检查 `x-api-key` 是否存在且对应用户/密钥均为 enabled。
+- 如果还没有 key，先用用户名密码调用 `POST /login` 获取。
 
 ### 2) `403 forbidden`（admin 路由）
 

@@ -50,6 +50,11 @@ At minimum, set:
 - `global.admin_key`
 - at least one enabled channel credential (`credentials.secret` or builtin credential object)
 
+Bootstrap login defaults:
+
+- username: `admin`
+- password: value of `global.admin_key`
+
 ### 3. Run
 
 ```bash
@@ -68,6 +73,17 @@ On startup, gproxy prints:
 ```bash
 curl -sS http://127.0.0.1:8787/openai/v1/models \
   -H "x-api-key: <your user key or admin key>"
+```
+
+Get a user/admin API key via password login:
+
+```bash
+curl -sS http://127.0.0.1:8787/login \
+  -H "content-type: application/json" \
+  -d '{
+    "name": "admin",
+    "password": "<your admin_key>"
+  }'
 ```
 
 ## Deployment
@@ -151,7 +167,7 @@ Reference files:
 | `proxy` | Upstream proxy (empty string means disabled) |
 | `hf_token` | HuggingFace token (optional for tokenizer download) |
 | `hf_url` | HuggingFace base URL, default `https://huggingface.co` |
-| `admin_key` | Admin API key; auto-generated on first bootstrap if empty |
+| `admin_key` | Admin bootstrap credential; used as admin password and admin API key on bootstrap, auto-generated if empty |
 | `mask_sensitive_info` | Redact sensitive request/response payloads in logs/events |
 | `data_dir` | Data directory, default `./data` |
 | `dsn` | Database DSN; if omitted and `data_dir` is changed, sqlite DSN is derived automatically |
@@ -217,7 +233,8 @@ All errors return:
 
 ### Auth Headers
 
-- Admin/User APIs: use `x-api-key`
+- `POST /login` uses JSON body `{ "name": "...", "password": "..." }` and returns `api_key`
+- Admin/User APIs (except `/login`): use `x-api-key`
 - Provider APIs also accept:
   - `x-api-key`
   - `x-goog-api-key`
@@ -265,19 +282,18 @@ Main groups:
 - Config export/import: `/admin/config/export-toml`, `/admin/config/import-toml`
 - Self update: `/admin/system/self_update`
 - Providers/Credentials/CredentialStatuses: `query/upsert/delete`
-- Users/UserKeys: `query/upsert/delete`
+- Users: `query/upsert/delete` (`/admin/users/upsert` requires `password`)
+- UserKeys: `query/generate/delete`
 - Requests: `/admin/requests/upstream/query`, `/admin/requests/downstream/query`
 - Usage: `/admin/usages/query`, `/admin/usages/summary`
 
 ### User APIs (`/user/*`)
 
 - `POST /user/keys/query`
-- `POST /user/keys/upsert`
+- `POST /user/keys/generate`
 - `POST /user/keys/delete`
 - `POST /user/usages/query`
 - `POST /user/usages/summary`
-
-> User key normalization rule: keys are stored as `u{user_id}_<raw_key>`. If input already has this prefix, it is kept as-is.
 
 ## Request Examples
 
@@ -383,7 +399,8 @@ API_KEY='<key>' tests/provider/run_channel_regression.sh \
 
 ### 1) `401 unauthorized`
 
-- Ensure `x-api-key` is provided and both the key and its owner user are enabled.
+- Ensure `x-api-key` is provided for key-protected routes, and both the key and its owner user are enabled.
+- If you don't have a key yet, call `POST /login` with username/password first.
 
 ### 2) `403 forbidden` on admin routes
 
