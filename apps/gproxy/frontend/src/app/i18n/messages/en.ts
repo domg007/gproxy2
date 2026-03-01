@@ -308,6 +308,7 @@ export const enMessages = {
     "providers.section.usage": "Usage",
     "providers.subtab.single": "Single Add/Edit",
     "providers.subtab.bulk": "Bulk Import/Export",
+    "providers.subtab.oauth": "OAuth",
     "providers.bulk.hint":
       "Key channels use one key per line. OAuth channels accept one JSON object per line or a JSON array.",
     "providers.bulk.mode": "Bulk Mode",

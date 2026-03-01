@@ -6,10 +6,12 @@ import type { TranslateFn } from "./shared";
 export function CredentialsSubTabs({
   subTab,
   setSubTab,
+  supportsOAuth,
   t
 }: {
   subTab: CredentialsSubTab;
   setSubTab: Dispatch<SetStateAction<CredentialsSubTab>>;
+  supportsOAuth: boolean;
   t: TranslateFn;
 }) {
   return (
@@ -28,6 +30,15 @@ export function CredentialsSubTabs({
       >
         {t("providers.subtab.bulk")}
       </button>
+      {supportsOAuth ? (
+        <button
+          type="button"
+          className={`workspace-tab ${subTab === "oauth" ? "workspace-tab-active" : ""}`}
+          onClick={() => setSubTab("oauth")}
+        >
+          {t("providers.subtab.oauth")}
+        </button>
+      ) : null}
     </div>
   );
 }

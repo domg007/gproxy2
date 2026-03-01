@@ -261,6 +261,12 @@ export function CredentialsTab({
     setSelectedCooldownKeysByCredential({});
   }, [channel, credentialSchema, supportsOAuth]);
 
+  useEffect(() => {
+    if (!supportsOAuth && subTab === "oauth") {
+      setSubTab("single");
+    }
+  }, [subTab, supportsOAuth]);
+
   const singleQuickAddPlaceholder = useMemo(() => {
     if (channel === "claudecode") {
       return t("providers.singleQuick.placeholder.claudecode");
@@ -645,7 +651,12 @@ export function CredentialsTab({
         t={t}
       />
 
-      <CredentialsSubTabs subTab={subTab} setSubTab={setSubTab} t={t} />
+      <CredentialsSubTabs
+        subTab={subTab}
+        setSubTab={setSubTab}
+        supportsOAuth={supportsOAuth}
+        t={t}
+      />
 
       {subTab === "single" ? (
         <div className="space-y-3">
@@ -655,15 +666,6 @@ export function CredentialsTab({
             credentialSchema={credentialSchema}
             renderCredentialField={renderCredentialField}
             onUpsertCredential={onUpsertCredential}
-            supportsOAuth={supportsOAuth}
-            oauthUi={oauthUi}
-            oauthStartButtons={oauthStartButtons}
-            oauthCallbackButtons={oauthCallbackButtons}
-            oauthCallbackUsesCustomFields={oauthCallbackUsesCustomFields}
-            oauthStartQuery={oauthStartQuery}
-            oauthCallbackQuery={oauthCallbackQuery}
-            oauthRawResult={oauthRawResult}
-            oauthOpenUrl={oauthOpenUrl}
             extraSectionBeforeOAuth={
               <div className="space-y-3 rounded-xl border border-border p-3">
                 <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
@@ -696,12 +698,93 @@ export function CredentialsTab({
                 </div>
               </div>
             }
-            renderOAuthField={renderOAuthField}
-            onRunCredentialOAuthStart={onRunCredentialOAuthStart}
-            onRunCredentialOAuthCallback={onRunCredentialOAuthCallback}
             t={t}
           />
         </div>
+      ) : subTab === "oauth" ? (
+        supportsOAuth ? (
+          <div className="provider-card space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              {t("providers.section.oauth")}
+            </div>
+            {oauthUi?.startFields.map((field) => renderOAuthField("start", field, oauthStartQuery))}
+            <div className="flex flex-wrap gap-2">
+              {oauthStartButtons.map((button) => (
+                <Button
+                  key={button.labelKey}
+                  variant={button.mode ? "neutral" : "primary"}
+                  onClick={() => onRunCredentialOAuthStart(undefined, button.mode, button.queryDefaults)}
+                >
+                  {t(button.labelKey)}
+                </Button>
+              ))}
+              {oauthOpenUrl ? (
+                <a
+                  className="btn btn-primary inline-flex"
+                  href={oauthOpenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {t("providers.oauth.openAuthUrl")}
+                </a>
+              ) : null}
+              {!oauthCallbackUsesCustomFields
+                ? oauthCallbackButtons.map((button) => (
+                    <Button
+                      key={button.labelKey}
+                      variant={button.mode ? "neutral" : "primary"}
+                      onClick={() =>
+                        onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
+                      }
+                    >
+                      {t(button.labelKey)}
+                    </Button>
+                  ))
+                : null}
+            </div>
+            {!oauthCallbackUsesCustomFields
+              ? oauthUi?.callbackFields.map((field) =>
+                  renderOAuthField("callback", field, oauthCallbackQuery)
+                )
+              : null}
+            {oauthCallbackUsesCustomFields ? (
+              <div className="space-y-2">
+                {oauthCallbackButtons.map((button) => {
+                  const fields = button.fields ?? oauthUi?.callbackFields ?? [];
+                  return (
+                    <div
+                      key={`callback-${button.labelKey}`}
+                      className="space-y-2 rounded-lg border border-border p-3"
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                        {t(button.labelKey)}
+                      </div>
+                      {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
+                      <Button
+                        variant={button.mode ? "neutral" : "primary"}
+                        onClick={() =>
+                          onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
+                        }
+                      >
+                        {t(button.labelKey)}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {oauthRawResult ? (
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                  {t("providers.oauth.response")}
+                </div>
+                <TextArea value={oauthRawResult} rows={10} readOnly onChange={() => {}} />
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="provider-card text-sm text-muted">{t("providers.oauth.unsupported")}</div>
+        )
       ) : (
         <CredentialBulkSection
           bulkModes={bulkModes}

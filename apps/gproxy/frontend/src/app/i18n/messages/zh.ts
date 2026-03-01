@@ -308,6 +308,7 @@ export const zhMessages = {
     "providers.section.usage": "用量",
     "providers.subtab.single": "单条添加/编辑",
     "providers.subtab.bulk": "批量导入导出",
+    "providers.subtab.oauth": "OAuth",
     "providers.bulk.hint":
       "Key 渠道使用每行一个 key；OAuth 渠道支持每行一个 JSON 对象，或直接粘贴 JSON 数组。",
     "providers.bulk.mode": "批量模式",
