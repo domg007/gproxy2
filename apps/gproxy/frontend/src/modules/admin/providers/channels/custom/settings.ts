@@ -61,7 +61,8 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
     base_url: (settings.base_url ?? DEFAULTS.base_url).trim()
   };
   const userAgent = (settings.user_agent ?? DEFAULTS.user_agent).trim();
-  if (userAgent) {
+  const defaultUserAgent = DEFAULTS.user_agent.trim();
+  if (userAgent !== defaultUserAgent) {
     payload.user_agent = userAgent;
   }
   const rawMaskTable = settings.mask_table ?? DEFAULTS.mask_table;

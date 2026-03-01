@@ -6,7 +6,7 @@ use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, default_gproxy_user_agent, is_auth_failure,
     is_transient_server_failure, join_base_url_and_path, retry_after_to_millis,
-    serialize_json_scalar, to_wreq_method,
+    resolve_user_agent_or_else, serialize_json_scalar, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -71,13 +71,8 @@ pub async fn execute_nvidia_with_retry(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let url_template = url.clone();
-    let user_agent_template = provider
-        .settings
-        .user_agent()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(default_gproxy_user_agent);
+    let user_agent_template =
+        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,

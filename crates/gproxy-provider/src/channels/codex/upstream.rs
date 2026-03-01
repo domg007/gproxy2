@@ -17,7 +17,7 @@ use crate::channels::upstream::{
 };
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, is_auth_failure, is_transient_server_failure,
-    join_base_url_and_path, retry_after_to_millis, to_wreq_method,
+    join_base_url_and_path, resolve_user_agent_or_default, retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -67,13 +67,8 @@ pub async fn execute_codex_with_retry(
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
     let base_url_template = base_url.to_string();
-    let user_agent_template = provider
-        .settings
-        .user_agent()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(USER_AGENT_VALUE)
-        .to_string();
+    let user_agent_template =
+        resolve_user_agent_or_default(provider.settings.user_agent(), USER_AGENT_VALUE);
 
     retry_with_eligible_credentials(
         provider,
@@ -436,13 +431,8 @@ pub async fn execute_codex_upstream_usage_with_retry(
     let state_manager = CredentialStateManager::new(now_unix_ms);
     let usage_url_template = usage_url.clone();
     let channel_id = scoped_provider.channel.clone();
-    let user_agent_template = scoped_provider
-        .settings
-        .user_agent()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(USER_AGENT_VALUE)
-        .to_string();
+    let user_agent_template =
+        resolve_user_agent_or_default(scoped_provider.settings.user_agent(), USER_AGENT_VALUE);
 
     retry_with_eligible_credentials(
         &scoped_provider,

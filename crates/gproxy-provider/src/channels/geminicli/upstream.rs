@@ -76,7 +76,6 @@ pub async fn execute_geminicli_with_retry(
         .settings
         .user_agent()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
 
     retry_with_eligible_credentials(
@@ -506,7 +505,6 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
         .settings
         .user_agent()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
 
     retry_with_eligible_credentials(
@@ -740,7 +738,6 @@ async fn send_geminicli_request(
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
     let user_agent = custom_user_agent
         .map(str::trim)
-        .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| geminicli_user_agent(model_for_ua));
     let mut headers = vec![

@@ -46,6 +46,12 @@ export function createSettingsCodec(defaults: Record<string, string>, optionalKe
     for (const key of optionalKeys) {
       const value = (settings[key] ?? "").trim();
       const def = defaults[key] ?? "";
+      if (key === "user_agent") {
+        if (value !== def) {
+          payload[key] = value;
+        }
+        continue;
+      }
       if (value && value !== def) {
         payload[key] = value;
       }

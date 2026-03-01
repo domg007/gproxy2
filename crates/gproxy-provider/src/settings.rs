@@ -37,7 +37,7 @@ pub fn parse_provider_settings_value_for_channel(
     value: &serde_json::Value,
 ) -> Result<ChannelSettings, serde_json::Error> {
     let legacy = serde_json::from_value::<LegacyProviderSettings>(value.clone())?;
-    let user_agent = clean_opt(legacy.user_agent.as_deref()).map(ToOwned::to_owned);
+    let user_agent = legacy.user_agent.map(|value| value.trim().to_string());
     Ok(match channel {
         ChannelId::Builtin(BuiltinChannel::OpenAi) => {
             let mut settings = openai::OpenAiSettings::default();
@@ -180,7 +180,12 @@ pub fn provider_settings_to_json_value(settings: &ChannelSettings) -> serde_json
         "base_url".to_string(),
         serde_json::Value::String(settings.base_url().to_string()),
     );
-    maybe_insert_opt_string(&mut root, "user_agent", settings.user_agent());
+    if let Some(user_agent) = settings.user_agent() {
+        root.insert(
+            "user_agent".to_string(),
+            serde_json::Value::String(user_agent.trim().to_string()),
+        );
+    }
 
     match settings {
         ChannelSettings::Builtin(BuiltinChannelSettings::Codex(value)) => {

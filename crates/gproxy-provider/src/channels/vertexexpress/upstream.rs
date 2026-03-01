@@ -7,7 +7,7 @@ use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_creden
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
-    is_transient_server_failure, retry_after_to_millis, to_wreq_method,
+    is_transient_server_failure, resolve_user_agent_or_else, retry_after_to_millis, to_wreq_method,
     try_local_gemini_model_response,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
@@ -46,13 +46,8 @@ pub async fn execute_vertexexpress_with_retry(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let base_url_template = base_url.to_string();
-    let user_agent_template = provider
-        .settings
-        .user_agent()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(default_gproxy_user_agent);
+    let user_agent_template =
+        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,

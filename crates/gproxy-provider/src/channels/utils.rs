@@ -46,6 +46,23 @@ pub fn default_gproxy_user_agent() -> String {
     )
 }
 
+pub fn resolve_user_agent_or_default(configured: Option<&str>, fallback: &str) -> String {
+    configured
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+pub fn resolve_user_agent_or_else<F>(configured: Option<&str>, fallback: F) -> String
+where
+    F: FnOnce() -> String,
+{
+    configured
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(fallback)
+}
+
 pub const fn is_auth_failure(status_code: u16) -> bool {
     status_code == 401 || status_code == 403
 }

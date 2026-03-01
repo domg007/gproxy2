@@ -62,9 +62,8 @@ pub async fn execute_claudecode_with_retry(
         .settings
         .user_agent()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(CLAUDE_CODE_UA)
-        .to_string();
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| CLAUDE_CODE_UA.to_string());
 
     retry_with_eligible_credentials(
         provider,
@@ -429,9 +428,8 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
         .settings
         .user_agent()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(CLAUDE_CODE_UA)
-        .to_string();
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| CLAUDE_CODE_UA.to_string());
 
     retry_with_eligible_credentials(
         &scoped_provider,

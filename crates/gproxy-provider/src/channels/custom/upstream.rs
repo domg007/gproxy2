@@ -7,7 +7,8 @@ use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     anthropic_header_pairs, claude_model_list_query_string, claude_model_to_string,
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
-    is_transient_server_failure, join_base_url_and_path, retry_after_to_millis, to_wreq_method,
+    is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
+    retry_after_to_millis, to_wreq_method,
 };
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
@@ -51,13 +52,8 @@ pub async fn execute_custom_with_retry(
     let headers_template = prepared.request_headers.clone();
     let auth_template = prepared.auth_scheme;
     let url_template = url.clone();
-    let user_agent_template = provider
-        .settings
-        .user_agent()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(default_gproxy_user_agent);
+    let user_agent_template =
+        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
 
     retry_with_eligible_credentials(
         provider,
