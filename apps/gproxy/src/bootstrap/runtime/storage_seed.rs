@@ -2,8 +2,9 @@ use anyhow::{Context, Result};
 use gproxy_core::GlobalSettings;
 use gproxy_provider::{
     BUILTIN_CHANNELS, BuiltinChannel, ChannelCredential, ChannelCredentialState, ChannelId,
-    CredentialRef, ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
-    credential_health_to_storage, credential_kind_for_storage, provider_settings_to_json_string,
+    CredentialRef, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
+    ProviderRegistry, credential_health_from_storage, credential_health_to_storage,
+    credential_kind_for_storage, provider_settings_to_json_string,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialStatusQuery, CredentialStatusWrite, CredentialWrite,
@@ -58,7 +59,7 @@ fn claim_next_available_provider_id(
 
 pub(super) async fn seed_registry_providers(
     storage: &SeaOrmStorage,
-    registry: &ProviderRegistry,
+    registry: &mut ProviderRegistry,
 ) -> Result<std::collections::HashMap<String, i64>> {
     let existing = storage
         .list_providers(&ProviderQuery {
@@ -77,28 +78,30 @@ pub(super) async fn seed_registry_providers(
     let mut used_ids = existing.iter().map(|row| row.id).collect::<std::collections::HashSet<_>>();
     let mut next_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
 
-    // Builtin providers are always persisted for admin visibility.
-    // Runtime enable/disable still follows configured registry.
-    let mut provider_by_channel = std::collections::BTreeMap::new();
+    // Builtin providers are always seeded so runtime and storage stay in sync
+    // even when config.toml is absent.
+    let mut provider_by_channel = std::collections::BTreeMap::<String, ProviderDefinition>::new();
     for builtin in BUILTIN_CHANNELS {
         let channel_id = ChannelId::builtin(builtin);
         provider_by_channel.insert(
             channel_id.as_str().to_string(),
-            (
-                resolve_provider_settings(&channel_id, &serde_json::json!({})),
-                ProviderDispatchTable::default_for_builtin(builtin),
-            ),
+            ProviderDefinition {
+                channel: channel_id.clone(),
+                dispatch: ProviderDispatchTable::default_for_builtin(builtin),
+                settings: resolve_provider_settings(&channel_id, &serde_json::json!({})),
+                credentials: ProviderCredentialState::default(),
+            },
         );
     }
     for provider in &registry.providers {
         provider_by_channel.insert(
             provider.channel.as_str().to_string(),
-            (provider.settings.clone(), provider.dispatch.clone()),
+            provider.clone(),
         );
     }
 
     let mut batch = StorageWriteBatch::default();
-    for (channel, (settings, dispatch)) in provider_by_channel {
+    for (channel, provider) in provider_by_channel.iter() {
         let id = if let Some(id) = id_by_channel.get(channel.as_str()).copied() {
             id
         } else {
@@ -118,14 +121,14 @@ pub(super) async fn seed_registry_providers(
             id
         };
 
-        let settings_json = provider_settings_to_json_string(&settings)
+        let settings_json = provider_settings_to_json_string(&provider.settings)
             .context("serialize provider settings for bootstrap seed")?;
-        let dispatch_json = serde_json::to_string(&dispatch)
+        let dispatch_json = serde_json::to_string(&provider.dispatch)
             .context("serialize provider dispatch for bootstrap seed")?;
         batch.apply(StorageWriteEvent::UpsertProvider(ProviderWrite {
             id,
-            name: channel.clone(),
-            channel,
+            name: channel.to_string(),
+            channel: channel.to_string(),
             settings_json,
             dispatch_json,
             enabled: true,
@@ -138,6 +141,8 @@ pub(super) async fn seed_registry_providers(
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
     }
+
+    registry.providers = provider_by_channel.into_values().collect();
 
     Ok(id_by_channel)
 }

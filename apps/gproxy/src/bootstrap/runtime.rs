@@ -95,7 +95,7 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
     );
 
     let mut registry = build_provider_registry(&config);
-    let provider_ids = seed_registry_providers(&storage, &registry)
+    let provider_ids = seed_registry_providers(&storage, &mut registry)
         .await
         .context("seed provider registry into storage")?;
     seed_registry_credentials_and_statuses(&storage, &mut registry, &provider_ids)
