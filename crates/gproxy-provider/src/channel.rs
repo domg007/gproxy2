@@ -15,6 +15,7 @@ pub enum BuiltinChannel {
     Antigravity,
     Nvidia,
     Deepseek,
+    Groq,
 }
 
 impl BuiltinChannel {
@@ -31,6 +32,7 @@ impl BuiltinChannel {
             Self::Antigravity => "antigravity",
             Self::Nvidia => "nvidia",
             Self::Deepseek => "deepseek",
+            Self::Groq => "groq",
         }
     }
 

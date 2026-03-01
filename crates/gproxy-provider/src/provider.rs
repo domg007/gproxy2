@@ -22,6 +22,7 @@ use crate::channels::geminicli::{
     execute_geminicli_oauth_callback, execute_geminicli_oauth_start,
     execute_geminicli_upstream_usage_with_retry, execute_geminicli_with_retry,
 };
+use crate::channels::groq::execute_groq_with_retry;
 use crate::channels::nvidia::execute_nvidia_with_retry;
 use crate::channels::openai::execute_openai_with_retry;
 use crate::channels::upstream::{
@@ -438,6 +439,17 @@ impl ProviderDefinition {
             }
             ChannelId::Builtin(crate::channel::BuiltinChannel::Nvidia) => {
                 execute_nvidia_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    request,
+                    now_unix_ms,
+                    token_resolution,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Groq) => {
+                execute_groq_with_retry(
                     client,
                     self,
                     credential_states,

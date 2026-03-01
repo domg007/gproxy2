@@ -5,8 +5,8 @@ use crate::channels::codex::CodexSettings;
 use crate::channels::geminicli::GeminiCliSettings;
 use crate::channels::vertex::VertexSettings;
 use crate::channels::{
-    BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, nvidia, openai,
-    vertexexpress,
+    BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
+    openai, vertexexpress,
 };
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -138,6 +138,13 @@ pub fn parse_provider_settings_value_for_channel(
                 settings.base_url = legacy.base_url;
             }
             ChannelSettings::Builtin(BuiltinChannelSettings::Deepseek(settings))
+        }
+        ChannelId::Builtin(BuiltinChannel::Groq) => {
+            let mut settings = groq::GroqSettings::default();
+            if !legacy.base_url.trim().is_empty() {
+                settings.base_url = legacy.base_url;
+            }
+            ChannelSettings::Builtin(BuiltinChannelSettings::Groq(settings))
         }
         ChannelId::Custom(_) => {
             let mut settings = custom::CustomChannelSettings::default();

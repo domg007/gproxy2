@@ -12,6 +12,7 @@ import { CHANNEL_CONFIG as claudecodeConfig } from "./claudecode";
 import { CHANNEL_CONFIG as codexConfig } from "./codex";
 import { CHANNEL_CONFIG as nvidiaConfig } from "./nvidia";
 import { CHANNEL_CONFIG as deepseekConfig } from "./deepseek";
+import { CHANNEL_CONFIG as groqConfig } from "./groq";
 
 export type ChannelConfig = {
   channel: string;
@@ -46,6 +47,7 @@ const CHANNEL_REGISTRY: readonly ChannelRegistryEntry[] = [
   { config: codexConfig, supportsOAuth: true, supportsUpstreamUsage: true },
   { config: nvidiaConfig, supportsOAuth: false, supportsUpstreamUsage: false },
   { config: deepseekConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: groqConfig, supportsOAuth: false, supportsUpstreamUsage: false },
 ];
 
 export const CHANNEL_CONFIGS: Record<string, ChannelConfig> = Object.fromEntries(

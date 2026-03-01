@@ -2,8 +2,8 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, nvidia, openai,
-    vertex, vertexexpress,
+    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia,
+    openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +19,7 @@ pub enum BuiltinChannelCredential {
     Antigravity(antigravity::AntigravityCredential),
     Nvidia(nvidia::NvidiaCredential),
     Deepseek(deepseek::DeepseekCredential),
+    Groq(groq::GroqCredential),
 }
 
 impl BuiltinChannelCredential {
@@ -37,6 +38,7 @@ impl BuiltinChannelCredential {
             BuiltinChannel::Antigravity => Self::Antigravity(Default::default()),
             BuiltinChannel::Nvidia => Self::Nvidia(Default::default()),
             BuiltinChannel::Deepseek => Self::Deepseek(Default::default()),
+            BuiltinChannel::Groq => Self::Groq(Default::default()),
         }
     }
 }

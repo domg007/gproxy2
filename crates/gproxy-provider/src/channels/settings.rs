@@ -2,8 +2,8 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, nvidia, openai,
-    vertex, vertexexpress,
+    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia,
+    openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +19,7 @@ pub enum BuiltinChannelSettings {
     Antigravity(antigravity::AntigravitySettings),
     Nvidia(nvidia::NvidiaSettings),
     Deepseek(deepseek::DeepseekSettings),
+    Groq(groq::GroqSettings),
 }
 
 impl BuiltinChannelSettings {
@@ -35,6 +36,7 @@ impl BuiltinChannelSettings {
             BuiltinChannel::Antigravity => Self::Antigravity(Default::default()),
             BuiltinChannel::Nvidia => Self::Nvidia(Default::default()),
             BuiltinChannel::Deepseek => Self::Deepseek(Default::default()),
+            BuiltinChannel::Groq => Self::Groq(Default::default()),
         }
     }
 }
@@ -65,6 +67,7 @@ impl ChannelSettings {
             Self::Builtin(BuiltinChannelSettings::Antigravity(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::Nvidia(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::Deepseek(value)) => value.base_url.as_str(),
+            Self::Builtin(BuiltinChannelSettings::Groq(value)) => value.base_url.as_str(),
             Self::Custom(value) => value.base_url.as_str(),
         }
     }

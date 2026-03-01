@@ -7,6 +7,7 @@ pub mod credential;
 pub mod custom;
 pub mod deepseek;
 pub mod geminicli;
+pub mod groq;
 pub mod nvidia;
 pub mod openai;
 pub mod retry;

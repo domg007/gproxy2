@@ -1,7 +1,7 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::{
     BuiltinChannelCredential, ChannelCredential, aistudio, antigravity, claude, claudecode, codex,
-    deepseek, geminicli, nvidia, openai, vertex, vertexexpress,
+    deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 use crate::dispatch::ProviderDispatchTable;
 
@@ -14,7 +14,7 @@ pub struct BuiltinChannelRegistration {
     pub supports_secret_credential: bool,
 }
 
-pub const BUILTIN_CHANNELS: [BuiltinChannel; 11] = [
+pub const BUILTIN_CHANNELS: [BuiltinChannel; 12] = [
     BuiltinChannel::OpenAi,
     BuiltinChannel::Claude,
     BuiltinChannel::AiStudio,
@@ -26,9 +26,10 @@ pub const BUILTIN_CHANNELS: [BuiltinChannel; 11] = [
     BuiltinChannel::Antigravity,
     BuiltinChannel::Nvidia,
     BuiltinChannel::Deepseek,
+    BuiltinChannel::Groq,
 ];
 
-pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 11] = [
+pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 12] = [
     BuiltinChannelRegistration {
         channel: BuiltinChannel::OpenAi,
         id: "openai",
@@ -106,6 +107,13 @@ pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 11] = [
         supports_upstream_usage: false,
         supports_secret_credential: true,
     },
+    BuiltinChannelRegistration {
+        channel: BuiltinChannel::Groq,
+        id: "groq",
+        supports_oauth: false,
+        supports_upstream_usage: false,
+        supports_secret_credential: true,
+    },
 ];
 
 pub fn parse_builtin_channel(value: &str) -> Option<BuiltinChannel> {
@@ -128,6 +136,7 @@ pub fn default_dispatch_table_for_builtin(channel: BuiltinChannel) -> ProviderDi
         BuiltinChannel::Antigravity => antigravity::default_dispatch_table(),
         BuiltinChannel::Nvidia => nvidia::default_dispatch_table(),
         BuiltinChannel::Deepseek => deepseek::default_dispatch_table(),
+        BuiltinChannel::Groq => groq::default_dispatch_table(),
     }
 }
 
@@ -177,6 +186,11 @@ pub fn credential_from_secret(channel: &ChannelId, secret: &str) -> Option<Chann
                         api_key: secret.to_string(),
                     }),
                 ),
+                BuiltinChannel::Groq => ChannelCredential::Builtin(BuiltinChannelCredential::Groq(
+                    groq::GroqCredential {
+                        api_key: secret.to_string(),
+                    },
+                )),
                 BuiltinChannel::Vertex
                 | BuiltinChannel::GeminiCli
                 | BuiltinChannel::ClaudeCode

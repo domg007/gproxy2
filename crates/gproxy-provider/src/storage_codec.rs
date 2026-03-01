@@ -18,6 +18,7 @@ pub fn credential_kind_for_storage(credential: &ChannelCredential) -> String {
         }
         ChannelCredential::Builtin(BuiltinChannelCredential::Nvidia(_)) => "builtin/nvidia",
         ChannelCredential::Builtin(BuiltinChannelCredential::Deepseek(_)) => "builtin/deepseek",
+        ChannelCredential::Builtin(BuiltinChannelCredential::Groq(_)) => "builtin/groq",
         ChannelCredential::Custom(_) => "custom/apikey",
     }
     .to_string()
