@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useI18n } from "../../../app/i18n";
+import { copyTextToClipboard } from "../../../lib/clipboard";
 import type { UserKeyQueryRow, UserQueryRow } from "../../../lib/types";
 import { Button } from "../../../components/ui";
 import { maskApiKey } from "./helpers";
@@ -64,6 +65,33 @@ export function UserKeysPane({
     );
   };
 
+  const renderCopyButton = (key: string) => {
+    return (
+      <button
+        type="button"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        onClick={() => {
+          void copyTextToClipboard(key).catch(() => {});
+        }}
+        aria-label={t("common.copy")}
+        title={t("common.copy")}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className="h-4 w-4"
+          aria-hidden="true"
+        >
+          <rect x="9" y="9" width="11" height="11" rx="2" />
+          <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+        </svg>
+      </button>
+    );
+  };
+
   return (
     <div className="provider-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -99,6 +127,7 @@ export function UserKeysPane({
                       {revealedKeyIds.has(row.id) ? row.api_key : maskApiKey(row.api_key)}
                     </div>
                     {renderVisibilityButton(row.id)}
+                    {renderCopyButton(row.api_key)}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">

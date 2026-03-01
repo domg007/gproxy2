@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import type { UserKeyQueryRow } from "../../lib/types";
 import { Button, Card, Table } from "../../components/ui";
 
@@ -45,6 +46,15 @@ export function MyKeysModule({
     });
   };
 
+  const copyKey = async (key: string) => {
+    try {
+      await copyTextToClipboard(key);
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
   const renderVisibilityButton = (id: number) => {
     const shown = revealedKeyIds.has(id);
     return (
@@ -67,6 +77,31 @@ export function MyKeysModule({
           <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
           <circle cx="12" cy="12" r="2.8" />
           {shown ? null : <path d="M4 20L20 4" />}
+        </svg>
+      </button>
+    );
+  };
+
+  const renderCopyButton = (key: string) => {
+    return (
+      <button
+        type="button"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        onClick={() => void copyKey(key)}
+        aria-label={t("common.copy")}
+        title={t("common.copy")}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className="h-4 w-4"
+          aria-hidden="true"
+        >
+          <rect x="9" y="9" width="11" height="11" rx="2" />
+          <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
         </svg>
       </button>
     );
@@ -144,6 +179,7 @@ export function MyKeysModule({
                   {revealedKeyIds.has(row.id) ? row.api_key : maskApiKey(row.api_key)}
                 </span>
                 {renderVisibilityButton(row.id)}
+                {renderCopyButton(row.api_key)}
               </div>
             ),
             [tableColumns[3]]: (
