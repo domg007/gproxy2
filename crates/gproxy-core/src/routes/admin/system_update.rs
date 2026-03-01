@@ -11,7 +11,11 @@ use serde::Deserialize;
 
 use crate::AppState;
 
-use super::{GPROXY_REPO_API_LATEST, HttpError, authorize_admin};
+use super::{HttpError, authorize_admin};
+
+const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
+const GPROXY_REPO_API_STAGING: &str =
+    "https://api.github.com/repos/LeenHawk/gproxy/releases/tags/staging";
 
 #[derive(Debug, Deserialize, Clone)]
 struct GithubReleaseAsset {
@@ -38,13 +42,16 @@ pub(super) async fn system_self_update(
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
     let proxy = state.config.load().global.proxy.clone();
+    let update_channel = build_update_channel();
 
-    let result = self_update_to_latest_release(proxy).await.map_err(|err| {
-        HttpError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("self_update_failed: {err}"),
-        )
-    })?;
+    let result = self_update_to_latest_release(proxy, update_channel.as_str())
+        .await
+        .map_err(|err| {
+            HttpError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("self_update_failed: {err}"),
+            )
+        })?;
 
     schedule_self_restart(result.staged_binary_path.clone()).map_err(|err| {
         HttpError::new(
@@ -56,6 +63,7 @@ pub(super) async fn system_self_update(
     Ok(Json(serde_json::json!({
         "ok": true,
         "from_version": env!("CARGO_PKG_VERSION"),
+        "update_channel": update_channel,
         "release_tag": result.release_tag,
         "asset": result.asset_name,
         "installed_to": result.installed_to,
@@ -65,12 +73,16 @@ pub(super) async fn system_self_update(
     })))
 }
 
-async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpdateResult, String> {
+async fn self_update_to_latest_release(
+    proxy: Option<String>,
+    update_channel: &str,
+) -> Result<SelfUpdateResult, String> {
     #[cfg(windows)]
     {
         let target_asset = target_release_asset_name()?;
         let client = build_self_update_client(proxy)?;
-        let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
+        let (release_tag, asset) =
+            fetch_latest_release_asset(&client, &target_asset, update_channel).await?;
 
         let zip_bytes =
             download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
@@ -93,7 +105,8 @@ async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpda
     {
         let target_asset = target_release_asset_name()?;
         let client = build_self_update_client(proxy)?;
-        let (release_tag, asset) = fetch_latest_release_asset(&client, &target_asset).await?;
+        let (release_tag, asset) =
+            fetch_latest_release_asset(&client, &target_asset, update_channel).await?;
 
         let zip_bytes =
             download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
@@ -116,14 +129,16 @@ async fn self_update_to_latest_release(proxy: Option<String>) -> Result<SelfUpda
 async fn fetch_latest_release_asset(
     client: &wreq::Client,
     target_asset: &str,
+    update_channel: &str,
 ) -> Result<(String, GithubReleaseAsset), String> {
+    let release_url = release_api_url_for_channel(update_channel);
     let release_resp = client
-        .get(GPROXY_REPO_API_LATEST)
+        .get(release_url)
         .header("accept", "application/vnd.github+json")
         .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
         .send()
         .await
-        .map_err(|err| format!("fetch_latest_release: {err}"))?;
+        .map_err(|err| format!("fetch_release_metadata:{release_url}:{err}"))?;
 
     if !release_resp.status().is_success() {
         let status = release_resp.status();
@@ -157,6 +172,20 @@ async fn fetch_latest_release_asset(
         })?;
 
     Ok((release.tag_name, asset))
+}
+
+fn build_update_channel() -> String {
+    option_env!("GPROXY_UPDATE_CHANNEL")
+        .unwrap_or("stable")
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn release_api_url_for_channel(update_channel: &str) -> &'static str {
+    match update_channel {
+        "staging" => GPROXY_REPO_API_STAGING,
+        _ => GPROXY_REPO_API_LATEST,
+    }
 }
 
 fn build_self_update_client(proxy: Option<String>) -> Result<wreq::Client, String> {

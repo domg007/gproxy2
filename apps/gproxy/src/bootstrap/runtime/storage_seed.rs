@@ -75,7 +75,10 @@ pub(super) async fn seed_registry_providers(
         .iter()
         .map(|row| (row.channel.clone(), row.id))
         .collect::<std::collections::HashMap<_, _>>();
-    let mut used_ids = existing.iter().map(|row| row.id).collect::<std::collections::HashSet<_>>();
+    let mut used_ids = existing
+        .iter()
+        .map(|row| row.id)
+        .collect::<std::collections::HashSet<_>>();
     let mut next_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
 
     // Builtin providers are always seeded so runtime and storage stay in sync
@@ -94,10 +97,7 @@ pub(super) async fn seed_registry_providers(
         );
     }
     for provider in &registry.providers {
-        provider_by_channel.insert(
-            provider.channel.as_str().to_string(),
-            provider.clone(),
-        );
+        provider_by_channel.insert(provider.channel.as_str().to_string(), provider.clone());
     }
 
     let mut batch = StorageWriteBatch::default();
@@ -115,7 +115,9 @@ pub(super) async fn seed_registry_providers(
                         preferred
                     }
                 }
-                ChannelId::Custom(_) => claim_next_available_provider_id(&mut used_ids, &mut next_id),
+                ChannelId::Custom(_) => {
+                    claim_next_available_provider_id(&mut used_ids, &mut next_id)
+                }
             };
             id_by_channel.insert(channel.clone(), id);
             id

@@ -2,6 +2,9 @@ name: build-binaries
 
 on:
   push:
+    branches:
+      - main
+      - master
   release:
     types:
       - published
@@ -10,6 +13,9 @@ on:
 permissions:
   contents: write
   packages: write
+
+env:
+  GPROXY_UPDATE_CHANNEL: ${{ github.event_name == 'push' && 'staging' || 'stable' }}
 
 jobs:
   build-frontend:
@@ -281,6 +287,15 @@ jobs:
           $hash = (Get-FileHash $env:ARTIFACT -Algorithm SHA256).Hash.ToLower()
           "${hash}  $env:ARTIFACT" | Out-File -Encoding ASCII "$env:ARTIFACT.sha256"
 
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-asset-${{ env.TARGET }}
+          path: |
+            ${{ env.ARTIFACT }}
+            ${{ env.ARTIFACT }}.sha256
+          retention-days: 1
+
       - name: Upload release assets
         if: ${{ github.event_name == 'release' }}
         uses: softprops/action-gh-release@v2
@@ -288,10 +303,52 @@ jobs:
           files: |
             *.zip
             *.zip.sha256
+          overwrite_files: true
+
+  publish-staging-release:
+    name: Publish staging prerelease
+    if: ${{ github.event_name == 'push' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-asset-*
+          path: dist
+          merge-multiple: true
+
+      - name: Move staging tag to current commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa staging -m "staging build ${GITHUB_SHA}" "${GITHUB_SHA}"
+          git push origin refs/tags/staging --force
+
+      - name: Publish staging release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: staging
+          name: staging
+          body: |
+            Automated staging build from `${{ github.sha }}`.
+          prerelease: true
+          make_latest: false
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/*.zip
+            dist/*.zip.sha256
+          fail_on_unmatched_files: true
+          overwrite_files: true
 
   docker-build:
     name: Build Docker (${{ matrix.variant }}-${{ matrix.arch }})
-    if: ${{ github.event_name == 'release' }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     needs: build
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -353,8 +410,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/gproxy
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=true
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=staging,enable=${{ github.event_name == 'push' }}
+            type=sha,prefix=staging-,enable=${{ github.event_name == 'push' }}
           flavor: |
             suffix=-${{ matrix.arch }}${{ matrix.suffix }}
 
@@ -374,7 +433,7 @@ jobs:
 
   docker-manifest:
     name: Create Docker manifest
-    if: ${{ github.event_name == 'release' }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     needs: docker-build
     runs-on: ubuntu-latest
     steps:
@@ -394,8 +453,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/gproxy
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=true
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=staging,enable=${{ github.event_name == 'push' }}
+            type=sha,prefix=staging-,enable=${{ github.event_name == 'push' }}
 
       - name: Create glibc manifest list
         shell: bash

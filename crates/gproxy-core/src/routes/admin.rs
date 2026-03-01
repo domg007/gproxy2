@@ -33,7 +33,6 @@ use config_toml::*;
 
 const X_API_KEY: &str = "x-api-key";
 const ADMIN_USER_ID: i64 = 0;
-const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 
 #[derive(Debug, Serialize)]
 struct Ack {

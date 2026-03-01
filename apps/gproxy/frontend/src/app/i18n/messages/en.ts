@@ -60,7 +60,7 @@ export const enMessages = {
     "global.export": "Export gproxy.toml",
     "global.exporting": "Exporting...",
     "global.exported": "gproxy.toml exported",
-    "global.selfUpdateConfirm": "Replace current binary with latest release now?",
+    "global.selfUpdateConfirm": "Replace current binary with the latest release from its update channel now?",
     "global.selfUpdateButton": "Update binary",
     "global.selfUpdateRunning": "Updating...",
     "global.selfUpdateOk": "Binary updated to {tag}. Process restart has been scheduled automatically.",

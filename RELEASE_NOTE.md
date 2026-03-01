@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.3.8
+
+### Changed
+
+- Updated workspace/package release version to `0.3.8`.
+- Updated CI release workflow:
+  - `push` on `main/master` now publishes a `staging` prerelease (not marked as latest)
+  - `push` on `main/master` now also publishes Docker staging tags (`staging`, `staging-<sha>`, and `-musl` variants)
+  - stable `release` publish behavior remains unchanged (`latest` + tag-based images).
+
+### Fixed
+
+- Fixed self-update channel routing:
+  - staging builds now track the `staging` release stream
+  - stable builds continue to track the latest stable release stream.
 
 ## v0.3.7
 

@@ -60,7 +60,7 @@ export const zhMessages = {
     "global.export": "导出配置",
     "global.exporting": "导出中...",
     "global.exported": "已导出 gproxy.toml",
-    "global.selfUpdateConfirm": "现在用最新 release 替换当前程序吗？",
+    "global.selfUpdateConfirm": "现在用当前更新通道的最新 release 替换当前程序吗？",
     "global.selfUpdateButton": "更新程序",
     "global.selfUpdateRunning": "更新中...",
     "global.selfUpdateOk": "已更新到 {tag}，正在自动重启进程。",
