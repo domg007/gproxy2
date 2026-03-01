@@ -24,6 +24,7 @@ use crate::provider::ProviderDefinition;
 
 pub async fn execute_claudecode_with_retry(
     client: &WreqClient,
+    spoof_client: &WreqClient,
     provider: &ProviderDefinition,
     credential_states: &ChannelCredentialStateStore,
     request: &gproxy_middleware::TransformRequest,
@@ -80,6 +81,11 @@ pub async fn execute_claudecode_with_retry(
             let claude_ai_base_url = claude_ai_base_url_template.clone();
 
             async move {
+                let active_client = if attempt.material.has_cookie() {
+                    spoof_client
+                } else {
+                    client
+                };
                 let cache_key = format!("{}::{}", provider.channel.as_str(), attempt.credential_id);
                 let mut credential_update = None;
                 let context_1m_enabled = claudecode_1m_enabled_for_credential(
@@ -93,7 +99,7 @@ pub async fn execute_claudecode_with_retry(
                 let sent_with_context_1m = has_context_1m_beta(request_headers.as_slice());
 
                 let mut active_access_token = match resolve_claudecode_access_token(
-                    client,
+                    active_client,
                     cache_key.as_str(),
                     &attempt.material,
                     base_url.as_str(),
@@ -140,7 +146,7 @@ pub async fn execute_claudecode_with_retry(
                 };
 
                 let (mut response, mut request_meta) = match send_claudecode_request(
-                    client,
+                    active_client,
                     method.clone(),
                     url.as_str(),
                     active_access_token.as_str(),
@@ -171,7 +177,7 @@ pub async fn execute_claudecode_with_retry(
                 let mut status_code = response.status().as_u16();
                 if is_auth_failure(status_code) {
                     let refreshed_token = match resolve_claudecode_access_token(
-                        client,
+                        active_client,
                         cache_key.as_str(),
                         &attempt.material,
                         base_url.as_str(),
@@ -219,7 +225,7 @@ pub async fn execute_claudecode_with_retry(
 
                     active_access_token = refreshed_token;
                     let (retry_response, retry_meta) = match send_claudecode_request(
-                        client,
+                        active_client,
                         method.clone(),
                         url.as_str(),
                         active_access_token.as_str(),
@@ -273,7 +279,7 @@ pub async fn execute_claudecode_with_retry(
                     let mut retry_headers_without_context = request_headers.clone();
                     strip_context_1m_beta(&mut retry_headers_without_context);
                     let (retry_response, retry_meta) = match send_claudecode_request(
-                        client,
+                        active_client,
                         method.clone(),
                         url.as_str(),
                         active_access_token.as_str(),
@@ -370,6 +376,7 @@ pub async fn execute_claudecode_with_retry(
 
 pub async fn execute_claudecode_upstream_usage_with_retry(
     client: &WreqClient,
+    spoof_client: &WreqClient,
     provider: &ProviderDefinition,
     credential_states: &ChannelCredentialStateStore,
     credential_id: Option<i64>,
@@ -426,11 +433,16 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
             let claude_ai_base_url = claude_ai_base_url.clone();
 
             async move {
+                let active_client = if attempt.material.has_cookie() {
+                    spoof_client
+                } else {
+                    client
+                };
                 let cache_key = format!("{}::{}", channel.as_str(), attempt.credential_id);
                 let mut credential_update = None;
 
                 let access_token = match resolve_claudecode_access_token(
-                    client,
+                    active_client,
                     cache_key.as_str(),
                     &attempt.material,
                     base_url.as_str(),
@@ -477,7 +489,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
                 };
 
                 let (mut response, mut request_meta) = match send_claudecode_usage_request(
-                    client,
+                    active_client,
                     usage_url.as_str(),
                     access_token.as_str(),
                 )
@@ -505,7 +517,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
                 let mut status_code = response.status().as_u16();
                 if is_auth_failure(status_code) {
                     let refreshed_token = match resolve_claudecode_access_token(
-                        client,
+                        active_client,
                         cache_key.as_str(),
                         &attempt.material,
                         base_url.as_str(),
@@ -552,7 +564,7 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
                     };
 
                     let (retry_response, retry_meta) = match send_claudecode_usage_request(
-                        client,
+                        active_client,
                         usage_url.as_str(),
                         refreshed_token.as_str(),
                     )

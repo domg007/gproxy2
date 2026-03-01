@@ -433,7 +433,10 @@ fn serialize_local_response_body(
         && wrapper.contains_key("stats_code")
         && wrapper.contains_key("body")
     {
-        let body = wrapper.get("body").cloned().unwrap_or(serde_json::Value::Null);
+        let body = wrapper
+            .get("body")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         return match body {
             serde_json::Value::String(text) => Ok(text.into_bytes()),
             other => serde_json::to_vec(&other)
@@ -657,17 +660,16 @@ pub(super) async fn execute_transform_request(
     let upstream_result = if dispatch_local {
         execute_local_request(state.as_ref(), &channel, &downstream_request).await
     } else {
-        let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
-            state.load_spoof_http()
-        } else {
-            state.load_http()
-        };
+        let http = state.load_http();
+        let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
+            .then(|| state.load_spoof_http());
         let tokenizers = state.tokenizers();
         let global = state.config.load().global.clone();
 
         provider
-            .execute_with_retry(
+            .execute_with_retry_with_spoof(
                 http.as_ref(),
+                spoof_http.as_deref(),
                 &state.credential_states,
                 &upstream_request,
                 now,

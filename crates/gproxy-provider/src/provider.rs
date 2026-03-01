@@ -317,10 +317,29 @@ impl ProviderDefinition {
         credential_id: Option<i64>,
         now_unix_ms: u64,
     ) -> Result<UpstreamResponse, UpstreamError> {
+        self.execute_upstream_usage_with_retry_with_spoof(
+            client,
+            None,
+            credential_states,
+            credential_id,
+            now_unix_ms,
+        )
+        .await
+    }
+
+    pub async fn execute_upstream_usage_with_retry_with_spoof(
+        &self,
+        client: &WreqClient,
+        spoof_client: Option<&WreqClient>,
+        credential_states: &crate::credential::ChannelCredentialStateStore,
+        credential_id: Option<i64>,
+        now_unix_ms: u64,
+    ) -> Result<UpstreamResponse, UpstreamError> {
         match &self.channel {
             ChannelId::Builtin(crate::channel::BuiltinChannel::ClaudeCode) => {
                 execute_claudecode_upstream_usage_with_retry(
                     client,
+                    spoof_client.unwrap_or(client),
                     self,
                     credential_states,
                     credential_id,
@@ -370,6 +389,26 @@ impl ProviderDefinition {
         now_unix_ms: u64,
         token_resolution: TokenizerResolutionContext<'_>,
     ) -> Result<UpstreamResponse, UpstreamError> {
+        self.execute_with_retry_with_spoof(
+            client,
+            None,
+            credential_states,
+            request,
+            now_unix_ms,
+            token_resolution,
+        )
+        .await
+    }
+
+    pub async fn execute_with_retry_with_spoof(
+        &self,
+        client: &WreqClient,
+        spoof_client: Option<&WreqClient>,
+        credential_states: &crate::credential::ChannelCredentialStateStore,
+        request: &gproxy_middleware::TransformRequest,
+        now_unix_ms: u64,
+        token_resolution: TokenizerResolutionContext<'_>,
+    ) -> Result<UpstreamResponse, UpstreamError> {
         match &self.channel {
             ChannelId::Builtin(crate::channel::BuiltinChannel::OpenAi) => {
                 execute_openai_with_retry(client, self, credential_states, request, now_unix_ms)
@@ -380,8 +419,15 @@ impl ProviderDefinition {
                     .await
             }
             ChannelId::Builtin(crate::channel::BuiltinChannel::ClaudeCode) => {
-                execute_claudecode_with_retry(client, self, credential_states, request, now_unix_ms)
-                    .await
+                execute_claudecode_with_retry(
+                    client,
+                    spoof_client.unwrap_or(client),
+                    self,
+                    credential_states,
+                    request,
+                    now_unix_ms,
+                )
+                .await
             }
             ChannelId::Builtin(crate::channel::BuiltinChannel::AiStudio) => {
                 execute_aistudio_with_retry(client, self, credential_states, request, now_unix_ms)

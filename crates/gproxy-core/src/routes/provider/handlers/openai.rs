@@ -25,9 +25,8 @@ use crate::AppState;
 
 use super::super::{
     HttpError, ModelProtocolPreference, anthropic_headers_from_request,
-    apply_credential_update_and_persist,
-    authorize_provider_access, bad_request, collect_headers, collect_unscoped_model_ids,
-    deserialize_json_scalar, enqueue_upstream_request_event_from_meta,
+    apply_credential_update_and_persist, authorize_provider_access, bad_request, collect_headers,
+    collect_unscoped_model_ids, deserialize_json_scalar, enqueue_upstream_request_event_from_meta,
     execute_transform_candidates, execute_transform_request, internal_error,
     model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
     oauth_callback_response_to_axum, oauth_response_to_axum, parse_optional_query_value,
@@ -176,16 +175,15 @@ pub(in crate::routes::provider) async fn upstream_usage(
     authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
-    let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
-        state.load_spoof_http()
-    } else {
-        state.load_http()
-    };
+    let http = state.load_http();
+    let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
+        .then(|| state.load_spoof_http());
     let now = now_unix_ms();
     let credential_id = parse_optional_query_value::<i64>(query.as_deref(), "credential_id")?;
     let upstream = match provider
-        .execute_upstream_usage_with_retry(
+        .execute_upstream_usage_with_retry_with_spoof(
             http.as_ref(),
+            spoof_http.as_deref(),
             &state.credential_states,
             credential_id,
             now,
@@ -563,14 +561,7 @@ pub(in crate::routes::provider) async fn v1_model_list(
         ],
     };
 
-    execute_transform_candidates(
-        state,
-        channel,
-        provider,
-        auth,
-        candidates,
-    )
-    .await
+    execute_transform_candidates(state, channel, provider, auth, candidates).await
 }
 
 pub(in crate::routes::provider) async fn v1_model_list_unscoped(
@@ -640,14 +631,7 @@ pub(in crate::routes::provider) async fn v1_model_get(
         ],
     };
 
-    execute_transform_candidates(
-        state,
-        channel,
-        provider,
-        auth,
-        candidates,
-    )
-    .await
+    execute_transform_candidates(state, channel, provider, auth, candidates).await
 }
 
 pub(in crate::routes::provider) async fn v1_model_get_unscoped(
@@ -689,12 +673,5 @@ pub(in crate::routes::provider) async fn v1_model_get_unscoped(
         ],
     };
 
-    execute_transform_candidates(
-        state,
-        channel,
-        provider,
-        auth,
-        candidates,
-    )
-    .await
+    execute_transform_candidates(state, channel, provider, auth, candidates).await
 }

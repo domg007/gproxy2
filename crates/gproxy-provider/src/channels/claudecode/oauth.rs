@@ -67,6 +67,16 @@ pub(crate) struct ClaudeCodeAuthMaterial {
     user_email: Option<String>,
 }
 
+impl ClaudeCodeAuthMaterial {
+    pub(crate) fn has_cookie(&self) -> bool {
+        self.cookie
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ClaudeCodeRefreshedToken {
     pub(crate) access_token: String,

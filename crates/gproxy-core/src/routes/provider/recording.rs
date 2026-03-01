@@ -524,20 +524,19 @@ pub(super) async fn estimate_tokens_with_channel_count(
         }
 
         let now = now_unix_ms();
-        let http = if matches!(
+        let http = context.state.load_http();
+        let spoof_http = matches!(
             &context.channel,
             ChannelId::Builtin(BuiltinChannel::ClaudeCode)
-        ) {
-            context.state.load_spoof_http()
-        } else {
-            context.state.load_http()
-        };
+        )
+        .then(|| context.state.load_spoof_http());
         let tokenizers = context.state.tokenizers();
         let global = context.state.config.load().global.clone();
         let Ok(upstream) = context
             .provider
-            .execute_with_retry(
+            .execute_with_retry_with_spoof(
                 http.as_ref(),
+                spoof_http.as_deref(),
                 &context.state.credential_states,
                 &upstream_request,
                 now,
