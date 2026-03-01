@@ -421,7 +421,10 @@ pub(crate) async fn refresh_claudecode_access_token(
             .map_err(|err| ClaudeCodeTokenRefreshError::Transient(err.to_string()))?;
 
         match parse_refreshed_token_response(response, material, now_unix_ms).await {
-            Ok(token) => return Ok(token),
+            Ok(mut token) => {
+                fill_missing_refresh_fields_from_profile(client, api_base_url, &mut token).await;
+                return Ok(token);
+            }
             Err(ClaudeCodeTokenRefreshError::InvalidCredential(_)) if cookie.is_some() => {
                 // Align with clewdr behavior: when refresh_token is invalid, try cookie re-exchange.
             }
@@ -463,13 +466,7 @@ pub(crate) async fn refresh_claudecode_access_token(
             })?
             .to_string();
 
-        let user_email = fetch_oauth_profile(client, api_base_url, access_token.as_str())
-            .await
-            .ok()
-            .and_then(|value| value.email)
-            .or_else(|| material.user_email.clone());
-
-        return Ok(ClaudeCodeRefreshedToken {
+        let mut refreshed = ClaudeCodeRefreshedToken {
             access_token,
             refresh_token,
             expires_at_unix_ms: now_unix_ms
@@ -480,9 +477,11 @@ pub(crate) async fn refresh_claudecode_access_token(
             rate_limit_tier: tokens
                 .rate_limit_tier
                 .or_else(|| material.rate_limit_tier.clone()),
-            user_email,
+            user_email: material.user_email.clone(),
             cookie: material.cookie.clone(),
-        });
+        };
+        fill_missing_refresh_fields_from_profile(client, api_base_url, &mut refreshed).await;
+        return Ok(refreshed);
     }
 
     Err(ClaudeCodeTokenRefreshError::InvalidCredential(
@@ -695,6 +694,35 @@ async fn fetch_oauth_profile(
     let payload = serde_json::from_slice::<OAuthProfile>(&bytes)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
     Ok(parse_profile(payload))
+}
+
+async fn fill_missing_refresh_fields_from_profile(
+    client: &WreqClient,
+    api_base_url: &str,
+    refreshed: &mut ClaudeCodeRefreshedToken,
+) {
+    if refreshed.subscription_type.is_some()
+        && refreshed.rate_limit_tier.is_some()
+        && refreshed.user_email.is_some()
+    {
+        return;
+    }
+
+    let Ok(profile) =
+        fetch_oauth_profile(client, api_base_url, refreshed.access_token.as_str()).await
+    else {
+        return;
+    };
+
+    if refreshed.subscription_type.is_none() {
+        refreshed.subscription_type = profile.subscription_type;
+    }
+    if refreshed.rate_limit_tier.is_none() {
+        refreshed.rate_limit_tier = profile.rate_limit_tier;
+    }
+    if refreshed.user_email.is_none() {
+        refreshed.user_email = profile.email;
+    }
 }
 
 #[derive(Debug, Default)]

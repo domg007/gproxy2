@@ -555,6 +555,11 @@ export function ProvidersModule({
     setActiveTab("credentials");
   };
 
+  const queryUpstreamUsageAndReload = async (credentialId: number) => {
+    await queryUpstreamUsage(credentialId);
+    await loadProviderScopedData(selectedProvider);
+  };
+
   const credentialsViewModel = {
     selectedProvider,
     credentialSchema: currentCredentialSchema,
@@ -592,7 +597,7 @@ export function ProvidersModule({
       healthJson: Record<string, unknown> | null;
       lastError?: string | null;
     }) => void upsertCredentialHealthState(payload),
-    onQueryUpstreamUsage: (id: number) => void queryUpstreamUsage(id),
+    onQueryUpstreamUsage: (id: number) => void queryUpstreamUsageAndReload(id),
     onUpsertStatus: () => void upsertStatus(),
     onRunCredentialOAuthStart: (
       id?: number,
