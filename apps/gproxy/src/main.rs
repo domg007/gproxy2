@@ -57,7 +57,12 @@ async fn main() -> Result<()> {
     let config = boot.state.config.load();
     let host = config.global.host.clone();
     let port = config.global.port;
-    let username = boot.state.users[0].username.clone();
+    let username = boot
+        .state
+        .load_users()
+        .first()
+        .map(|user| user.name.clone())
+        .unwrap_or_else(|| "admin".to_string());
     let password = config.global.admin_key.clone();
     let bind_addr = format!("{host}:{port}");
     let (author, email) = parse_author_and_email(env!("CARGO_PKG_AUTHORS"));
