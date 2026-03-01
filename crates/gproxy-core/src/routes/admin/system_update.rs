@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io::Read};
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use serde::Deserialize;
 
 use crate::AppState;
@@ -410,14 +410,23 @@ start \"\" \"%DST%\"{args_line}\r\n\
 del \"%~f0\" >nul 2>&1\r\n"
     );
 
-    fs::write(&script_path, script)
-        .map_err(|err| format!("write_windows_update_script:{}:{err}", script_path.display()))?;
+    fs::write(&script_path, script).map_err(|err| {
+        format!(
+            "write_windows_update_script:{}:{err}",
+            script_path.display()
+        )
+    })?;
 
     std::process::Command::new("cmd")
         .arg("/C")
         .arg(script_path.as_os_str())
         .spawn()
-        .map_err(|err| format!("spawn_windows_update_script:{}:{err}", script_path.display()))?;
+        .map_err(|err| {
+            format!(
+                "spawn_windows_update_script:{}:{err}",
+                script_path.display()
+            )
+        })?;
 
     Ok(())
 }

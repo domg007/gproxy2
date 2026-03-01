@@ -2,12 +2,12 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::Router;
 use axum::body::{Body, Bytes, to_bytes};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::from_fn;
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::Router;
 use futures_util::Stream;
 use gproxy_middleware::{
     MiddlewareTransformError, OperationFamily, ProtocolKind, TransformRequest,
@@ -41,10 +41,10 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use gproxy_provider::{
-    BuiltinChannel, BuiltinChannelCredential, ChannelCredential, ChannelId, CredentialHealth,
-    CredentialRef, ProviderDefinition, RouteImplementation, RouteKey, TokenizerResolutionContext,
-    UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthResponse,
-    UpstreamRequestMeta, UpstreamResponse, normalize_antigravity_upstream_response_body,
+    BuiltinChannel, ChannelId, CredentialRef, ProviderDefinition, RouteImplementation, RouteKey,
+    TokenizerResolutionContext, UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthResponse,
+    UpstreamRequestMeta, UpstreamResponse, credential_kind_for_storage,
+    normalize_antigravity_upstream_response_body,
     normalize_antigravity_upstream_stream_ndjson_chunk, normalize_geminicli_upstream_response_body,
     normalize_geminicli_upstream_stream_ndjson_chunk, normalize_vertex_upstream_response_body,
     parse_query_value, try_local_vertexexpress_model_response,
@@ -421,28 +421,6 @@ async fn resolve_credential_id(
     ))
 }
 
-fn channel_credential_kind(credential: &ChannelCredential) -> String {
-    match credential {
-        ChannelCredential::Builtin(BuiltinChannelCredential::OpenAi(_)) => "builtin/openai",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Claude(_)) => "builtin/claude",
-        ChannelCredential::Builtin(BuiltinChannelCredential::AiStudio(_)) => "builtin/aistudio",
-        ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(_)) => {
-            "builtin/vertexexpress"
-        }
-        ChannelCredential::Builtin(BuiltinChannelCredential::Vertex(_)) => "builtin/vertex",
-        ChannelCredential::Builtin(BuiltinChannelCredential::GeminiCli(_)) => "builtin/geminicli",
-        ChannelCredential::Builtin(BuiltinChannelCredential::ClaudeCode(_)) => "builtin/claudecode",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Codex(_)) => "builtin/codex",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Antigravity(_)) => {
-            "builtin/antigravity"
-        }
-        ChannelCredential::Builtin(BuiltinChannelCredential::Nvidia(_)) => "builtin/nvidia",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Deepseek(_)) => "builtin/deepseek",
-        ChannelCredential::Custom(_) => "custom/apikey",
-    }
-    .to_string()
-}
-
 async fn persist_provider_and_credential(
     state: &AppState,
     channel: &ChannelId,
@@ -473,7 +451,7 @@ async fn persist_provider_and_credential(
             .label
             .clone()
             .or_else(|| Some(credential.id.to_string())),
-        kind: channel_credential_kind(&credential.credential),
+        kind: credential_kind_for_storage(&credential.credential),
         settings_json: None,
         secret_json: credential_secret_json,
         enabled: true,

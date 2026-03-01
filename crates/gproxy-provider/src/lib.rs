@@ -5,6 +5,7 @@ pub mod credential_state;
 pub mod dispatch;
 pub mod provider;
 pub mod settings;
+pub mod storage_codec;
 pub mod tokenizers;
 
 pub use channel::{BUILTIN_CHANNELS, BuiltinChannel, ChannelId};
@@ -57,6 +58,9 @@ pub use provider::{ProviderDefinition, ProviderRegistry, TokenizerResolutionCont
 pub use settings::{
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,
     provider_settings_to_json_string, provider_settings_to_json_value,
+};
+pub use storage_codec::{
+    credential_health_from_storage, credential_health_to_storage, credential_kind_for_storage,
 };
 pub use tokenizers::{
     LocalTokenCount, LocalTokenizerBackend, LocalTokenizerError, LocalTokenizerStore,

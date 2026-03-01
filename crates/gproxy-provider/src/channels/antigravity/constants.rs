@@ -6,8 +6,7 @@ pub const DEFAULT_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:51121/oauth-callback";
 pub const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
 
-pub const CLIENT_ID: &str =
-    "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com";
+pub const CLIENT_ID: &str = "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com";
 pub const CLIENT_SECRET: &str = "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_SECRET";
 pub const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 

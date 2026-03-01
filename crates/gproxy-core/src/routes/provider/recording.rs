@@ -1,20 +1,20 @@
 use super::{
     AppState, BetaUsage, BuiltinChannel, ChannelId, ClaudeModel, CompactResponseUsage,
-    CompletionUsage, CredentialHealth, CredentialStatusWrite, GeminiUsageMetadata,
-    OpenAiEmbeddingModel,
-    OpenAiEmbeddingUsage, OperationFamily, ProtocolKind, ProviderDefinition,
-    RequestAuthContext, ResponseInput, ResponseUsage, RouteImplementation, RouteKey,
-    StorageWriteEvent, SystemTime, TransformRequest, UNIX_EPOCH, UpstreamError,
-    UpstreamRequestMeta, UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot,
-    UsageWrite, TokenizerResolutionContext, claude_count_tokens_request, claude_count_tokens_response,
-    claude_create_message_response, execute_local_count_token_request,
-    gemini_count_tokens_request, gemini_count_tokens_response, gemini_generate_content_response,
-    normalize_antigravity_upstream_response_body, normalize_antigravity_upstream_stream_ndjson_chunk,
-    normalize_geminicli_upstream_response_body, normalize_geminicli_upstream_stream_ndjson_chunk,
-    normalize_vertex_upstream_response_body, openai_chat_completions_response,
-    openai_compact_response_response, openai_count_tokens_request,
-    openai_count_tokens_response, openai_create_response_response, openai_embeddings_response,
+    CompletionUsage, CredentialStatusWrite, GeminiUsageMetadata, OpenAiEmbeddingModel,
+    OpenAiEmbeddingUsage, OperationFamily, ProtocolKind, ProviderDefinition, RequestAuthContext,
+    ResponseInput, ResponseUsage, RouteImplementation, RouteKey, StorageWriteEvent, SystemTime,
+    TokenizerResolutionContext, TransformRequest, UNIX_EPOCH, UpstreamError, UpstreamRequestMeta,
+    UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot, UsageWrite,
+    claude_count_tokens_request, claude_count_tokens_response, claude_create_message_response,
+    execute_local_count_token_request, gemini_count_tokens_request, gemini_count_tokens_response,
+    gemini_generate_content_response, normalize_antigravity_upstream_response_body,
+    normalize_antigravity_upstream_stream_ndjson_chunk, normalize_geminicli_upstream_response_body,
+    normalize_geminicli_upstream_stream_ndjson_chunk, normalize_vertex_upstream_response_body,
+    openai_chat_completions_response, openai_compact_response_response,
+    openai_count_tokens_request, openai_count_tokens_response, openai_create_response_response,
+    openai_embeddings_response,
 };
+use gproxy_provider::credential_health_to_storage;
 
 pub(super) fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -81,16 +81,6 @@ pub(super) fn upstream_error_status(error: &UpstreamError) -> Option<u16> {
     }
 }
 
-pub(super) fn credential_health_to_storage(health: &CredentialHealth) -> (String, Option<String>) {
-    match health {
-        CredentialHealth::Healthy => ("healthy".to_string(), None),
-        CredentialHealth::Dead => ("dead".to_string(), None),
-        CredentialHealth::Partial { models } => {
-            ("partial".to_string(), serde_json::to_string(models).ok())
-        }
-    }
-}
-
 pub(super) async fn enqueue_credential_status_updates_for_request(
     state: &AppState,
     channel: &ChannelId,
@@ -146,7 +136,10 @@ pub(super) fn extract_local_count_input_tokens(
     }
 }
 
-pub(super) fn extract_count_tokens_from_raw_json(protocol: ProtocolKind, body: &[u8]) -> Option<i64> {
+pub(super) fn extract_count_tokens_from_raw_json(
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> Option<i64> {
     match protocol {
         ProtocolKind::OpenAi | ProtocolKind::OpenAiChatCompletion => {
             if let Ok(value) =
@@ -220,7 +213,9 @@ pub(super) fn usage_metrics_from_openai_response_usage(usage: &ResponseUsage) ->
     }
 }
 
-pub(super) fn usage_metrics_from_openai_compact_usage(usage: &CompactResponseUsage) -> UsageMetrics {
+pub(super) fn usage_metrics_from_openai_compact_usage(
+    usage: &CompactResponseUsage,
+) -> UsageMetrics {
     UsageMetrics {
         input_tokens: Some(u64_to_i64(usage.input_tokens)),
         output_tokens: Some(u64_to_i64(usage.output_tokens)),
@@ -229,7 +224,9 @@ pub(super) fn usage_metrics_from_openai_compact_usage(usage: &CompactResponseUsa
     }
 }
 
-pub(super) fn usage_metrics_from_openai_chat_completion_usage(usage: &CompletionUsage) -> UsageMetrics {
+pub(super) fn usage_metrics_from_openai_chat_completion_usage(
+    usage: &CompletionUsage,
+) -> UsageMetrics {
     UsageMetrics {
         input_tokens: Some(u64_to_i64(usage.prompt_tokens)),
         output_tokens: Some(u64_to_i64(usage.completion_tokens)),
@@ -271,7 +268,9 @@ pub(super) fn usage_metrics_from_gemini_usage(usage: &GeminiUsageMetadata) -> Us
     }
 }
 
-pub(super) fn usage_metrics_from_openai_embeddings_usage(usage: &OpenAiEmbeddingUsage) -> UsageMetrics {
+pub(super) fn usage_metrics_from_openai_embeddings_usage(
+    usage: &OpenAiEmbeddingUsage,
+) -> UsageMetrics {
     let prompt_tokens = u64_to_i64(usage.prompt_tokens);
     let total_tokens = u64_to_i64(usage.total_tokens);
     UsageMetrics {
@@ -782,7 +781,10 @@ pub(super) struct UpstreamAndUsageEventInput<'a> {
     pub(super) local_response: Option<&'a gproxy_middleware::TransformResponse>,
 }
 
-pub(super) async fn enqueue_upstream_and_usage_event(state: &AppState, input: UpstreamAndUsageEventInput<'_>) {
+pub(super) async fn enqueue_upstream_and_usage_event(
+    state: &AppState,
+    input: UpstreamAndUsageEventInput<'_>,
+) {
     let UpstreamAndUsageEventInput {
         auth,
         request,

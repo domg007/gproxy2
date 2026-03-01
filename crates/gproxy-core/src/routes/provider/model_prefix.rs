@@ -31,7 +31,9 @@ pub(super) fn deserialize_json_scalar<T: DeserializeOwned>(
         .map_err(|err| bad_request(format!("invalid {context}: {err}")))
 }
 
-pub(super) fn split_provider_prefixed_plain_model(raw: &str) -> Result<(String, String), HttpError> {
+pub(super) fn split_provider_prefixed_plain_model(
+    raw: &str,
+) -> Result<(String, String), HttpError> {
     split_provider_prefixed_model(raw, false)
 }
 

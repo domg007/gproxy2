@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use axum::routing::{get, post};
 use axum::Router;
+use axum::routing::{get, post};
 use gproxy_provider::{BuiltinChannelCredential, ModelCooldown, ProviderDispatchTable};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::AppState;
 

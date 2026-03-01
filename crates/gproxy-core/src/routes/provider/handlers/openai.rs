@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Json;
 use gproxy_middleware::TransformRequest;
 use gproxy_protocol::claude::model_get::request as claude_model_get_request;
 use gproxy_protocol::claude::model_list::request as claude_model_list_request;
@@ -16,7 +16,9 @@ use gproxy_protocol::openai::create_response::request as openai_create_response_
 use gproxy_protocol::openai::embeddings::request as openai_embeddings_request;
 use gproxy_protocol::openai::model_get::request as openai_model_get_request;
 use gproxy_protocol::openai::model_list::request as openai_model_list_request;
-use gproxy_provider::{BuiltinChannel, ChannelId, CredentialRef, UpstreamOAuthRequest, parse_query_value};
+use gproxy_provider::{
+    BuiltinChannel, ChannelId, CredentialRef, UpstreamOAuthRequest, parse_query_value,
+};
 use serde_json::json;
 
 use crate::AppState;
@@ -278,7 +280,6 @@ pub(in crate::routes::provider) async fn handle_openai_realtime_upgrade(
         "websocket upstream is not implemented; use /v1/responses (HTTP) for now",
     ))
 }
-
 
 pub(in crate::routes::provider) async fn openai_chat_completions(
     State(state): State<Arc<AppState>>,

@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Json;
 use gproxy_provider::{
     BuiltinChannelCredential, ChannelCredential, ChannelCredentialState, ChannelId,
-    CredentialHealth, CredentialRef, ModelCooldown, ProviderDispatchTable,
+    CredentialHealth, CredentialRef, ProviderDispatchTable, credential_health_from_storage,
+    credential_health_to_storage, credential_kind_for_storage,
 };
 use gproxy_storage::Scope;
 
@@ -617,39 +618,15 @@ pub(super) fn build_import_channel_credential(
 pub(super) fn import_health_to_storage(
     health: &ImportCredentialHealth,
 ) -> (CredentialHealth, String, Option<String>) {
-    match health {
-        ImportCredentialHealth::Healthy => (CredentialHealth::Healthy, "healthy".to_string(), None),
-        ImportCredentialHealth::Dead => (CredentialHealth::Dead, "dead".to_string(), None),
-        ImportCredentialHealth::Partial { models } => (
-            CredentialHealth::Partial {
-                models: models.clone(),
-            },
-            "partial".to_string(),
-            serde_json::to_string(models).ok(),
-        ),
-    }
-}
-
-pub(super) fn credential_kind_for_storage(credential: &ChannelCredential) -> String {
-    match credential {
-        ChannelCredential::Builtin(BuiltinChannelCredential::OpenAi(_)) => "builtin/openai",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Claude(_)) => "builtin/claude",
-        ChannelCredential::Builtin(BuiltinChannelCredential::AiStudio(_)) => "builtin/aistudio",
-        ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(_)) => {
-            "builtin/vertexexpress"
-        }
-        ChannelCredential::Builtin(BuiltinChannelCredential::Vertex(_)) => "builtin/vertex",
-        ChannelCredential::Builtin(BuiltinChannelCredential::GeminiCli(_)) => "builtin/geminicli",
-        ChannelCredential::Builtin(BuiltinChannelCredential::ClaudeCode(_)) => "builtin/claudecode",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Codex(_)) => "builtin/codex",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Antigravity(_)) => {
-            "builtin/antigravity"
-        }
-        ChannelCredential::Builtin(BuiltinChannelCredential::Nvidia(_)) => "builtin/nvidia",
-        ChannelCredential::Builtin(BuiltinChannelCredential::Deepseek(_)) => "builtin/deepseek",
-        ChannelCredential::Custom(_) => "custom/apikey",
-    }
-    .to_string()
+    let runtime_health = match health {
+        ImportCredentialHealth::Healthy => CredentialHealth::Healthy,
+        ImportCredentialHealth::Dead => CredentialHealth::Dead,
+        ImportCredentialHealth::Partial { models } => CredentialHealth::Partial {
+            models: models.clone(),
+        },
+    };
+    let (health_kind, health_json) = credential_health_to_storage(&runtime_health);
+    (runtime_health, health_kind, health_json)
 }
 
 pub(super) fn split_export_credential(
@@ -694,26 +671,6 @@ pub(super) fn export_credential_state(
 pub(super) fn parse_credential_health_from_status_row(
     row: &gproxy_storage::CredentialStatusQueryRow,
 ) -> CredentialHealth {
-    match row.health_kind.as_str() {
-        "healthy" => CredentialHealth::Healthy,
-        "dead" => CredentialHealth::Dead,
-        "partial" => {
-            let models = if let Some(value) = row.health_json.clone() {
-                if let Ok(models) = serde_json::from_value::<Vec<ModelCooldown>>(value.clone()) {
-                    models
-                } else {
-                    value
-                        .get("models")
-                        .and_then(|item| {
-                            serde_json::from_value::<Vec<ModelCooldown>>(item.clone()).ok()
-                        })
-                        .unwrap_or_default()
-                }
-            } else {
-                Vec::new()
-            };
-            CredentialHealth::Partial { models }
-        }
-        _ => CredentialHealth::Healthy,
-    }
+    credential_health_from_storage(row.health_kind.as_str(), row.health_json.as_ref())
+        .unwrap_or(CredentialHealth::Healthy)
 }
