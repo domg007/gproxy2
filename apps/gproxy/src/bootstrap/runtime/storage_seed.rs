@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use gproxy_core::GlobalSettings;
 use gproxy_provider::{
-    BUILTIN_CHANNELS, ChannelCredential, ChannelCredentialState, ChannelId, CredentialRef,
-    ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
+    BUILTIN_CHANNELS, BuiltinChannel, ChannelCredential, ChannelCredentialState, ChannelId,
+    CredentialRef, ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
     credential_health_to_storage, credential_kind_for_storage, provider_settings_to_json_string,
 };
 use gproxy_storage::{
@@ -12,6 +12,49 @@ use gproxy_storage::{
 };
 
 use super::resolve_provider_settings;
+
+const BUILTIN_PROVIDER_ID_OPENAI: i64 = 1;
+const BUILTIN_PROVIDER_ID_CLAUDE: i64 = 2;
+const BUILTIN_PROVIDER_ID_AISTUDIO: i64 = 3;
+const BUILTIN_PROVIDER_ID_VERTEXEXPRESS: i64 = 4;
+const BUILTIN_PROVIDER_ID_VERTEX: i64 = 5;
+const BUILTIN_PROVIDER_ID_GEMINICLI: i64 = 6;
+const BUILTIN_PROVIDER_ID_CLAUDECODE: i64 = 7;
+const BUILTIN_PROVIDER_ID_CODEX: i64 = 8;
+const BUILTIN_PROVIDER_ID_ANTIGRAVITY: i64 = 9;
+const BUILTIN_PROVIDER_ID_NVIDIA: i64 = 10;
+const BUILTIN_PROVIDER_ID_DEEPSEEK: i64 = 11;
+const BUILTIN_PROVIDER_ID_GROQ: i64 = 12;
+
+fn default_builtin_provider_id(channel: BuiltinChannel) -> i64 {
+    match channel {
+        BuiltinChannel::OpenAi => BUILTIN_PROVIDER_ID_OPENAI,
+        BuiltinChannel::Claude => BUILTIN_PROVIDER_ID_CLAUDE,
+        BuiltinChannel::AiStudio => BUILTIN_PROVIDER_ID_AISTUDIO,
+        BuiltinChannel::VertexExpress => BUILTIN_PROVIDER_ID_VERTEXEXPRESS,
+        BuiltinChannel::Vertex => BUILTIN_PROVIDER_ID_VERTEX,
+        BuiltinChannel::GeminiCli => BUILTIN_PROVIDER_ID_GEMINICLI,
+        BuiltinChannel::ClaudeCode => BUILTIN_PROVIDER_ID_CLAUDECODE,
+        BuiltinChannel::Codex => BUILTIN_PROVIDER_ID_CODEX,
+        BuiltinChannel::Antigravity => BUILTIN_PROVIDER_ID_ANTIGRAVITY,
+        BuiltinChannel::Nvidia => BUILTIN_PROVIDER_ID_NVIDIA,
+        BuiltinChannel::Deepseek => BUILTIN_PROVIDER_ID_DEEPSEEK,
+        BuiltinChannel::Groq => BUILTIN_PROVIDER_ID_GROQ,
+    }
+}
+
+fn claim_next_available_provider_id(
+    used_ids: &mut std::collections::HashSet<i64>,
+    next_id: &mut i64,
+) -> i64 {
+    while used_ids.contains(next_id) {
+        *next_id += 1;
+    }
+    let id = *next_id;
+    used_ids.insert(id);
+    *next_id += 1;
+    id
+}
 
 pub(super) async fn seed_registry_providers(
     storage: &SeaOrmStorage,
@@ -31,11 +74,12 @@ pub(super) async fn seed_registry_providers(
         .iter()
         .map(|row| (row.channel.clone(), row.id))
         .collect::<std::collections::HashMap<_, _>>();
+    let mut used_ids = existing.iter().map(|row| row.id).collect::<std::collections::HashSet<_>>();
     let mut next_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
 
     // Builtin providers are always persisted for admin visibility.
     // Runtime enable/disable still follows configured registry.
-    let mut provider_by_channel = std::collections::HashMap::new();
+    let mut provider_by_channel = std::collections::BTreeMap::new();
     for builtin in BUILTIN_CHANNELS {
         let channel_id = ChannelId::builtin(builtin);
         provider_by_channel.insert(
@@ -58,8 +102,18 @@ pub(super) async fn seed_registry_providers(
         let id = if let Some(id) = id_by_channel.get(channel.as_str()).copied() {
             id
         } else {
-            let id = next_id;
-            next_id += 1;
+            let id = match ChannelId::parse(channel.as_str()) {
+                ChannelId::Builtin(builtin) => {
+                    let preferred = default_builtin_provider_id(builtin);
+                    if used_ids.contains(&preferred) {
+                        claim_next_available_provider_id(&mut used_ids, &mut next_id)
+                    } else {
+                        used_ids.insert(preferred);
+                        preferred
+                    }
+                }
+                ChannelId::Custom(_) => claim_next_available_provider_id(&mut used_ids, &mut next_id),
+            };
             id_by_channel.insert(channel.clone(), id);
             id
         };
