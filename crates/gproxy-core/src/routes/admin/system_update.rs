@@ -167,6 +167,8 @@ fn build_self_update_client(proxy: Option<String>) -> Result<wreq::Client, Strin
     if let Some(proxy) = proxy.as_deref() {
         let parsed = wreq::Proxy::all(proxy).map_err(|err| format!("invalid_proxy:{err}"))?;
         builder = builder.proxy(parsed);
+    } else {
+        builder = builder.no_proxy();
     }
     builder
         .build()
