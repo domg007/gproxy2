@@ -7,14 +7,15 @@ use super::{
     UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot, UsageWrite,
     claude_count_tokens_request, claude_count_tokens_response, claude_create_message_response,
     execute_local_count_token_request, gemini_count_tokens_request, gemini_count_tokens_response,
-    gemini_generate_content_response, normalize_antigravity_upstream_response_body,
-    normalize_antigravity_upstream_stream_ndjson_chunk, normalize_geminicli_upstream_response_body,
-    normalize_geminicli_upstream_stream_ndjson_chunk, normalize_vertex_upstream_response_body,
-    openai_chat_completions_response, openai_compact_response_response,
-    openai_count_tokens_request, openai_count_tokens_response, openai_create_response_response,
-    openai_embeddings_response,
+    gemini_generate_content_response, openai_chat_completions_response,
+    openai_compact_response_response, openai_count_tokens_request, openai_count_tokens_response,
+    openai_create_response_response, openai_embeddings_response,
 };
-use gproxy_provider::credential_health_to_storage;
+use gproxy_provider::{
+    credential_health_to_storage,
+    normalize_upstream_response_body_for_channel as provider_normalize_upstream_response_body_for_channel,
+    normalize_upstream_stream_ndjson_chunk_for_channel as provider_normalize_upstream_stream_ndjson_chunk_for_channel,
+};
 
 pub(super) fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -356,31 +357,14 @@ pub(super) fn normalize_upstream_response_body_for_channel(
     channel: &ChannelId,
     body: &[u8],
 ) -> Option<Vec<u8>> {
-    match channel {
-        ChannelId::Builtin(BuiltinChannel::GeminiCli) => {
-            normalize_geminicli_upstream_response_body(body)
-        }
-        ChannelId::Builtin(BuiltinChannel::Antigravity) => {
-            normalize_antigravity_upstream_response_body(body)
-        }
-        ChannelId::Builtin(BuiltinChannel::Vertex) => normalize_vertex_upstream_response_body(body),
-        _ => None,
-    }
+    provider_normalize_upstream_response_body_for_channel(channel, body)
 }
 
 pub(super) fn normalize_upstream_stream_ndjson_chunk_for_channel(
     channel: &ChannelId,
     chunk: &[u8],
 ) -> Option<Vec<u8>> {
-    match channel {
-        ChannelId::Builtin(BuiltinChannel::GeminiCli) => {
-            normalize_geminicli_upstream_stream_ndjson_chunk(chunk)
-        }
-        ChannelId::Builtin(BuiltinChannel::Antigravity) => {
-            normalize_antigravity_upstream_stream_ndjson_chunk(chunk)
-        }
-        _ => None,
-    }
+    provider_normalize_upstream_stream_ndjson_chunk_for_channel(channel, chunk)
 }
 
 pub(super) fn is_wrapped_stream_channel(channel: &ChannelId) -> bool {

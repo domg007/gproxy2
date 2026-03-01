@@ -62,39 +62,15 @@ pub(super) async fn maybe_detect_and_fill_project_id(
             .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?
     };
 
-    match (channel, credential) {
-        (
-            ChannelId::Builtin(gproxy_provider::BuiltinChannel::GeminiCli),
-            gproxy_provider::ChannelCredential::Builtin(
-                gproxy_provider::BuiltinChannelCredential::GeminiCli(value),
-            ),
-        ) if value.project_id.trim().is_empty() => {
-            let http = state.load_http();
-            gproxy_provider::channels::geminicli::ensure_geminicli_project_id(
-                http.as_ref(),
-                &settings,
-                value,
-            )
-            .await
-            .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
-        }
-        (
-            ChannelId::Builtin(gproxy_provider::BuiltinChannel::Antigravity),
-            gproxy_provider::ChannelCredential::Builtin(
-                gproxy_provider::BuiltinChannelCredential::Antigravity(value),
-            ),
-        ) if value.project_id.trim().is_empty() => {
-            let http = state.load_http();
-            gproxy_provider::channels::antigravity::ensure_antigravity_project_id(
-                http.as_ref(),
-                &settings,
-                value,
-            )
-            .await
-            .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
-        }
-        _ => {}
-    }
+    let http = state.load_http();
+    gproxy_provider::ensure_project_id_for_credential(
+        http.as_ref(),
+        channel,
+        &settings,
+        credential,
+    )
+    .await
+    .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
 
     Ok(())
 }

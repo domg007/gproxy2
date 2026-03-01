@@ -11,8 +11,8 @@ use super::{
     normalize_upstream_response_body_for_channel,
     normalize_upstream_stream_ndjson_chunk_for_channel, now_unix_ms, openai_count_tokens_request,
     openai_count_tokens_response, resolve_provider_id, response_headers_to_pairs,
-    try_local_vertexexpress_model_response, upstream_error_credential_id,
-    upstream_error_request_meta, upstream_error_status,
+    try_local_response_for_channel, upstream_error_credential_id, upstream_error_request_meta,
+    upstream_error_status,
 };
 use futures_util::StreamExt;
 
@@ -484,9 +484,7 @@ pub(super) async fn execute_local_request(
     channel: &ChannelId,
     request: &TransformRequest,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    if let ChannelId::Builtin(BuiltinChannel::VertexExpress) = channel
-        && let Some(local) = try_local_vertexexpress_model_response(request)?
-    {
+    if let Some(local) = try_local_response_for_channel(channel, request)? {
         return Ok(UpstreamResponse::from_local(local));
     }
 
