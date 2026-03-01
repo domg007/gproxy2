@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.3.5
+
+### Changed
+
+- Updated workspace/package release version to `0.3.5`.
+- Added stable default IDs for builtin channels during bootstrap seeding.
+- Updated login UX defaults: username prefilled as `admin`, password hinted from startup logs.
+
+### Fixed
+
+- Fixed OAuth start/callback provider resolution when provider config exists in storage but is not yet loaded in memory:
+  - fallback lookup now loads enabled provider config from storage
+  - resolved provider config is cached back into in-memory state for subsequent OAuth requests.
+
 ## v0.3.4
 
 ### Fixed
