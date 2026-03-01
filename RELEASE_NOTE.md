@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.3.4
+
+### Fixed
+
+- Fixed default SQLite DSN path for container deployments by switching from `sqlite://app/data/gproxy.db?mode=rwc` to `sqlite:///app/data/gproxy.db?mode=rwc`.
+- Fixed Zeabur startup failure (`code: 14 unable to open database file`) caused by the incorrect default DSN path.
+- Updated deployment docs and examples (`README`, `README.zh`, docs deployment guides, `zeabur.yaml`) to use the corrected DSN format.
+- Update Cargo.toml to use workspace settings for version and edition
+
 ## v0.3.3
 
 ### Added
