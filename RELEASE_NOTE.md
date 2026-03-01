@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.3.6
+
+### Added
+
+- Added a User-Agent template selector in admin provider config:
+  - channel presets for `gproxy`, `codex`, `claudecode`, `geminicli`, `antigravity`
+  - classic IDE presets (`VS Code`, `IntelliJ IDEA`, `PyCharm`)
+  - classic bot presets (`Googlebot`, `Bingbot`).
+
+### Fixed
+
+- Fixed frontend default gproxy User-Agent draft from placeholder `os,arch` to build-time resolved values.
+
 ## v0.3.5
 
 ### Changed
