@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.3.1
+
+### Changed
+
+- Updated the login view to accept username and password instead of API key.
+- Modified the API request to handle username and password for user authentication.
+- Added password field to user-related data structures and storage.
+- Implemented user key generation upon successful login if no existing key is found.
+- Updated the Chinese localization files to reflect changes in the login process.
+- Refactored user management to accommodate password handling in user creation and updates.
+
+
 ## v0.3.0
 
 ### Added
