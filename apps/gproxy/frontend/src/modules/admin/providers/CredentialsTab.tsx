@@ -13,7 +13,7 @@ import type {
   CredentialStatusQueryRow,
   ProviderQueryRow
 } from "../../../lib/types";
-import { Input, Label, Select } from "../../../components/ui";
+import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import { CredentialBulkSection } from "./credentials-tab/CredentialBulkSection";
 import { CredentialCardsSection } from "./credentials-tab/CredentialCardsSection";
 import { CredentialSingleSection } from "./credentials-tab/CredentialSingleSection";
@@ -237,6 +237,8 @@ export function CredentialsTab({
   const [bulkInputText, setBulkInputText] = useState("");
   const [bulkExportText, setBulkExportText] = useState("");
   const [bulkError, setBulkError] = useState("");
+  const [singleQuickAddText, setSingleQuickAddText] = useState("");
+  const [singleQuickAddError, setSingleQuickAddError] = useState("");
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const oauthReadableResult = useMemo(
     () => parseOAuthReadableResult(oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? ""),
@@ -253,9 +255,57 @@ export function CredentialsTab({
     setBulkInputText("");
     setBulkExportText("");
     setBulkError("");
+    setSingleQuickAddText("");
+    setSingleQuickAddError("");
     setExpandedCooldownCredentialId(null);
     setSelectedCooldownKeysByCredential({});
   }, [channel, credentialSchema, supportsOAuth]);
+
+  const singleQuickAddPlaceholder = useMemo(() => {
+    if (channel === "claudecode") {
+      return t("providers.singleQuick.placeholder.claudecode");
+    }
+    return t("providers.singleQuick.placeholder.default");
+  }, [channel, t]);
+
+  const runSingleQuickAdd = () => {
+    const rawText = singleQuickAddText.trim();
+    if (!rawText) {
+      setSingleQuickAddError(t("providers.bulk.emptyImport"));
+      return;
+    }
+
+    try {
+      const looksLikeJson = rawText.startsWith("{") || rawText.startsWith("[");
+      const mode: CredentialBulkMode = looksLikeJson
+        ? "json"
+        : channel === "claudecode"
+          ? "claudecode_cookie"
+          : credentialSchema.fields.some((field) => field.key === "api_key")
+            ? "keys"
+            : (() => {
+                throw new Error(t("providers.singleQuick.keyUnsupported"));
+              })();
+
+      const entries = parseBulkCredentialText({
+        channel,
+        schema: credentialSchema,
+        mode,
+        rawText
+      });
+      if (entries.length === 0) {
+        throw new Error(t("providers.bulk.emptyImport"));
+      }
+      if (entries.length > 1) {
+        throw new Error(t("providers.singleQuick.singleOnly"));
+      }
+      setSingleQuickAddError("");
+      onUpsertCredentialsBatch(entries);
+      setSingleQuickAddText("");
+    } catch (error) {
+      setSingleQuickAddError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const normalizeHealthKind = (value: string | undefined): CredentialHealthKind => {
     switch (value?.trim().toLowerCase()) {
@@ -598,26 +648,60 @@ export function CredentialsTab({
       <CredentialsSubTabs subTab={subTab} setSubTab={setSubTab} t={t} />
 
       {subTab === "single" ? (
-        <CredentialSingleSection
-          credentialForm={credentialForm}
-          setCredentialForm={setCredentialForm}
-          credentialSchema={credentialSchema}
-          renderCredentialField={renderCredentialField}
-          onUpsertCredential={onUpsertCredential}
-          supportsOAuth={supportsOAuth}
-          oauthUi={oauthUi}
-          oauthStartButtons={oauthStartButtons}
-          oauthCallbackButtons={oauthCallbackButtons}
-          oauthCallbackUsesCustomFields={oauthCallbackUsesCustomFields}
-          oauthStartQuery={oauthStartQuery}
-          oauthCallbackQuery={oauthCallbackQuery}
-          oauthRawResult={oauthRawResult}
-          oauthOpenUrl={oauthOpenUrl}
-          renderOAuthField={renderOAuthField}
-          onRunCredentialOAuthStart={onRunCredentialOAuthStart}
-          onRunCredentialOAuthCallback={onRunCredentialOAuthCallback}
-          t={t}
-        />
+        <div className="space-y-3">
+          <CredentialSingleSection
+            credentialForm={credentialForm}
+            setCredentialForm={setCredentialForm}
+            credentialSchema={credentialSchema}
+            renderCredentialField={renderCredentialField}
+            onUpsertCredential={onUpsertCredential}
+            supportsOAuth={supportsOAuth}
+            oauthUi={oauthUi}
+            oauthStartButtons={oauthStartButtons}
+            oauthCallbackButtons={oauthCallbackButtons}
+            oauthCallbackUsesCustomFields={oauthCallbackUsesCustomFields}
+            oauthStartQuery={oauthStartQuery}
+            oauthCallbackQuery={oauthCallbackQuery}
+            oauthRawResult={oauthRawResult}
+            oauthOpenUrl={oauthOpenUrl}
+            extraSectionBeforeOAuth={
+              <div className="space-y-3 rounded-xl border border-border p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                  {t("providers.singleQuick.title")}
+                </div>
+                <div className="text-sm text-muted">{t("providers.singleQuick.hint")}</div>
+                <TextArea
+                  rows={4}
+                  value={singleQuickAddText}
+                  onChange={(value) => {
+                    setSingleQuickAddText(value);
+                    setSingleQuickAddError("");
+                  }}
+                  placeholder={singleQuickAddPlaceholder}
+                />
+                {singleQuickAddError ? (
+                  <div className="text-sm text-red-500">{singleQuickAddError}</div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={runSingleQuickAdd}>{t("providers.singleQuick.add")}</Button>
+                  <Button
+                    variant="neutral"
+                    onClick={() => {
+                      setSingleQuickAddText("");
+                      setSingleQuickAddError("");
+                    }}
+                  >
+                    {t("providers.bulk.clearInput")}
+                  </Button>
+                </div>
+              </div>
+            }
+            renderOAuthField={renderOAuthField}
+            onRunCredentialOAuthStart={onRunCredentialOAuthStart}
+            onRunCredentialOAuthCallback={onRunCredentialOAuthCallback}
+            t={t}
+          />
+        </div>
       ) : (
         <CredentialBulkSection
           bulkModes={bulkModes}

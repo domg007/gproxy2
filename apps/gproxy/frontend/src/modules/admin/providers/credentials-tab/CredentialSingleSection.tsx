@@ -28,6 +28,7 @@ export function CredentialSingleSection({
   oauthCallbackQuery,
   oauthRawResult,
   oauthOpenUrl,
+  extraSectionBeforeOAuth,
   renderOAuthField,
   onRunCredentialOAuthStart,
   onRunCredentialOAuthCallback,
@@ -47,6 +48,7 @@ export function CredentialSingleSection({
   oauthCallbackQuery: string;
   oauthRawResult: string;
   oauthOpenUrl?: string;
+  extraSectionBeforeOAuth?: ReactNode;
   renderOAuthField: (
     kind: "start" | "callback",
     field: string,
@@ -84,6 +86,8 @@ export function CredentialSingleSection({
       <div>
         <Button onClick={onUpsertCredential}>{t("common.save")}</Button>
       </div>
+
+      {extraSectionBeforeOAuth ?? null}
 
       {supportsOAuth ? (
         <div className="provider-card space-y-2">
