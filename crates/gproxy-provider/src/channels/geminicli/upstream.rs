@@ -781,8 +781,9 @@ impl GeminiCliPreparedRequest {
             }
             TransformRequest::GenerateContentGemini(value) => {
                 let model = normalize_model_id(value.path.model.as_str());
-                let request_body = serde_json::to_value(&value.body)
+                let mut request_body = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                strip_geminicli_unsupported_generation_config(&mut request_body);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path: "/v1internal:generateContent".to_string(),
@@ -796,8 +797,9 @@ impl GeminiCliPreparedRequest {
             }
             TransformRequest::StreamGenerateContentGeminiSse(value) => {
                 let model = normalize_model_id(value.path.model.as_str());
-                let request_body = serde_json::to_value(&value.body)
+                let mut request_body = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                strip_geminicli_unsupported_generation_config(&mut request_body);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path: "/v1internal:streamGenerateContent".to_string(),
@@ -811,8 +813,9 @@ impl GeminiCliPreparedRequest {
             }
             TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
                 let model = normalize_model_id(value.path.model.as_str());
-                let request_body = serde_json::to_value(&value.body)
+                let mut request_body = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                strip_geminicli_unsupported_generation_config(&mut request_body);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path: "/v1internal:streamGenerateContent".to_string(),
@@ -892,6 +895,18 @@ fn wrap_internal_request(model: &str, project_id: &str, request: &Value) -> Valu
         "user_prompt_id": generate_user_prompt_id(),
         "request": request,
     })
+}
+
+fn strip_geminicli_unsupported_generation_config(body: &mut Value) {
+    let Some(generation_config) = body
+        .get_mut("generationConfig")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+
+    generation_config.remove("logprobs");
+    generation_config.remove("responseLogprobs");
 }
 
 fn generate_user_prompt_id() -> String {
@@ -1049,4 +1064,33 @@ fn normalize_wrapped_response_ndjson_chunk(chunk: &[u8]) -> Option<Vec<u8>> {
     }
 
     changed.then(|| out.into_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::strip_geminicli_unsupported_generation_config;
+
+    #[test]
+    fn strip_geminicli_unsupported_generation_config_removes_logprobs() {
+        let mut body = json!({
+            "contents": [{"role":"user","parts":[{"text":"hello"}]}],
+            "generationConfig": {
+                "temperature": 1,
+                "logprobs": 5,
+                "responseLogprobs": true
+            }
+        });
+
+        strip_geminicli_unsupported_generation_config(&mut body);
+
+        assert_eq!(
+            body.pointer("/generationConfig/temperature")
+                .and_then(|value| value.as_i64()),
+            Some(1)
+        );
+        assert!(body.pointer("/generationConfig/logprobs").is_none());
+        assert!(body.pointer("/generationConfig/responseLogprobs").is_none());
+    }
 }
