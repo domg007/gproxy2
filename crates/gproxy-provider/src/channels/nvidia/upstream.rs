@@ -5,8 +5,8 @@ use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_creden
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, default_gproxy_user_agent, is_auth_failure,
-    is_transient_server_failure, join_base_url_and_path, retry_after_to_millis,
-    resolve_user_agent_or_else, serialize_json_scalar, to_wreq_method,
+    is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
+    retry_after_to_millis, serialize_json_scalar, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;

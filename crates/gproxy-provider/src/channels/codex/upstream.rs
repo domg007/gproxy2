@@ -1266,13 +1266,23 @@ mod tests {
 
         normalize_codex_response_request_body(&mut body, true);
 
-        assert_eq!(body.get("model").and_then(|value| value.as_str()), Some("gpt-5.2"));
-        assert_eq!(body.get("stream").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            body.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.2")
+        );
+        assert_eq!(
+            body.get("stream").and_then(|value| value.as_bool()),
+            Some(true)
+        );
         assert_eq!(
             body.get("instructions").and_then(|value| value.as_str()),
             Some("be concise\n\nkeep markdown")
         );
-        assert_eq!(body.pointer("/input/0/role").and_then(|value| value.as_str()), Some("user"));
+        assert_eq!(
+            body.pointer("/input/0/role")
+                .and_then(|value| value.as_str()),
+            Some("user")
+        );
         assert!(body.pointer("/input/1").is_none());
         assert!(body.get("temperature").is_none());
     }
@@ -1302,8 +1312,15 @@ mod tests {
             body.get("instructions").and_then(|value| value.as_str()),
             Some("existing\n\nextra")
         );
-        assert_eq!(body.get("stream").and_then(|value| value.as_bool()), Some(false));
-        assert_eq!(body.pointer("/input/0/role").and_then(|value| value.as_str()), Some("user"));
+        assert_eq!(
+            body.get("stream").and_then(|value| value.as_bool()),
+            Some(false)
+        );
+        assert_eq!(
+            body.pointer("/input/0/role")
+                .and_then(|value| value.as_str()),
+            Some("user")
+        );
         assert!(body.pointer("/input/1").is_none());
     }
 }

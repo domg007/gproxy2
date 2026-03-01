@@ -82,9 +82,7 @@ impl ChannelSettings {
             }
             Self::Builtin(BuiltinChannelSettings::Vertex(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::GeminiCli(value)) => value.user_agent.as_deref(),
-            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
-                value.user_agent.as_deref()
-            }
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::Codex(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::Antigravity(value)) => {
                 value.user_agent.as_deref()

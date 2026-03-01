@@ -1,28 +1,8 @@
 use crate::channel::{BuiltinChannel, ChannelId};
-use crate::channels::antigravity::AntigravitySettings;
-use crate::channels::claudecode::settings::ClaudeCodeSettings;
-use crate::channels::codex::CodexSettings;
-use crate::channels::geminicli::GeminiCliSettings;
-use crate::channels::vertex::VertexSettings;
 use crate::channels::{
     BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
     openai, vertexexpress,
 };
-
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-#[serde(default)]
-struct LegacyProviderSettings {
-    base_url: String,
-    user_agent: Option<String>,
-    oauth_issuer_url: Option<String>,
-    oauth_authorize_url: Option<String>,
-    oauth_token_url: Option<String>,
-    oauth_userinfo_url: Option<String>,
-    claudecode_ai_base_url: Option<String>,
-    claudecode_platform_base_url: Option<String>,
-    claudecode_prelude_text: Option<String>,
-    mask_table: Option<serde_json::Value>,
-}
 
 pub fn parse_provider_settings_json_for_channel(
     channel: &ChannelId,
@@ -36,141 +16,72 @@ pub fn parse_provider_settings_value_for_channel(
     channel: &ChannelId,
     value: &serde_json::Value,
 ) -> Result<ChannelSettings, serde_json::Error> {
-    let legacy = serde_json::from_value::<LegacyProviderSettings>(value.clone())?;
-    let user_agent = legacy.user_agent.map(|value| value.trim().to_string());
     Ok(match channel {
         ChannelId::Builtin(BuiltinChannel::OpenAi) => {
-            let mut settings = openai::OpenAiSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::OpenAi(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::OpenAi(
+                openai::OpenAiSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Claude) => {
-            let mut settings = claude::ClaudeSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::Claude(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Claude(
+                claude::ClaudeSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::AiStudio) => {
-            let mut settings = aistudio::AiStudioSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::AiStudio(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::AiStudio(
+                aistudio::AiStudioSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::VertexExpress) => {
-            let mut settings = vertexexpress::VertexExpressSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::VertexExpress(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::VertexExpress(
+                vertexexpress::VertexExpressSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Vertex) => {
-            let mut settings = VertexSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            if let Some(oauth_token_url) = clean_opt(legacy.oauth_token_url.as_deref()) {
-                settings.oauth_token_url = oauth_token_url.to_string();
-            }
-            ChannelSettings::Builtin(BuiltinChannelSettings::Vertex(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Vertex(
+                crate::channels::vertex::VertexSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::GeminiCli) => {
-            let mut settings = GeminiCliSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            settings.oauth_authorize_url =
-                clean_opt(legacy.oauth_authorize_url.as_deref()).map(ToOwned::to_owned);
-            settings.oauth_token_url =
-                clean_opt(legacy.oauth_token_url.as_deref()).map(ToOwned::to_owned);
-            settings.oauth_userinfo_url =
-                clean_opt(legacy.oauth_userinfo_url.as_deref()).map(ToOwned::to_owned);
-            ChannelSettings::Builtin(BuiltinChannelSettings::GeminiCli(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::GeminiCli(
+                crate::channels::geminicli::GeminiCliSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::ClaudeCode) => {
-            let mut settings = ClaudeCodeSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            if let Some(value) = clean_opt(legacy.claudecode_ai_base_url.as_deref()) {
-                settings.claude_ai_base_url = value.to_string();
-            }
-            if let Some(value) = clean_opt(legacy.claudecode_platform_base_url.as_deref()) {
-                settings.platform_base_url = value.to_string();
-            }
-            settings.prelude_text =
-                clean_opt(legacy.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
-            ChannelSettings::Builtin(BuiltinChannelSettings::ClaudeCode(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::ClaudeCode(
+                crate::channels::claudecode::ClaudeCodeSettings::from_provider_settings_value(
+                    value,
+                )?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Codex) => {
-            let mut settings = CodexSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            settings.oauth_issuer_url =
-                clean_opt(legacy.oauth_issuer_url.as_deref()).map(ToOwned::to_owned);
-            ChannelSettings::Builtin(BuiltinChannelSettings::Codex(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Codex(
+                crate::channels::codex::CodexSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Antigravity) => {
-            let mut settings = AntigravitySettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            settings.oauth_authorize_url =
-                clean_opt(legacy.oauth_authorize_url.as_deref()).map(ToOwned::to_owned);
-            settings.oauth_token_url =
-                clean_opt(legacy.oauth_token_url.as_deref()).map(ToOwned::to_owned);
-            settings.oauth_userinfo_url =
-                clean_opt(legacy.oauth_userinfo_url.as_deref()).map(ToOwned::to_owned);
-            ChannelSettings::Builtin(BuiltinChannelSettings::Antigravity(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Antigravity(
+                crate::channels::antigravity::AntigravitySettings::from_provider_settings_value(
+                    value,
+                )?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Nvidia) => {
-            let mut settings = nvidia::NvidiaSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::Nvidia(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Nvidia(
+                nvidia::NvidiaSettings::from_provider_settings_value(value)?,
+            ))
         }
         ChannelId::Builtin(BuiltinChannel::Deepseek) => {
-            let mut settings = deepseek::DeepseekSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::Deepseek(settings))
+            ChannelSettings::Builtin(BuiltinChannelSettings::Deepseek(
+                deepseek::DeepseekSettings::from_provider_settings_value(value)?,
+            ))
         }
-        ChannelId::Builtin(BuiltinChannel::Groq) => {
-            let mut settings = groq::GroqSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            ChannelSettings::Builtin(BuiltinChannelSettings::Groq(settings))
-        }
-        ChannelId::Custom(_) => {
-            let mut settings = custom::CustomChannelSettings::default();
-            if !legacy.base_url.trim().is_empty() {
-                settings.base_url = legacy.base_url;
-            }
-            settings.user_agent = user_agent.clone();
-            if let Some(mask_table) = legacy.mask_table.as_ref() {
-                settings.mask_table = parse_custom_mask_table(mask_table)?;
-            }
-            ChannelSettings::Custom(settings)
-        }
+        ChannelId::Builtin(BuiltinChannel::Groq) => ChannelSettings::Builtin(
+            BuiltinChannelSettings::Groq(groq::GroqSettings::from_provider_settings_value(value)?),
+        ),
+        ChannelId::Custom(_) => ChannelSettings::Custom(
+            custom::CustomChannelSettings::from_provider_settings_value(value)?,
+        ),
     })
 }
 
@@ -295,21 +206,4 @@ fn maybe_insert_opt_string(
 
 fn clean_opt(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn parse_custom_mask_table(
-    value: &serde_json::Value,
-) -> Result<custom::settings::CustomMaskTable, serde_json::Error> {
-    match value {
-        serde_json::Value::Null => Ok(custom::settings::CustomMaskTable::default()),
-        serde_json::Value::String(raw) => {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                return Ok(custom::settings::CustomMaskTable::default());
-            }
-            let parsed = serde_json::from_str::<serde_json::Value>(trimmed)?;
-            serde_json::from_value(parsed)
-        }
-        _ => serde_json::from_value(value.clone()),
-    }
 }

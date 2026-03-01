@@ -20,3 +20,31 @@ impl Default for CodexSettings {
         }
     }
 }
+
+impl CodexSettings {
+    pub fn from_provider_settings_value(
+        value: &serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        #[derive(Debug, Clone, Default, Deserialize)]
+        #[serde(default)]
+        struct ProviderSettingsPatch {
+            base_url: String,
+            user_agent: Option<String>,
+            oauth_issuer_url: Option<String>,
+        }
+
+        let patch = serde_json::from_value::<ProviderSettingsPatch>(value.clone())?;
+        let mut settings = Self::default();
+        if !patch.base_url.trim().is_empty() {
+            settings.base_url = patch.base_url;
+        }
+        settings.user_agent = patch.user_agent.map(|value| value.trim().to_string());
+        settings.oauth_issuer_url =
+            clean_opt(patch.oauth_issuer_url.as_deref()).map(ToOwned::to_owned);
+        Ok(settings)
+    }
+}
+
+fn clean_opt(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}

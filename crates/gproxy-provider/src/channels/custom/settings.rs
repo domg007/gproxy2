@@ -24,3 +24,45 @@ pub struct CustomMaskRule {
     #[serde(default)]
     pub remove_fields: Vec<String>,
 }
+
+impl CustomChannelSettings {
+    pub fn from_provider_settings_value(
+        value: &serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        #[derive(Debug, Clone, Default, Deserialize)]
+        #[serde(default)]
+        struct ProviderSettingsPatch {
+            base_url: String,
+            user_agent: Option<String>,
+            mask_table: Option<serde_json::Value>,
+        }
+
+        let patch = serde_json::from_value::<ProviderSettingsPatch>(value.clone())?;
+        let mut settings = Self::default();
+        if !patch.base_url.trim().is_empty() {
+            settings.base_url = patch.base_url;
+        }
+        settings.user_agent = patch.user_agent.map(|value| value.trim().to_string());
+        if let Some(mask_table) = patch.mask_table.as_ref() {
+            settings.mask_table = parse_custom_mask_table(mask_table)?;
+        }
+        Ok(settings)
+    }
+}
+
+fn parse_custom_mask_table(
+    value: &serde_json::Value,
+) -> Result<CustomMaskTable, serde_json::Error> {
+    match value {
+        serde_json::Value::Null => Ok(CustomMaskTable::default()),
+        serde_json::Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Ok(CustomMaskTable::default());
+            }
+            let parsed = serde_json::from_str::<serde_json::Value>(trimmed)?;
+            serde_json::from_value(parsed)
+        }
+        _ => serde_json::from_value(value.clone()),
+    }
+}
