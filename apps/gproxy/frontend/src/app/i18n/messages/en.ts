@@ -52,8 +52,6 @@ export const enMessages = {
     "global.export": "Export gproxy.toml",
     "global.exporting": "Exporting...",
     "global.exported": "gproxy.toml exported",
-    "global.selfUpdateHint":
-      "Install the latest release binary in place; process will restart automatically on success.",
     "global.selfUpdateConfirm": "Replace current binary with latest release now?",
     "global.selfUpdateButton": "Update binary",
     "global.selfUpdateRunning": "Updating...",
@@ -323,7 +321,6 @@ export const enMessages = {
     "users.selectedUserMeta": "user #{id} · {name}",
     "users.keyTitle": "key #{id}",
     "about.title": "About",
-    "about.subtitle": "Project capabilities and build metadata",
     "about.features_title": "Capabilities",
     "about.feature_1":
       "Unified channel configuration, dispatch rules, and credential lifecycle management.",

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use gproxy_core::management_router;
@@ -76,7 +75,7 @@ async fn main() -> Result<()> {
     let _storage = boot.storage.connection();
 
     let app = Router::new()
-        .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+        .route("/favicon.ico", get(admin_ui::favicon))
         .route("/", get(admin_ui::index))
         .route("/assets/{*path}", get(admin_ui::asset))
         .merge(management_router(boot.state.clone()))

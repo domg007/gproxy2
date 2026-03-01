@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
@@ -21,10 +21,12 @@ export function RequestsModule({
   const [rows, setRows] = useState<Array<UpstreamRequestQueryRow | DownstreamRequestQueryRow>>([]);
   const {
     isLoading: isFilterOptionsLoading,
+    providerRows,
+    credentialRows,
+    userRows,
+    userKeyRows,
     providerOptions,
-    credentialOptions,
-    userOptions,
-    userKeyOptions
+    userOptions
   } = useAdminFilterOptions({
     apiKey,
     notify,
@@ -39,6 +41,86 @@ export function RequestsModule({
     toAt: "",
     limit: "100"
   });
+
+  const selectedProviderId = useMemo(() => {
+    const value = Number(filters.providerId);
+    return Number.isInteger(value) ? value : null;
+  }, [filters.providerId]);
+
+  const selectedUserId = useMemo(() => {
+    const value = Number(filters.userId);
+    return Number.isInteger(value) ? value : null;
+  }, [filters.userId]);
+
+  const providerById = useMemo(
+    () => new Map(providerRows.map((row) => [row.id, row])),
+    [providerRows]
+  );
+
+  const userById = useMemo(() => new Map(userRows.map((row) => [row.id, row])), [userRows]);
+
+  const filteredCredentialOptions = useMemo(() => {
+    const scopedRows =
+      selectedProviderId === null
+        ? credentialRows
+        : credentialRows.filter((row) => row.provider_id === selectedProviderId);
+    return [
+      { value: "", label: t("common.all") },
+      ...scopedRows.map((row) => {
+        const provider = providerById.get(row.provider_id);
+        const providerMeta = provider
+          ? `${provider.channel} (#${provider.id})`
+          : `provider #${row.provider_id}`;
+        return {
+          value: String(row.id),
+          label: `#${row.id} · ${row.name?.trim() || t("providers.credentialUnnamed")} · ${providerMeta}`
+        };
+      })
+    ];
+  }, [credentialRows, providerById, selectedProviderId, t]);
+
+  const filteredUserKeyOptions = useMemo(() => {
+    const scopedRows =
+      selectedUserId === null
+        ? userKeyRows
+        : userKeyRows.filter((row) => row.user_id === selectedUserId);
+    return [
+      { value: "", label: t("common.all") },
+      ...scopedRows.map((row) => {
+        const user = userById.get(row.user_id);
+        const userMeta = user ? `${user.name} (#${row.user_id})` : `user #${row.user_id}`;
+        const key = row.api_key.trim();
+        const preview =
+          key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
+        return {
+          value: String(row.id),
+          label: `#${row.id} · ${userMeta} · ${preview}`
+        };
+      })
+    ];
+  }, [selectedUserId, t, userById, userKeyRows]);
+
+  useEffect(() => {
+    if (!filters.credentialId) {
+      return;
+    }
+    const credentialId = Number(filters.credentialId);
+    const exists = filteredCredentialOptions.some((item) => Number(item.value) === credentialId);
+    if (!exists) {
+      setFilters((prev) => ({ ...prev, credentialId: "" }));
+    }
+  }, [filteredCredentialOptions, filters.credentialId]);
+
+  useEffect(() => {
+    if (!filters.userKeyId) {
+      return;
+    }
+    const userKeyId = Number(filters.userKeyId);
+    const exists = filteredUserKeyOptions.some((item) => Number(item.value) === userKeyId);
+    if (!exists) {
+      setFilters((prev) => ({ ...prev, userKeyId: "" }));
+    }
+  }, [filteredUserKeyOptions, filters.userKeyId]);
 
   const query = async () => {
     try {
@@ -118,7 +200,7 @@ export function RequestsModule({
           <Select
             value={filters.credentialId}
             onChange={(v) => setFilters((p) => ({ ...p, credentialId: v }))}
-            options={credentialOptions}
+            options={filteredCredentialOptions}
             disabled={kind !== "upstream" || isFilterOptionsLoading}
           />
         </div>
@@ -138,7 +220,7 @@ export function RequestsModule({
           <SearchableSelect
             value={filters.userKeyId}
             onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
-            options={userKeyOptions}
+            options={filteredUserKeyOptions}
             placeholder={t("common.all")}
             noResultLabel={t("common.none")}
             disabled={kind !== "downstream" || isFilterOptionsLoading}

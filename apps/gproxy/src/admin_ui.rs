@@ -11,6 +11,10 @@ pub async fn index() -> Response {
     render("index.html")
 }
 
+pub async fn favicon() -> Response {
+    render("favicon.ico")
+}
+
 pub async fn asset(Path(path): Path<String>) -> Response {
     render(format!("assets/{path}").as_str())
 }

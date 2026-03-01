@@ -275,7 +275,6 @@ export function GlobalSettingsModule({
       <div className="mt-4">
         <Button onClick={() => void save()}>{t("common.save")}</Button>
       </div>
-      <div className="mt-3 text-xs text-muted">{t("global.selfUpdateHint")}</div>
     </Card>
   );
 }

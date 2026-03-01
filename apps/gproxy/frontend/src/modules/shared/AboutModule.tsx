@@ -5,7 +5,7 @@ export function AboutModule() {
   const { t } = useI18n();
 
   return (
-    <Card title={t("about.title")} subtitle={t("about.subtitle")}>
+    <Card title={t("about.title")}>
       <div className="space-y-4">
         <section className="space-y-2 text-sm">
           <h3 className="font-semibold text-text">{t("about.features_title")}</h3>

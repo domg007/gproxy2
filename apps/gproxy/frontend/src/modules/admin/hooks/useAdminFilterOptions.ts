@@ -173,6 +173,10 @@ export function useAdminFilterOptions({
   return {
     isLoading,
     reloadOptions,
+    providerRows,
+    credentialRows,
+    userRows,
+    userKeyRows,
     providerOptions,
     credentialOptions,
     userOptions,

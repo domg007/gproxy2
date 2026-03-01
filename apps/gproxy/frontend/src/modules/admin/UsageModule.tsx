@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
@@ -6,7 +6,7 @@ import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetim
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
 import type { UsageQueryRow, UsageSummary } from "../../lib/types";
-import { Button, Card, Input, Label, MetricCard, Select, Table } from "../../components/ui";
+import { Button, Card, Input, Label, MetricCard, SearchableSelect, Select, Table } from "../../components/ui";
 import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
 function emptySummary(): UsageSummary {
@@ -29,7 +29,16 @@ export function UsageModule({
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
-  const { isLoading: isFilterOptionsLoading, userOptions, userKeyOptions } = useAdminFilterOptions({
+  const [knownChannels, setKnownChannels] = useState<string[]>([]);
+  const [knownModels, setKnownModels] = useState<string[]>([]);
+  const [knownModelsByChannel, setKnownModelsByChannel] = useState<Record<string, string[]>>({});
+  const {
+    isLoading: isFilterOptionsLoading,
+    providerRows,
+    userRows,
+    userKeyRows,
+    userOptions
+  } = useAdminFilterOptions({
     apiKey,
     notify,
     t
@@ -43,6 +52,13 @@ export function UsageModule({
     toAt: "",
     limit: "200"
   });
+
+  const selectedChannel = filters.channel.trim();
+
+  const selectedUserId = useMemo(() => {
+    const value = Number(filters.userId);
+    return Number.isInteger(value) ? value : null;
+  }, [filters.userId]);
 
   const buildPayload = () => {
     const userId = parseOptionalI64(filters.userId);
@@ -62,6 +78,74 @@ export function UsageModule({
     };
   };
 
+  const collectUsageMetadata = (usageRows: UsageQueryRow[]) => {
+    const channels = usageRows
+      .map((row) => row.provider_channel?.trim() ?? "")
+      .filter((value) => value.length > 0);
+    const models = usageRows
+      .map((row) => row.model?.trim() ?? "")
+      .filter((value) => value.length > 0);
+    const channelModelPairs = usageRows
+      .map((row) => ({
+        channel: row.provider_channel?.trim() ?? "",
+        model: row.model?.trim() ?? ""
+      }))
+      .filter((item) => item.channel.length > 0 && item.model.length > 0);
+
+    if (channels.length > 0) {
+      setKnownChannels((prev) => Array.from(new Set([...prev, ...channels])).sort());
+    }
+    if (models.length > 0) {
+      setKnownModels((prev) => Array.from(new Set([...prev, ...models])).sort());
+    }
+    if (channelModelPairs.length > 0) {
+      setKnownModelsByChannel((prev) => {
+        const merged = new Map<string, Set<string>>();
+        for (const [channel, channelModels] of Object.entries(prev)) {
+          merged.set(channel, new Set(channelModels));
+        }
+        for (const item of channelModelPairs) {
+          const models = merged.get(item.channel);
+          if (models) {
+            models.add(item.model);
+          } else {
+            merged.set(item.channel, new Set([item.model]));
+          }
+        }
+        const next: Record<string, string[]> = {};
+        for (const [channel, modelSet] of merged.entries()) {
+          next[channel] = Array.from(modelSet).sort();
+        }
+        return next;
+      });
+    }
+  };
+
+  const loadUsageFilterOptions = async () => {
+    try {
+      const data = await apiRequest<UsageQueryRow[]>("/admin/usages/query", {
+        apiKey,
+        method: "POST",
+        body: {
+          channel: scopeAll<string>(),
+          model: scopeAll<string>(),
+          user_id: scopeAll<number>(),
+          user_key_id: scopeAll<number>(),
+          from_unix_ms: null,
+          to_unix_ms: null,
+          limit: 1000
+        }
+      });
+      collectUsageMetadata(data);
+    } catch (error) {
+      notify("error", formatError(error));
+    }
+  };
+
+  useEffect(() => {
+    void loadUsageFilterOptions();
+  }, [apiKey]);
+
   const query = async () => {
     try {
       const [rowsResult, summaryResult] = await Promise.all([
@@ -78,6 +162,7 @@ export function UsageModule({
       ]);
       setRows(rowsResult);
       setSummary(summaryResult);
+      collectUsageMetadata(rowsResult);
     } catch (error) {
       notify("error", formatError(error));
     }
@@ -92,17 +177,100 @@ export function UsageModule({
     t("table.at")
   ];
 
+  const channelOptions = useMemo(() => {
+    const channels = Array.from(
+      new Set([
+        ...providerRows.map((row) => row.channel.trim()).filter((value) => value.length > 0),
+        ...knownChannels
+      ])
+    ).sort();
+    return [
+      { value: "", label: t("common.all") },
+      ...channels.map((value) => ({ value, label: value }))
+    ];
+  }, [knownChannels, providerRows, t]);
+
+  const modelOptions = useMemo(
+    () => {
+      const scopedModels =
+        selectedChannel.length > 0 ? (knownModelsByChannel[selectedChannel] ?? []) : knownModels;
+      return [
+        { value: "", label: t("common.all") },
+        ...scopedModels.map((value) => ({ value, label: value }))
+      ];
+    },
+    [knownModels, knownModelsByChannel, selectedChannel, t]
+  );
+
+  const userById = useMemo(() => new Map(userRows.map((row) => [row.id, row])), [userRows]);
+
+  const filteredUserKeyOptions = useMemo(() => {
+    const scopedRows =
+      selectedUserId === null
+        ? userKeyRows
+        : userKeyRows.filter((row) => row.user_id === selectedUserId);
+    return [
+      { value: "", label: t("common.all") },
+      ...scopedRows.map((row) => {
+        const user = userById.get(row.user_id);
+        const userMeta = user ? `${user.name} (#${row.user_id})` : `user #${row.user_id}`;
+        const key = row.api_key.trim();
+        const preview =
+          key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
+        return {
+          value: String(row.id),
+          label: `#${row.id} · ${userMeta} · ${preview}`
+        };
+      })
+    ];
+  }, [selectedUserId, t, userById, userKeyRows]);
+
+  useEffect(() => {
+    if (!filters.userKeyId) {
+      return;
+    }
+    const userKeyId = Number(filters.userKeyId);
+    const exists = filteredUserKeyOptions.some((item) => Number(item.value) === userKeyId);
+    if (!exists) {
+      setFilters((prev) => ({ ...prev, userKeyId: "" }));
+    }
+  }, [filteredUserKeyOptions, filters.userKeyId]);
+
+  useEffect(() => {
+    if (!filters.model) {
+      return;
+    }
+    const exists = modelOptions.some((item) => item.value === filters.model);
+    if (!exists) {
+      setFilters((prev) => ({ ...prev, model: "" }));
+    }
+  }, [filters.model, modelOptions]);
+
   return (
     <div className="space-y-4">
       <Card title={t("usage.title")} subtitle={t("usage.subtitle")}>
         <div className="grid gap-3 md:grid-cols-3">
           <div>
             <Label>{t("field.channel")}</Label>
-            <Input value={filters.channel} onChange={(v) => setFilters((p) => ({ ...p, channel: v }))} />
+            <SearchableSelect
+              value={filters.channel}
+              onChange={(v) => setFilters((p) => ({ ...p, channel: v }))}
+              options={channelOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
+              disabled={isFilterOptionsLoading}
+            />
           </div>
           <div>
             <Label>{t("field.model")}</Label>
-            <Input value={filters.model} onChange={(v) => setFilters((p) => ({ ...p, model: v }))} />
+            <SearchableSelect
+              value={filters.model}
+              onChange={(v) => setFilters((p) => ({ ...p, model: v }))}
+              options={modelOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
+              disabled={isFilterOptionsLoading}
+            />
           </div>
           <div>
             <Label>{t("field.user_id")}</Label>
@@ -115,10 +283,12 @@ export function UsageModule({
           </div>
           <div>
             <Label>{t("field.user_key_id")}</Label>
-            <Select
+            <SearchableSelect
               value={filters.userKeyId}
               onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
-              options={userKeyOptions}
+              options={filteredUserKeyOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
               disabled={isFilterOptionsLoading}
             />
           </div>

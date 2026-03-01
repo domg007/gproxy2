@@ -6,7 +6,7 @@ import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetim
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
 import type { UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
-import { Button, Card, Input, Label, MetricCard, Select, Table } from "../../components/ui";
+import { Button, Card, Input, Label, MetricCard, SearchableSelect, Table } from "../../components/ui";
 
 function emptySummary(): UsageSummary {
   return {
@@ -29,6 +29,9 @@ export function MyUsageModule({
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
   const [userKeyRows, setUserKeyRows] = useState<UserKeyQueryRow[]>([]);
+  const [knownChannels, setKnownChannels] = useState<string[]>([]);
+  const [knownModels, setKnownModels] = useState<string[]>([]);
+  const [knownModelsByChannel, setKnownModelsByChannel] = useState<Record<string, string[]>>({});
   const [filters, setFilters] = useState({
     channel: "",
     model: "",
@@ -37,6 +40,8 @@ export function MyUsageModule({
     toAt: "",
     limit: "200"
   });
+
+  const selectedChannel = filters.channel.trim();
 
   const payload = () => {
     const userKeyId = parseOptionalI64(filters.userKeyId);
@@ -67,8 +72,72 @@ export function MyUsageModule({
     }
   };
 
+  const collectUsageMetadata = (usageRows: UsageQueryRow[]) => {
+    const channels = usageRows
+      .map((row) => row.provider_channel?.trim() ?? "")
+      .filter((value) => value.length > 0);
+    const models = usageRows
+      .map((row) => row.model?.trim() ?? "")
+      .filter((value) => value.length > 0);
+    const channelModelPairs = usageRows
+      .map((row) => ({
+        channel: row.provider_channel?.trim() ?? "",
+        model: row.model?.trim() ?? ""
+      }))
+      .filter((item) => item.channel.length > 0 && item.model.length > 0);
+    if (channels.length > 0) {
+      setKnownChannels((prev) => Array.from(new Set([...prev, ...channels])).sort());
+    }
+    if (models.length > 0) {
+      setKnownModels((prev) => Array.from(new Set([...prev, ...models])).sort());
+    }
+    if (channelModelPairs.length > 0) {
+      setKnownModelsByChannel((prev) => {
+        const merged = new Map<string, Set<string>>();
+        for (const [channel, channelModels] of Object.entries(prev)) {
+          merged.set(channel, new Set(channelModels));
+        }
+        for (const item of channelModelPairs) {
+          const models = merged.get(item.channel);
+          if (models) {
+            models.add(item.model);
+          } else {
+            merged.set(item.channel, new Set([item.model]));
+          }
+        }
+        const next: Record<string, string[]> = {};
+        for (const [channel, modelSet] of merged.entries()) {
+          next[channel] = Array.from(modelSet).sort();
+        }
+        return next;
+      });
+    }
+  };
+
+  const loadUsageFilterOptions = async () => {
+    try {
+      const data = await apiRequest<UsageQueryRow[]>("/user/usages/query", {
+        apiKey,
+        method: "POST",
+        body: {
+          channel: scopeAll<string>(),
+          model: scopeAll<string>(),
+          user_id: scopeAll<number>(),
+          user_key_id: scopeAll<number>(),
+          from_unix_ms: null,
+          to_unix_ms: null,
+          limit: 1000
+        }
+      });
+      collectUsageMetadata(data);
+    } catch (error) {
+      notify("error", formatError(error));
+    }
+  };
+
   useEffect(() => {
     void loadUserKeys();
+    void loadUsageFilterOptions();
   }, [apiKey]);
 
   const query = async () => {
@@ -87,6 +156,7 @@ export function MyUsageModule({
       ]);
       setRows(queryResult);
       setSummary(summaryResult);
+      collectUsageMetadata(queryResult);
     } catch (error) {
       notify("error", formatError(error));
     }
@@ -112,24 +182,68 @@ export function MyUsageModule({
     [t, userKeyRows]
   );
 
+  const channelOptions = useMemo(
+    () => [
+      { value: "", label: t("common.all") },
+      ...knownChannels.map((value) => ({ value, label: value }))
+    ],
+    [knownChannels, t]
+  );
+
+  const modelOptions = useMemo(
+    () => {
+      const scopedModels =
+        selectedChannel.length > 0 ? (knownModelsByChannel[selectedChannel] ?? []) : knownModels;
+      return [
+        { value: "", label: t("common.all") },
+        ...scopedModels.map((value) => ({ value, label: value }))
+      ];
+    },
+    [knownModels, knownModelsByChannel, selectedChannel, t]
+  );
+
+  useEffect(() => {
+    if (!filters.model) {
+      return;
+    }
+    const exists = modelOptions.some((item) => item.value === filters.model);
+    if (!exists) {
+      setFilters((prev) => ({ ...prev, model: "" }));
+    }
+  }, [filters.model, modelOptions]);
+
   return (
     <div className="space-y-4">
       <Card title={t("myUsage.title")} subtitle={t("myUsage.subtitle")}>
         <div className="grid gap-3 md:grid-cols-3">
           <div>
             <Label>{t("field.channel")}</Label>
-            <Input value={filters.channel} onChange={(v) => setFilters((p) => ({ ...p, channel: v }))} />
+            <SearchableSelect
+              value={filters.channel}
+              onChange={(v) => setFilters((p) => ({ ...p, channel: v }))}
+              options={channelOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
+            />
           </div>
           <div>
             <Label>{t("field.model")}</Label>
-            <Input value={filters.model} onChange={(v) => setFilters((p) => ({ ...p, model: v }))} />
+            <SearchableSelect
+              value={filters.model}
+              onChange={(v) => setFilters((p) => ({ ...p, model: v }))}
+              options={modelOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
+            />
           </div>
           <div>
             <Label>{t("field.user_key_id")}</Label>
-            <Select
+            <SearchableSelect
               value={filters.userKeyId}
               onChange={(v) => setFilters((p) => ({ ...p, userKeyId: v }))}
               options={userKeyOptions}
+              placeholder={t("common.all")}
+              noResultLabel={t("common.none")}
             />
           </div>
           <div>
