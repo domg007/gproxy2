@@ -25,20 +25,35 @@ export type ChannelConfig = {
   dispatchTemplateRoutes: readonly TemplateRoute[];
 };
 
-export const CHANNEL_CONFIGS: Record<string, ChannelConfig> = {
-  [customConfig.channel]: customConfig,
-  [openaiConfig.channel]: openaiConfig,
-  [claudeConfig.channel]: claudeConfig,
-  [aistudioConfig.channel]: aistudioConfig,
-  [vertexConfig.channel]: vertexConfig,
-  [vertexexpressConfig.channel]: vertexexpressConfig,
-  [geminicliConfig.channel]: geminicliConfig,
-  [antigravityConfig.channel]: antigravityConfig,
-  [claudecodeConfig.channel]: claudecodeConfig,
-  [codexConfig.channel]: codexConfig,
-  [nvidiaConfig.channel]: nvidiaConfig,
-  [deepseekConfig.channel]: deepseekConfig,
+type ChannelBaseConfig = Omit<ChannelConfig, "supportsOAuth" | "supportsUpstreamUsage">;
+
+type ChannelRegistryEntry = {
+  config: ChannelBaseConfig;
+  supportsOAuth: boolean;
+  supportsUpstreamUsage: boolean;
 };
+
+const CHANNEL_REGISTRY: readonly ChannelRegistryEntry[] = [
+  { config: customConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: openaiConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: claudeConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: aistudioConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: vertexConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: vertexexpressConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: geminicliConfig, supportsOAuth: true, supportsUpstreamUsage: true },
+  { config: antigravityConfig, supportsOAuth: true, supportsUpstreamUsage: true },
+  { config: claudecodeConfig, supportsOAuth: true, supportsUpstreamUsage: true },
+  { config: codexConfig, supportsOAuth: true, supportsUpstreamUsage: true },
+  { config: nvidiaConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+  { config: deepseekConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+];
+
+export const CHANNEL_CONFIGS: Record<string, ChannelConfig> = Object.fromEntries(
+  CHANNEL_REGISTRY.map(({ config, supportsOAuth, supportsUpstreamUsage }) => [
+    config.channel,
+    { ...config, supportsOAuth, supportsUpstreamUsage },
+  ])
+) as Record<string, ChannelConfig>;
 
 export function getChannelConfig(channel: string): ChannelConfig | null {
   const normalized = channel.trim().toLowerCase();
@@ -48,4 +63,4 @@ export function getChannelConfig(channel: string): ChannelConfig | null {
   return CHANNEL_CONFIGS[normalized] ?? null;
 }
 
-export const BUILTIN_CHANNELS = Object.keys(CHANNEL_CONFIGS);
+export const BUILTIN_CHANNELS = CHANNEL_REGISTRY.map(({ config }) => config.channel);
