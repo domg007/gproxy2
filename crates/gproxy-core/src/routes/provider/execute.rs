@@ -413,6 +413,57 @@ pub(super) fn build_openai_local_count_response(
     }
 }
 
+fn serialize_local_response_body(
+    response: &gproxy_middleware::TransformResponse,
+) -> Result<Vec<u8>, UpstreamError> {
+    let value = serde_json::to_value(response)
+        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    match value {
+        serde_json::Value::Object(object) if object.len() == 1 => {
+            if let Some((_, inner)) = object.into_iter().next() {
+                return serde_json::to_vec(&inner)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()));
+            }
+            Ok(Vec::new())
+        }
+        other => {
+            serde_json::to_vec(&other)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gproxy_middleware::TransformResponse;
+    use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
+    use serde_json::json;
+
+    use super::serialize_local_response_body;
+
+    #[test]
+    fn local_response_body_is_unwrapped_from_enum_shell() {
+        let response: OpenAiModelListResponse = serde_json::from_value(json!({
+            "stats_code": 200,
+            "headers": {},
+            "body": {
+                "object": "list",
+                "data": []
+            }
+        }))
+        .expect("valid openai model list response");
+
+        let bytes = serialize_local_response_body(&TransformResponse::ModelListOpenAi(response))
+            .expect("serialize local response");
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("decode serialized local response");
+
+        assert!(value.get("ModelListOpenAi").is_none());
+        assert_eq!(value.get("stats_code").and_then(|v| v.as_u64()), Some(200));
+        assert!(value.get("body").is_some());
+    }
+}
+
 pub(super) async fn execute_local_count_token_request(
     state: &AppState,
     request: &TransformRequest,
@@ -680,8 +731,7 @@ pub(super) async fn execute_transform_request(
             },
         )
         .await;
-        let body = serde_json::to_vec(&local)
-            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let body = serialize_local_response_body(&local)?;
         let response = Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "application/json")
