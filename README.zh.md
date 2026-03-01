@@ -445,3 +445,7 @@ pnpm build
 ## License
 
 本项目采用 `AGPL-3.0-or-later`（见 `LICENSE`）。
+
+## Star 趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LeenHawk/gproxy&type=Date)](https://star-history.com/#LeenHawk/gproxy&Date)

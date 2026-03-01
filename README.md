@@ -447,3 +447,7 @@ pnpm build
 ## License
 
 This project is licensed under `AGPL-3.0-or-later` (see `LICENSE`).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LeenHawk/gproxy&type=Date)](https://star-history.com/#LeenHawk/gproxy&Date)
