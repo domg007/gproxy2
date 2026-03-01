@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import { parseRequiredI64 } from "../../lib/form";
 import type {
   CredentialQueryRow,
@@ -555,6 +556,22 @@ export function ProvidersModule({
     setActiveTab("credentials");
   };
 
+  const copyCredential = async (row: CredentialQueryRow) => {
+    const payload = {
+      id: row.id,
+      name: row.name,
+      enabled: row.enabled,
+      settings_json: row.settings_json,
+      secret_json: row.secret_json
+    };
+    try {
+      await copyTextToClipboard(JSON.stringify(payload));
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
   const queryUpstreamUsageAndReload = async (credentialId: number) => {
     await queryUpstreamUsage(credentialId);
     await loadProviderScopedData(selectedProvider);
@@ -588,6 +605,7 @@ export function ProvidersModule({
     setStatusForm,
     setCredentialForm,
     onEditCredential: editCredential,
+    onCopyCredential: (row: CredentialQueryRow) => void copyCredential(row),
     onRemoveCredential: (id: number) => void removeCredential(id),
     onToggleCredentialEnabled: (row: CredentialQueryRow) => void toggleCredentialEnabled(row),
     onSetCredentialHealth: (payload: {

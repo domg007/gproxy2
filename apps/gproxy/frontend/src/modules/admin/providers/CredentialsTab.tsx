@@ -74,6 +74,7 @@ export type CredentialsTabActions = {
   setStatusForm: Dispatch<SetStateAction<StatusFormState>>;
   setCredentialForm: Dispatch<SetStateAction<CredentialFormState>>;
   onEditCredential: (row: CredentialQueryRow) => void;
+  onCopyCredential: (row: CredentialQueryRow) => void;
   onRemoveCredential: (id: number) => void;
   onToggleCredentialEnabled: (row: CredentialQueryRow) => void;
   onSetCredentialHealth: (payload: {
@@ -181,6 +182,7 @@ export function CredentialsTab({
     setStatusForm,
     setCredentialForm,
     onEditCredential,
+    onCopyCredential,
     onRemoveCredential,
     onToggleCredentialEnabled,
     onSetCredentialHealth,
@@ -636,6 +638,7 @@ export function CredentialsTab({
         statusForm={statusForm}
         setStatusForm={setStatusForm}
         onEditCredential={onEditCredential}
+        onCopyCredential={onCopyCredential}
         onRemoveCredential={onRemoveCredential}
         onToggleCredentialEnabled={onToggleCredentialEnabled}
         onSetCredentialHealth={onSetCredentialHealth}
