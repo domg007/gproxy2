@@ -1,5 +1,5 @@
 pub mod channel;
-pub mod channels;
+mod channels;
 pub mod credential;
 pub mod credential_state;
 pub mod dispatch;
@@ -29,7 +29,8 @@ pub use credential_state::{
 pub use dispatch::{DispatchRule, ProviderDispatchTable, RouteImplementation, RouteKey};
 pub use facade::{
     DefaultProviderRuntime, ExecuteInput, OAuthInput, ProviderRuntime, UpstreamUsageInput,
-    ensure_project_id_for_credential, normalize_upstream_response_body_for_channel,
+    credential_from_secret, ensure_project_id_for_credential,
+    normalize_upstream_response_body_for_channel,
     normalize_upstream_stream_ndjson_chunk_for_channel, try_local_response_for_channel,
 };
 pub use provider::{ProviderDefinition, ProviderRegistry, TokenizerResolutionContext};

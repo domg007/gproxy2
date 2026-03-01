@@ -1,7 +1,6 @@
 use gproxy_middleware::{TransformRequest, TransformResponse};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokenizers::Tokenizer;
 use url::form_urlencoded;
 use wreq::Client as WreqClient;
 use wreq::Method as WreqMethod;
@@ -9,7 +8,6 @@ use wreq::header::HeaderMap;
 
 use crate::channels::upstream::UpstreamError;
 use crate::tokenizers::LocalTokenizerStore;
-use crate::tokenizers::tiktoken::{count_tiktoken_tokens, is_gpt_like_model};
 
 pub fn to_wreq_method(method: &impl Serialize) -> Result<WreqMethod, UpstreamError> {
     let raw = serde_json::to_string(method)
@@ -126,33 +124,6 @@ pub fn gemini_model_list_query_string(
     } else {
         Some(parts.join("&"))
     }
-}
-
-pub fn count_openai_input_tokens_with_fallback(
-    model: Option<&str>,
-    body: &impl Serialize,
-    fallback_tokenizer: &Tokenizer,
-) -> Result<u64, UpstreamError> {
-    let mut value = serde_json::to_value(body)
-        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-    if let Some(map) = value.as_object_mut() {
-        map.remove("model");
-    }
-    let text = serde_json::to_string(&value)
-        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-
-    if let Some(model) = model
-        && is_gpt_like_model(model)
-    {
-        let count =
-            count_tiktoken_tokens(model, text.as_str()).map_err(UpstreamError::SerializeRequest)?;
-        return Ok(count as u64);
-    }
-
-    let encoding = fallback_tokenizer
-        .encode(text, false)
-        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-    Ok(encoding.get_ids().len() as u64)
 }
 
 pub async fn count_openai_input_tokens_with_resolution(

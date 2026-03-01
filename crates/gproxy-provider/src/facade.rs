@@ -6,6 +6,7 @@ use crate::channels::antigravity::{
     ensure_antigravity_project_id, normalize_antigravity_upstream_response_body,
     normalize_antigravity_upstream_stream_ndjson_chunk,
 };
+use crate::channels::custom::CustomChannelCredential;
 use crate::channels::geminicli::{
     ensure_geminicli_project_id, normalize_geminicli_upstream_response_body,
     normalize_geminicli_upstream_stream_ndjson_chunk,
@@ -17,6 +18,7 @@ use crate::channels::upstream::{
 use crate::channels::vertex::normalize_vertex_upstream_response_body;
 use crate::channels::vertexexpress::try_local_vertexexpress_model_response;
 use crate::channels::{BuiltinChannelCredential, ChannelCredential, ChannelSettings};
+use crate::channels::{aistudio, claude, deepseek, nvidia, openai, vertexexpress};
 use crate::credential::ChannelCredentialStateStore;
 use crate::provider::{ProviderDefinition, TokenizerResolutionContext};
 
@@ -141,6 +143,61 @@ pub async fn ensure_project_id_for_credential(
             ChannelCredential::Builtin(BuiltinChannelCredential::Antigravity(value)),
         ) => ensure_antigravity_project_id(client, settings, value).await,
         _ => Ok(()),
+    }
+}
+
+pub fn credential_from_secret(channel: &ChannelId, secret: &str) -> Option<ChannelCredential> {
+    let secret = secret.trim();
+    if secret.is_empty() {
+        return None;
+    }
+
+    match channel {
+        ChannelId::Custom(_) => Some(ChannelCredential::Custom(CustomChannelCredential {
+            api_key: secret.to_string(),
+        })),
+        ChannelId::Builtin(builtin) => {
+            let credential = match builtin {
+                BuiltinChannel::OpenAi => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::OpenAi(openai::OpenAiCredential {
+                        api_key: secret.to_string(),
+                    }),
+                ),
+                BuiltinChannel::Claude => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::Claude(claude::ClaudeCredential {
+                        api_key: secret.to_string(),
+                    }),
+                ),
+                BuiltinChannel::AiStudio => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::AiStudio(aistudio::AiStudioCredential {
+                        api_key: secret.to_string(),
+                    }),
+                ),
+                BuiltinChannel::VertexExpress => {
+                    ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(
+                        vertexexpress::VertexExpressCredential {
+                            api_key: secret.to_string(),
+                        },
+                    ))
+                }
+                BuiltinChannel::Nvidia => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::Nvidia(nvidia::NvidiaCredential {
+                        api_key: secret.to_string(),
+                    }),
+                ),
+                BuiltinChannel::Deepseek => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::Deepseek(deepseek::DeepseekCredential {
+                        api_key: secret.to_string(),
+                    }),
+                ),
+                BuiltinChannel::Vertex
+                | BuiltinChannel::GeminiCli
+                | BuiltinChannel::ClaudeCode
+                | BuiltinChannel::Codex
+                | BuiltinChannel::Antigravity => return None,
+            };
+            Some(credential)
+        }
     }
 }
 

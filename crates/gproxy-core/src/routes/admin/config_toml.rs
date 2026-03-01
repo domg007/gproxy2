@@ -551,68 +551,15 @@ pub(super) fn build_import_channel_credential(
         ));
     };
 
-    match channel {
-        ChannelId::Custom(_) => Ok(ChannelCredential::Custom(
-            gproxy_provider::CustomChannelCredential {
-                api_key: secret.to_string(),
-            },
-        )),
-        ChannelId::Builtin(builtin) => match builtin {
-            gproxy_provider::BuiltinChannel::OpenAi => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::OpenAi(
-                    gproxy_provider::channels::openai::OpenAiCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::Claude => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::Claude(
-                    gproxy_provider::channels::claude::ClaudeCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::AiStudio => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::AiStudio(
-                    gproxy_provider::channels::aistudio::AiStudioCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::VertexExpress => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::VertexExpress(
-                    gproxy_provider::channels::vertexexpress::VertexExpressCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::Nvidia => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::Nvidia(
-                    gproxy_provider::channels::nvidia::NvidiaCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::Deepseek => Ok(ChannelCredential::Builtin(
-                BuiltinChannelCredential::Deepseek(
-                    gproxy_provider::channels::deepseek::DeepseekCredential {
-                        api_key: secret.to_string(),
-                    },
-                ),
-            )),
-            gproxy_provider::BuiltinChannel::Vertex
-            | gproxy_provider::BuiltinChannel::GeminiCli
-            | gproxy_provider::BuiltinChannel::ClaudeCode
-            | gproxy_provider::BuiltinChannel::Codex
-            | gproxy_provider::BuiltinChannel::Antigravity => Err(HttpError::new(
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "channel {} requires builtin credential object",
-                    channel.as_str()
-                ),
-            )),
-        },
-    }
+    gproxy_provider::credential_from_secret(channel, secret).ok_or_else(|| {
+        HttpError::new(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "channel {} requires builtin credential object",
+                channel.as_str()
+            ),
+        )
+    })
 }
 
 pub(super) fn import_health_to_storage(

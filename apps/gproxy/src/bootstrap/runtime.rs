@@ -6,12 +6,10 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use gproxy_admin::{MemoryUser, MemoryUserKey};
 use gproxy_core::{AppState, AppStateInit, GlobalSettings};
-use gproxy_provider::channels::{aistudio, claude, deepseek, nvidia, openai, vertexexpress};
 use gproxy_provider::{
-    BuiltinChannel, ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth,
-    CredentialRef, CustomChannelCredential, LocalTokenizerStore, ProviderCredentialState,
-    ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
-    parse_provider_settings_value_for_channel,
+    ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialRef,
+    LocalTokenizerStore, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
+    ProviderRegistry, parse_provider_settings_value_for_channel,
 };
 use gproxy_storage::{
     Scope, SeaOrmStorage, StorageWriteSinkError, StorageWriteWorkerConfig, UserKeyQuery, UserQuery,
@@ -375,57 +373,7 @@ fn build_channel_credential(
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
 
-    match channel {
-        ChannelId::Custom(_) => Some(ChannelCredential::Custom(CustomChannelCredential {
-            api_key: secret.to_string(),
-        })),
-        ChannelId::Builtin(builtin) => {
-            let material = match builtin {
-                BuiltinChannel::OpenAi => ChannelCredential::Builtin(
-                    gproxy_provider::BuiltinChannelCredential::OpenAi(openai::OpenAiCredential {
-                        api_key: secret.to_string(),
-                    }),
-                ),
-                BuiltinChannel::Claude => ChannelCredential::Builtin(
-                    gproxy_provider::BuiltinChannelCredential::Claude(claude::ClaudeCredential {
-                        api_key: secret.to_string(),
-                    }),
-                ),
-                BuiltinChannel::AiStudio => {
-                    ChannelCredential::Builtin(gproxy_provider::BuiltinChannelCredential::AiStudio(
-                        aistudio::AiStudioCredential {
-                            api_key: secret.to_string(),
-                        },
-                    ))
-                }
-                BuiltinChannel::VertexExpress => ChannelCredential::Builtin(
-                    gproxy_provider::BuiltinChannelCredential::VertexExpress(
-                        vertexexpress::VertexExpressCredential {
-                            api_key: secret.to_string(),
-                        },
-                    ),
-                ),
-                BuiltinChannel::Nvidia => ChannelCredential::Builtin(
-                    gproxy_provider::BuiltinChannelCredential::Nvidia(nvidia::NvidiaCredential {
-                        api_key: secret.to_string(),
-                    }),
-                ),
-                BuiltinChannel::Deepseek => {
-                    ChannelCredential::Builtin(gproxy_provider::BuiltinChannelCredential::Deepseek(
-                        deepseek::DeepseekCredential {
-                            api_key: secret.to_string(),
-                        },
-                    ))
-                }
-                BuiltinChannel::Vertex
-                | BuiltinChannel::GeminiCli
-                | BuiltinChannel::ClaudeCode
-                | BuiltinChannel::Codex
-                | BuiltinChannel::Antigravity => return None,
-            };
-            Some(material)
-        }
-    }
+    gproxy_provider::credential_from_secret(channel, secret)
 }
 
 fn credential_fingerprint(credential: &CredentialConfigFile) -> String {

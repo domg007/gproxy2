@@ -7,4 +7,4 @@ pub mod upstream;
 pub use credential::NvidiaCredential;
 pub use dispatch::default_dispatch_table;
 pub use settings::NvidiaSettings;
-pub use upstream::{execute_nvidia_with_retry, try_local_nvidia_response};
+pub use upstream::execute_nvidia_with_retry;
