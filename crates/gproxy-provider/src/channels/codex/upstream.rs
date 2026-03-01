@@ -806,7 +806,8 @@ fn codex_models_path() -> String {
 
 fn normalize_model_id(model: &str) -> String {
     let model = model.trim().trim_start_matches('/');
-    model.strip_prefix("models/").unwrap_or(model).to_string()
+    let model = model.strip_prefix("models/").unwrap_or(model);
+    model.strip_prefix("codex/").unwrap_or(model).to_string()
 }
 
 fn normalize_codex_response_request_body(body: &mut Value, is_stream: bool) {
@@ -829,11 +830,19 @@ fn normalize_codex_response_request_body(body: &mut Value, is_stream: bool) {
     map.remove("top_logprobs");
     map.remove("safety_identifier");
     map.remove("truncation");
+    extract_codex_instructions_from_input_messages(map);
 
     if is_stream {
         map.insert("stream".to_string(), Value::Bool(true));
     } else {
         map.insert("stream".to_string(), Value::Bool(false));
+    }
+
+    if map
+        .get("instructions")
+        .is_some_and(|value| !value.is_string())
+    {
+        map.insert("instructions".to_string(), Value::String(String::new()));
     }
 
     if !map.contains_key("instructions") {
@@ -853,6 +862,84 @@ fn normalize_codex_response_request_body(body: &mut Value, is_stream: bool) {
                 }
             ]),
         );
+    }
+}
+
+fn extract_codex_instructions_from_input_messages(map: &mut serde_json::Map<String, Value>) {
+    let mut extracted = Vec::new();
+
+    if let Some(Value::Array(items)) = map.get_mut("input") {
+        let source_items = std::mem::take(items);
+        let mut kept = Vec::with_capacity(source_items.len());
+        for item in source_items {
+            let role = item.get("role").and_then(Value::as_str);
+            if matches!(role, Some("system" | "developer")) {
+                if let Some(text) = extract_codex_message_text(item.get("content")) {
+                    extracted.push(text);
+                }
+                continue;
+            }
+            kept.push(item);
+        }
+        *items = kept;
+    }
+
+    if extracted.is_empty() {
+        return;
+    }
+
+    let extracted_text = extracted.join("\n\n");
+    let current = map
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let merged = match current {
+        Some(base) => format!("{base}\n\n{extracted_text}"),
+        None => extracted_text,
+    };
+    map.insert("instructions".to_string(), Value::String(merged));
+}
+
+fn extract_codex_message_text(content: Option<&Value>) -> Option<String> {
+    let Some(content) = content else {
+        return None;
+    };
+    match content {
+        Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        Value::Array(parts) => {
+            let mut out = Vec::new();
+            for part in parts {
+                if let Some(text) = extract_codex_text_part(part) {
+                    out.push(text);
+                }
+            }
+            (!out.is_empty()).then(|| out.join("\n"))
+        }
+        Value::Object(_) => extract_codex_text_part(content),
+        _ => None,
+    }
+}
+
+fn extract_codex_text_part(part: &Value) -> Option<String> {
+    match part {
+        Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        Value::Object(obj) => {
+            let text = obj
+                .get("text")
+                .and_then(Value::as_str)
+                .or_else(|| obj.get("refusal").and_then(Value::as_str))?;
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        _ => None,
     }
 }
 
@@ -1128,5 +1215,83 @@ fn codex_credential_update(
         expires_at_unix_ms: refreshed.expires_at_unix_ms,
         user_email: refreshed.user_email.clone(),
         id_token: refreshed.id_token.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::normalize_codex_response_request_body;
+
+    #[test]
+    fn codex_moves_system_and_developer_messages_into_instructions() {
+        let mut body = json!({
+            "model": "codex/gpt-5.2",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "system",
+                    "content": "be concise"
+                },
+                {
+                    "type": "message",
+                    "role": "developer",
+                    "content": [
+                        {"type": "input_text", "text": "keep markdown"}
+                    ]
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "hello"}
+                    ]
+                }
+            ],
+            "temperature": 1
+        });
+
+        normalize_codex_response_request_body(&mut body, true);
+
+        assert_eq!(body.get("model").and_then(|value| value.as_str()), Some("gpt-5.2"));
+        assert_eq!(body.get("stream").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            body.get("instructions").and_then(|value| value.as_str()),
+            Some("be concise\n\nkeep markdown")
+        );
+        assert_eq!(body.pointer("/input/0/role").and_then(|value| value.as_str()), Some("user"));
+        assert!(body.pointer("/input/1").is_none());
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn codex_appends_extracted_system_message_to_existing_instructions() {
+        let mut body = json!({
+            "model": "gpt-5.2",
+            "instructions": "existing",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "system",
+                    "content": "extra"
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                }
+            ]
+        });
+
+        normalize_codex_response_request_body(&mut body, false);
+
+        assert_eq!(
+            body.get("instructions").and_then(|value| value.as_str()),
+            Some("existing\n\nextra")
+        );
+        assert_eq!(body.get("stream").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(body.pointer("/input/0/role").and_then(|value| value.as_str()), Some("user"));
+        assert!(body.pointer("/input/1").is_none());
     }
 }

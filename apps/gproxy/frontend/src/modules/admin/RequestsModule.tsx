@@ -9,6 +9,33 @@ import type { DownstreamRequestQueryRow, UpstreamRequestQueryRow } from "../../l
 import { Button, Card, Input, Label, SearchableSelect, Select, Table } from "../../components/ui";
 import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
+function truncateText(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}...(truncated)`;
+}
+
+function bytesToUtf8Preview(bytes: number[] | null, limit = 800): string {
+  if (!bytes || bytes.length === 0) {
+    return "";
+  }
+  try {
+    const decoded = new TextDecoder().decode(new Uint8Array(bytes));
+    return truncateText(decoded, limit);
+  } catch {
+    return `[binary ${bytes.length} bytes]`;
+  }
+}
+
+function jsonToPreview(value: Record<string, unknown>, limit = 500): string {
+  const text = JSON.stringify(value);
+  if (!text || text === "{}") {
+    return "";
+  }
+  return truncateText(text, limit);
+}
+
 export function RequestsModule({
   apiKey,
   notify
@@ -169,8 +196,62 @@ export function RequestsModule({
     t("table.trace_id"),
     t("table.at"),
     t("table.status"),
-    kind === "upstream" ? t("table.url") : t("table.path")
+    kind === "upstream" ? t("table.url") : t("table.path"),
+    t("table.method"),
+    t("table.payload")
   ];
+
+  const buildPayloadCell = (row: UpstreamRequestQueryRow | DownstreamRequestQueryRow) => {
+    const requestHeaders = jsonToPreview(row.request_headers_json);
+    const responseHeaders = jsonToPreview(row.response_headers_json);
+    const requestBody = bytesToUtf8Preview(row.request_body);
+    const responseBody = bytesToUtf8Preview(row.response_body);
+    const hasContent = Boolean(requestHeaders || responseHeaders || requestBody || responseBody);
+
+    if (!hasContent) {
+      return <span className="text-xs text-muted">-</span>;
+    }
+
+    return (
+      <details>
+        <summary className="cursor-pointer text-xs text-muted">view</summary>
+        <div className="mt-2 space-y-2 text-xs">
+          {requestHeaders ? (
+            <div>
+              <div className="mb-1 font-semibold text-muted">req headers</div>
+              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
+                {requestHeaders}
+              </pre>
+            </div>
+          ) : null}
+          {requestBody ? (
+            <div>
+              <div className="mb-1 font-semibold text-muted">req body</div>
+              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
+                {requestBody}
+              </pre>
+            </div>
+          ) : null}
+          {responseHeaders ? (
+            <div>
+              <div className="mb-1 font-semibold text-muted">resp headers</div>
+              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
+                {responseHeaders}
+              </pre>
+            </div>
+          ) : null}
+          {responseBody ? (
+            <div>
+              <div className="mb-1 font-semibold text-muted">resp body</div>
+              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
+                {responseBody}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      </details>
+    );
+  };
 
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
@@ -260,7 +341,9 @@ export function RequestsModule({
             [tableColumns[3]]:
               kind === "upstream"
                 ? ((row as UpstreamRequestQueryRow).request_url ?? "")
-                : (row as DownstreamRequestQueryRow).request_path
+                : (row as DownstreamRequestQueryRow).request_path,
+            [tableColumns[4]]: row.request_method,
+            [tableColumns[5]]: buildPayloadCell(row)
           }))}
         />
       </div>
