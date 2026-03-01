@@ -4,6 +4,7 @@ metadata:
   name: gproxy
 spec:
   description: "Multi-provider LLM proxy with built-in admin frontend"
+  icon: "https://raw.githubusercontent.com/LeenHawk/gproxy/main/docs/public/web-app-manifest-512x512.png"
   tags:
     - ai
     - proxy
@@ -55,6 +56,7 @@ spec:
     Persist `/app/data` to keep database and usage data.
   services:
     - name: gproxy
+      icon: "https://raw.githubusercontent.com/LeenHawk/gproxy/main/docs/public/web-app-manifest-512x512.png"
       template: PREBUILT
       spec:
         id: gproxy
