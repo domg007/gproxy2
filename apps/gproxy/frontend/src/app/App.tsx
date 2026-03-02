@@ -40,7 +40,7 @@ type LoginResponse = {
 };
 
 function defaultModule(role: UserRole): string {
-  return role === "admin" ? ADMIN_NAV_IDS[0] : USER_NAV_IDS[0];
+  return role === "admin" ? "providers" : USER_NAV_IDS[0];
 }
 
 function parseHashRoute(hash: string): { role: UserRole; module: string } | null {
