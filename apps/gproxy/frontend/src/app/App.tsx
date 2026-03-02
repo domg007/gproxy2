@@ -10,7 +10,7 @@ import {
 import { LoginView } from "../components/LoginView";
 import { Nav, type NavItem } from "../components/Nav";
 import { Toast, type ToastState } from "../components/Toast";
-import { Badge, Button } from "../components/ui";
+import { Button } from "../components/ui";
 import { apiRequest } from "../lib/api";
 import type { ThemeMode, UserRole } from "../lib/types";
 import { detectRole } from "./session";
@@ -467,7 +467,6 @@ export function App() {
         <div className="topbar-panel mx-auto flex w-full max-w-[1700px] flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2 md:gap-3">
             <h1 className="topbar-title">{t("app.title")}</h1>
-            <Badge active>{role}</Badge>
             <code className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
               v{appVersion}
             </code>
