@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openai::create_chat_completions::types::{
-    ChatCompletionDeltaRole, ChatCompletionFinishReason, ChatCompletionFunctionCall,
-    ChatCompletionLogprobs, ChatCompletionServiceTier, CompletionUsage,
+    ChatCompletionAnnotation, ChatCompletionDeltaRole, ChatCompletionFinishReason,
+    ChatCompletionFunctionCall, ChatCompletionLogprobs, ChatCompletionServiceTier,
+    CompletionUsage,
 };
 
 /// Parsed SSE stream body for `POST /chat/completions` with `stream=true`.
@@ -82,6 +83,8 @@ pub struct ChatCompletionChunkDelta {
     pub refusal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<ChatCompletionDeltaRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<ChatCompletionAnnotation>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ChatCompletionChunkDeltaToolCall>>,
     /// Optional stream obfuscation payload when enabled.

@@ -21,6 +21,7 @@ struct ToolCallAcc {
 struct ChoiceAcc {
     content: String,
     refusal: String,
+    annotations: Vec<ct::ChatCompletionAnnotation>,
     has_function_call: bool,
     function_call_name: String,
     function_call_arguments: String,
@@ -99,7 +100,11 @@ impl ChoiceAcc {
                     Some(self.refusal)
                 },
                 role: ct::ChatCompletionAssistantRole::Assistant,
-                annotations: None,
+                annotations: if self.annotations.is_empty() {
+                    None
+                } else {
+                    Some(self.annotations)
+                },
                 audio: None,
                 function_call,
                 tool_calls,
@@ -140,6 +145,9 @@ fn apply_chunk(chunk: ChatCompletionChunk, acc: &mut StreamAcc) {
         }
         if let Some(refusal) = choice.delta.refusal {
             entry.refusal.push_str(&refusal);
+        }
+        if let Some(annotations) = choice.delta.annotations {
+            entry.annotations.extend(annotations);
         }
 
         if let Some(function_call) = choice.delta.function_call {

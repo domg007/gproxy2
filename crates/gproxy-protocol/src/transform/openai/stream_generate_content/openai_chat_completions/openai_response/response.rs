@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::openai::count_tokens::types as ot;
 use crate::openai::create_chat_completions::stream::{
     ChatCompletionChunk, ChatCompletionChunkChoice, ChatCompletionChunkDelta,
     ChatCompletionChunkDeltaToolCall, ChatCompletionChunkDeltaToolCallType,
@@ -10,7 +11,7 @@ use crate::openai::create_chat_completions::types as ct;
 use crate::openai::create_response::response::ResponseBody as OpenAiCreateResponseBody;
 use crate::openai::create_response::stream::{
     OpenAiCreateResponseSseData, OpenAiCreateResponseSseEvent, OpenAiCreateResponseSseStreamBody,
-    ResponseStreamEvent,
+    ResponseStreamEvent, ResponseStreamTokenLogprob,
 };
 use crate::openai::create_response::types as rt;
 
@@ -129,6 +130,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
         delta: ChatCompletionChunkDelta,
         finish_reason: Option<ct::ChatCompletionFinishReason>,
         usage: Option<ct::CompletionUsage>,
+        logprobs: Option<ct::ChatCompletionLogprobs>,
     ) -> OpenAiChatCompletionsSseEvent {
         OpenAiChatCompletionsSseEvent {
             event: None,
@@ -138,7 +140,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                     delta,
                     finish_reason,
                     index,
-                    logprobs: None,
+                    logprobs,
                 }],
                 created: self.created,
                 model: self.fallback_model(),
@@ -148,6 +150,79 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                 usage,
             }),
         }
+    }
+
+    fn map_output_text_annotation(annotation: serde_json::Value) -> Option<ct::ChatCompletionAnnotation> {
+        match serde_json::from_value::<ot::ResponseOutputTextAnnotation>(annotation).ok()? {
+            ot::ResponseOutputTextAnnotation::UrlCitation(citation) => {
+                Some(ct::ChatCompletionAnnotation {
+                    type_: ct::ChatCompletionAnnotationType::UrlCitation,
+                    url_citation: ct::ChatCompletionUrlCitation {
+                        start_index: citation.start_index,
+                        end_index: citation.end_index,
+                        title: citation.title,
+                        url: citation.url,
+                    },
+                })
+            }
+            ot::ResponseOutputTextAnnotation::FileCitation(_)
+            | ot::ResponseOutputTextAnnotation::ContainerFileCitation(_)
+            | ot::ResponseOutputTextAnnotation::FilePath(_) => None,
+        }
+    }
+
+    fn map_logprobs(
+        logprobs: Option<Vec<ResponseStreamTokenLogprob>>,
+    ) -> Option<ct::ChatCompletionLogprobs> {
+        let logprobs = logprobs?;
+        if logprobs.is_empty() {
+            return None;
+        }
+
+        let content = logprobs
+            .into_iter()
+            .map(|entry| ct::ChatCompletionTokenLogprob {
+                token: entry.token,
+                bytes: None,
+                logprob: entry.logprob,
+                top_logprobs: entry
+                    .top_logprobs
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|top| {
+                        Some(ct::ChatCompletionTopLogprob {
+                            token: top.token?,
+                            bytes: None,
+                            logprob: top.logprob.unwrap_or_default(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+            .collect::<Vec<_>>();
+
+        Some(ct::ChatCompletionLogprobs {
+            content: Some(content),
+            refusal: None,
+        })
+    }
+
+    fn emit_error_refusal(
+        &mut self,
+        text: String,
+        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
+    ) {
+        let choice_index = self.ensure_choice_index(0);
+        self.maybe_emit_role(out, choice_index);
+        out.push(self.chunk_event(
+            choice_index,
+            ChatCompletionChunkDelta {
+                refusal: Some(text),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        ));
     }
 
     fn ensure_choice_index(&mut self, output_index: u64) -> u32 {
@@ -167,6 +242,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                     role: Some(ct::ChatCompletionDeltaRole::Assistant),
                     ..Default::default()
                 },
+                None,
                 None,
                 None,
             ));
@@ -257,6 +333,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                         },
                         None,
                         None,
+                        None,
                     ));
                     if let Some(tool) = self.tool_states.get_mut(&state.call_id) {
                         tool.name_emitted = true;
@@ -282,6 +359,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                         },
                         None,
                         None,
+                        None,
                     ));
                     if let Some(tool) = self.tool_states.get_mut(&state.call_id) {
                         tool.name_emitted = true;
@@ -292,6 +370,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
             ResponseStreamEvent::OutputTextDelta {
                 output_index,
                 delta,
+                logprobs,
                 obfuscation,
                 ..
             } => {
@@ -306,7 +385,45 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                     },
                     None,
                     None,
+                    Self::map_logprobs(logprobs),
                 ));
+            }
+            ResponseStreamEvent::OutputTextDone {
+                output_index,
+                logprobs,
+                ..
+            } => {
+                if let Some(mapped_logprobs) = Self::map_logprobs(logprobs) {
+                    let choice_index = self.ensure_choice_index(output_index);
+                    self.maybe_emit_role(&mut out, choice_index);
+                    out.push(self.chunk_event(
+                        choice_index,
+                        Default::default(),
+                        None,
+                        None,
+                        Some(mapped_logprobs),
+                    ));
+                }
+            }
+            ResponseStreamEvent::OutputTextAnnotationAdded {
+                output_index,
+                annotation,
+                ..
+            } => {
+                if let Some(mapped_annotation) = Self::map_output_text_annotation(annotation) {
+                    let choice_index = self.ensure_choice_index(output_index);
+                    self.maybe_emit_role(&mut out, choice_index);
+                    out.push(self.chunk_event(
+                        choice_index,
+                        ChatCompletionChunkDelta {
+                            annotations: Some(vec![mapped_annotation]),
+                            ..Default::default()
+                        },
+                        None,
+                        None,
+                        None,
+                    ));
+                }
             }
             ResponseStreamEvent::RefusalDelta {
                 output_index,
@@ -323,6 +440,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                         obfuscation,
                         ..Default::default()
                     },
+                    None,
                     None,
                     None,
                 ));
@@ -349,6 +467,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                             }]),
                             ..Default::default()
                         },
+                        None,
                         None,
                         None,
                     ));
@@ -390,6 +509,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                                 default_reason.clone(),
                             )),
                             None,
+                            None,
                         ));
                     }
 
@@ -406,8 +526,19 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                     self.finished = true;
                 }
             }
-            ResponseStreamEvent::Error { .. } => {
+            ResponseStreamEvent::Error {
+                code,
+                message,
+                param,
+                ..
+            } => {
                 if !self.finished {
+                    let detail = if let Some(param) = param {
+                        format!("openai_response_error code={code} param={param} message={message}")
+                    } else {
+                        format!("openai_response_error code={code} message={message}")
+                    };
+                    self.emit_error_refusal(detail, &mut out);
                     out.push(OpenAiChatCompletionsSseEvent {
                         event: None,
                         data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
@@ -472,10 +603,13 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiChatCompletionsSseStre
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::openai::create_response::stream::ResponseStreamEvent;
+    use crate::openai::create_response::stream::{
+        ResponseStreamEvent, ResponseStreamTokenLogprob, ResponseStreamTopLogprob,
+    };
     use crate::transform::openai::stream_generate_content::openai_response::utils::{
         response_snapshot, response_usage_from_counts,
     };
+    use serde_json::json;
 
     #[test]
     fn response_stream_to_chat_stream_is_event_level() {
@@ -569,6 +703,143 @@ mod tests {
         assert!(matches!(
             converted.events[3].data,
             OpenAiChatCompletionsSseData::Done(_)
+        ));
+    }
+
+    #[test]
+    fn response_stream_maps_output_annotations_and_logprobs() {
+        let response_in_progress = response_snapshot(
+            "resp_annot",
+            "gpt-5",
+            Some(rt::ResponseStatus::InProgress),
+            None,
+            None,
+            None,
+            Some("hello".to_string()),
+        );
+        let response_done = response_snapshot(
+            "resp_annot",
+            "gpt-5",
+            Some(rt::ResponseStatus::Completed),
+            None,
+            None,
+            None,
+            Some("hello".to_string()),
+        );
+
+        let stream = OpenAiCreateResponseSseStreamBody {
+            events: vec![
+                OpenAiCreateResponseSseEvent {
+                    event: None,
+                    data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Created {
+                        response: response_in_progress,
+                        sequence_number: 0,
+                    }),
+                },
+                OpenAiCreateResponseSseEvent {
+                    event: None,
+                    data: OpenAiCreateResponseSseData::Event(
+                        ResponseStreamEvent::OutputTextDelta {
+                            content_index: 0,
+                            delta: "hello".to_string(),
+                            item_id: "msg_0".to_string(),
+                            logprobs: Some(vec![ResponseStreamTokenLogprob {
+                                token: "hello".to_string(),
+                                logprob: -0.12,
+                                top_logprobs: Some(vec![ResponseStreamTopLogprob {
+                                    token: Some("hello".to_string()),
+                                    logprob: Some(-0.12),
+                                }]),
+                            }]),
+                            output_index: 0,
+                            sequence_number: 1,
+                            obfuscation: None,
+                        },
+                    ),
+                },
+                OpenAiCreateResponseSseEvent {
+                    event: None,
+                    data: OpenAiCreateResponseSseData::Event(
+                        ResponseStreamEvent::OutputTextAnnotationAdded {
+                            annotation: json!({
+                                "type": "url_citation",
+                                "start_index": 0,
+                                "end_index": 5,
+                                "title": "https://example.com",
+                                "url": "https://example.com"
+                            }),
+                            annotation_index: 0,
+                            content_index: 0,
+                            item_id: "msg_0".to_string(),
+                            output_index: 0,
+                            sequence_number: 2,
+                        },
+                    ),
+                },
+                OpenAiCreateResponseSseEvent {
+                    event: None,
+                    data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Completed {
+                        response: response_done,
+                        sequence_number: 3,
+                    }),
+                },
+            ],
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+
+        let saw_logprobs = converted.events.iter().any(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => chunk
+                .choices
+                .first()
+                .and_then(|choice| choice.logprobs.as_ref())
+                .and_then(|logprobs| logprobs.content.as_ref())
+                .is_some_and(|content| !content.is_empty()),
+            OpenAiChatCompletionsSseData::Done(_) => false,
+        });
+        assert!(saw_logprobs);
+
+        let mapped_url = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => chunk
+                .choices
+                .first()
+                .and_then(|choice| choice.delta.annotations.as_ref())
+                .and_then(|annotations| annotations.first())
+                .map(|annotation| annotation.url_citation.url.clone()),
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+        assert_eq!(mapped_url.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn response_stream_error_emits_detail_before_done() {
+        let stream = OpenAiCreateResponseSseStreamBody {
+            events: vec![OpenAiCreateResponseSseEvent {
+                event: None,
+                data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error {
+                    code: "invalid_request_error".to_string(),
+                    message: "bad input".to_string(),
+                    param: Some("input".to_string()),
+                    sequence_number: 0,
+                }),
+            }],
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        let refusal_text = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                chunk.choices.first()?.delta.refusal.clone()
+            }
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+
+        let refusal_text = refusal_text.expect("expected refusal detail");
+        assert!(refusal_text.contains("invalid_request_error"));
+        assert!(refusal_text.contains("bad input"));
+        assert!(refusal_text.contains("param=input"));
+        assert!(matches!(
+            converted.events.last().map(|event| &event.data),
+            Some(OpenAiChatCompletionsSseData::Done(_))
         ));
     }
 }

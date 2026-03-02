@@ -69,6 +69,7 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiChatCompletionsSseStreamBo
                                         .map(ChatCompletionFunctionCallDelta::from),
                                     refusal: choice.message.refusal,
                                     role: Some(ct::ChatCompletionDeltaRole::Assistant),
+                                    annotations: choice.message.annotations,
                                     tool_calls,
                                     obfuscation: None,
                                 },

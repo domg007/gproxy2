@@ -16,7 +16,8 @@ use crate::openai::create_chat_completions::stream::{
 };
 use crate::openai::create_chat_completions::types as ct;
 use crate::transform::openai::generate_content::openai_chat_completions::gemini::utils::{
-    gemini_function_response_to_text, json_object_to_string, prompt_feedback_refusal_text,
+    gemini_citation_annotations, gemini_function_response_to_text, gemini_logprobs,
+    json_object_to_string, prompt_feedback_refusal_text,
 };
 use crate::transform::openai::model_list::gemini::utils::strip_models_prefix;
 use crate::transform::utils::TransformError;
@@ -41,6 +42,7 @@ pub struct GeminiToOpenAiChatCompletionsStream {
     output_tokens: u64,
     reasoning_tokens: u64,
     incomplete_finish_reason: Option<ct::ChatCompletionFinishReason>,
+    choice_finish_reasons: BTreeMap<u32, ct::ChatCompletionFinishReason>,
     output_choice_map: BTreeMap<u64, u32>,
     role_emitted: BTreeSet<u32>,
     choice_tool_counts: BTreeMap<u32, u32>,
@@ -103,6 +105,7 @@ impl GeminiToOpenAiChatCompletionsStream {
         delta: ChatCompletionChunkDelta,
         finish_reason: Option<ct::ChatCompletionFinishReason>,
         usage: Option<ct::CompletionUsage>,
+        logprobs: Option<ct::ChatCompletionLogprobs>,
     ) -> OpenAiChatCompletionsSseEvent {
         OpenAiChatCompletionsSseEvent {
             event: None,
@@ -112,7 +115,7 @@ impl GeminiToOpenAiChatCompletionsStream {
                     delta,
                     finish_reason,
                     index,
-                    logprobs: None,
+                    logprobs,
                 }],
                 created: self.created,
                 model: self.fallback_model(),
@@ -144,6 +147,7 @@ impl GeminiToOpenAiChatCompletionsStream {
                 },
                 None,
                 None,
+                None,
             ));
         }
     }
@@ -171,7 +175,53 @@ impl GeminiToOpenAiChatCompletionsStream {
             },
             None,
             None,
+            None,
         ));
+    }
+
+    fn emit_annotations(
+        &mut self,
+        output_index: u64,
+        annotations: Vec<ct::ChatCompletionAnnotation>,
+        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
+    ) {
+        if annotations.is_empty() {
+            return;
+        }
+
+        let choice_index = self.ensure_choice_index(output_index);
+        self.maybe_emit_role(out, choice_index);
+        out.push(self.chunk_event(
+            choice_index,
+            ChatCompletionChunkDelta {
+                annotations: Some(annotations),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        ));
+    }
+
+    fn emit_logprobs(
+        &mut self,
+        output_index: u64,
+        logprobs: ct::ChatCompletionLogprobs,
+        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
+    ) {
+        let choice_index = self.ensure_choice_index(output_index);
+        self.maybe_emit_role(out, choice_index);
+        out.push(self.chunk_event(
+            choice_index,
+            Default::default(),
+            None,
+            None,
+            Some(logprobs),
+        ));
+    }
+
+    fn emit_error_refusal(&mut self, text: String, out: &mut Vec<OpenAiChatCompletionsSseEvent>) {
+        self.emit_content(0, text, true, out);
     }
 
     fn emit_function_call_snapshot(
@@ -220,6 +270,7 @@ impl GeminiToOpenAiChatCompletionsStream {
                 },
                 None,
                 None,
+                None,
             ));
 
             if let Some(tool_state) = self.tool_states.get_mut(&call_id) {
@@ -262,6 +313,7 @@ impl GeminiToOpenAiChatCompletionsStream {
             },
             None,
             None,
+            None,
         ));
 
         if let Some(tool_state) = self.tool_states.get_mut(&call_id) {
@@ -283,6 +335,7 @@ impl GeminiToOpenAiChatCompletionsStream {
                     }]),
                     ..Default::default()
                 },
+                None,
                 None,
                 None,
             ));
@@ -310,9 +363,9 @@ impl GeminiToOpenAiChatCompletionsStream {
         }
     }
 
-    fn map_finish_reason(reason: &GeminiFinishReason) -> Option<ct::ChatCompletionFinishReason> {
+    fn map_finish_reason(reason: &GeminiFinishReason) -> ct::ChatCompletionFinishReason {
         match reason {
-            GeminiFinishReason::MaxTokens => Some(ct::ChatCompletionFinishReason::Length),
+            GeminiFinishReason::MaxTokens => ct::ChatCompletionFinishReason::Length,
             GeminiFinishReason::Safety
             | GeminiFinishReason::Recitation
             | GeminiFinishReason::Blocklist
@@ -321,9 +374,18 @@ impl GeminiToOpenAiChatCompletionsStream {
             | GeminiFinishReason::ImageSafety
             | GeminiFinishReason::ImageProhibitedContent
             | GeminiFinishReason::ImageRecitation => {
-                Some(ct::ChatCompletionFinishReason::ContentFilter)
+                ct::ChatCompletionFinishReason::ContentFilter
             }
-            _ => None,
+            GeminiFinishReason::MalformedFunctionCall
+            | GeminiFinishReason::UnexpectedToolCall
+            | GeminiFinishReason::TooManyToolCalls => ct::ChatCompletionFinishReason::ToolCalls,
+            GeminiFinishReason::Stop
+            | GeminiFinishReason::FinishReasonUnspecified
+            | GeminiFinishReason::Language
+            | GeminiFinishReason::Other
+            | GeminiFinishReason::ImageOther
+            | GeminiFinishReason::NoImage
+            | GeminiFinishReason::MissingThoughtSignature => ct::ChatCompletionFinishReason::Stop,
         }
     }
 
@@ -394,7 +456,17 @@ impl GeminiToOpenAiChatCompletionsStream {
         candidate: GeminiCandidate,
         out: &mut Vec<OpenAiChatCompletionsSseEvent>,
     ) {
-        if let Some(content) = candidate.content {
+        let choice_index = self.ensure_choice_index(output_index);
+        let GeminiCandidate {
+            content,
+            finish_reason,
+            citation_metadata,
+            logprobs_result,
+            finish_message,
+            ..
+        } = candidate;
+
+        if let Some(content) = content {
             for (part_index, part) in content.parts.into_iter().enumerate() {
                 if part.thought.unwrap_or(false) {
                     continue;
@@ -465,16 +537,22 @@ impl GeminiToOpenAiChatCompletionsStream {
             }
         }
 
-        if let Some(finish_message) = candidate.finish_message
+        if let Some(finish_message) = finish_message
             && !finish_message.is_empty()
         {
             self.emit_content(output_index, finish_message, false, out);
         }
 
-        if let Some(finish_reason) = candidate.finish_reason.as_ref()
-            && let Some(reason) = Self::map_finish_reason(finish_reason)
-        {
-            self.incomplete_finish_reason = Some(reason);
+        let annotations = gemini_citation_annotations(citation_metadata.as_ref());
+        self.emit_annotations(output_index, annotations, out);
+
+        if let Some(logprobs) = gemini_logprobs(logprobs_result.as_ref()) {
+            self.emit_logprobs(output_index, logprobs, out);
+        }
+
+        if let Some(finish_reason) = finish_reason.as_ref() {
+            self.choice_finish_reasons
+                .insert(choice_index, Self::map_finish_reason(finish_reason));
         }
     }
 
@@ -498,13 +576,10 @@ impl GeminiToOpenAiChatCompletionsStream {
         }
 
         let mut out = Vec::new();
-        let default_reason = self.incomplete_finish_reason.clone().unwrap_or_else(|| {
-            if self.choice_has_tool_calls.is_empty() {
-                ct::ChatCompletionFinishReason::Stop
-            } else {
-                ct::ChatCompletionFinishReason::ToolCalls
-            }
-        });
+        let default_reason = self
+            .incomplete_finish_reason
+            .clone()
+            .unwrap_or(ct::ChatCompletionFinishReason::Stop);
 
         let mut choices = self.output_choice_map.values().copied().collect::<Vec<_>>();
         choices.sort_unstable();
@@ -514,15 +589,23 @@ impl GeminiToOpenAiChatCompletionsStream {
         }
 
         for choice_index in &choices {
-            let finish_reason = if self.choice_has_tool_calls.contains(choice_index) {
-                ct::ChatCompletionFinishReason::ToolCalls
-            } else {
-                default_reason.clone()
-            };
+            let finish_reason = self
+                .choice_finish_reasons
+                .get(choice_index)
+                .cloned()
+                .or_else(|| {
+                    if self.choice_has_tool_calls.contains(choice_index) {
+                        Some(ct::ChatCompletionFinishReason::ToolCalls)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| default_reason.clone());
             out.push(self.chunk_event(
                 *choice_index,
                 Default::default(),
                 Some(finish_reason),
+                None,
                 None,
             ));
         }
@@ -560,12 +643,20 @@ impl TryFrom<GeminiStreamGenerateContentResponse> for OpenAiChatCompletionsSseSt
                     events.extend(converter.on_sse_event(event)?);
                 }
             }
-            GeminiStreamGenerateContentResponse::Error { .. } => {
-                converter.finished = true;
-                events.push(OpenAiChatCompletionsSseEvent {
-                    event: None,
-                    data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
-                });
+            GeminiStreamGenerateContentResponse::Error {
+                stats_code, body, ..
+            } => {
+                let status = body
+                    .error
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| stats_code.as_str().to_string());
+                let message = format!(
+                    "gemini_error status={status} code={} message={}",
+                    body.error.code, body.error.message
+                );
+                converter.emit_error_refusal(message, &mut events);
+                events.extend(converter.finish());
             }
         }
 
@@ -620,8 +711,10 @@ mod tests {
     use super::*;
     use crate::gemini::count_tokens::types::{GeminiContent, GeminiContentRole, GeminiPart};
     use crate::gemini::generate_content::types::{
-        GeminiCandidate, GeminiFinishReason, GeminiUsageMetadata,
+        GeminiCandidate, GeminiCitationMetadata, GeminiCitationSource, GeminiFinishReason,
+        GeminiLogprobsCandidate, GeminiLogprobsResult, GeminiTopCandidates, GeminiUsageMetadata,
     };
+    use crate::gemini::types::{GeminiApiError, GeminiApiErrorResponse, GeminiResponseHeaders};
     use crate::transform::gemini::stream_generate_content::utils::{chunk_event, done_event};
 
     #[test]
@@ -699,4 +792,183 @@ mod tests {
             OpenAiChatCompletionsSseData::Done(_)
         ));
     }
+
+    #[test]
+    fn gemini_stream_citation_maps_to_chat_annotations() {
+        let chunk = GeminiGenerateContentResponseBody {
+            candidates: Some(vec![GeminiCandidate {
+                content: Some(GeminiContent {
+                    parts: vec![GeminiPart {
+                        text: Some("hello".to_string()),
+                        ..GeminiPart::default()
+                    }],
+                    role: Some(GeminiContentRole::Model),
+                }),
+                citation_metadata: Some(GeminiCitationMetadata {
+                    citation_sources: Some(vec![GeminiCitationSource {
+                        start_index: Some(0),
+                        end_index: Some(5),
+                        uri: Some("https://example.com/doc".to_string()),
+                        license: None,
+                    }]),
+                }),
+                finish_reason: Some(GeminiFinishReason::Stop),
+                index: Some(0),
+                ..GeminiCandidate::default()
+            }]),
+            ..GeminiGenerateContentResponseBody::default()
+        };
+
+        let stream = GeminiStreamGenerateContentResponse::SseSuccess {
+            stats_code: http::StatusCode::OK,
+            headers: Default::default(),
+            body: GeminiSseStreamBody {
+                events: vec![chunk_event(chunk), done_event()],
+            },
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        let annotations = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                chunk.choices.first()?.delta.annotations.as_ref()
+            }
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+
+        let annotations = annotations.expect("expected annotations chunk");
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(
+            annotations[0].url_citation.url,
+            "https://example.com/doc".to_string()
+        );
+        assert_eq!(annotations[0].url_citation.start_index, 0);
+        assert_eq!(annotations[0].url_citation.end_index, 5);
+    }
+
+    #[test]
+    fn gemini_stream_logprobs_maps_to_chat_logprobs() {
+        let chunk = GeminiGenerateContentResponseBody {
+            candidates: Some(vec![GeminiCandidate {
+                content: Some(GeminiContent {
+                    parts: vec![GeminiPart {
+                        text: Some("h".to_string()),
+                        ..GeminiPart::default()
+                    }],
+                    role: Some(GeminiContentRole::Model),
+                }),
+                logprobs_result: Some(GeminiLogprobsResult {
+                    chosen_candidates: Some(vec![GeminiLogprobsCandidate {
+                        token: Some("h".to_string()),
+                        token_id: Some(1),
+                        log_probability: Some(-0.1),
+                    }]),
+                    top_candidates: Some(vec![GeminiTopCandidates {
+                        candidates: Some(vec![
+                            GeminiLogprobsCandidate {
+                                token: Some("h".to_string()),
+                                token_id: Some(1),
+                                log_probability: Some(-0.1),
+                            },
+                            GeminiLogprobsCandidate {
+                                token: Some("e".to_string()),
+                                token_id: Some(2),
+                                log_probability: Some(-0.4),
+                            },
+                        ]),
+                    }]),
+                    ..GeminiLogprobsResult::default()
+                }),
+                finish_reason: Some(GeminiFinishReason::Stop),
+                index: Some(0),
+                ..GeminiCandidate::default()
+            }]),
+            ..GeminiGenerateContentResponseBody::default()
+        };
+
+        let stream = GeminiStreamGenerateContentResponse::SseSuccess {
+            stats_code: http::StatusCode::OK,
+            headers: Default::default(),
+            body: GeminiSseStreamBody {
+                events: vec![chunk_event(chunk), done_event()],
+            },
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        let logprobs = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => chunk
+                .choices
+                .first()
+                .and_then(|choice| choice.logprobs.as_ref()),
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+
+        let logprobs = logprobs.expect("expected logprobs chunk");
+        let content = logprobs.content.as_ref().expect("expected content logprobs");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0].token, "h");
+        assert_eq!(content[0].top_logprobs.len(), 2);
+    }
+
+    #[test]
+    fn gemini_stream_unexpected_tool_call_maps_finish_reason_to_tool_calls() {
+        let chunk = GeminiGenerateContentResponseBody {
+            candidates: Some(vec![GeminiCandidate {
+                finish_reason: Some(GeminiFinishReason::UnexpectedToolCall),
+                index: Some(0),
+                ..GeminiCandidate::default()
+            }]),
+            ..GeminiGenerateContentResponseBody::default()
+        };
+
+        let stream = GeminiStreamGenerateContentResponse::SseSuccess {
+            stats_code: http::StatusCode::OK,
+            headers: Default::default(),
+            body: GeminiSseStreamBody {
+                events: vec![chunk_event(chunk), done_event()],
+            },
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        let finish_reason = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                chunk.choices.first().and_then(|choice| choice.finish_reason.clone())
+            }
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+
+        assert_eq!(finish_reason, Some(ct::ChatCompletionFinishReason::ToolCalls));
+    }
+
+    #[test]
+    fn gemini_error_stream_emits_error_details_before_done() {
+        let stream = GeminiStreamGenerateContentResponse::Error {
+            stats_code: http::StatusCode::BAD_REQUEST,
+            headers: GeminiResponseHeaders::default(),
+            body: GeminiApiErrorResponse {
+                error: GeminiApiError {
+                    code: 400,
+                    message: "bad prompt".to_string(),
+                    status: Some("INVALID_ARGUMENT".to_string()),
+                    details: None,
+                },
+            },
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        let refusal_text = converted.events.iter().find_map(|event| match &event.data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                chunk.choices.first()?.delta.refusal.clone()
+            }
+            OpenAiChatCompletionsSseData::Done(_) => None,
+        });
+
+        let refusal_text = refusal_text.expect("expected error refusal chunk");
+        assert!(refusal_text.contains("INVALID_ARGUMENT"));
+        assert!(refusal_text.contains("bad prompt"));
+        assert!(matches!(
+            converted.events.last().map(|event| &event.data),
+            Some(OpenAiChatCompletionsSseData::Done(_))
+        ));
+    }
+
 }

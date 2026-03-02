@@ -164,20 +164,6 @@ impl GeminiToClaudeStream {
                 let mut candidate_has_content = false;
                 if let Some(content) = candidate.content {
                     for (part_index, part) in content.parts.into_iter().enumerate() {
-                        if let Some(part_metadata) = part.part_metadata
-                            && let Ok(part_metadata_json) = serde_json::to_string(&part_metadata)
-                            && !part_metadata_json.is_empty()
-                        {
-                            candidate_has_content = true;
-                            chunk_has_content = true;
-                            self.emit_text_block(
-                                        &mut out,
-                                        format!(
-                                            "part_metadata({candidate_index}:{part_index}): {part_metadata_json}"
-                                        ),
-                                    );
-                        }
-
                         if part.thought.unwrap_or(false) {
                             if let Some(thinking) = part.text {
                                 candidate_has_content = true;
@@ -308,20 +294,6 @@ impl GeminiToClaudeStream {
                             } else {
                                 self.emit_text_block(&mut out, file_data.file_uri);
                             }
-                        }
-
-                        if let Some(video_metadata) = part.video_metadata
-                            && let Ok(video_metadata_json) = serde_json::to_string(&video_metadata)
-                            && !video_metadata_json.is_empty()
-                        {
-                            candidate_has_content = true;
-                            chunk_has_content = true;
-                            self.emit_text_block(
-                                        &mut out,
-                                        format!(
-                                            "video_metadata({candidate_index}:{part_index}): {video_metadata_json}"
-                                        ),
-                                    );
                         }
                     }
                 }
