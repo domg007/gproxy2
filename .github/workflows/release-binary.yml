@@ -351,6 +351,8 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
     needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: cloudflare
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -376,6 +378,10 @@ jobs:
 
       - name: Deploy docs to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PROJECT_ID: ${{ secrets.CLOUDFLARE_PROJECT_ID }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
