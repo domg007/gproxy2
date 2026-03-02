@@ -113,6 +113,37 @@ secret = "sk-replace-me"
 | Deepseek | `deepseek` | 否 | 否 | 是 |
 | Groq | `groq` | 否 | 否 | 是 |
 
+## Claude / ClaudeCode 顶层 cache_control 开关
+
+`claude` 与 `claudecode` 支持该配置项：
+
+- 配置键：`channels.settings.enable_top_level_cache_control`
+- 默认值：`false`
+- 行为：
+  - `true`：对 Claude 消息生成请求自动注入顶层 `"cache_control":{"type":"ephemeral"}`
+  - `false`：不做任何改写
+- 如果请求体已包含顶层 `cache_control`，gproxy 会保留原值
+
+示例：
+
+```toml
+[[channels]]
+id = "claude"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+
+[[channels]]
+id = "claudecode"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+```
+
 ## 自定义渠道配置示例（重点）
 
 ```toml

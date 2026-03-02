@@ -56,6 +56,8 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
+# Auto-inject top-level {"cache_control":{"type":"ephemeral"}} for /v1/messages requests.
+enable_top_level_cache_control = false
 
 [[channels.credentials]]
 id = "claude-main"
@@ -170,6 +172,8 @@ enabled = true
 base_url = "https://api.anthropic.com"
 claudecode_ai_base_url = "https://claude.ai"
 claudecode_platform_base_url = "https://platform.claude.com"
+# Auto-inject top-level {"cache_control":{"type":"ephemeral"}} for /v1/messages requests.
+enable_top_level_cache_control = false
 # Optional: set empty string to disable prelude injection.
 claudecode_prelude_text = ""
 

@@ -192,6 +192,36 @@ Each channel is declared with `[[channels]]`:
 - `dispatch`: optional; defaults to channel-specific dispatch table when omitted
 - `credentials`: credential list (supports multi-credential retry/fallback)
 
+### Claude/ClaudeCode Top-Level Cache Control
+
+For `claude` and `claudecode`, you can enable automatic top-level prompt caching injection:
+
+- setting key: `channels.settings.enable_top_level_cache_control`
+- default: `false`
+- when `true`: gproxy injects top-level `"cache_control":{"type":"ephemeral"}` for Claude `messages` requests
+- when `false`: gproxy does nothing
+- if request body already has top-level `cache_control`, gproxy keeps the original value
+
+Example:
+
+```toml
+[[channels]]
+id = "claude"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+
+[[channels]]
+id = "claudecode"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+```
+
 ### `channels.credentials`
 
 Each credential can include:
@@ -334,6 +364,92 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
   -d '{
     "contents":[{"role":"user","parts":[{"text":"hello"}]}]
   }'
+```
+
+### Claude/ClaudeCode Prompt Cache Quick Check (4 curls)
+
+Make sure `enable_top_level_cache_control = true` is set on both providers first.
+
+```bash
+BASE="http://127.0.0.1:8787"
+KEY="<your x-api-key>"
+SYS="$(for i in $(seq 1 1800); do printf 'cache-prefix-%04d ' "$i"; done)"
+```
+
+```bash
+# 1) Claude first request (cache write)
+curl -sS "$BASE/claude/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-neptune-v3",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "only reply: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 2) Claude second request (cache read)
+curl -sS "$BASE/claude/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-neptune-v3",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "only reply: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 3) ClaudeCode first request (cache write)
+curl -sS "$BASE/claudecode/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "only reply: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 4) ClaudeCode second request (cache read)
+curl -sS "$BASE/claudecode/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "only reply: cache-ok" }
+  ]
+}
+JSON
 ```
 
 ## Architecture

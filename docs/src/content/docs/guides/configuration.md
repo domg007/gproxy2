@@ -113,6 +113,37 @@ secret = "sk-replace-me"
 | Deepseek | `deepseek` | No | No | Yes |
 | Groq | `groq` | No | No | Yes |
 
+## Claude / ClaudeCode top-level cache control
+
+`claude` and `claudecode` support this settings flag:
+
+- key: `channels.settings.enable_top_level_cache_control`
+- default: `false`
+- effect:
+  - `true`: auto inject top-level `"cache_control":{"type":"ephemeral"}` for Claude message generation requests
+  - `false`: do nothing
+- if request already has top-level `cache_control`, gproxy preserves the original value
+
+Example:
+
+```toml
+[[channels]]
+id = "claude"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+
+[[channels]]
+id = "claudecode"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+```
+
 ## Custom channel example (key)
 
 ```toml

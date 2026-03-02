@@ -190,6 +190,36 @@ cargo run -p gproxy
 - `dispatch`: 可选；不填则用该通道默认 dispatch
 - `credentials`: 凭证列表（支持多凭证轮询/回退）
 
+### Claude/ClaudeCode 顶层 Cache Control 开关
+
+`claude` 与 `claudecode` 支持自动注入顶层缓存控制：
+
+- 配置键：`channels.settings.enable_top_level_cache_control`
+- 默认值：`false`
+- `true`：gproxy 会为 Claude `messages` 请求注入顶层 `"cache_control":{"type":"ephemeral"}`
+- `false`：gproxy 不做任何改写
+- 如果请求体本身已包含顶层 `cache_control`，gproxy 会保留原值
+
+示例：
+
+```toml
+[[channels]]
+id = "claude"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+
+[[channels]]
+id = "claudecode"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.anthropic.com"
+enable_top_level_cache_control = true
+```
+
 ### `channels.credentials`
 
 每个凭证可包含：
@@ -332,6 +362,92 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
   -d '{
     "contents":[{"role":"user","parts":[{"text":"hello"}]}]
   }'
+```
+
+### Claude/ClaudeCode Prompt Cache 快速验证（4 条 curl）
+
+先确认这两个 provider 都已设置 `enable_top_level_cache_control = true`。
+
+```bash
+BASE="http://127.0.0.1:8787"
+KEY="<你的 x-api-key>"
+SYS="$(for i in $(seq 1 1800); do printf 'cache-prefix-%04d ' "$i"; done)"
+```
+
+```bash
+# 1) Claude 第一次请求（写缓存）
+curl -sS "$BASE/claude/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-neptune-v3",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "只回复: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 2) Claude 第二次请求（读缓存）
+curl -sS "$BASE/claude/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-neptune-v3",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "只回复: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 3) ClaudeCode 第一次请求（写缓存）
+curl -sS "$BASE/claudecode/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "只回复: cache-ok" }
+  ]
+}
+JSON
+```
+
+```bash
+# 4) ClaudeCode 第二次请求（读缓存）
+curl -sS "$BASE/claudecode/v1/messages" \
+  -H "x-api-key: $KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  --data-binary @- <<JSON | jq '.usage'
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 128,
+  "stream": false,
+  "system": "$SYS",
+  "messages": [
+    { "role": "user", "content": "只回复: cache-ok" }
+  ]
+}
+JSON
 ```
 
 ## 架构总览
