@@ -73,7 +73,15 @@ pub async fn execute_claudecode_with_retry(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| CLAUDE_CODE_UA.to_string());
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        cache_affinity_hint_from_transform_request(request)
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared.body.as_deref(),
+                )
+            },
+        )
     } else {
         None
     };

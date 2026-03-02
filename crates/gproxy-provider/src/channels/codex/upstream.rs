@@ -74,7 +74,15 @@ pub async fn execute_codex_with_retry(
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), USER_AGENT_VALUE);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        cache_affinity_hint_from_transform_request(request)
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared.body.as_deref(),
+                )
+            },
+        )
     } else {
         None
     };

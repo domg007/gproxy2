@@ -81,8 +81,20 @@ pub async fn execute_geminicli_with_retry(
         .user_agent()
         .map(str::trim)
         .map(ToOwned::to_owned);
+    let affinity_body_template = prepared
+        .body
+        .as_ref()
+        .and_then(|body| serde_json::to_vec(body).ok());
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        cache_affinity_hint_from_transform_request(request)
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    affinity_body_template.as_deref(),
+                )
+            },
+        )
     } else {
         None
     };
