@@ -24,6 +24,7 @@ import {
   type WorkspaceTab,
   buildChannelSettingsJson,
   buildCredentialSecretJson,
+  credentialDefaultNameFromSecretValues,
   buildDispatchJson,
   createEmptyCredentialFormState,
   createDefaultDispatchRule,
@@ -354,13 +355,19 @@ export function ProvidersModule({
         selectedProvider.channel,
         credentialForm.secretValues
       );
+      const resolvedName =
+        credentialForm.name.trim() ||
+        credentialDefaultNameFromSecretValues(
+          selectedProvider.channel,
+          credentialForm.secretValues
+        );
       await apiRequest("/admin/credentials/upsert", {
         apiKey,
         method: "POST",
         body: {
           id,
           provider_id: selectedProvider.id,
-          name: credentialForm.name.trim() || null,
+          name: resolvedName,
           kind: currentCredentialSchema.kind,
           settings_json: credentialForm.settingsPayload
             ? JSON.stringify(credentialForm.settingsPayload)
@@ -376,7 +383,7 @@ export function ProvidersModule({
         const row: CredentialQueryRow = {
           id,
           provider_id: selectedProvider.id,
-          name: credentialForm.name.trim() || null,
+          name: resolvedName,
           kind: currentCredentialSchema.kind,
           settings_json: credentialForm.settingsPayload ?? null,
           secret_json: JSON.parse(secretJson) as Record<string, unknown>,
@@ -432,6 +439,12 @@ export function ProvidersModule({
           selectedProvider.channel,
           entry.secretValues
         );
+        const resolvedName =
+          entry.name?.trim() ||
+          credentialDefaultNameFromSecretValues(
+            selectedProvider.channel,
+            entry.secretValues
+          );
 
         await apiRequest("/admin/credentials/upsert", {
           apiKey,
@@ -439,7 +452,7 @@ export function ProvidersModule({
           body: {
             id,
             provider_id: selectedProvider.id,
-            name: entry.name?.trim() || null,
+            name: resolvedName,
             kind: currentCredentialSchema.kind,
             settings_json: entry.settingsPayload
               ? JSON.stringify(entry.settingsPayload)

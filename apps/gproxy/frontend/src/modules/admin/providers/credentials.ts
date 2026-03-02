@@ -123,6 +123,24 @@ function normalizeClaudeCodeCookie(raw: string): string {
   return unquoted;
 }
 
+function normalizedStringValue(
+  values: Record<string, CredentialFieldValue>,
+  key: string
+): string {
+  const value = values[key];
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+function firstChars(value: string, length: number): string {
+  if (!value) {
+    return "";
+  }
+  return value.slice(0, Math.max(1, length));
+}
+
 export function credentialSchemaForChannel(channel: string): ChannelCredentialSchema {
   const normalized = normalizeChannel(channel);
   const config = getChannelConfig(normalized) ?? getChannelConfig("custom");
@@ -221,4 +239,38 @@ export function buildCredentialSecretJson(
   }
 
   return JSON.stringify(encodeCredentialPayload(schema, payload));
+}
+
+export function credentialDefaultNameFromSecretValues(
+  channel: string,
+  values: Record<string, CredentialFieldValue>
+): string | null {
+  const normalizedChannel = normalizeChannel(channel);
+
+  const userEmail = normalizedStringValue(values, "user_email");
+  if (userEmail) {
+    return userEmail;
+  }
+
+  const apiKey = normalizedStringValue(values, "api_key");
+  if (apiKey) {
+    return firstChars(apiKey, 16);
+  }
+
+  if (normalizedChannel === "claudecode") {
+    const cookie = normalizedStringValue(values, "cookie");
+    if (cookie) {
+      return firstChars(normalizeClaudeCodeCookie(cookie), 12);
+    }
+  }
+
+  return null;
+}
+
+export function credentialDefaultNameFromSecretJson(
+  channel: string,
+  secretJson: Record<string, unknown>
+): string | null {
+  const values = secretValuesFromSecretJson(channel, secretJson);
+  return credentialDefaultNameFromSecretValues(channel, values);
 }

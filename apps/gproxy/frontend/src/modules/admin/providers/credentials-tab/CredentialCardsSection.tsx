@@ -6,7 +6,7 @@ import type {
 } from "../../../../lib/types";
 import { formatAtForViewer } from "../../../../lib/datetime";
 import { Button, Input, Label, TextArea } from "../../../../components/ui";
-import { formatUsagePercent } from "../index";
+import { credentialDefaultNameFromSecretJson, formatUsagePercent } from "../index";
 import type { LiveUsageRow, StatusFormState, UsageDisplayKind, UsageDisplayRow } from "../index";
 import type { CooldownItem, CredentialHealthKind, TranslateFn } from "./shared";
 
@@ -139,7 +139,9 @@ export function CredentialCardsSection({
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-text">
-                  {row.name ?? t("providers.credentialUnnamed")}
+                  {row.name ??
+                    credentialDefaultNameFromSecretJson(channel, row.secret_json) ??
+                    t("providers.credentialUnnamed")}
                 </div>
                 <div className="truncate text-xs text-muted">#{row.id}</div>
               </div>

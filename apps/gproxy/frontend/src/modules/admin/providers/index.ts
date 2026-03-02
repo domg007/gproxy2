@@ -2,6 +2,8 @@ import type { ProviderQueryRow } from "../../../lib/types";
 import { getChannelConfig } from "./channels/registry";
 import {
   buildCredentialSecretJson,
+  credentialDefaultNameFromSecretJson,
+  credentialDefaultNameFromSecretValues,
   createEmptyCredentialFormState,
   credentialFormFromRow,
   credentialSchemaForChannel,
@@ -75,6 +77,8 @@ export {
   PROTOCOL_OPTIONS,
   buildChannelSettingsJson,
   buildCredentialSecretJson,
+  credentialDefaultNameFromSecretJson,
+  credentialDefaultNameFromSecretValues,
   buildBulkExportText,
   buildDispatchJson,
   createEmptyCredentialFormState,
