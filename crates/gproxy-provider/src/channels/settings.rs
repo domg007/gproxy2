@@ -169,6 +169,18 @@ impl ChannelSettings {
         }
     }
 
+    pub fn enable_top_level_cache_control(&self) -> bool {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => {
+                value.enable_top_level_cache_control
+            }
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
+                value.enable_top_level_cache_control
+            }
+            _ => false,
+        }
+    }
+
     pub fn custom_mask_table(&self) -> Option<&custom::settings::CustomMaskTable> {
         match self {
             Self::Custom(value) => Some(&value.mask_table),

@@ -12,6 +12,8 @@ pub struct ClaudeCodeSettings {
     pub claude_ai_base_url: String,
     pub platform_base_url: String,
     pub prelude_text: Option<String>,
+    #[serde(default)]
+    pub enable_top_level_cache_control: bool,
 }
 
 impl Default for ClaudeCodeSettings {
@@ -22,6 +24,7 @@ impl Default for ClaudeCodeSettings {
             claude_ai_base_url: DEFAULT_CLAUDE_AI_BASE_URL.to_string(),
             platform_base_url: DEFAULT_PLATFORM_BASE_URL.to_string(),
             prelude_text: None,
+            enable_top_level_cache_control: false,
         }
     }
 }
@@ -38,6 +41,7 @@ impl ClaudeCodeSettings {
             claudecode_ai_base_url: Option<String>,
             claudecode_platform_base_url: Option<String>,
             claudecode_prelude_text: Option<String>,
+            enable_top_level_cache_control: bool,
         }
 
         let patch = serde_json::from_value::<ProviderSettingsPatch>(value.clone())?;
@@ -54,6 +58,7 @@ impl ClaudeCodeSettings {
         }
         settings.prelude_text =
             clean_opt(patch.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
+        settings.enable_top_level_cache_control = patch.enable_top_level_cache_control;
         Ok(settings)
     }
 }

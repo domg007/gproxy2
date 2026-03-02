@@ -1,3 +1,4 @@
+use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::retry::{
@@ -25,7 +26,10 @@ pub async fn execute_claude_with_retry(
     request: &gproxy_middleware::TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    let prepared = ClaudePreparedRequest::from_transform_request(request)?;
+    let prepared = ClaudePreparedRequest::from_transform_request(
+        request,
+        provider.settings.enable_top_level_cache_control(),
+    )?;
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -203,6 +207,7 @@ struct ClaudePreparedRequest {
 impl ClaudePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
+        enable_top_level_cache_control: bool,
     ) -> Result<Self, UpstreamError> {
         match request {
             gproxy_middleware::TransformRequest::ModelListClaude(value) => {
@@ -250,32 +255,46 @@ impl ClaudePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?,
             }),
-            gproxy_middleware::TransformRequest::GenerateContentClaude(value) => Ok(Self {
-                method: to_wreq_method(&value.method)?,
-                path: "/v1/messages".to_string(),
-                body: Some(
-                    serde_json::to_vec(&value.body)
-                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
-                ),
-                model: Some(claude_model_to_string(&value.body.model)?),
-                request_headers: anthropic_header_pairs(
-                    &value.headers.anthropic_version,
-                    value.headers.anthropic_beta.as_ref(),
-                )?,
-            }),
-            gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => Ok(Self {
-                method: to_wreq_method(&value.method)?,
-                path: "/v1/messages".to_string(),
-                body: Some(
-                    serde_json::to_vec(&value.body)
-                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
-                ),
-                model: Some(claude_model_to_string(&value.body.model)?),
-                request_headers: anthropic_header_pairs(
-                    &value.headers.anthropic_version,
-                    value.headers.anthropic_beta.as_ref(),
-                )?,
-            }),
+            gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
+                let mut body_json = serde_json::to_value(&value.body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if enable_top_level_cache_control {
+                    ensure_top_level_cache_control(&mut body_json);
+                }
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    path: "/v1/messages".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(claude_model_to_string(&value.body.model)?),
+                    request_headers: anthropic_header_pairs(
+                        &value.headers.anthropic_version,
+                        value.headers.anthropic_beta.as_ref(),
+                    )?,
+                })
+            }
+            gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
+                let mut body_json = serde_json::to_value(&value.body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if enable_top_level_cache_control {
+                    ensure_top_level_cache_control(&mut body_json);
+                }
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    path: "/v1/messages".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(claude_model_to_string(&value.body.model)?),
+                    request_headers: anthropic_header_pairs(
+                        &value.headers.anthropic_version,
+                        value.headers.anthropic_beta.as_ref(),
+                    )?,
+                })
+            }
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/models".to_string(),
@@ -329,4 +348,19 @@ impl ClaudePreparedRequest {
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
+}
+
+fn ensure_top_level_cache_control(body: &mut Value) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("cache_control") {
+        return;
+    }
+    map.insert(
+        "cache_control".to_string(),
+        json!({
+            "type": "ephemeral",
+        }),
+    );
 }

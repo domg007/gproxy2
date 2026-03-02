@@ -28,6 +28,7 @@ export function ConfigTab({
   showOAuthTriplet,
   showVertexOAuthToken,
   showClaudeCodeSettings,
+  showClaudeTopLevelCacheControl,
   showCustomMaskTable,
   addDispatchRule,
   updateDispatchRule,
@@ -44,6 +45,7 @@ export function ConfigTab({
   showOAuthTriplet: boolean;
   showVertexOAuthToken: boolean;
   showClaudeCodeSettings: boolean;
+  showClaudeTopLevelCacheControl: boolean;
   showCustomMaskTable: boolean;
   addDispatchRule: () => void;
   updateDispatchRule: (id: string, patch: Partial<Omit<DispatchRuleDraft, "id">>) => void;
@@ -158,6 +160,33 @@ export function ConfigTab({
             options={channelOptions}
           />
         </div>
+        {showClaudeTopLevelCacheControl ? (
+          <div>
+            <Label>{t("field.enable_top_level_cache_control")}</Label>
+            <Select
+              value={
+                (providerForm.settings.enable_top_level_cache_control ?? "false")
+                  .trim()
+                  .toLowerCase() === "true"
+                  ? "true"
+                  : "false"
+              }
+              onChange={(value) =>
+                setProviderForm((prev) => ({
+                  ...prev,
+                  settings: {
+                    ...prev.settings,
+                    enable_top_level_cache_control: value === "true" ? "true" : "false"
+                  }
+                }))
+              }
+              options={[
+                { value: "false", label: t("common.disabled") },
+                { value: "true", label: t("common.enabled") }
+              ]}
+            />
+          </div>
+        ) : null}
         <div>
           <Label>{t("field.credential_pick_mode")}</Label>
           <Select

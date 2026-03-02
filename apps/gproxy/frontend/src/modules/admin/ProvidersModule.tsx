@@ -169,6 +169,8 @@ export function ProvidersModule({
     providerFormChannel === "geminicli" || providerFormChannel === "antigravity";
   const showVertexOAuthToken = providerFormChannel === "vertex";
   const showClaudeCodeSettings = providerFormChannel === "claudecode";
+  const showClaudeTopLevelCacheControl =
+    providerFormChannel === "claude" || providerFormChannel === "claudecode";
   const showCustomMaskTable = isCustomChannel(providerFormChannel);
 
   const channelOptions = useMemo(() => {
@@ -748,6 +750,7 @@ export function ProvidersModule({
                   showOAuthTriplet={showOAuthTriplet}
                   showVertexOAuthToken={showVertexOAuthToken}
                   showClaudeCodeSettings={showClaudeCodeSettings}
+                  showClaudeTopLevelCacheControl={showClaudeTopLevelCacheControl}
                   showCustomMaskTable={showCustomMaskTable}
                   addDispatchRule={addDispatchRule}
                   updateDispatchRule={updateDispatchRule}

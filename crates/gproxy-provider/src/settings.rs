@@ -146,6 +146,14 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
     }
 
     match settings {
+        ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
+            if value.enable_top_level_cache_control {
+                root.insert(
+                    "enable_top_level_cache_control".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
+        }
         ChannelSettings::Builtin(BuiltinChannelSettings::Codex(value)) => {
             if let Some(url) = clean_opt(value.oauth_issuer_url.as_deref()) {
                 root.insert(
@@ -218,6 +226,12 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
+            if value.enable_top_level_cache_control {
+                root.insert(
+                    "enable_top_level_cache_control".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
         }
         ChannelSettings::Custom(value) => {
             if !value.mask_table.rules.is_empty()

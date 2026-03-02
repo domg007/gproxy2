@@ -298,6 +298,7 @@ export const zhMessages = {
     "field.oauth_authorize_url": "OAuth 授权 URL",
     "field.oauth_token_url": "OAuth Token URL",
     "field.oauth_userinfo_url": "OAuth 用户信息 URL",
+    "field.enable_top_level_cache_control": "启用顶层 cache_control",
     "field.credential_pick_mode": "凭证选择模式",
     "field.claudecode_ai_base_url": "ClaudeCode AI 基础 URL",
     "field.claudecode_platform_base_url": "ClaudeCode 平台基础 URL",

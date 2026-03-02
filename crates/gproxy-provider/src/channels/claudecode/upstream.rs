@@ -39,7 +39,11 @@ pub async fn execute_claudecode_with_retry(
         .claudecode_prelude_text()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let prepared = ClaudeCodePreparedRequest::from_transform_request(request, prelude_text)?;
+    let prepared = ClaudeCodePreparedRequest::from_transform_request(
+        request,
+        prelude_text,
+        provider.settings.enable_top_level_cache_control(),
+    )?;
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -797,6 +801,7 @@ impl ClaudeCodePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
         prelude_text: Option<&str>,
+        enable_top_level_cache_control: bool,
     ) -> Result<Self, UpstreamError> {
         match request {
             gproxy_middleware::TransformRequest::ModelListClaude(value) => {
@@ -882,6 +887,9 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                if enable_top_level_cache_control {
+                    ensure_top_level_cache_control(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -910,6 +918,9 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                if enable_top_level_cache_control {
+                    ensure_top_level_cache_control(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -1144,6 +1155,21 @@ fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
     if has_temperature && has_top_p && requires_claudecode_sampling_guard(model) {
         map.remove("top_p");
     }
+}
+
+fn ensure_top_level_cache_control(body: &mut Value) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("cache_control") {
+        return;
+    }
+    map.insert(
+        "cache_control".to_string(),
+        serde_json::json!({
+            "type": "ephemeral",
+        }),
+    );
 }
 
 fn requires_claudecode_sampling_guard(model: &str) -> bool {
