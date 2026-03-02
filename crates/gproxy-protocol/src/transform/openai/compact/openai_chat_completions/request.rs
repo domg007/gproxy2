@@ -54,6 +54,7 @@ impl TryFrom<OpenAiCompactRequest> for OpenAiChatCompletionsRequest {
                                 } else {
                                     Some(ct::ChatCompletionAssistantContent::Text(text))
                                 },
+                                reasoning_content: None,
                                 function_call: None,
                                 name: None,
                                 refusal: None,
@@ -111,6 +112,7 @@ impl TryFrom<OpenAiCompactRequest> for OpenAiChatCompletionsRequest {
                                     text_parts.join("\n"),
                                 ))
                             },
+                            reasoning_content: None,
                             function_call: None,
                             name: None,
                             refusal: if refusal_parts.is_empty() {
@@ -128,6 +130,7 @@ impl TryFrom<OpenAiCompactRequest> for OpenAiChatCompletionsRequest {
                             role: ct::ChatCompletionAssistantRole::Assistant,
                             audio: None,
                             content: None,
+                            reasoning_content: None,
                             function_call: None,
                             name: None,
                             refusal: None,
@@ -154,6 +157,7 @@ impl TryFrom<OpenAiCompactRequest> for OpenAiChatCompletionsRequest {
                             role: ct::ChatCompletionAssistantRole::Assistant,
                             audio: None,
                             content: None,
+                            reasoning_content: None,
                             function_call: None,
                             name: None,
                             refusal: None,
@@ -205,6 +209,7 @@ impl TryFrom<OpenAiCompactRequest> for OpenAiChatCompletionsRequest {
                                 role: ct::ChatCompletionAssistantRole::Assistant,
                                 audio: None,
                                 content: Some(ct::ChatCompletionAssistantContent::Text(text)),
+                                reasoning_content: None,
                                 function_call: None,
                                 name: None,
                                 refusal: None,

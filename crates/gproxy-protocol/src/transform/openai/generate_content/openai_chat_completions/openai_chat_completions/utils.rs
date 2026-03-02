@@ -229,6 +229,10 @@ pub fn chat_reasoning_to_response_reasoning(
     })
 }
 
+pub fn pseudo_reasoning_signature(message_index: usize, reasoning_ordinal: usize) -> String {
+    format!("gproxy_reasoning_{message_index}_{reasoning_ordinal}")
+}
+
 pub fn chat_response_text_config(
     response_format: Option<ct::ChatCompletionResponseFormat>,
     verbosity: Option<ct::ChatCompletionVerbosity>,
@@ -336,5 +340,28 @@ pub fn chat_stop_to_vec(stop: Option<ct::ChatCompletionStop>) -> Option<Vec<Stri
         Some(ct::ChatCompletionStop::Single(stop)) => Some(vec![stop]),
         Some(ct::ChatCompletionStop::Multiple(stops)) => Some(stops),
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pseudo_reasoning_signature;
+
+    #[test]
+    fn pseudo_reasoning_signature_is_stable_for_same_input() {
+        let first = pseudo_reasoning_signature(3, 2);
+        let second = pseudo_reasoning_signature(3, 2);
+        assert_eq!(first, second);
+        assert_eq!(first, "gproxy_reasoning_3_2");
+    }
+
+    #[test]
+    fn pseudo_reasoning_signature_is_unique_within_request_indices() {
+        let a = pseudo_reasoning_signature(0, 0);
+        let b = pseudo_reasoning_signature(0, 1);
+        let c = pseudo_reasoning_signature(1, 0);
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
     }
 }

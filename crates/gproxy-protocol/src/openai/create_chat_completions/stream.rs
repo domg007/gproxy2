@@ -78,6 +78,8 @@ pub struct ChatCompletionChunkDelta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function_call: Option<ChatCompletionFunctionCallDelta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
@@ -124,4 +126,23 @@ pub struct ChatCompletionChunkDeltaToolCall {
 pub enum ChatCompletionChunkDeltaToolCallType {
     #[serde(rename = "function")]
     Function,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunk_delta_reasoning_content_roundtrip() {
+        let delta = ChatCompletionChunkDelta {
+            reasoning_content: Some("reasoning text".to_string()),
+            ..ChatCompletionChunkDelta::default()
+        };
+
+        let value = serde_json::to_value(&delta).unwrap();
+        assert_eq!(value["reasoning_content"], "reasoning text");
+
+        let decoded: ChatCompletionChunkDelta = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.reasoning_content.as_deref(), Some("reasoning text"));
+    }
 }

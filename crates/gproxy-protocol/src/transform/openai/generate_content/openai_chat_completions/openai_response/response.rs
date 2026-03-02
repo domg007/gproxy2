@@ -112,6 +112,7 @@ impl TryFrom<OpenAiCreateResponseResponse> for OpenAiChatCompletionsResponse {
                                 } else {
                                     Some(content_parts.join("\n"))
                                 },
+                                reasoning_content: None,
                                 refusal: if refusal_parts.is_empty() {
                                     None
                                 } else {

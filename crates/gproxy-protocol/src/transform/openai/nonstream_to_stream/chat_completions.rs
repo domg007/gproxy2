@@ -63,6 +63,7 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiChatCompletionsSseStreamBo
                             choices: vec![ChatCompletionChunkChoice {
                                 delta: ChatCompletionChunkDelta {
                                     content: choice.message.content,
+                                    reasoning_content: choice.message.reasoning_content,
                                     function_call: choice
                                         .message
                                         .function_call
@@ -129,5 +130,60 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiChatCompletionsSseStreamBo
                 "cannot convert OpenAI chat error response to SSE stream body",
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::create_chat_completions::response::OpenAiChatCompletionsResponse;
+    use crate::openai::create_chat_completions::types as ct;
+    use crate::openai::types::OpenAiResponseHeaders;
+    use http::StatusCode;
+
+    #[test]
+    fn nonstream_to_stream_preserves_reasoning_content() {
+        let response = OpenAiChatCompletionsResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: OpenAiResponseHeaders::default(),
+            body: ct::ChatCompletion {
+                id: "chatcmpl_1".to_string(),
+                choices: vec![ct::ChatCompletionChoice {
+                    finish_reason: ct::ChatCompletionFinishReason::Stop,
+                    index: 0,
+                    logprobs: None,
+                    message: ct::ChatCompletionMessage {
+                        content: Some("final".to_string()),
+                        reasoning_content: Some("reasoning text".to_string()),
+                        refusal: None,
+                        role: ct::ChatCompletionAssistantRole::Assistant,
+                        annotations: None,
+                        audio: None,
+                        function_call: None,
+                        tool_calls: None,
+                    },
+                }],
+                created: 1,
+                model: "gpt-5".to_string(),
+                object: ct::ChatCompletionObject::ChatCompletion,
+                service_tier: None,
+                system_fingerprint: None,
+                usage: None,
+            },
+        };
+
+        let stream = OpenAiChatCompletionsSseStreamBody::try_from(response).unwrap();
+        let first_chunk = stream
+            .events
+            .iter()
+            .find_map(|event| match &event.data {
+                OpenAiChatCompletionsSseData::Chunk(chunk) => Some(chunk),
+                OpenAiChatCompletionsSseData::Done(_) => None,
+            })
+            .expect("first chunk");
+        assert_eq!(
+            first_chunk.choices[0].delta.reasoning_content.as_deref(),
+            Some("reasoning text")
+        );
     }
 }

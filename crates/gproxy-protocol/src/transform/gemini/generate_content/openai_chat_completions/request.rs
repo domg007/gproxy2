@@ -205,6 +205,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiChatCompletionsRequest {
                             } else {
                                 Some(ChatCompletionAssistantContent::Text(text_parts.join("\n")))
                             },
+                            reasoning_content: None,
                             function_call: None,
                             name: None,
                             refusal: None,

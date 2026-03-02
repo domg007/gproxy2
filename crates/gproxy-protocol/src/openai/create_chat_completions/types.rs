@@ -84,6 +84,8 @@ pub struct ChatCompletionAssistantMessageParam {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ChatCompletionAssistantContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function_call: Option<ChatCompletionFunctionCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -939,6 +941,8 @@ pub struct ChatCompletionMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
     pub role: ChatCompletionAssistantRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1064,6 +1068,51 @@ pub struct PromptTokensDetails {
     pub audio_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_tokens: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assistant_request_reasoning_content_roundtrip() {
+        let assistant = ChatCompletionAssistantMessageParam {
+            role: ChatCompletionAssistantRole::Assistant,
+            audio: None,
+            content: None,
+            reasoning_content: Some("reasoning text".to_string()),
+            function_call: None,
+            name: None,
+            refusal: None,
+            tool_calls: None,
+        };
+
+        let value = serde_json::to_value(&assistant).unwrap();
+        assert_eq!(value["reasoning_content"], "reasoning text");
+
+        let decoded: ChatCompletionAssistantMessageParam = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.reasoning_content.as_deref(), Some("reasoning text"));
+    }
+
+    #[test]
+    fn assistant_response_reasoning_content_roundtrip() {
+        let message = ChatCompletionMessage {
+            content: None,
+            reasoning_content: Some("reasoning text".to_string()),
+            refusal: None,
+            role: ChatCompletionAssistantRole::Assistant,
+            annotations: None,
+            audio: None,
+            function_call: None,
+            tool_calls: None,
+        };
+
+        let value = serde_json::to_value(&message).unwrap();
+        assert_eq!(value["reasoning_content"], "reasoning text");
+
+        let decoded: ChatCompletionMessage = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.reasoning_content.as_deref(), Some("reasoning text"));
+    }
 }
 
 /// Generic message role.

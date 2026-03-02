@@ -17,6 +17,7 @@ use crate::transform::openai::generate_content::openai_chat_completions::openai:
     chat_text_content_to_plain_text, chat_text_content_to_response_input_message_content,
     chat_tool_choice_to_response_tool_choice, chat_tools_to_response_tools,
     chat_user_content_to_response_input_message_content,
+    pseudo_reasoning_signature,
 };
 use crate::transform::utils::TransformError;
 
@@ -60,7 +61,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
         let mut system_parts = Vec::new();
         let mut seen_non_system = false;
 
-        for message in chat_messages {
+        for (message_index, message) in chat_messages.into_iter().enumerate() {
             match message {
                 oct::ChatCompletionMessageParam::Developer(message) => {
                     let content =
@@ -112,12 +113,24 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
                     seen_non_system = true;
                     let oct::ChatCompletionAssistantMessageParam {
                         content,
+                        reasoning_content,
                         refusal,
                         function_call,
                         tool_calls,
                         ..
                     } = message;
                     let mut parts = Vec::new();
+
+                    if let Some(reasoning_content) = reasoning_content
+                        && !reasoning_content.is_empty()
+                    {
+                        parts.push(gt::GeminiPart {
+                            thought: Some(true),
+                            thought_signature: Some(pseudo_reasoning_signature(message_index, 0)),
+                            text: Some(reasoning_content),
+                            ..gt::GeminiPart::default()
+                        });
+                    }
 
                     if let Some(content) = content {
                         match content {
@@ -372,5 +385,45 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
                 cached_content,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::create_chat_completions::request as oreq;
+
+    #[test]
+    fn chat_reasoning_content_maps_to_gemini_thought_part_with_pseudo_signature() {
+        let request = OpenAiChatCompletionsRequest {
+            method: oct::HttpMethod::Post,
+            path: oreq::PathParameters::default(),
+            query: oreq::QueryParameters::default(),
+            headers: oreq::RequestHeaders::default(),
+            body: oreq::RequestBody {
+                model: "gpt-5".to_string(),
+                messages: vec![oct::ChatCompletionMessageParam::Assistant(
+                    oct::ChatCompletionAssistantMessageParam {
+                        role: oct::ChatCompletionAssistantRole::Assistant,
+                        audio: None,
+                        content: None,
+                        reasoning_content: Some("reasoning text".to_string()),
+                        function_call: None,
+                        name: None,
+                        refusal: None,
+                        tool_calls: None,
+                    },
+                )],
+                ..oreq::RequestBody::default()
+            },
+        };
+
+        let converted = GeminiGenerateContentRequest::try_from(request).unwrap();
+        let content = converted.body.contents.first().expect("assistant content");
+        assert_eq!(content.role, Some(gt::GeminiContentRole::Model));
+        let part = content.parts.first().expect("first part");
+        assert_eq!(part.thought, Some(true));
+        assert_eq!(part.thought_signature.as_deref(), Some("gproxy_reasoning_0_0"));
+        assert_eq!(part.text.as_deref(), Some("reasoning text"));
     }
 }

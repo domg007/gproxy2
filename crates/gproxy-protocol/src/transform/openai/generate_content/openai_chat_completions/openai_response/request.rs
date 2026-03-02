@@ -13,6 +13,7 @@ use crate::transform::openai::generate_content::openai_chat_completions::openai:
     chat_text_content_to_plain_text, chat_text_content_to_response_input_message_content,
     chat_tool_choice_to_response_tool_choice, chat_tools_to_response_tools,
     chat_user_content_to_response_input_message_content,
+    pseudo_reasoning_signature,
 };
 use crate::transform::utils::TransformError;
 
@@ -86,9 +87,17 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                     }));
                 }
                 ct::ChatCompletionMessageParam::Assistant(message) => {
+                    let ct::ChatCompletionAssistantMessageParam {
+                        content,
+                        reasoning_content,
+                        function_call,
+                        refusal,
+                        tool_calls,
+                        ..
+                    } = message;
                     let mut output_content = Vec::new();
 
-                    if let Some(content) = message.content {
+                    if let Some(content) = content {
                         match content {
                             ct::ChatCompletionAssistantContent::Text(text) => {
                                 if !text.is_empty() {
@@ -137,7 +146,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                         }
                     }
 
-                    if let Some(refusal) = message.refusal
+                    if let Some(refusal) = refusal
                         && !refusal.is_empty()
                     {
                         output_content.push(ot::ResponseOutputContent::Refusal(
@@ -161,7 +170,28 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                         ));
                     }
 
-                    if let Some(function_call) = message.function_call {
+                    if let Some(reasoning_content) = reasoning_content
+                        && !reasoning_content.is_empty()
+                    {
+                        input_items.push(ot::ResponseInputItem::ReasoningItem(
+                            ot::ResponseReasoningItem {
+                                id: pseudo_reasoning_signature(index, 0),
+                                summary: vec![ot::ResponseSummaryTextContent {
+                                    text: reasoning_content.clone(),
+                                    type_: ot::ResponseSummaryTextContentType::SummaryText,
+                                }],
+                                type_: ot::ResponseReasoningItemType::Reasoning,
+                                content: Some(vec![ot::ResponseReasoningTextContent {
+                                    text: reasoning_content,
+                                    type_: ot::ResponseReasoningTextContentType::ReasoningText,
+                                }]),
+                                encrypted_content: None,
+                                status: None,
+                            },
+                        ));
+                    }
+
+                    if let Some(function_call) = function_call {
                         input_items.push(ot::ResponseInputItem::FunctionToolCall(
                             ot::ResponseFunctionToolCall {
                                 arguments: function_call.arguments,
@@ -174,7 +204,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                         ));
                     }
 
-                    if let Some(tool_calls) = message.tool_calls {
+                    if let Some(tool_calls) = tool_calls {
                         for call in tool_calls {
                             match call {
                                 ct::ChatCompletionMessageToolCall::Function(call) => {
@@ -295,5 +325,56 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                 user,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::create_chat_completions::request as oreq;
+
+    #[test]
+    fn chat_reasoning_content_maps_to_response_reasoning_item_with_pseudo_signature() {
+        let request = OpenAiChatCompletionsRequest {
+            method: ct::HttpMethod::Post,
+            path: oreq::PathParameters::default(),
+            query: oreq::QueryParameters::default(),
+            headers: oreq::RequestHeaders::default(),
+            body: oreq::RequestBody {
+                model: "gpt-5".to_string(),
+                messages: vec![ct::ChatCompletionMessageParam::Assistant(
+                    ct::ChatCompletionAssistantMessageParam {
+                        role: ct::ChatCompletionAssistantRole::Assistant,
+                        audio: None,
+                        content: None,
+                        reasoning_content: Some("reasoning text".to_string()),
+                        function_call: None,
+                        name: None,
+                        refusal: None,
+                        tool_calls: None,
+                    },
+                )],
+                ..oreq::RequestBody::default()
+            },
+        };
+
+        let converted = OpenAiCreateResponseRequest::try_from(request).unwrap();
+        let items = match converted.body.input {
+            Some(ot::ResponseInput::Items(items)) => items,
+            other => panic!("unexpected input: {other:?}"),
+        };
+
+        let reasoning = items
+            .into_iter()
+            .find_map(|item| match item {
+                ot::ResponseInputItem::ReasoningItem(reasoning) => Some(reasoning),
+                _ => None,
+            })
+            .expect("reasoning item");
+
+        assert_eq!(reasoning.id, "gproxy_reasoning_0_0");
+        assert_eq!(reasoning.summary.len(), 1);
+        assert_eq!(reasoning.summary[0].text, "reasoning text");
+        assert_eq!(reasoning.content.as_ref().map(|parts| parts.len()), Some(1));
     }
 }
