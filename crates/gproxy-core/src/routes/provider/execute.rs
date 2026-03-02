@@ -96,14 +96,19 @@ pub(super) fn wrap_stream_with_upstream_record(
 {
     let (tx, mut rx) = mpsc::channel::<Result<Bytes, MiddlewareTransformError>>(16);
     tokio::spawn(async move {
-        let usage_extracted = attach_usage_extractor(TransformResponsePayload::new(
-            context.request.operation(),
-            context.request.protocol(),
-            input,
-        ));
         let mut context = context;
-        context.stream_usage = Some(usage_extracted.usage.clone());
-        let mut input = usage_extracted.response.body;
+        let mut input = input;
+        if context.record_stream_usage_event {
+            let usage_extracted = attach_usage_extractor(TransformResponsePayload::new(
+                context.request.operation(),
+                context.request.protocol(),
+                input,
+            ));
+            context.stream_usage = Some(usage_extracted.usage.clone());
+            input = usage_extracted.response.body;
+        } else {
+            context.stream_usage = None;
+        }
         let recorder = UpstreamStreamRecordGuard::new(context);
         let mut downstream_closed = false;
         while let Some(item) = input.next().await {
@@ -146,19 +151,25 @@ pub(super) fn wrap_io_stream_with_upstream_record(
 > {
     let (tx, mut rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(16);
     tokio::spawn(async move {
-        let transformed_stream = input.map(|item| {
+        let mut input: std::pin::Pin<
+            Box<dyn Stream<Item = Result<Bytes, MiddlewareTransformError>> + Send + 'static>,
+        > = Box::pin(input.map(|item| {
             item.map_err(|err| MiddlewareTransformError::ProviderPrefix {
                 message: err.to_string(),
             })
-        });
-        let usage_extracted = attach_usage_extractor(TransformResponsePayload::new(
-            context.request.operation(),
-            context.request.protocol(),
-            Box::pin(transformed_stream),
-        ));
+        }));
         let mut context = context;
-        context.stream_usage = Some(usage_extracted.usage.clone());
-        let mut input = usage_extracted.response.body;
+        if context.record_stream_usage_event {
+            let usage_extracted = attach_usage_extractor(TransformResponsePayload::new(
+                context.request.operation(),
+                context.request.protocol(),
+                input,
+            ));
+            context.stream_usage = Some(usage_extracted.usage.clone());
+            input = usage_extracted.response.body;
+        } else {
+            context.stream_usage = None;
+        }
         let recorder = UpstreamStreamRecordGuard::new(context);
         let mut downstream_closed = false;
         while let Some(item) = input.next().await {
@@ -701,7 +712,7 @@ pub(super) async fn execute_transform_request(
             state.as_ref(),
             UpstreamAndUsageEventInput {
                 auth,
-                request: &downstream_request,
+                request: &upstream_request,
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.as_ref(),
@@ -732,13 +743,15 @@ pub(super) async fn execute_transform_request(
                     channel: channel.clone(),
                     provider: provider.clone(),
                     auth,
-                    request: downstream_request.clone(),
+                    request: upstream_request.clone(),
                     provider_id,
                     credential_id: upstream_credential_id,
                     request_meta: upstream_request_meta.clone(),
                     response_status: Some(response_status),
                     response_headers: response_headers.clone(),
                     stream_usage: None,
+                    record_upstream_event: true,
+                    record_stream_usage_event: true,
                 };
                 return upstream_response_to_axum_stream(
                     response,
@@ -825,6 +838,25 @@ pub(super) async fn execute_transform_request(
                 } else {
                     Box::pin(body_stream)
                 };
+                // Both upstream logs and usage capture are emitted after upstream normalization,
+                // but before cross-protocol transform.
+                let stream_record_context = UpstreamStreamRecordContext {
+                    state: state.clone(),
+                    channel: channel.clone(),
+                    provider: provider.clone(),
+                    auth,
+                    request: upstream_request.clone(),
+                    provider_id,
+                    credential_id: upstream_credential_id,
+                    request_meta: upstream_request_meta.clone(),
+                    response_status: Some(response_status),
+                    response_headers: response_headers.clone(),
+                    stream_usage: None,
+                    record_upstream_event: true,
+                    record_stream_usage_event: true,
+                };
+                let body_stream =
+                    wrap_stream_with_upstream_record(body_stream, stream_record_context);
                 gproxy_middleware::transform_response_payload(
                     TransformResponsePayload::new(
                         route.dst_operation,
@@ -858,7 +890,7 @@ pub(super) async fn execute_transform_request(
                     state.as_ref(),
                     UpstreamAndUsageEventInput {
                         auth,
-                        request: &downstream_request,
+                        request: &upstream_request,
                         provider_id,
                         credential_id: upstream_credential_id,
                         request_meta: upstream_request_meta.as_ref(),
@@ -883,26 +915,11 @@ pub(super) async fn execute_transform_request(
                 .await
                 .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?
             };
-            let stream_record_context = (route.dst_operation
-                == OperationFamily::StreamGenerateContent)
-                .then(|| UpstreamStreamRecordContext {
-                    state: state.clone(),
-                    channel: channel.clone(),
-                    provider: provider.clone(),
-                    auth,
-                    request: downstream_request.clone(),
-                    provider_id,
-                    credential_id: upstream_credential_id,
-                    request_meta: upstream_request_meta.clone(),
-                    response_status: Some(response_status),
-                    response_headers: response_headers.clone(),
-                    stream_usage: None,
-                });
             return transformed_payload_to_axum_response(
                 status,
                 headers,
                 transformed_payload,
-                stream_record_context,
+                None,
             )
             .await;
         }
@@ -914,13 +931,15 @@ pub(super) async fn execute_transform_request(
                 channel: channel.clone(),
                 provider: provider.clone(),
                 auth,
-                request: downstream_request.clone(),
+                request: upstream_request.clone(),
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.clone(),
                 response_status: Some(response_status),
                 response_headers: response_headers.clone(),
                 stream_usage: None,
+                record_upstream_event: true,
+                record_stream_usage_event: true,
             };
             return upstream_response_to_axum_stream(
                 response,
@@ -955,15 +974,15 @@ pub(super) async fn execute_transform_request(
             normalized_body.as_ref(),
         )?;
         let usage_source_response = decode_response_for_usage(
-            downstream_request.operation(),
-            downstream_request.protocol(),
+            upstream_request.operation(),
+            upstream_request.protocol(),
             encoded_for_usage.as_ref(),
         );
         enqueue_upstream_and_usage_event(
             state.as_ref(),
             UpstreamAndUsageEventInput {
                 auth,
-                request: &downstream_request,
+                request: &upstream_request,
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.as_ref(),
@@ -990,7 +1009,7 @@ pub(super) async fn execute_transform_request(
         state.as_ref(),
         UpstreamAndUsageEventInput {
             auth,
-            request: &downstream_request,
+            request: &upstream_request,
             provider_id,
             credential_id: upstream_credential_id,
             request_meta: upstream_request_meta.as_ref(),

@@ -121,6 +121,8 @@ struct UpstreamStreamRecordContext {
     response_status: Option<u16>,
     response_headers: Vec<(String, String)>,
     stream_usage: Option<gproxy_middleware::UsageHandle>,
+    record_upstream_event: bool,
+    record_stream_usage_event: bool,
 }
 
 #[derive(Default)]
@@ -176,26 +178,30 @@ impl UpstreamStreamRecordGuard {
     async fn flush_now(&self) {
         if let Some((context, response_body)) = self.take_flush_payload() {
             let response_body_for_usage = response_body.clone();
-            let stream_usage = context
-                .stream_usage
-                .as_ref()
-                .and_then(|handle| handle.latest());
-            enqueue_upstream_request_event_from_meta(
-                context.state.as_ref(),
-                context.provider_id,
-                context.credential_id,
-                context.request_meta.as_ref(),
-                context.response_status,
-                context.response_headers.as_slice(),
-                response_body,
-            )
-            .await;
-            enqueue_stream_usage_event_with_estimate(
-                &context,
-                response_body_for_usage.as_deref().unwrap_or(&[]),
-                stream_usage,
-            )
-            .await;
+            if context.record_upstream_event {
+                enqueue_upstream_request_event_from_meta(
+                    context.state.as_ref(),
+                    context.provider_id,
+                    context.credential_id,
+                    context.request_meta.as_ref(),
+                    context.response_status,
+                    context.response_headers.as_slice(),
+                    response_body,
+                )
+                .await;
+            }
+            if context.record_stream_usage_event {
+                let stream_usage = context
+                    .stream_usage
+                    .as_ref()
+                    .and_then(|handle| handle.latest());
+                enqueue_stream_usage_event_with_estimate(
+                    &context,
+                    response_body_for_usage.as_deref().unwrap_or(&[]),
+                    stream_usage,
+                )
+                .await;
+            }
         }
     }
 }
@@ -210,26 +216,30 @@ impl Drop for UpstreamStreamRecordGuard {
         };
         handle.spawn(async move {
             let response_body_for_usage = response_body.clone();
-            let stream_usage = context
-                .stream_usage
-                .as_ref()
-                .and_then(|handle| handle.latest());
-            enqueue_upstream_request_event_from_meta(
-                context.state.as_ref(),
-                context.provider_id,
-                context.credential_id,
-                context.request_meta.as_ref(),
-                context.response_status,
-                context.response_headers.as_slice(),
-                response_body,
-            )
-            .await;
-            enqueue_stream_usage_event_with_estimate(
-                &context,
-                response_body_for_usage.as_deref().unwrap_or(&[]),
-                stream_usage,
-            )
-            .await;
+            if context.record_upstream_event {
+                enqueue_upstream_request_event_from_meta(
+                    context.state.as_ref(),
+                    context.provider_id,
+                    context.credential_id,
+                    context.request_meta.as_ref(),
+                    context.response_status,
+                    context.response_headers.as_slice(),
+                    response_body,
+                )
+                .await;
+            }
+            if context.record_stream_usage_event {
+                let stream_usage = context
+                    .stream_usage
+                    .as_ref()
+                    .and_then(|handle| handle.latest());
+                enqueue_stream_usage_event_with_estimate(
+                    &context,
+                    response_body_for_usage.as_deref().unwrap_or(&[]),
+                    stream_usage,
+                )
+                .await;
+            }
         });
     }
 }
