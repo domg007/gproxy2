@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 
 import { LoginView } from "../components/LoginView";
 import { Nav, type NavItem } from "../components/Nav";
@@ -20,6 +27,9 @@ import { useI18n } from "./i18n";
 
 const API_KEY_STORAGE_KEY = "gproxy_api_key";
 const ROLE_STORAGE_KEY = "gproxy_role";
+const THEME_FAB_POSITION_STORAGE_KEY = "gproxy_theme_fab_position";
+const THEME_FAB_SIZE_PX = 48;
+const THEME_FAB_MARGIN_PX = 12;
 
 const ADMIN_NAV_IDS = [
   "global-settings",
@@ -39,8 +49,78 @@ type LoginResponse = {
   api_key: string;
 };
 
+type ThemeFabPosition = {
+  x: number;
+  y: number;
+};
+
+type ThemeFabDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  dragged: boolean;
+};
+
 function defaultModule(role: UserRole): string {
   return role === "admin" ? "providers" : USER_NAV_IDS[0];
+}
+
+function defaultThemeFabPosition(): ThemeFabPosition {
+  if (typeof window === "undefined") {
+    return { x: THEME_FAB_MARGIN_PX, y: THEME_FAB_MARGIN_PX };
+  }
+  return {
+    x: window.innerWidth - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX,
+    y: window.innerHeight - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX
+  };
+}
+
+function clampThemeFabPosition(position: ThemeFabPosition): ThemeFabPosition {
+  if (typeof window === "undefined") {
+    return position;
+  }
+  const maxX = Math.max(
+    THEME_FAB_MARGIN_PX,
+    window.innerWidth - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX
+  );
+  const maxY = Math.max(
+    THEME_FAB_MARGIN_PX,
+    window.innerHeight - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX
+  );
+  return {
+    x: Math.min(Math.max(THEME_FAB_MARGIN_PX, position.x), maxX),
+    y: Math.min(Math.max(THEME_FAB_MARGIN_PX, position.y), maxY)
+  };
+}
+
+function readThemeFabPosition(): ThemeFabPosition {
+  if (typeof window === "undefined") {
+    return defaultThemeFabPosition();
+  }
+  try {
+    const raw = localStorage.getItem(THEME_FAB_POSITION_STORAGE_KEY);
+    if (!raw) {
+      return defaultThemeFabPosition();
+    }
+    const parsed = JSON.parse(raw) as Partial<ThemeFabPosition>;
+    const x = typeof parsed.x === "number" ? parsed.x : NaN;
+    const y = typeof parsed.y === "number" ? parsed.y : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return defaultThemeFabPosition();
+    }
+    return clampThemeFabPosition({ x, y });
+  } catch {
+    return defaultThemeFabPosition();
+  }
+}
+
+function persistThemeFabPosition(position: ThemeFabPosition): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.setItem(THEME_FAB_POSITION_STORAGE_KEY, JSON.stringify(position));
 }
 
 function parseHashRoute(hash: string): { role: UserRole; module: string } | null {
@@ -83,8 +163,12 @@ export function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme());
+  const [themeFabPosition, setThemeFabPosition] = useState<ThemeFabPosition>(() =>
+    readThemeFabPosition()
+  );
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const themeFabDragRef = useRef<ThemeFabDragState | null>(null);
 
   const adminNavItems = useMemo<NavItem[]>(
     () => [
@@ -133,6 +217,18 @@ export function App() {
     applyTheme(themeMode);
     persistTheme(themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    persistThemeFabPosition(themeFabPosition);
+  }, [themeFabPosition]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setThemeFabPosition((prev) => clampThemeFabPosition(prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (themeMode !== "system") {
@@ -310,6 +406,57 @@ export function App() {
     setThemeMode((prev) => (prev === "dark" ? "light" : "dark"));
   };
   const isDarkTheme = themeMode === "dark";
+  const onThemeFabPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    themeFabDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: themeFabPosition.x,
+      originY: themeFabPosition.y,
+      dragged: false
+    };
+  };
+  const onThemeFabPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = themeFabDragRef.current;
+    if (!state || state.pointerId !== event.pointerId) {
+      return;
+    }
+    const dx = event.clientX - state.startX;
+    const dy = event.clientY - state.startY;
+    if (!state.dragged && Math.abs(dx) + Math.abs(dy) >= 4) {
+      state.dragged = true;
+    }
+    if (!state.dragged) {
+      return;
+    }
+    setThemeFabPosition(
+      clampThemeFabPosition({
+        x: state.originX + dx,
+        y: state.originY + dy
+      })
+    );
+  };
+  const finishThemeFabPointer = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    cancelled: boolean
+  ) => {
+    const state = themeFabDragRef.current;
+    if (!state || state.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    themeFabDragRef.current = null;
+    if (!cancelled && !state.dragged) {
+      toggleTheme();
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -343,29 +490,6 @@ export function App() {
                   EN
                 </button>
               </div>
-              <button
-                type="button"
-                className="topbar-theme-toggle"
-                onClick={toggleTheme}
-                aria-label={t("app.theme.toggle")}
-                title={t("app.theme.toggle")}
-              >
-                {isDarkTheme ? (
-                  <svg viewBox="0 0 24 24" className="topbar-theme-icon" aria-hidden="true">
-                    <path
-                      fill="currentColor"
-                      d="M21.64 13a1 1 0 0 0-1.06-.57 8 8 0 0 1-9-9 1 1 0 0 0-1.63-.93A10 10 0 1 0 22.5 14.67a1 1 0 0 0-.86-1.67z"
-                    />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" className="topbar-theme-icon" aria-hidden="true">
-                    <path
-                      fill="currentColor"
-                      d="M12 4a1 1 0 0 1 1 1v1.35a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm8-5a1 1 0 1 1 0 2h-1.35a1 1 0 1 1 0-2zM6.35 12a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2zm10.27 5.66a1 1 0 0 1 1.42 0l.95.96a1 1 0 1 1-1.41 1.41l-.96-.95a1 1 0 0 1 0-1.42zM5.04 6.45a1 1 0 0 1 1.41 0l.96.95A1 1 0 0 1 6 8.82l-.95-.96a1 1 0 0 1 0-1.41zm13.95 0a1 1 0 0 1 0 1.41l-.95.96a1 1 0 1 1-1.42-1.42l.96-.95a1 1 0 0 1 1.41 0zM7.41 16.59a1 1 0 0 1 0 1.42l-.96.95a1 1 0 0 1-1.41-1.41l.95-.96a1 1 0 0 1 1.42 0z"
-                    />
-                  </svg>
-                )}
-              </button>
             </div>
             <Button variant="neutral" onClick={onLogout}>
               {t("app.logout")}
@@ -385,6 +509,33 @@ export function App() {
         />
         <section className="content-shell">{content}</section>
       </main>
+      <button
+        type="button"
+        className="theme-fab"
+        style={{ left: themeFabPosition.x, top: themeFabPosition.y }}
+        onPointerDown={onThemeFabPointerDown}
+        onPointerMove={onThemeFabPointerMove}
+        onPointerUp={(event) => finishThemeFabPointer(event, false)}
+        onPointerCancel={(event) => finishThemeFabPointer(event, true)}
+        aria-label={t("app.theme.toggle")}
+        title={t("app.theme.toggle")}
+      >
+        {isDarkTheme ? (
+          <svg viewBox="0 0 24 24" className="theme-fab-icon" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M21.64 13a1 1 0 0 0-1.06-.57 8 8 0 0 1-9-9 1 1 0 0 0-1.63-.93A10 10 0 1 0 22.5 14.67a1 1 0 0 0-.86-1.67z"
+            />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" className="theme-fab-icon" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 4a1 1 0 0 1 1 1v1.35a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm8-5a1 1 0 1 1 0 2h-1.35a1 1 0 1 1 0-2zM6.35 12a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2zm10.27 5.66a1 1 0 0 1 1.42 0l.95.96a1 1 0 1 1-1.41 1.41l-.96-.95a1 1 0 0 1 0-1.42zM5.04 6.45a1 1 0 0 1 1.41 0l.96.95A1 1 0 0 1 6 8.82l-.95-.96a1 1 0 0 1 0-1.41zm13.95 0a1 1 0 0 1 0 1.41l-.95.96a1 1 0 1 1-1.42-1.42l.96-.95a1 1 0 0 1 1.41 0zM7.41 16.59a1 1 0 0 1 0 1.42l-.96.95a1 1 0 0 1-1.41-1.41l.95-.96a1 1 0 0 1 1.42 0z"
+            />
+          </svg>
+        )}
+      </button>
       <Toast toast={toast} />
     </div>
   );

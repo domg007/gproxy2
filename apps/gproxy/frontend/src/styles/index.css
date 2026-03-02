@@ -137,28 +137,37 @@ body {
   color: var(--text);
 }
 
-.topbar-theme-toggle {
+.theme-fab {
+  position: fixed;
+  z-index: 45;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 3rem;
+  height: 3rem;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
-  border-radius: 0.72rem;
-  background: color-mix(in srgb, var(--bg-surface-strong) 92%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface-strong) 94%, transparent);
   color: var(--muted);
-  cursor: pointer;
-  transition: all 0.16s ease;
+  box-shadow: var(--shadow-soft);
+  cursor: grab;
+  touch-action: none;
+  transition: color 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
 }
 
-.topbar-theme-toggle:hover {
+.theme-fab:hover {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 
-.topbar-theme-icon {
-  width: 1rem;
-  height: 1rem;
+.theme-fab:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+.theme-fab-icon {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .layout-shell {
