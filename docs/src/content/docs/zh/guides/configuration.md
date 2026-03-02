@@ -16,6 +16,10 @@ description: 多数据库、原生渠道、自定义渠道与 dispatch 转换配
 
 `CLI 参数 / 环境变量 > gproxy.toml > 默认值`
 
+说明：
+
+- 数据库已初始化后，默认优先数据库状态（除非通过下方启动开关强制按配置文件覆盖）。
+
 常用覆盖项：
 
 - `--config` / `GPROXY_CONFIG_PATH`
@@ -23,9 +27,26 @@ description: 多数据库、原生渠道、自定义渠道与 dispatch 转换配
 - `--port` / `GPROXY_PORT`
 - `--proxy` / `GPROXY_PROXY`
 - `--admin-key` / `GPROXY_ADMIN_KEY`
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
+
+## 启动数据来源模式
+
+启动期开关（仅 CLI/ENV，非 `gproxy.toml` 字段）：
+
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
+
+行为：
+
+- 默认（`false` 或未设置）：
+  - 若数据库未初始化，按 `gproxy.toml` 引导；
+  - 若数据库已初始化，优先数据库状态，并跳过配置文件中的渠道/provider 导入；
+  - 启动时提供的 `admin_key` 覆盖仍生效。
+- `true`：
+  - 启动时强制应用配置文件中的 channels/settings/credentials/global；
+  - 适用于明确要用配置文件覆盖现有数据库引导状态的场景。
 
 ## 多数据库支持（重点）
 

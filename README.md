@@ -290,12 +290,25 @@ Supported overrides:
 - `--port` / `GPROXY_PORT`
 - `--proxy` / `GPROXY_PROXY`
 - `--admin-key` / `GPROXY_ADMIN_KEY`
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
 - `--storage-write-queue-capacity` / `GPROXY_STORAGE_WRITE_QUEUE_CAPACITY`
 - `--storage-write-max-batch-size` / `GPROXY_STORAGE_WRITE_MAX_BATCH_SIZE`
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
+
+### Bootstrap Source Mode
+
+`--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG` is a startup-only switch (CLI/env only, not a `gproxy.toml` field).
+
+- default (`false` or unset):
+  - if DB is not initialized, bootstrap from `gproxy.toml` as usual.
+  - if DB is already initialized, prefer DB state and skip config-file channel/provider import.
+  - startup `admin_key` override is still honored.
+- `true`:
+  - force apply config-file channels/settings/credentials/global values on boot.
+  - this mode is useful when you intentionally want config file to overwrite existing DB bootstrap state.
 
 ## API Overview
 
@@ -512,6 +525,7 @@ JSON
 
 - On bootstrap:
   - load config and apply CLI/env overrides
+  - choose bootstrap source mode (`bootstrap_force_config`): prefer DB state by default once initialized
   - connect database and sync schema automatically
   - initialize provider registry, credentials, and credential states
   - ensure admin principal (`id=0`) and admin key exist

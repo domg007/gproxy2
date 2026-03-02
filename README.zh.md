@@ -288,12 +288,25 @@ https://gproxy-docs.leenhawk.com/zh/guides/credential-selection-cache-affinity/
 - `--port` / `GPROXY_PORT`
 - `--proxy` / `GPROXY_PROXY`
 - `--admin-key` / `GPROXY_ADMIN_KEY`
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
 - `--storage-write-queue-capacity` / `GPROXY_STORAGE_WRITE_QUEUE_CAPACITY`
 - `--storage-write-max-batch-size` / `GPROXY_STORAGE_WRITE_MAX_BATCH_SIZE`
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
+
+### 启动数据来源模式
+
+`--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG` 是启动期开关（仅 CLI/ENV，非 `gproxy.toml` 字段）。
+
+- 默认（`false` 或未设置）：
+  - 若数据库未初始化，按 `gproxy.toml` 正常引导；
+  - 若数据库已初始化，优先使用数据库状态，并跳过配置文件中的渠道/provider 导入；
+  - 启动时传入的 `admin_key` 覆盖仍然生效。
+- `true`：
+  - 启动时强制应用配置文件中的 channels/settings/credentials/global；
+  - 适用于你明确希望用配置文件覆盖已存在数据库引导状态的场景。
 
 ## API 概览
 
@@ -510,6 +523,7 @@ JSON
 
 - 启动时：
   - 加载配置并应用 CLI/ENV 覆盖
+  - 依据 `bootstrap_force_config` 选择引导来源：数据库初始化后默认优先数据库
   - 建立数据库连接并自动 schema sync
   - 初始化 provider registry、凭证与状态
   - 确保 admin 用户（`id=0`）和 admin key 存在

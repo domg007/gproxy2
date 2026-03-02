@@ -44,4 +44,9 @@ pub struct CliArgs {
 
     #[arg(long, env = "GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS")]
     pub storage_write_aggregate_window_ms: Option<u64>,
+
+    /// When true, always apply config-file channels/settings/credentials on boot.
+    /// When false or unset, existing DB state is preferred once DB is initialized.
+    #[arg(long, env = "GPROXY_BOOTSTRAP_FORCE_CONFIG")]
+    pub bootstrap_force_config: Option<bool>,
 }

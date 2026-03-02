@@ -16,8 +16,8 @@ use gproxy_provider::{
     parse_provider_settings_value_for_channel,
 };
 use gproxy_storage::{
-    Scope, SeaOrmStorage, StorageWriteSinkError, StorageWriteWorkerConfig, UserKeyQuery, UserQuery,
-    spawn_storage_write_worker, storage_write_channel,
+    ProviderQuery, Scope, SeaOrmStorage, StorageWriteSinkError, StorageWriteWorkerConfig,
+    UserKeyQuery, UserQuery, spawn_storage_write_worker, storage_write_channel,
 };
 
 use crate::bootstrap::cli::CliArgs;
@@ -83,6 +83,30 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
     );
     storage.sync().await.context("sync storage schema")?;
 
+    let bootstrap_force_config = args.bootstrap_force_config.unwrap_or(false);
+    let should_prefer_storage = !bootstrap_force_config
+        && storage_has_bootstrap_state(storage.as_ref())
+            .await
+            .context("check bootstrap storage state")?;
+    if should_prefer_storage {
+        if let Some(stored_global) = storage
+            .get_global_settings()
+            .await
+            .context("load global settings from storage")?
+        {
+            let admin_key_override = config
+                .global
+                .admin_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            global = merge_global_settings_from_storage(global, &stored_global, admin_key_override);
+        }
+        eprintln!(
+            "bootstrap: storage is initialized; skip config-file channel/provider import (except admin_key override)"
+        );
+    }
+
     let (write_tx, write_rx) = storage_write_channel(config.runtime.storage_write_queue_capacity);
     let write_worker = spawn_storage_write_worker(
         storage.clone(),
@@ -95,7 +119,12 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
         },
     );
 
-    let mut registry = build_provider_registry(&config);
+    let mut config_for_providers = config.clone();
+    if should_prefer_storage {
+        config_for_providers.channels.clear();
+    }
+
+    let mut registry = build_provider_registry(&config_for_providers);
     let provider_ids = seed_registry_providers(&storage, &mut registry)
         .await
         .context("seed provider registry into storage")?;
@@ -216,6 +245,45 @@ fn merge_global_settings(config: &BootstrapConfig) -> GlobalSettings {
         global.dsn = dsn.clone();
     }
     global
+}
+
+fn merge_global_settings_from_storage(
+    mut current: GlobalSettings,
+    row: &gproxy_storage::GlobalSettingsRow,
+    admin_key_override: Option<&str>,
+) -> GlobalSettings {
+    current.host = row.host.clone();
+    current.port = u16::try_from(row.port).unwrap_or(current.port);
+    current.proxy = row.proxy.clone();
+    current.spoof_emulation = normalize_spoof_emulation(row.spoof_emulation.as_deref());
+    current.hf_token = row.hf_token.clone();
+    current.hf_url = row.hf_url.clone();
+    current.mask_sensitive_info = row.mask_sensitive_info;
+    current.admin_key = admin_key_override
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| row.admin_key.clone());
+    current
+}
+
+async fn storage_has_bootstrap_state(storage: &SeaOrmStorage) -> Result<bool> {
+    let providers = storage
+        .list_providers(&ProviderQuery {
+            channel: Scope::All,
+            name: Scope::All,
+            enabled: Scope::All,
+            limit: Some(1),
+        })
+        .await
+        .context("list providers for bootstrap state check")?;
+    if !providers.is_empty() {
+        return Ok(true);
+    }
+
+    Ok(storage
+        .get_global_settings()
+        .await
+        .context("load global settings for bootstrap state check")?
+        .is_some())
 }
 
 fn apply_cli_env_overrides(config: &mut BootstrapConfig, args: &CliArgs) {

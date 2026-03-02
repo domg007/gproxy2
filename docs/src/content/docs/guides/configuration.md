@@ -16,6 +16,10 @@ Runtime priority:
 
 `CLI args / env vars > gproxy.toml > defaults`
 
+Note:
+
+- Once DB is already initialized, bootstrap prefers DB state by default (unless forced by startup switch below).
+
 Common overrides:
 
 - `--config` / `GPROXY_CONFIG_PATH`
@@ -23,9 +27,26 @@ Common overrides:
 - `--port` / `GPROXY_PORT`
 - `--proxy` / `GPROXY_PROXY`
 - `--admin-key` / `GPROXY_ADMIN_KEY`
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
+
+## Bootstrap source mode
+
+Startup-only switch (CLI/env only, not a `gproxy.toml` field):
+
+- `--bootstrap-force-config` / `GPROXY_BOOTSTRAP_FORCE_CONFIG`
+
+Behavior:
+
+- default (`false` or unset):
+  - if DB is not initialized, bootstrap from `gproxy.toml`.
+  - if DB is initialized, prefer DB state and skip config-file channel/provider import.
+  - startup-provided `admin_key` override is still honored.
+- `true`:
+  - force applying config-file channels/settings/credentials/global values on boot.
+  - useful when intentionally overwriting existing DB bootstrap state from file.
 
 ## Multi-database support (key)
 
