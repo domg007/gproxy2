@@ -1,19 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TopLevelCacheControlMode {
+    #[default]
     Disabled,
     Auto,
     Ttl5m,
     Ttl1h,
-}
-
-impl Default for TopLevelCacheControlMode {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 impl TopLevelCacheControlMode {

@@ -13,10 +13,11 @@ const CLIENT_STREAM_IDLE_TIMEOUT_SECS: u64 = 3600;
 
 pub const DEFAULT_SPOOF_EMULATION: &str = "chrome_136";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum SpoofEmulation {
     #[serde(rename = "chrome_136")]
+    #[default]
     Chrome136,
     #[serde(rename = "chrome_137")]
     Chrome137,
@@ -32,12 +33,6 @@ pub enum SpoofEmulation {
     Firefox139,
     #[serde(rename = "safari_18_5")]
     Safari18_5,
-}
-
-impl Default for SpoofEmulation {
-    fn default() -> Self {
-        Self::Chrome136
-    }
 }
 
 impl SpoofEmulation {

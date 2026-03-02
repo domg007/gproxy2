@@ -465,8 +465,8 @@ mod tests {
     use gproxy_provider::ChannelSettings;
     use gproxy_provider::{
         ChannelCredential, ChannelCredentialState, ChannelCredentialStateStore, ChannelId,
-        CredentialHealth, CredentialRef, CustomChannelCredential, ProviderCredentialState,
-        ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
+        CredentialHealth, CredentialPickMode, CredentialRef, CustomChannelCredential,
+        ProviderCredentialState, ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
     };
 
     use super::{

@@ -447,38 +447,6 @@ fn serialize_local_response_body(
     serde_json::to_vec(&inner).map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
 }
 
-#[cfg(test)]
-mod tests {
-    use gproxy_middleware::TransformResponse;
-    use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
-    use serde_json::json;
-
-    use super::serialize_local_response_body;
-
-    #[test]
-    fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
-        let response: OpenAiModelListResponse = serde_json::from_value(json!({
-            "stats_code": 200,
-            "headers": {},
-            "body": {
-                "object": "list",
-                "data": []
-            }
-        }))
-        .expect("valid openai model list response");
-
-        let bytes = serialize_local_response_body(&TransformResponse::ModelListOpenAi(response))
-            .expect("serialize local response");
-        let value: serde_json::Value =
-            serde_json::from_slice(&bytes).expect("decode serialized local response");
-
-        assert!(value.get("ModelListOpenAi").is_none());
-        assert!(value.get("stats_code").is_none());
-        assert_eq!(value.get("object").and_then(|v| v.as_str()), Some("list"));
-        assert!(value.get("data").is_some());
-    }
-}
-
 pub(super) async fn execute_local_count_token_request(
     state: &AppState,
     request: &TransformRequest,
@@ -1071,4 +1039,36 @@ pub(super) async fn execute_transform_candidates(
         StatusCode::INTERNAL_SERVER_ERROR,
         "no provider route candidate executed",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use gproxy_middleware::TransformResponse;
+    use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
+    use serde_json::json;
+
+    use super::serialize_local_response_body;
+
+    #[test]
+    fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
+        let response: OpenAiModelListResponse = serde_json::from_value(json!({
+            "stats_code": 200,
+            "headers": {},
+            "body": {
+                "object": "list",
+                "data": []
+            }
+        }))
+        .expect("valid openai model list response");
+
+        let bytes = serialize_local_response_body(&TransformResponse::ModelListOpenAi(response))
+            .expect("serialize local response");
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("decode serialized local response");
+
+        assert!(value.get("ModelListOpenAi").is_none());
+        assert!(value.get("stats_code").is_none());
+        assert_eq!(value.get("object").and_then(|v| v.as_str()), Some("list"));
+        assert!(value.get("data").is_some());
+    }
 }

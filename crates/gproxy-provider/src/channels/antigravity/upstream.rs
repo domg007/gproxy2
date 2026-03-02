@@ -755,6 +755,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_antigravity_request(
     client: &WreqClient,
     method: WreqMethod,
@@ -904,16 +905,15 @@ fn build_request_body_bytes(
                 ));
             };
             let mut request = request.clone();
-            if model.to_ascii_lowercase().contains("gemini") {
-                if let Some(config_obj) = request
+            if model.to_ascii_lowercase().contains("gemini")
+                && let Some(config_obj) = request
                     .as_object_mut()
                     .and_then(|root| root.get_mut("generationConfig"))
                     .and_then(Value::as_object_mut)
-                {
-                    config_obj.remove("logprobs");
-                    config_obj.remove("responseLogprobs");
-                    config_obj.remove("response_logprobs");
-                }
+            {
+                config_obj.remove("logprobs");
+                config_obj.remove("responseLogprobs");
+                config_obj.remove("response_logprobs");
             }
             let wrapped = json!({
                 "model": model,

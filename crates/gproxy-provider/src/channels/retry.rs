@@ -173,6 +173,7 @@ pub fn configured_pick_mode_uses_cache(configured_pick_mode: CredentialPickMode)
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn retry_with_eligible_credentials_with_affinity<Material, T, Select, Attempt, Fut>(
     provider: &ProviderDefinition,
     credential_states: &ChannelCredentialStateStore,

@@ -936,9 +936,7 @@ fn extract_codex_instructions_from_input_messages(map: &mut serde_json::Map<Stri
 }
 
 fn extract_codex_message_text(content: Option<&Value>) -> Option<String> {
-    let Some(content) = content else {
-        return None;
-    };
+    let content = content?;
     match content {
         Value::String(text) => {
             let text = text.trim();
