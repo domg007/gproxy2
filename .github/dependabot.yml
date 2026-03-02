@@ -9,3 +9,8 @@ updates:
     directory: /apps/gproxy/frontend
     schedule:
       interval: daily
+
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: daily

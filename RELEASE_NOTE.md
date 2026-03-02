@@ -19,6 +19,7 @@
 - Updated Claude/ClaudeCode top-level cache-control injection behavior:
   - when enabled and absent in request, injects top-level `{"type":"ephemeral"}` only
   - no longer injects client-side TTL; effective TTL is left to upstream server semantics.
+- Add daily update schedule for npm packages in /docs directory
 
 ### Fixed
 
