@@ -1,4 +1,7 @@
-use serde_json::Value;
+use std::collections::BTreeSet;
+
+use gproxy_middleware::TransformResponse;
+use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::constants::{
@@ -26,6 +29,8 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
+
+const CLAUDE_NOTHINKING_SUFFIX: &str = "-nothinking";
 
 pub async fn execute_claudecode_with_retry(
     client: &WreqClient,
@@ -395,6 +400,118 @@ pub async fn execute_claudecode_with_retry(
                         &provider.channel,
                         attempt.credential_id,
                     );
+                }
+
+                if response.status().is_success()
+                    && should_expand_claudecode_model_list(&method, url.as_str(), body.as_ref())
+                {
+                    let stats_code = response.status();
+                    let header_extra = response
+                        .headers()
+                        .iter()
+                        .filter_map(|(name, value)| {
+                            value
+                                .to_str()
+                                .ok()
+                                .map(|value| (name.as_str().to_string(), value.to_string()))
+                        })
+                        .collect::<std::collections::BTreeMap<String, String>>();
+                    let body_bytes = match response.bytes().await {
+                        Ok(bytes) => bytes,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                model.as_deref(),
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: None,
+                                last_error: Some(message),
+                                last_request_meta: request_meta.clone(),
+                            };
+                        }
+                    };
+                    let mut model_list_body = match serde_json::from_slice::<Value>(&body_bytes) {
+                        Ok(body) => body,
+                        Err(err) => {
+                            let message = format!("parse claudecode model list failed: {err}");
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                model.as_deref(),
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: Some(stats_code.as_u16()),
+                                last_error: Some(message),
+                                last_request_meta: request_meta.clone(),
+                            };
+                        }
+                    };
+
+                    if let Some(body_obj) = model_list_body.as_object_mut()
+                        && let Some(data) = body_obj.get_mut("data").and_then(Value::as_array_mut)
+                    {
+                        append_nothinking_model_variants(data);
+                        let first_id = data
+                            .first()
+                            .and_then(|item| item.get("id"))
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
+                        let last_id = data
+                            .last()
+                            .and_then(|item| item.get("id"))
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned);
+                        if let Some(first_id) = first_id {
+                            body_obj.insert("first_id".to_string(), Value::String(first_id));
+                        }
+                        if let Some(last_id) = last_id {
+                            body_obj.insert("last_id".to_string(), Value::String(last_id));
+                        }
+                    }
+
+                    let model_list_response = match serde_json::from_value(json!({
+                        "stats_code": stats_code.as_u16(),
+                        "headers": header_extra,
+                        "body": model_list_body,
+                    })) {
+                        Ok(response) => response,
+                        Err(err) => {
+                            let message =
+                                format!("build claudecode model list response failed: {err}");
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                model.as_deref(),
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: Some(stats_code.as_u16()),
+                                last_error: Some(message),
+                                last_request_meta: request_meta.clone(),
+                            };
+                        }
+                    };
+
+                    return CredentialRetryDecision::Return(UpstreamResponse {
+                        credential_id: Some(attempt.credential_id),
+                        attempts: attempt.attempts,
+                        response: None,
+                        local_response: Some(TransformResponse::ModelListClaude(
+                            model_list_response,
+                        )),
+                        credential_update: credential_update.clone(),
+                        request_meta,
+                    });
                 }
 
                 let mut upstream_response =
@@ -846,12 +963,13 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
                 ensure_oauth_beta(&mut request_headers, false);
+                let (model_id, _) = strip_claude_nothinking_suffix(value.path.model_id.as_str());
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: format!("/v1/models/{}", value.path.model_id),
+                    path: format!("/v1/models/{model_id}"),
                     body: None,
-                    model: Some(value.path.model_id.clone()),
+                    model: Some(model_id),
                     request_headers,
                     context_1m_target: None,
                 })
@@ -862,9 +980,15 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model = claude_model_to_string(&value.body.model)?;
+                let model_raw = claude_model_to_string(&value.body.model)?;
+                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                normalize_claude_nothinking_request(
+                    &mut body_json,
+                    model.as_str(),
+                    disable_thinking,
+                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -889,9 +1013,15 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model = claude_model_to_string(&value.body.model)?;
+                let model_raw = claude_model_to_string(&value.body.model)?;
+                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                normalize_claude_nothinking_request(
+                    &mut body_json,
+                    model.as_str(),
+                    disable_thinking,
+                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -920,9 +1050,15 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model = claude_model_to_string(&value.body.model)?;
+                let model_raw = claude_model_to_string(&value.body.model)?;
+                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                normalize_claude_nothinking_request(
+                    &mut body_json,
+                    model.as_str(),
+                    disable_thinking,
+                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -1163,6 +1299,76 @@ fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
     let has_top_p = map.get("top_p").and_then(Value::as_f64).is_some();
     if has_temperature && has_top_p && requires_claudecode_sampling_guard(model) {
         map.remove("top_p");
+    }
+}
+
+fn should_expand_claudecode_model_list(
+    method: &WreqMethod,
+    url: &str,
+    body: Option<&Vec<u8>>,
+) -> bool {
+    *method == WreqMethod::GET
+        && body.is_none()
+        && (url.contains("/v1/models?") || url.ends_with("/v1/models"))
+        && !url.contains("/v1/models/")
+}
+
+fn append_nothinking_model_variants(models: &mut Vec<Value>) {
+    let mut seen = models
+        .iter()
+        .filter_map(|model| model.get("id").and_then(Value::as_str))
+        .map(|model| model.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let extras = models
+        .iter()
+        .filter_map(|model| {
+            let model_obj = model.as_object()?;
+            let model_id = model_obj.get("id")?.as_str()?;
+            if !is_nothinking_supported_model(model_id) {
+                return None;
+            }
+            let suffix_id = format!("{model_id}{CLAUDE_NOTHINKING_SUFFIX}");
+            let lower = suffix_id.to_ascii_lowercase();
+            if seen.insert(lower) {
+                let mut cloned = model_obj.clone();
+                cloned.insert("id".to_string(), Value::String(suffix_id));
+                Some(Value::Object(cloned))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    models.extend(extras);
+}
+
+fn strip_claude_nothinking_suffix(model: &str) -> (String, bool) {
+    let trimmed = model.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.ends_with(CLAUDE_NOTHINKING_SUFFIX) {
+        let base_len = trimmed.len().saturating_sub(CLAUDE_NOTHINKING_SUFFIX.len());
+        let base = trimmed[..base_len].to_string();
+        if is_nothinking_supported_model(base.as_str()) {
+            (base, true)
+        } else {
+            (trimmed.to_string(), false)
+        }
+    } else {
+        (trimmed.to_string(), false)
+    }
+}
+
+fn is_nothinking_supported_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    lower == "claude-sonnet-4-6" || lower == "claude-opus-4-6"
+}
+
+fn normalize_claude_nothinking_request(body: &mut Value, model: &str, disable_thinking: bool) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    map.insert("model".to_string(), Value::String(model.to_string()));
+    if disable_thinking {
+        map.remove("thinking");
     }
 }
 

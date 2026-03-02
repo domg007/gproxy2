@@ -351,7 +351,8 @@ mod tests {
                             delta: ChatCompletionChunkDelta {
                                 role: Some(ct::ChatCompletionDeltaRole::Assistant),
                                 reasoning_details: Some(vec![ct::ChatCompletionReasoningDetail {
-                                    type_: ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                                    type_:
+                                        ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
                                     id: Some("reasoning_0".to_string()),
                                     data: Some("sig_0".to_string()),
                                 }]),

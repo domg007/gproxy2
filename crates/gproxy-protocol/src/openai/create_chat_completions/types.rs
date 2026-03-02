@@ -797,7 +797,6 @@ pub enum ChatCompletionClaudeThinkingAdaptiveType {
     Adaptive,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ChatCompletionGeminiExtraThinkingConfig {
     #[serde(

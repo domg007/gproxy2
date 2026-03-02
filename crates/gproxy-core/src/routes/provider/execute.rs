@@ -73,6 +73,23 @@ pub(super) fn transformed_payload_content_type(
     }
 }
 
+fn encode_transform_stream_error_chunk(protocol: ProtocolKind, message: String) -> Bytes {
+    let payload = json!({
+        "error": {
+            "message": message,
+            "type": "transform_serialization_error"
+        }
+    })
+    .to_string();
+
+    let chunk = if protocol == ProtocolKind::GeminiNDJson {
+        format!("{payload}\n")
+    } else {
+        format!("event: error\ndata: {payload}\n\n")
+    };
+    Bytes::from(chunk)
+}
+
 pub(super) fn rewrite_content_type(headers: &mut Vec<(String, String)>, content_type: &str) {
     let mut replaced = false;
     for (name, value) in headers.iter_mut() {
@@ -244,7 +261,14 @@ pub(super) async fn transformed_payload_to_axum_response(
     } else {
         payload.body
     };
-    let body_stream = body.map(|item| item.map_err(|err| std::io::Error::other(err.to_string())));
+    let protocol = payload.protocol;
+    let body_stream = body.map(move |item| match item {
+        Ok(chunk) => Ok::<Bytes, std::io::Error>(chunk),
+        Err(err) => Ok::<Bytes, std::io::Error>(encode_transform_stream_error_chunk(
+            protocol,
+            err.to_string(),
+        )),
+    });
     builder
         .body(Body::from_stream(body_stream))
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
@@ -1075,11 +1099,12 @@ pub(super) async fn execute_transform_candidates(
 
 #[cfg(test)]
 mod tests {
+    use gproxy_middleware::ProtocolKind;
     use gproxy_middleware::TransformResponse;
     use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
     use serde_json::json;
 
-    use super::serialize_local_response_body;
+    use super::{encode_transform_stream_error_chunk, serialize_local_response_body};
 
     #[test]
     fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
@@ -1102,5 +1127,51 @@ mod tests {
         assert!(value.get("stats_code").is_none());
         assert_eq!(value.get("object").and_then(|v| v.as_str()), Some("list"));
         assert!(value.get("data").is_some());
+    }
+
+    #[test]
+    fn stream_transform_error_chunk_is_ndjson_for_gemini_ndjson() {
+        let chunk =
+            encode_transform_stream_error_chunk(ProtocolKind::GeminiNDJson, "boom".to_string());
+        let text = String::from_utf8(chunk.to_vec()).expect("utf8");
+        assert!(text.ends_with('\n'));
+
+        let value: serde_json::Value = serde_json::from_str(text.trim()).expect("json");
+        assert_eq!(
+            value
+                .get("error")
+                .and_then(|v| v.get("message"))
+                .and_then(|v| v.as_str()),
+            Some("boom")
+        );
+        assert_eq!(
+            value
+                .get("error")
+                .and_then(|v| v.get("type"))
+                .and_then(|v| v.as_str()),
+            Some("transform_serialization_error")
+        );
+    }
+
+    #[test]
+    fn stream_transform_error_chunk_is_sse_for_non_ndjson() {
+        let chunk = encode_transform_stream_error_chunk(ProtocolKind::OpenAi, "boom".to_string());
+        let text = String::from_utf8(chunk.to_vec()).expect("utf8");
+        assert!(text.starts_with("event: error\n"));
+        assert!(text.ends_with("\n\n"));
+
+        let data_line = text
+            .lines()
+            .find(|line| line.starts_with("data: "))
+            .expect("data line");
+        let payload = data_line.trim_start_matches("data: ");
+        let value: serde_json::Value = serde_json::from_str(payload).expect("json");
+        assert_eq!(
+            value
+                .get("error")
+                .and_then(|v| v.get("message"))
+                .and_then(|v| v.as_str()),
+            Some("boom")
+        );
     }
 }

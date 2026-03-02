@@ -251,25 +251,26 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         let tool_choice =
             openai_tool_choice_to_claude(response_tool_choice, disable_parallel_tool_use);
         let extra_thinking = chat_thinking.map(|thinking| match thinking {
-                oct::ChatCompletionClaudeThinkingConfig::Enabled(config) => {
-                    ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                        budget_tokens: config.budget_tokens,
-                        type_: ct::BetaThinkingConfigEnabledType::Enabled,
-                    })
-                }
-                oct::ChatCompletionClaudeThinkingConfig::Disabled(_) => {
-                    ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
-                        type_: ct::BetaThinkingConfigDisabledType::Disabled,
-                    })
-                }
-                oct::ChatCompletionClaudeThinkingConfig::Adaptive(_) => {
-                    ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
-                        type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
-                    })
-                }
-            });
+            oct::ChatCompletionClaudeThinkingConfig::Enabled(config) => {
+                ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
+                    budget_tokens: config.budget_tokens,
+                    type_: ct::BetaThinkingConfigEnabledType::Enabled,
+                })
+            }
+            oct::ChatCompletionClaudeThinkingConfig::Disabled(_) => {
+                ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
+                    type_: ct::BetaThinkingConfigDisabledType::Disabled,
+                })
+            }
+            oct::ChatCompletionClaudeThinkingConfig::Adaptive(_) => {
+                ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
+                    type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
+                })
+            }
+        });
         let thinking = extra_thinking
-            .or_else(|| openai_reasoning_to_claude(response_reasoning, reasoning_max_tokens));
+            .or_else(|| openai_reasoning_to_claude(response_reasoning, reasoning_max_tokens))
+            .or_else(|| Some(default_chat_thinking_for_model(model.as_str())));
 
         let output_effort = response_text
             .as_ref()
@@ -497,6 +498,23 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
     }
 }
 
+fn default_chat_thinking_for_model(model: &str) -> ct::BetaThinkingConfigParam {
+    if is_claude_adaptive_default_model(model) {
+        ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
+            type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
+        })
+    } else {
+        ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
+            type_: ct::BetaThinkingConfigDisabledType::Disabled,
+        })
+    }
+}
+
+fn is_claude_adaptive_default_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    lower == "claude-sonnet-4-6" || lower == "claude-opus-4-6"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,5 +562,63 @@ mod tests {
 
         assert_eq!(thinking_block.signature, "gproxy_reasoning_0_0");
         assert_eq!(thinking_block.thinking, "reasoning text");
+    }
+
+    #[test]
+    fn chat_without_reasoning_effort_defaults_to_adaptive_thinking_for_sonnet_4_6() {
+        let request = OpenAiChatCompletionsRequest {
+            method: oct::HttpMethod::Post,
+            path: oreq::PathParameters::default(),
+            query: oreq::QueryParameters::default(),
+            headers: oreq::RequestHeaders::default(),
+            body: oreq::RequestBody {
+                model: "claude-sonnet-4-6".to_string(),
+                messages: vec![oct::ChatCompletionMessageParam::User(
+                    oct::ChatCompletionUserMessageParam {
+                        content: oct::ChatCompletionUserContent::Text("hello".to_string()),
+                        name: None,
+                        role: oct::ChatCompletionUserRole::User,
+                    },
+                )],
+                reasoning_effort: None,
+                thinking: None,
+                ..oreq::RequestBody::default()
+            },
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request).unwrap();
+        assert!(matches!(
+            converted.body.thinking,
+            Some(ct::BetaThinkingConfigParam::Adaptive(_))
+        ));
+    }
+
+    #[test]
+    fn chat_without_reasoning_effort_defaults_to_disabled_thinking_for_other_models() {
+        let request = OpenAiChatCompletionsRequest {
+            method: oct::HttpMethod::Post,
+            path: oreq::PathParameters::default(),
+            query: oreq::QueryParameters::default(),
+            headers: oreq::RequestHeaders::default(),
+            body: oreq::RequestBody {
+                model: "claude-3-5-haiku-latest".to_string(),
+                messages: vec![oct::ChatCompletionMessageParam::User(
+                    oct::ChatCompletionUserMessageParam {
+                        content: oct::ChatCompletionUserContent::Text("hello".to_string()),
+                        name: None,
+                        role: oct::ChatCompletionUserRole::User,
+                    },
+                )],
+                reasoning_effort: None,
+                thinking: None,
+                ..oreq::RequestBody::default()
+            },
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request).unwrap();
+        assert!(matches!(
+            converted.body.thinking,
+            Some(ct::BetaThinkingConfigParam::Disabled(_))
+        ));
     }
 }

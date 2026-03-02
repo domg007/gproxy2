@@ -484,8 +484,10 @@ mod tests {
 
     #[test]
     fn reasoning_budget_is_clamped_to_minimum() {
-        let thinking =
-            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::Minimal), Some(4_096));
+        let thinking = openai_reasoning_to_claude(
+            reasoning(ot::ResponseReasoningEffort::Minimal),
+            Some(4_096),
+        );
         match thinking {
             Some(ct::BetaThinkingConfigParam::Enabled(config)) => {
                 assert_eq!(config.budget_tokens, 1_024);
@@ -531,7 +533,8 @@ mod tests {
 
     #[test]
     fn reasoning_budgeted_effort_without_max_tokens_maps_to_adaptive() {
-        let thinking = openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::High), None);
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::High), None);
         assert!(matches!(
             thinking,
             Some(ct::BetaThinkingConfigParam::Adaptive(_))

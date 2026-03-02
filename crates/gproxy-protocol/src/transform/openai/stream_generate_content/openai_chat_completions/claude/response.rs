@@ -580,7 +580,9 @@ mod tests {
         BetaRawMessageDeltaEventType, BetaSignatureDelta, BetaSignatureDeltaType,
         BetaThinkingDelta, BetaThinkingDeltaType, ClaudeCreateMessageStreamEvent,
     };
-    use crate::claude::create_message::types::{BetaServiceTier, BetaStopReason, BetaThinkingBlock};
+    use crate::claude::create_message::types::{
+        BetaServiceTier, BetaStopReason, BetaThinkingBlock,
+    };
     use crate::transform::claude::stream_generate_content::utils::{
         message_delta_event, message_start_event, message_stop_event, start_text_block_event,
         stop_block_event, text_delta_event,

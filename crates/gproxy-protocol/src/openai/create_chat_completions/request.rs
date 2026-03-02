@@ -150,7 +150,7 @@ pub struct RequestBody {
     /// Claude-compatible extended thinking control.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ChatCompletionClaudeThinkingConfig>,
-        #[serde(
+    #[serde(
         rename = "thinking_config",
         default,
         skip_serializing_if = "Option::is_none"
