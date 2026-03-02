@@ -6,11 +6,15 @@ use super::Scope;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct UpstreamRequestQuery {
+    #[serde(default)]
+    pub trace_id: Scope<i64>,
     pub provider_id: Scope<i64>,
     pub credential_id: Scope<i64>,
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
+    pub offset: Option<u64>,
     pub limit: Option<u64>,
+    pub include_body: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,11 +36,15 @@ pub struct UpstreamRequestQueryRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DownstreamRequestQuery {
+    #[serde(default)]
+    pub trace_id: Scope<i64>,
     pub user_id: Scope<i64>,
     pub user_key_id: Scope<i64>,
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
+    pub offset: Option<u64>,
     pub limit: Option<u64>,
+    pub include_body: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,4 +63,9 @@ pub struct DownstreamRequestQueryRow {
     pub response_headers_json: Value,
     pub response_body: Option<Vec<u8>>,
     pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestQueryCount {
+    pub count: u64,
 }

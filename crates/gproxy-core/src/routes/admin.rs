@@ -242,9 +242,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/user-keys/generate", post(generate_user_key))
         .route("/user-keys/delete", post(delete_user_key))
         .route("/requests/upstream/query", post(query_upstream_requests))
+        .route("/requests/upstream/count", post(count_upstream_requests))
         .route(
             "/requests/downstream/query",
             post(query_downstream_requests),
+        )
+        .route(
+            "/requests/downstream/count",
+            post(count_downstream_requests),
         )
         .route("/usages/query", post(query_usages))
         .route("/usages/summary", post(summarize_usages))

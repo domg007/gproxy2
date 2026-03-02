@@ -31,3 +31,27 @@ pub(super) async fn query_downstream_requests(
         gproxy_admin::query_downstream_requests(&storage, query).await?,
     ))
 }
+
+pub(super) async fn count_upstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::UpstreamRequestQuery>,
+) -> Result<Json<gproxy_storage::RequestQueryCount>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.load_storage();
+    Ok(Json(
+        gproxy_admin::count_upstream_requests(&storage, query).await?,
+    ))
+}
+
+pub(super) async fn count_downstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::DownstreamRequestQuery>,
+) -> Result<Json<gproxy_storage::RequestQueryCount>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.load_storage();
+    Ok(Json(
+        gproxy_admin::count_downstream_requests(&storage, query).await?,
+    ))
+}

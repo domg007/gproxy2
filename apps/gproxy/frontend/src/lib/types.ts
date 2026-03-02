@@ -101,6 +101,10 @@ export interface DownstreamRequestQueryRow {
   created_at: string;
 }
 
+export interface RequestQueryCount {
+  count: number;
+}
+
 export interface UsageQueryRow {
   trace_id: number;
   upstream_trace_id: number;

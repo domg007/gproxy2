@@ -1,10 +1,10 @@
 use gproxy_storage::{
     CredentialQuery, CredentialQueryRow, CredentialStatusQuery, CredentialStatusQueryRow,
     CredentialStatusWrite, CredentialWrite, DownstreamRequestQuery, DownstreamRequestQueryRow,
-    GlobalSettingsRow, GlobalSettingsWrite, ProviderQuery, ProviderQueryRow, ProviderWrite, Scope,
-    StorageWriteEvent, StorageWriteSender, UpstreamRequestQuery, UpstreamRequestQueryRow,
-    UsageQuery, UsageQueryRow, UsageSummary, UserKeyQuery, UserKeyQueryRow, UserKeyWrite,
-    UserQuery, UserQueryRow, UserWrite,
+    GlobalSettingsRow, GlobalSettingsWrite, ProviderQuery, ProviderQueryRow, ProviderWrite,
+    RequestQueryCount, Scope, StorageWriteEvent, StorageWriteSender, UpstreamRequestQuery,
+    UpstreamRequestQueryRow, UsageQuery, UsageQueryRow, UsageSummary, UserKeyQuery,
+    UserKeyQueryRow, UserKeyWrite, UserQuery, UserQueryRow, UserWrite,
 };
 use std::collections::HashMap;
 
@@ -199,6 +199,20 @@ pub async fn query_downstream_requests(
     query: DownstreamRequestQuery,
 ) -> Result<Vec<DownstreamRequestQueryRow>, AdminApiError> {
     Ok(storage.query_downstream_requests(&query).await?)
+}
+
+pub async fn count_upstream_requests(
+    storage: &gproxy_storage::SeaOrmStorage,
+    query: UpstreamRequestQuery,
+) -> Result<RequestQueryCount, AdminApiError> {
+    Ok(storage.count_upstream_requests(&query).await?)
+}
+
+pub async fn count_downstream_requests(
+    storage: &gproxy_storage::SeaOrmStorage,
+    query: DownstreamRequestQuery,
+) -> Result<RequestQueryCount, AdminApiError> {
+    Ok(storage.count_downstream_requests(&query).await?)
 }
 
 pub async fn query_usages(

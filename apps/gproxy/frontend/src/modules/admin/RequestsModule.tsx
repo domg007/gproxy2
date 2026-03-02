@@ -1,26 +1,44 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
 import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
-import type { DownstreamRequestQueryRow, UpstreamRequestQueryRow } from "../../lib/types";
+import type {
+  DownstreamRequestQueryRow,
+  RequestQueryCount,
+  UpstreamRequestQueryRow
+} from "../../lib/types";
 import { Button, Card, Input, Label, SearchableSelect, Select, Table } from "../../components/ui";
 import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
-function truncateText(value: string, limit: number): { preview: string; truncated: boolean } {
-  if (value.length <= limit) {
-    return { preview: value, truncated: false };
-  }
-  return { preview: value.slice(0, limit), truncated: true };
-}
+type RequestKind = "upstream" | "downstream";
+type RequestRow = UpstreamRequestQueryRow | DownstreamRequestQueryRow;
+
+type RequestQuerySnapshot = {
+  kind: RequestKind;
+  providerId: number | null;
+  credentialId: number | null;
+  userId: number | null;
+  userKeyId: number | null;
+  fromUnixMs: number | null;
+  toUnixMs: number | null;
+  maxRows: number | null;
+};
+
+type RequestBodyPayload = {
+  request_body: number[] | null;
+  response_body: number[] | null;
+};
 
 type PayloadPreview = {
   preview: string;
   full: string;
   truncated: boolean;
 };
+
+const META_DEFAULT_PREVIEW_CHARS = 420;
 
 function EyeToggleIcon({ open }: { open: boolean }) {
   return (
@@ -40,7 +58,39 @@ function EyeToggleIcon({ open }: { open: boolean }) {
   );
 }
 
-function PayloadSection({ title, section }: { title: string; section: PayloadPreview }) {
+function BodyEyeButton({
+  ariaLabel,
+  open,
+  loading,
+  onClick
+}: {
+  ariaLabel: string;
+  open: boolean;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex cursor-pointer items-center text-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      disabled={loading}
+    >
+      <EyeToggleIcon open={open} />
+    </button>
+  );
+}
+
+function PayloadSection({
+  title,
+  section,
+  action
+}: {
+  title: string;
+  section: PayloadPreview;
+  action?: React.ReactNode;
+}) {
   const [showFull, setShowFull] = useState(false);
   if (!section.preview) {
     return null;
@@ -52,6 +102,7 @@ function PayloadSection({ title, section }: { title: string; section: PayloadPre
     <div>
       <div className="mb-1 flex items-center gap-1 font-semibold text-muted">
         <span>{title}</span>
+        {action}
         {canToggle ? (
           <button
             type="button"
@@ -68,27 +119,39 @@ function PayloadSection({ title, section }: { title: string; section: PayloadPre
   );
 }
 
-function bytesToUtf8Preview(bytes: number[] | null, limit = 800): PayloadPreview {
+function bytesToUtf8Preview(bytes: number[] | null): PayloadPreview {
   if (!bytes || bytes.length === 0) {
     return { preview: "", full: "", truncated: false };
   }
   try {
     const decoded = new TextDecoder().decode(new Uint8Array(bytes));
-    const { preview, truncated } = truncateText(decoded, limit);
-    return { preview, full: decoded, truncated };
+    return { preview: decoded, full: decoded, truncated: false };
   } catch {
     const binary = `[binary ${bytes.length} bytes]`;
     return { preview: binary, full: binary, truncated: false };
   }
 }
 
-function jsonToPreview(value: Record<string, unknown>, limit = 500): PayloadPreview {
+function textToPreview(text: string | null | undefined): PayloadPreview {
+  if (!text) {
+    return { preview: "", full: "", truncated: false };
+  }
+  if (text.length <= META_DEFAULT_PREVIEW_CHARS) {
+    return { preview: text, full: text, truncated: false };
+  }
+  return {
+    preview: text.slice(0, META_DEFAULT_PREVIEW_CHARS),
+    full: text,
+    truncated: true
+  };
+}
+
+function jsonToPreview(value: Record<string, unknown>): PayloadPreview {
   const text = JSON.stringify(value);
   if (!text || text === "{}") {
     return { preview: "", full: "", truncated: false };
   }
-  const { preview, truncated } = truncateText(text, limit);
-  return { preview, full: text, truncated };
+  return textToPreview(text);
 }
 
 function defaultPageSizeByViewport(): number {
@@ -107,6 +170,166 @@ function defaultPageSizeByViewport(): number {
   return 50;
 }
 
+function buildRequestCountPayload(snapshot: RequestQuerySnapshot) {
+  if (snapshot.kind === "upstream") {
+    return {
+      trace_id: scopeAll<number>(),
+      provider_id: snapshot.providerId === null ? scopeAll<number>() : scopeEq(snapshot.providerId),
+      credential_id: snapshot.credentialId === null ? scopeAll<number>() : scopeEq(snapshot.credentialId),
+      from_unix_ms: snapshot.fromUnixMs,
+      to_unix_ms: snapshot.toUnixMs
+    };
+  }
+  return {
+    trace_id: scopeAll<number>(),
+    user_id: snapshot.userId === null ? scopeAll<number>() : scopeEq(snapshot.userId),
+    user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    from_unix_ms: snapshot.fromUnixMs,
+    to_unix_ms: snapshot.toUnixMs
+  };
+}
+
+function buildRequestRowsPayload(
+  snapshot: RequestQuerySnapshot,
+  options: {
+    offset: number;
+    limit: number;
+    includeBody: boolean;
+    traceId?: number;
+  }
+) {
+  if (snapshot.kind === "upstream") {
+    return {
+      trace_id: options.traceId === undefined ? scopeAll<number>() : scopeEq(options.traceId),
+      provider_id: snapshot.providerId === null ? scopeAll<number>() : scopeEq(snapshot.providerId),
+      credential_id: snapshot.credentialId === null ? scopeAll<number>() : scopeEq(snapshot.credentialId),
+      from_unix_ms: snapshot.fromUnixMs,
+      to_unix_ms: snapshot.toUnixMs,
+      offset: options.offset,
+      limit: options.limit,
+      include_body: options.includeBody
+    };
+  }
+  return {
+    trace_id: options.traceId === undefined ? scopeAll<number>() : scopeEq(options.traceId),
+    user_id: snapshot.userId === null ? scopeAll<number>() : scopeEq(snapshot.userId),
+    user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    from_unix_ms: snapshot.fromUnixMs,
+    to_unix_ms: snapshot.toUnixMs,
+    offset: options.offset,
+    limit: options.limit,
+    include_body: options.includeBody
+  };
+}
+
+function requestRowsPath(kind: RequestKind): string {
+  return kind === "upstream" ? "/admin/requests/upstream/query" : "/admin/requests/downstream/query";
+}
+
+function requestCountPath(kind: RequestKind): string {
+  return kind === "upstream" ? "/admin/requests/upstream/count" : "/admin/requests/downstream/count";
+}
+
+function toPositiveOrNull(value: number | null): number | null {
+  if (value === null || value <= 0) {
+    return null;
+  }
+  return value;
+}
+
+function PayloadCell({
+  row,
+  t,
+  detail,
+  loadingBody,
+  bodyError,
+  ensureBodyLoaded
+}: {
+  row: RequestRow;
+  t: (key: string, params?: Record<string, string | number>) => string;
+  detail: RequestBodyPayload | undefined;
+  loadingBody: boolean;
+  bodyError: string | undefined;
+  ensureBodyLoaded: (row: RequestRow) => Promise<void>;
+}) {
+  const [showReqBody, setShowReqBody] = useState(false);
+  const [showRespBody, setShowRespBody] = useState(false);
+  const requestHeaders = jsonToPreview(row.request_headers_json);
+  const responseHeaders = jsonToPreview(row.response_headers_json);
+  const requestQuery =
+    "request_query" in row ? textToPreview((row as DownstreamRequestQueryRow).request_query) : null;
+  const requestBody = bytesToUtf8Preview(detail?.request_body ?? null);
+  const responseBody = bytesToUtf8Preview(detail?.response_body ?? null);
+  const reqBodySection =
+    showReqBody && requestBody.preview
+      ? requestBody
+      : { preview: "-", full: "-", truncated: false as const };
+  const respBodySection =
+    showRespBody && responseBody.preview
+      ? responseBody
+      : { preview: "-", full: "-", truncated: false as const };
+
+  const toggleReqBody = () => {
+    if (!showReqBody && !detail && !loadingBody) {
+      void ensureBodyLoaded(row);
+    }
+    setShowReqBody((value) => !value);
+  };
+
+  const toggleRespBody = () => {
+    if (!showRespBody && !detail && !loadingBody) {
+      void ensureBodyLoaded(row);
+    }
+    setShowRespBody((value) => !value);
+  };
+
+  return (
+    <details>
+      <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
+      <div className="mt-2 space-y-2 text-xs">
+        {requestQuery ? (
+          requestQuery.preview ? (
+            <PayloadSection title="req query" section={requestQuery} />
+          ) : (
+            <div>
+              <div className="mb-1 font-semibold text-muted">req query</div>
+              <div className="text-xs text-muted">-</div>
+            </div>
+          )
+        ) : null}
+        <PayloadSection title="req headers" section={requestHeaders} />
+        <PayloadSection
+          title="req body"
+          section={reqBodySection}
+          action={
+            <BodyEyeButton
+              ariaLabel="toggle req body"
+              open={showReqBody}
+              loading={loadingBody}
+              onClick={toggleReqBody}
+            />
+          }
+        />
+        <PayloadSection title="resp headers" section={responseHeaders} />
+        <PayloadSection
+          title="resp body"
+          section={respBodySection}
+          action={
+            <BodyEyeButton
+              ariaLabel="toggle resp body"
+              open={showRespBody}
+              loading={loadingBody}
+              onClick={toggleRespBody}
+            />
+          }
+        />
+        {loadingBody ? <div className="text-xs text-muted">{t("common.loading")}</div> : null}
+        {bodyError ? <div className="text-xs text-amber-700">{bodyError}</div> : null}
+      </div>
+    </details>
+  );
+}
+
 export function RequestsModule({
   apiKey,
   notify
@@ -115,10 +338,19 @@ export function RequestsModule({
   notify: (kind: "success" | "error" | "info", message: string) => void;
 }) {
   const { t } = useI18n();
-  const [kind, setKind] = useState<"upstream" | "downstream">("upstream");
-  const [rows, setRows] = useState<Array<UpstreamRequestQueryRow | DownstreamRequestQueryRow>>([]);
+  const [kind, setKind] = useState<RequestKind>("upstream");
+  const [rows, setRows] = useState<RequestRow[]>([]);
   const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
   const [page, setPage] = useState(1);
+  const [totalRows, setTotalRows] = useState(0);
+  const [activeQuery, setActiveQuery] = useState<RequestQuerySnapshot | null>(null);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const [loadingCount, setLoadingCount] = useState(false);
+  const [bodyByTraceId, setBodyByTraceId] = useState<Record<number, RequestBodyPayload>>({});
+  const [bodyLoadingByTraceId, setBodyLoadingByTraceId] = useState<Record<number, boolean>>({});
+  const [bodyErrorByTraceId, setBodyErrorByTraceId] = useState<Record<number, string>>({});
+  const rowsRequestSeq = useRef(0);
+  const countRequestSeq = useRef(0);
   const {
     isLoading: isFilterOptionsLoading,
     providerRows,
@@ -190,8 +422,7 @@ export function RequestsModule({
         const user = userById.get(row.user_id);
         const userMeta = user ? `${user.name} (#${row.user_id})` : `user #${row.user_id}`;
         const key = row.api_key.trim();
-        const preview =
-          key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
+        const preview = key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
         return {
           value: String(row.id),
           label: `#${row.id} · ${userMeta} · ${preview}`
@@ -222,56 +453,21 @@ export function RequestsModule({
     }
   }, [filteredUserKeyOptions, filters.userKeyId]);
 
-  const query = async () => {
-    try {
-      const providerId = parseOptionalI64(filters.providerId);
-      const credentialId = parseOptionalI64(filters.credentialId);
-      const userId = parseOptionalI64(filters.userId);
-      const userKeyId = parseOptionalI64(filters.userKeyId);
-      const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
-      const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
-      const limit = parseOptionalI64(filters.limit) ?? 100;
-
-      if (kind === "upstream") {
-        const data = await apiRequest<UpstreamRequestQueryRow[]>("/admin/requests/upstream/query", {
-          apiKey,
-          method: "POST",
-          body: {
-            provider_id: providerId === null ? scopeAll<number>() : scopeEq(providerId),
-            credential_id: credentialId === null ? scopeAll<number>() : scopeEq(credentialId),
-            from_unix_ms: fromUnixMs,
-            to_unix_ms: toUnixMs,
-            limit
-          }
-        });
-        setRows(data);
-        setPage(1);
-        return;
-      }
-
-      const data = await apiRequest<DownstreamRequestQueryRow[]>("/admin/requests/downstream/query", {
-        apiKey,
-        method: "POST",
-        body: {
-          user_id: userId === null ? scopeAll<number>() : scopeEq(userId),
-          user_key_id: userKeyId === null ? scopeAll<number>() : scopeEq(userKeyId),
-          from_unix_ms: fromUnixMs,
-          to_unix_ms: toUnixMs,
-          limit
-        }
-      });
-      setRows(data);
-      setPage(1);
-    } catch (error) {
-      notify("error", formatError(error));
-    }
-  };
+  useEffect(() => {
+    setActiveQuery(null);
+    setRows([]);
+    setTotalRows(0);
+    setPage(1);
+    setBodyByTraceId({});
+    setBodyLoadingByTraceId({});
+    setBodyErrorByTraceId({});
+  }, [kind]);
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, kind]);
+  }, [pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   useEffect(() => {
     if (page > totalPages) {
@@ -279,10 +475,149 @@ export function RequestsModule({
     }
   }, [page, totalPages]);
 
-  const pagedRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [page, pageSize, rows]);
+  const buildSnapshot = (): RequestQuerySnapshot => {
+    const providerId = parseOptionalI64(filters.providerId);
+    const credentialId = parseOptionalI64(filters.credentialId);
+    const userId = parseOptionalI64(filters.userId);
+    const userKeyId = parseOptionalI64(filters.userKeyId);
+    const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
+    const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
+    const maxRows = toPositiveOrNull(parseOptionalI64(filters.limit));
+    return {
+      kind,
+      providerId,
+      credentialId,
+      userId,
+      userKeyId,
+      fromUnixMs,
+      toUnixMs,
+      maxRows
+    };
+  };
+
+  const runQuery = () => {
+    const snapshot = buildSnapshot();
+    setActiveQuery(snapshot);
+    setPage(1);
+    setRows([]);
+    setTotalRows(0);
+    setBodyByTraceId({});
+    setBodyLoadingByTraceId({});
+    setBodyErrorByTraceId({});
+  };
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    const requestId = ++countRequestSeq.current;
+    setLoadingCount(true);
+    const fetchCount = async () => {
+      try {
+        const countResult = await apiRequest<RequestQueryCount>(requestCountPath(activeQuery.kind), {
+          apiKey,
+          method: "POST",
+          body: buildRequestCountPayload(activeQuery)
+        });
+        if (requestId !== countRequestSeq.current) {
+          return;
+        }
+        const maxRows = activeQuery.maxRows;
+        const nextTotal = maxRows === null ? countResult.count : Math.min(countResult.count, maxRows);
+        setTotalRows(nextTotal);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        if (requestId === countRequestSeq.current) {
+          setLoadingCount(false);
+        }
+      }
+    };
+    void fetchCount();
+  }, [activeQuery, apiKey, notify]);
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    const offset = (page - 1) * pageSize;
+    const maxRows = activeQuery.maxRows;
+    const remaining = maxRows === null ? pageSize : Math.max(0, maxRows - offset);
+    const limit = Math.min(pageSize, remaining);
+    if (limit <= 0) {
+      setRows([]);
+      return;
+    }
+    const requestId = ++rowsRequestSeq.current;
+    setLoadingRows(true);
+    const fetchRows = async () => {
+      try {
+        const data = await apiRequest<RequestRow[]>(requestRowsPath(activeQuery.kind), {
+          apiKey,
+          method: "POST",
+          body: buildRequestRowsPayload(activeQuery, {
+            offset,
+            limit,
+            includeBody: false
+          })
+        });
+        if (requestId !== rowsRequestSeq.current) {
+          return;
+        }
+        setRows(data);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        if (requestId === rowsRequestSeq.current) {
+          setLoadingRows(false);
+        }
+      }
+    };
+    void fetchRows();
+  }, [activeQuery, apiKey, notify, page, pageSize]);
+
+  const ensureBodyLoaded = async (row: RequestRow) => {
+    if (!activeQuery) {
+      return;
+    }
+    const traceId = row.trace_id;
+    if (bodyByTraceId[traceId] || bodyLoadingByTraceId[traceId]) {
+      return;
+    }
+    setBodyLoadingByTraceId((prev) => ({ ...prev, [traceId]: true }));
+    setBodyErrorByTraceId((prev) => {
+      const next = { ...prev };
+      delete next[traceId];
+      return next;
+    });
+    try {
+      const data = await apiRequest<RequestRow[]>(requestRowsPath(activeQuery.kind), {
+        apiKey,
+        method: "POST",
+        body: buildRequestRowsPayload(activeQuery, {
+          traceId,
+          offset: 0,
+          limit: 1,
+          includeBody: true
+        })
+      });
+      const detail = data[0];
+      setBodyByTraceId((prev) => ({
+        ...prev,
+        [traceId]: {
+          request_body: detail?.request_body ?? null,
+          response_body: detail?.response_body ?? null
+        }
+      }));
+    } catch (error) {
+      setBodyErrorByTraceId((prev) => ({
+        ...prev,
+        [traceId]: formatError(error)
+      }));
+    } finally {
+      setBodyLoadingByTraceId((prev) => ({ ...prev, [traceId]: false }));
+    }
+  };
 
   const tableColumns = [
     t("table.trace_id"),
@@ -293,35 +628,6 @@ export function RequestsModule({
     t("table.payload")
   ];
 
-  const buildPayloadCell = (row: UpstreamRequestQueryRow | DownstreamRequestQueryRow) => {
-    const requestHeaders = jsonToPreview(row.request_headers_json);
-    const responseHeaders = jsonToPreview(row.response_headers_json);
-    const requestBody = bytesToUtf8Preview(row.request_body);
-    const responseBody = bytesToUtf8Preview(row.response_body);
-    const hasContent = Boolean(
-      requestHeaders.preview ||
-        responseHeaders.preview ||
-        requestBody.preview ||
-        responseBody.preview
-    );
-
-    if (!hasContent) {
-      return <span className="text-xs text-muted">-</span>;
-    }
-
-    return (
-      <details>
-        <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
-        <div className="mt-2 space-y-2 text-xs">
-          <PayloadSection title="req headers" section={requestHeaders} />
-          <PayloadSection title="req body" section={requestBody} />
-          <PayloadSection title="resp headers" section={responseHeaders} />
-          <PayloadSection title="resp body" section={responseBody} />
-        </div>
-      </details>
-    );
-  };
-
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
       <div className="grid gap-3 md:grid-cols-3">
@@ -329,7 +635,7 @@ export function RequestsModule({
           <Label>{t("field.kind")}</Label>
           <Select
             value={kind}
-            onChange={(v) => setKind(v as "upstream" | "downstream")}
+            onChange={(v) => setKind(v as RequestKind)}
             options={[
               { value: "upstream", label: t("requests.kind.upstream") },
               { value: "downstream", label: t("requests.kind.downstream") }
@@ -398,13 +704,15 @@ export function RequestsModule({
         </div>
       </div>
       <div className="mt-3">
-        <Button onClick={() => void query()}>{t("common.query")}</Button>
+        <Button onClick={runQuery} disabled={loadingRows || loadingCount}>
+          {loadingRows || loadingCount ? t("common.loading") : t("common.query")}
+        </Button>
       </div>
       <div className="mt-4">
         <div className="query-result-table-wrap">
           <Table
             columns={tableColumns}
-            rows={pagedRows.map((row) => ({
+            rows={rows.map((row) => ({
               [tableColumns[0]]: row.trace_id,
               [tableColumns[1]]: formatAtForViewer(row.at),
               [tableColumns[2]]: row.response_status ?? "",
@@ -413,15 +721,24 @@ export function RequestsModule({
                   ? ((row as UpstreamRequestQueryRow).request_url ?? "")
                   : (row as DownstreamRequestQueryRow).request_path,
               [tableColumns[4]]: row.request_method,
-              [tableColumns[5]]: buildPayloadCell(row)
+              [tableColumns[5]]: (
+                <PayloadCell
+                  row={row}
+                  t={t}
+                  detail={bodyByTraceId[row.trace_id]}
+                  loadingBody={Boolean(bodyLoadingByTraceId[row.trace_id])}
+                  bodyError={bodyErrorByTraceId[row.trace_id]}
+                  ensureBodyLoaded={ensureBodyLoaded}
+                />
+              )
             }))}
           />
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
           <div>
             {t("common.pager.stats", {
-              shown: pagedRows.length,
-              total: rows.length
+              shown: rows.length,
+              total: totalRows
             })}
           </div>
           <div className="flex items-center gap-2">
@@ -440,7 +757,7 @@ export function RequestsModule({
             </div>
             <Button
               variant="neutral"
-              disabled={page <= 1}
+              disabled={page <= 1 || loadingRows}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
               {t("common.pager.prev")}
@@ -448,7 +765,7 @@ export function RequestsModule({
             <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
             <Button
               variant="neutral"
-              disabled={page >= totalPages}
+              disabled={page >= totalPages || loadingRows || loadingCount}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
               {t("common.pager.next")}
