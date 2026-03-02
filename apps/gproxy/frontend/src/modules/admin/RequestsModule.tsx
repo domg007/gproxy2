@@ -22,6 +22,7 @@ type RequestQuerySnapshot = {
   credentialId: number | null;
   userId: number | null;
   userKeyId: number | null;
+  pathContains: string;
   fromUnixMs: number | null;
   toUnixMs: number | null;
   maxRows: number | null;
@@ -39,6 +40,16 @@ type PayloadPreview = {
 };
 
 const META_DEFAULT_PREVIEW_CHARS = 420;
+const REQUEST_PATH_TEMPLATE_OPTIONS = [
+  "/v1/messages",
+  "/v1/chat/completions",
+  "/v1/responses",
+  "/v1/models",
+  "/v1/embeddings",
+  "/v1/usage",
+  "/healthz",
+  "/admin/"
+];
 
 function EyeToggleIcon({ open }: { open: boolean }) {
   return (
@@ -176,6 +187,7 @@ function buildRequestCountPayload(snapshot: RequestQuerySnapshot) {
       trace_id: scopeAll<number>(),
       provider_id: snapshot.providerId === null ? scopeAll<number>() : scopeEq(snapshot.providerId),
       credential_id: snapshot.credentialId === null ? scopeAll<number>() : scopeEq(snapshot.credentialId),
+      request_url_contains: snapshot.pathContains || null,
       from_unix_ms: snapshot.fromUnixMs,
       to_unix_ms: snapshot.toUnixMs
     };
@@ -184,6 +196,7 @@ function buildRequestCountPayload(snapshot: RequestQuerySnapshot) {
     trace_id: scopeAll<number>(),
     user_id: snapshot.userId === null ? scopeAll<number>() : scopeEq(snapshot.userId),
     user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    request_path_contains: snapshot.pathContains || null,
     from_unix_ms: snapshot.fromUnixMs,
     to_unix_ms: snapshot.toUnixMs
   };
@@ -203,6 +216,7 @@ function buildRequestRowsPayload(
       trace_id: options.traceId === undefined ? scopeAll<number>() : scopeEq(options.traceId),
       provider_id: snapshot.providerId === null ? scopeAll<number>() : scopeEq(snapshot.providerId),
       credential_id: snapshot.credentialId === null ? scopeAll<number>() : scopeEq(snapshot.credentialId),
+      request_url_contains: snapshot.pathContains || null,
       from_unix_ms: snapshot.fromUnixMs,
       to_unix_ms: snapshot.toUnixMs,
       offset: options.offset,
@@ -214,6 +228,7 @@ function buildRequestRowsPayload(
     trace_id: options.traceId === undefined ? scopeAll<number>() : scopeEq(options.traceId),
     user_id: snapshot.userId === null ? scopeAll<number>() : scopeEq(snapshot.userId),
     user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    request_path_contains: snapshot.pathContains || null,
     from_unix_ms: snapshot.fromUnixMs,
     to_unix_ms: snapshot.toUnixMs,
     offset: options.offset,
@@ -346,6 +361,7 @@ export function RequestsModule({
   const [activeQuery, setActiveQuery] = useState<RequestQuerySnapshot | null>(null);
   const [loadingRows, setLoadingRows] = useState(false);
   const [loadingCount, setLoadingCount] = useState(false);
+  const [knownRequestPaths, setKnownRequestPaths] = useState<string[]>([]);
   const [bodyByTraceId, setBodyByTraceId] = useState<Record<number, RequestBodyPayload>>({});
   const [bodyLoadingByTraceId, setBodyLoadingByTraceId] = useState<Record<number, boolean>>({});
   const [bodyErrorByTraceId, setBodyErrorByTraceId] = useState<Record<number, string>>({});
@@ -369,6 +385,7 @@ export function RequestsModule({
     credentialId: "",
     userId: "",
     userKeyId: "",
+    requestPathContains: "",
     fromAt: "",
     toAt: "",
     limit: "100"
@@ -431,6 +448,17 @@ export function RequestsModule({
     ];
   }, [selectedUserId, t, userById, userKeyRows]);
 
+  const requestPathOptions = useMemo(() => {
+    const dynamic = knownRequestPaths.filter((item) => item.trim().length > 0);
+    const combined = Array.from(
+      new Set<string>([...REQUEST_PATH_TEMPLATE_OPTIONS, ...dynamic])
+    ).sort((a, b) => a.localeCompare(b));
+    return [
+      { value: "", label: t("common.all") },
+      ...combined.map((value) => ({ value, label: value }))
+    ];
+  }, [knownRequestPaths, t]);
+
   useEffect(() => {
     if (!filters.credentialId) {
       return;
@@ -458,6 +486,7 @@ export function RequestsModule({
     setRows([]);
     setTotalRows(0);
     setPage(1);
+    setKnownRequestPaths([]);
     setBodyByTraceId({});
     setBodyLoadingByTraceId({});
     setBodyErrorByTraceId({});
@@ -480,6 +509,7 @@ export function RequestsModule({
     const credentialId = parseOptionalI64(filters.credentialId);
     const userId = parseOptionalI64(filters.userId);
     const userKeyId = parseOptionalI64(filters.userKeyId);
+    const pathContains = filters.requestPathContains.trim();
     const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
     const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
     const maxRows = toPositiveOrNull(parseOptionalI64(filters.limit));
@@ -489,6 +519,7 @@ export function RequestsModule({
       credentialId,
       userId,
       userKeyId,
+      pathContains,
       fromUnixMs,
       toUnixMs,
       maxRows
@@ -565,6 +596,17 @@ export function RequestsModule({
           return;
         }
         setRows(data);
+        const paths =
+          activeQuery.kind === "downstream"
+            ? data
+                .map((row) => (row as DownstreamRequestQueryRow).request_path?.trim() ?? "")
+                .filter((value) => value.length > 0)
+            : data
+                .map((row) => (row as UpstreamRequestQueryRow).request_url?.trim() ?? "")
+                .filter((value) => value.length > 0);
+        if (paths.length > 0) {
+          setKnownRequestPaths((prev) => Array.from(new Set([...prev, ...paths])).sort());
+        }
       } catch (error) {
         notify("error", formatError(error));
       } finally {
@@ -680,6 +722,16 @@ export function RequestsModule({
             placeholder={t("common.all")}
             noResultLabel={t("common.none")}
             disabled={kind !== "downstream" || isFilterOptionsLoading}
+          />
+        </div>
+        <div>
+          <Label>{t("field.request_path_contains")}</Label>
+          <SearchableSelect
+            value={filters.requestPathContains}
+            onChange={(v) => setFilters((p) => ({ ...p, requestPathContains: v }))}
+            options={requestPathOptions}
+            placeholder={t("requests.path.placeholder")}
+            noResultLabel={t("common.none")}
           />
         </div>
         <div>

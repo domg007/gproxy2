@@ -539,6 +539,12 @@ where
     if let Scope::Eq(credential_id) = query.credential_id {
         condition = condition.add(upstream_requests::Column::CredentialId.eq(credential_id));
     }
+    if let Some(url_contains) = query.request_url_contains.as_deref() {
+        let needle = url_contains.trim();
+        if !needle.is_empty() {
+            condition = condition.add(upstream_requests::Column::RequestUrl.contains(needle));
+        }
+    }
     if let Some(from_unix_ms) = query.from_unix_ms
         && let Ok(from) = unix_ms_to_offset_datetime(from_unix_ms)
     {
@@ -565,6 +571,12 @@ where
     }
     if let Scope::Eq(user_key_id) = query.user_key_id {
         condition = condition.add(downstream_requests::Column::UserKeyId.eq(user_key_id));
+    }
+    if let Some(path_contains) = query.request_path_contains.as_deref() {
+        let needle = path_contains.trim();
+        if !needle.is_empty() {
+            condition = condition.add(downstream_requests::Column::RequestPath.contains(needle));
+        }
     }
     if let Some(from_unix_ms) = query.from_unix_ms
         && let Ok(from) = unix_ms_to_offset_datetime(from_unix_ms)
