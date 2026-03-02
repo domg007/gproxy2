@@ -71,7 +71,7 @@ const X_GOOG_API_KEY: &str = "x-goog-api-key";
 const AUTHORIZATION: &str = "authorization";
 const CLAUDE_ANTHROPIC_VERSION_HEADER: &str = "anthropic-version";
 const CLAUDE_ANTHROPIC_BETA_HEADER: &str = "anthropic-beta";
-const BODY_CAPTURE_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+const BODY_CAPTURE_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ModelProtocolPreference {

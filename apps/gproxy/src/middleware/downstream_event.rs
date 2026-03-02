@@ -14,7 +14,7 @@ use gproxy_core::AppState;
 use gproxy_storage::{DownstreamRequestWrite, StorageWriteEvent};
 
 const X_API_KEY: &str = "x-api-key";
-const BODY_CAPTURE_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+const BODY_CAPTURE_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 struct DownstreamRequestEventBase {

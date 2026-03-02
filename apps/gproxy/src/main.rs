@@ -9,7 +9,7 @@ mod admin_ui;
 mod bootstrap;
 mod middleware;
 
-const MAX_AXUM_BODY_BYTES: usize = 32 * 1024 * 1024;
+const MAX_AXUM_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 fn parse_author_and_email(authors: &str) -> (String, String) {
     let first = authors
