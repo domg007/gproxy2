@@ -127,7 +127,7 @@ export const enMessages = {
     "providers.saved": "Provider saved",
     "providers.deleted": "Provider {id} deleted",
     "providers.enabledChanged": "Provider {id} set to {state}",
-    "providers.oauth.unsupported": "This channel does not support OAuth (codex/claudecode/geminicli/antigravity only).",
+    "providers.oauth.unsupported": "This channel does not support OAuth (only codex/claudecode/geminicli/antigravity support).",
     "providers.oauth.start": "Start OAuth",
     "providers.oauth.startUserCode": "Start User Code",
     "providers.oauth.startDeviceAuth": "Start Device Auth",

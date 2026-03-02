@@ -127,7 +127,7 @@ export const zhMessages = {
     "providers.saved": "渠道已保存",
     "providers.deleted": "渠道 {id} 已删除",
     "providers.enabledChanged": "渠道 {id} 状态已切换为 {state}",
-    "providers.oauth.unsupported": "当前渠道不支持 OAuth（仅 codex/claudecode/geminicli/antigravity）。",
+    "providers.oauth.unsupported": "当前渠道不支持 OAuth（仅 codex/claudecode/geminicli/antigravity 支持）。",
     "providers.oauth.start": "发起 OAuth",
     "providers.oauth.startUserCode": "发起 User Code",
     "providers.oauth.startDeviceAuth": "发起 Device Auth",
