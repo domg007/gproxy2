@@ -405,6 +405,9 @@ export function App() {
   const toggleTheme = () => {
     setThemeMode((prev) => (prev === "dark" ? "light" : "dark"));
   };
+  const toggleLocale = () => {
+    setLocale(locale === "zh" ? "en" : "zh");
+  };
   const isDarkTheme = themeMode === "dark";
   const onThemeFabPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) {
@@ -474,22 +477,15 @@ export function App() {
           </div>
           <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end md:gap-3">
             <div className="flex items-center gap-2">
-              <div className="topbar-segmented" role="group" aria-label={t("app.locale.switcher")}>
-                <button
-                  type="button"
-                  className={`topbar-segmented-item ${locale === "zh" ? "topbar-segmented-item-active" : ""}`}
-                  onClick={() => setLocale("zh")}
-                >
-                  CN
-                </button>
-                <button
-                  type="button"
-                  className={`topbar-segmented-item ${locale === "en" ? "topbar-segmented-item-active" : ""}`}
-                  onClick={() => setLocale("en")}
-                >
-                  EN
-                </button>
-              </div>
+              <button
+                type="button"
+                className="topbar-locale-toggle"
+                onClick={toggleLocale}
+                aria-label={t("app.locale.switcher")}
+                title={t("app.locale.switcher")}
+              >
+                {t("app.locale.toggle")}
+              </button>
             </div>
             <Button variant="neutral" onClick={onLogout}>
               {t("app.logout")}
@@ -528,11 +524,18 @@ export function App() {
             />
           </svg>
         ) : (
-          <svg viewBox="0 0 24 24" className="theme-fab-icon" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M12 4a1 1 0 0 1 1 1v1.35a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm8-5a1 1 0 1 1 0 2h-1.35a1 1 0 1 1 0-2zM6.35 12a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2zm10.27 5.66a1 1 0 0 1 1.42 0l.95.96a1 1 0 1 1-1.41 1.41l-.96-.95a1 1 0 0 1 0-1.42zM5.04 6.45a1 1 0 0 1 1.41 0l.96.95A1 1 0 0 1 6 8.82l-.95-.96a1 1 0 0 1 0-1.41zm13.95 0a1 1 0 0 1 0 1.41l-.95.96a1 1 0 1 1-1.42-1.42l.96-.95a1 1 0 0 1 1.41 0zM7.41 16.59a1 1 0 0 1 0 1.42l-.96.95a1 1 0 0 1-1.41-1.41l.95-.96a1 1 0 0 1 1.42 0z"
-            />
+          <svg
+            viewBox="0 0 24 24"
+            className="theme-fab-icon"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none" />
+            <path d="M12 2.5v2.5M12 19v2.5M4.22 4.22l1.77 1.77M18.01 18.01l1.77 1.77M2.5 12H5M19 12h2.5M4.22 19.78l1.77-1.77M18.01 5.99l1.77-1.77" />
           </svg>
         )}
       </button>

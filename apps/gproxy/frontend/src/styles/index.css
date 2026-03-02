@@ -137,6 +137,27 @@ body {
   color: var(--text);
 }
 
+.topbar-locale-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 0.72rem;
+  background: color-mix(in srgb, var(--bg-surface-strong) 92%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.36rem 0.66rem;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.topbar-locale-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+}
+
 .theme-fab {
   position: fixed;
   z-index: 45;
@@ -166,8 +187,8 @@ body {
 }
 
 .theme-fab-icon {
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.22rem;
+  height: 1.22rem;
 }
 
 .layout-shell {
@@ -206,6 +227,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.01em;
   padding: 0.58rem 0.7rem;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
 }
 
 .sidebar-mobile-toggle-icon {
@@ -213,16 +235,31 @@ body {
   left: 0.72rem;
   display: inline-flex;
   width: 0.95rem;
+  height: 0.8rem;
   flex-direction: column;
-  gap: 0.16rem;
+  justify-content: space-between;
 }
 
-.sidebar-mobile-toggle-icon > span {
+.sidebar-mobile-toggle-line {
   display: block;
   height: 2px;
   width: 100%;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text) 78%, transparent);
+  transform-origin: center;
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+
+.sidebar-mobile-toggle[aria-expanded="true"] .sidebar-mobile-toggle-line:nth-child(1) {
+  transform: translateY(0.29rem) rotate(45deg);
+}
+
+.sidebar-mobile-toggle[aria-expanded="true"] .sidebar-mobile-toggle-line:nth-child(2) {
+  opacity: 0;
+}
+
+.sidebar-mobile-toggle[aria-expanded="true"] .sidebar-mobile-toggle-line:nth-child(3) {
+  transform: translateY(-0.29rem) rotate(-45deg);
 }
 
 .sidebar-mobile-toggle-label {
@@ -537,12 +574,26 @@ body {
   }
 
   .sidebar-nav {
-    display: none;
-    margin-top: 0.55rem;
+    display: block;
+    margin-top: 0;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition:
+      max-height 0.26s ease,
+      opacity 0.2s ease,
+      transform 0.2s ease,
+      margin-top 0.2s ease;
   }
 
   .sidebar-nav-open {
-    display: block;
+    margin-top: 0.55rem;
+    max-height: 70vh;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
   }
 
   .sidebar-nav .nav-item {

@@ -33,9 +33,9 @@ export function Nav({
         aria-expanded={mobileOpen}
       >
         <span className="sidebar-mobile-toggle-icon" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+          <span className="sidebar-mobile-toggle-line" />
+          <span className="sidebar-mobile-toggle-line" />
+          <span className="sidebar-mobile-toggle-line" />
         </span>
         <span className="sidebar-mobile-toggle-label">{activeLabel}</span>
       </button>

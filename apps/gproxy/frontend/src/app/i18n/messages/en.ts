@@ -36,6 +36,8 @@ export const enMessages = {
     "app.theme.toggle": "Toggle light/dark",
     "app.locale.en": "English",
     "app.locale.zh": "中文",
+    "app.locale.short.zh": "CN",
+    "app.locale.short.en": "EN",
     "app.locale.switcher": "Language switch",
     "app.error.usernameEmpty": "Username is required",
     "app.error.passwordEmpty": "Password is required",
