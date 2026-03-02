@@ -279,6 +279,7 @@ fn target_release_asset_name() -> Result<String, String> {
             let libc_suffix = "";
             format!("gproxy-linux-{arch}{libc_suffix}.zip")
         }
+        "android" => format!("gproxy-android-{arch}.zip"),
         "macos" => format!("gproxy-macos-{arch}.zip"),
         "windows" => format!("gproxy-windows-{arch}.zip"),
         other => return Err(format!("unsupported_os:{other}")),
