@@ -9,6 +9,8 @@ use crate::AppState;
 
 use super::{Ack, DeleteById, HttpError, authorize_admin};
 
+const CUSTOM_PROVIDER_ID_START: i64 = 1000;
+
 pub(super) async fn resolve_provider_channel_by_id(
     state: &AppState,
     id: i64,
@@ -46,6 +48,12 @@ pub(super) async fn upsert_provider(
 ) -> Result<Json<Ack>, HttpError> {
     authorize_admin(&headers, &state)?;
     let channel = ChannelId::parse(payload.channel.as_str());
+    if matches!(channel, ChannelId::Custom(_)) && payload.id < CUSTOM_PROVIDER_ID_START {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            format!("custom channel id must be >= {CUSTOM_PROVIDER_ID_START}"),
+        ));
+    }
     let settings = gproxy_provider::parse_provider_settings_json_for_channel(
         &channel,
         payload.settings_json.as_str(),

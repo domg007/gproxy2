@@ -25,6 +25,8 @@ use super::{
     ImportCredentialHealth, ImportGlobalConfig, ImportTomlPayload, authorize_admin,
 };
 
+const CUSTOM_PROVIDER_ID_START: i64 = 1000;
+
 pub(super) async fn export_config_toml(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -315,12 +317,17 @@ pub(super) async fn apply_imported_channels(
         .iter()
         .map(|row| (row.channel.clone(), row.id))
         .collect::<HashMap<_, _>>();
+    let mut used_provider_ids = existing_providers
+        .iter()
+        .map(|row| row.id)
+        .collect::<HashSet<_>>();
     let mut next_provider_id = existing_providers
         .iter()
         .map(|row| row.id)
         .max()
         .unwrap_or(-1)
         + 1;
+    let mut next_custom_provider_id = next_provider_id.max(CUSTOM_PROVIDER_ID_START);
 
     let existing_credentials = gproxy_admin::query_credentials(
         &storage,
@@ -380,8 +387,26 @@ pub(super) async fn apply_imported_channels(
         {
             existing
         } else {
-            let id = next_provider_id;
-            next_provider_id += 1;
+            let id = match channel {
+                ChannelId::Builtin(_) => {
+                    while used_provider_ids.contains(&next_provider_id) {
+                        next_provider_id += 1;
+                    }
+                    let id = next_provider_id;
+                    used_provider_ids.insert(id);
+                    next_provider_id += 1;
+                    id
+                }
+                ChannelId::Custom(_) => {
+                    while used_provider_ids.contains(&next_custom_provider_id) {
+                        next_custom_provider_id += 1;
+                    }
+                    let id = next_custom_provider_id;
+                    used_provider_ids.insert(id);
+                    next_custom_provider_id += 1;
+                    id
+                }
+            };
             provider_id_by_channel.insert(channel_name.to_string(), id);
             id
         };

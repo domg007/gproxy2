@@ -28,6 +28,7 @@ const BUILTIN_PROVIDER_ID_ANTIGRAVITY: i64 = 9;
 const BUILTIN_PROVIDER_ID_NVIDIA: i64 = 10;
 const BUILTIN_PROVIDER_ID_DEEPSEEK: i64 = 11;
 const BUILTIN_PROVIDER_ID_GROQ: i64 = 12;
+const CUSTOM_PROVIDER_ID_START: i64 = 1000;
 
 fn default_builtin_provider_id(channel: BuiltinChannel) -> i64 {
     match channel {
@@ -81,7 +82,8 @@ pub(super) async fn seed_registry_providers(
         .iter()
         .map(|row| row.id)
         .collect::<std::collections::HashSet<_>>();
-    let mut next_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
+    let mut next_builtin_fallback_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
+    let mut next_custom_id = next_builtin_fallback_id.max(CUSTOM_PROVIDER_ID_START);
 
     // Prefer existing storage provider settings/pick mode/dispatch so runtime does
     // not overwrite admin updates on restart when config.toml is absent.
@@ -143,14 +145,17 @@ pub(super) async fn seed_registry_providers(
                 ChannelId::Builtin(builtin) => {
                     let preferred = default_builtin_provider_id(builtin);
                     if used_ids.contains(&preferred) {
-                        claim_next_available_provider_id(&mut used_ids, &mut next_id)
+                        claim_next_available_provider_id(
+                            &mut used_ids,
+                            &mut next_builtin_fallback_id,
+                        )
                     } else {
                         used_ids.insert(preferred);
                         preferred
                     }
                 }
                 ChannelId::Custom(_) => {
-                    claim_next_available_provider_id(&mut used_ids, &mut next_id)
+                    claim_next_available_provider_id(&mut used_ids, &mut next_custom_id)
                 }
             };
             id_by_channel.insert(channel.clone(), id);

@@ -38,6 +38,8 @@ import {
   supportsUpstreamUsage
 } from "./providers";
 
+const CUSTOM_PROVIDER_ID_START = 1000;
+
 export function ProvidersModule({
   apiKey,
   notify
@@ -183,6 +185,19 @@ export function ProvidersModule({
     return options;
   }, [providerForm.channel]);
 
+  const nextCustomProviderId = useMemo(() => {
+    const taken = new Set(
+      providerRows
+        .filter((row) => isCustomChannel(row.channel))
+        .map((row) => row.id)
+    );
+    let nextId = CUSTOM_PROVIDER_ID_START;
+    while (taken.has(nextId)) {
+      nextId += 1;
+    }
+    return nextId;
+  }, [providerRows]);
+
   useEffect(() => {
     if (!showWorkspace && activeTab !== "config") {
       setActiveTab("config");
@@ -207,6 +222,7 @@ export function ProvidersModule({
 
   const beginCreateProvider = () => {
     beginCreateProviderData();
+    setProviderForm((prev) => ({ ...prev, id: String(nextCustomProviderId) }));
     setIsCreatingProvider(true);
     setActiveTab("config");
   };
