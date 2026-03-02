@@ -1,5 +1,5 @@
 pub const DEFAULT_BASE_URL: &str = "https://daily-cloudcode-pa.sandbox.googleapis.com";
-pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/1.15.8 (Windows; AMD64)";
+pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/1.19.6 (Windows; AMD64)";
 
 pub const DEFAULT_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub const DEFAULT_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";

@@ -903,6 +903,18 @@ fn build_request_body_bytes(
                     "missing request body for antigravity generate request".to_string(),
                 ));
             };
+            let mut request = request.clone();
+            if model.to_ascii_lowercase().contains("gemini") {
+                if let Some(config_obj) = request
+                    .as_object_mut()
+                    .and_then(|root| root.get_mut("generationConfig"))
+                    .and_then(Value::as_object_mut)
+                {
+                    config_obj.remove("logprobs");
+                    config_obj.remove("responseLogprobs");
+                    config_obj.remove("response_logprobs");
+                }
+            }
             let wrapped = json!({
                 "model": model,
                 "project": project_id,
@@ -1343,8 +1355,8 @@ fn normalize_wrapped_response_ndjson_chunk(chunk: &[u8]) -> Option<Vec<u8>> {
             changed = true;
         } else {
             out.push_str(segment);
-        }
     }
+}
 
     changed.then(|| out.into_bytes())
 }

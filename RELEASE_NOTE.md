@@ -31,6 +31,7 @@
 - Fixed retry-affinity lifecycle behavior:
   - on retry after affinity-hit failure, only the matched key mapping is cleared
   - on success, bind key is always written and matched key TTL is refreshed.
+- Update ANTIGRAVITY_USER_AGENT version and modify request handling for Gemini model
 
 ### Docs
 
