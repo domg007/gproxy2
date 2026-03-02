@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
+
 export interface NavItem {
   id: string;
   label: string;
@@ -12,9 +14,32 @@ export function Nav({
   active: string;
   onChange: (id: string) => void;
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const activeLabel = useMemo(
+    () => items.find((item) => item.id === active)?.label ?? active,
+    [active, items]
+  );
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [active]);
+
   return (
     <aside className="sidebar-shell">
-      <nav className="space-y-1">
+      <button
+        type="button"
+        className="sidebar-mobile-toggle"
+        onClick={() => setMobileOpen((prev) => !prev)}
+        aria-expanded={mobileOpen}
+      >
+        <span className="sidebar-mobile-toggle-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span className="sidebar-mobile-toggle-label">{activeLabel}</span>
+      </button>
+      <nav className={`sidebar-nav space-y-1 ${mobileOpen ? "sidebar-nav-open" : ""}`}>
         {items.map((item) => (
           <button
             key={item.id}
