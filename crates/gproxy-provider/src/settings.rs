@@ -185,11 +185,11 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
 
     match settings {
         ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
-            if value.enable_top_level_cache_control {
-                root.insert(
-                    "enable_top_level_cache_control".to_string(),
-                    serde_json::Value::Bool(true),
-                );
+            if let Some(mode) = value
+                .top_level_cache_control_mode
+                .as_provider_settings_value()
+            {
+                root.insert("enable_top_level_cache_control".to_string(), mode);
             }
         }
         ChannelSettings::Builtin(BuiltinChannelSettings::Codex(value)) => {
@@ -264,11 +264,11 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
-            if value.enable_top_level_cache_control {
-                root.insert(
-                    "enable_top_level_cache_control".to_string(),
-                    serde_json::Value::Bool(true),
-                );
+            if let Some(mode) = value
+                .top_level_cache_control_mode
+                .as_provider_settings_value()
+            {
+                root.insert("enable_top_level_cache_control".to_string(), mode);
             }
         }
         ChannelSettings::Custom(value) => {

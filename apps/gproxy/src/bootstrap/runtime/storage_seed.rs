@@ -95,7 +95,9 @@ pub(super) async fn seed_registry_providers(
                     row.channel
                 );
                 match channel {
-                    ChannelId::Builtin(builtin) => ProviderDispatchTable::default_for_builtin(builtin),
+                    ChannelId::Builtin(builtin) => {
+                        ProviderDispatchTable::default_for_builtin(builtin)
+                    }
                     ChannelId::Custom(_) => ProviderDispatchTable::default_for_custom(),
                 }
             });
@@ -116,15 +118,15 @@ pub(super) async fn seed_registry_providers(
     // Ensure builtin channels always exist.
     for builtin in BUILTIN_CHANNELS {
         let channel_id = ChannelId::builtin(builtin);
-        provider_by_channel.entry(channel_id.as_str().to_string()).or_insert_with(|| {
-            ProviderDefinition {
+        provider_by_channel
+            .entry(channel_id.as_str().to_string())
+            .or_insert_with(|| ProviderDefinition {
                 channel: channel_id.clone(),
                 dispatch: ProviderDispatchTable::default_for_builtin(builtin),
                 settings: resolve_provider_settings(&channel_id, &serde_json::json!({})),
                 credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
                 credentials: ProviderCredentialState::default(),
-            }
-        });
+            });
     }
 
     // config.toml providers (if present) override storage values.

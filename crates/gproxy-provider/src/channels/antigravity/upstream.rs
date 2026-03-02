@@ -1355,8 +1355,8 @@ fn normalize_wrapped_response_ndjson_chunk(chunk: &[u8]) -> Option<Vec<u8>> {
             changed = true;
         } else {
             out.push_str(segment);
+        }
     }
-}
 
     changed.then(|| out.into_bytes())
 }

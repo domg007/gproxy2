@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
+use crate::channels::cache_control::TopLevelCacheControlMode;
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
     configured_pick_mode_uses_cache, credential_pick_mode,
@@ -28,7 +29,7 @@ pub async fn execute_claude_with_retry(
 ) -> Result<UpstreamResponse, UpstreamError> {
     let prepared = ClaudePreparedRequest::from_transform_request(
         request,
-        provider.settings.enable_top_level_cache_control(),
+        provider.settings.top_level_cache_control_mode(),
     )?;
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
@@ -215,7 +216,7 @@ struct ClaudePreparedRequest {
 impl ClaudePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
-        enable_top_level_cache_control: bool,
+        top_level_cache_control_mode: TopLevelCacheControlMode,
     ) -> Result<Self, UpstreamError> {
         match request {
             gproxy_middleware::TransformRequest::ModelListClaude(value) => {
@@ -266,8 +267,8 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                if enable_top_level_cache_control {
-                    ensure_top_level_cache_control(&mut body_json);
+                if top_level_cache_control_mode.is_enabled() {
+                    ensure_top_level_cache_control(&mut body_json, top_level_cache_control_mode);
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -286,8 +287,8 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                if enable_top_level_cache_control {
-                    ensure_top_level_cache_control(&mut body_json);
+                if top_level_cache_control_mode.is_enabled() {
+                    ensure_top_level_cache_control(&mut body_json, top_level_cache_control_mode);
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -358,17 +359,18 @@ impl ClaudePreparedRequest {
     }
 }
 
-fn ensure_top_level_cache_control(body: &mut Value) {
+fn ensure_top_level_cache_control(body: &mut Value, mode: TopLevelCacheControlMode) {
     let Some(map) = body.as_object_mut() else {
         return;
     };
     if map.contains_key("cache_control") {
         return;
     }
-    map.insert(
-        "cache_control".to_string(),
-        json!({
-            "type": "ephemeral",
-        }),
-    );
+    let mut cache_control = json!({
+        "type": "ephemeral",
+    });
+    if let Some(ttl) = mode.ttl() {
+        cache_control["ttl"] = json!(ttl);
+    }
+    map.insert("cache_control".to_string(), cache_control);
 }

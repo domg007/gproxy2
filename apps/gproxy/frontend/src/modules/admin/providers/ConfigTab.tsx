@@ -5,6 +5,7 @@ import {
   BUILD_UA_ARCH,
   BUILD_UA_OS,
   DEFAULT_GPROXY_USER_AGENT_DRAFT,
+  normalizeTopLevelCacheControlModeDraft,
 } from "./channels/shared";
 import {
   CLAUDE_AGENT_SDK_PRELUDE_TEXT,
@@ -146,25 +147,23 @@ export function ConfigTab({
           <div>
             <Label>{t("field.enable_top_level_cache_control")}</Label>
             <Select
-              value={
-                (providerForm.settings.enable_top_level_cache_control ?? "false")
-                  .trim()
-                  .toLowerCase() === "true"
-                  ? "true"
-                  : "false"
-              }
+              value={normalizeTopLevelCacheControlModeDraft(
+                providerForm.settings.enable_top_level_cache_control ?? "off"
+              )}
               onChange={(value) =>
                 setProviderForm((prev) => ({
                   ...prev,
                   settings: {
                     ...prev.settings,
-                    enable_top_level_cache_control: value === "true" ? "true" : "false"
+                    enable_top_level_cache_control: normalizeTopLevelCacheControlModeDraft(value)
                   }
                 }))
               }
               options={[
-                { value: "false", label: t("common.disabled") },
-                { value: "true", label: t("common.enabled") }
+                { value: "off", label: t("providers.cacheControl.mode.off") },
+                { value: "auto", label: t("providers.cacheControl.mode.auto") },
+                { value: "5m", label: t("providers.cacheControl.mode.5m") },
+                { value: "1h", label: t("providers.cacheControl.mode.1h") }
               ]}
             />
           </div>

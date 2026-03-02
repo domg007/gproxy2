@@ -1005,13 +1005,6 @@ fn claude_auto_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
     {
         return DEFAULT_CACHE_AFFINITY_TTL_MS;
     }
-    if value
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|ty| ty == "ephemeral")
-    {
-        return ONE_HOUR_CACHE_AFFINITY_TTL_MS;
-    }
     DEFAULT_CACHE_AFFINITY_TTL_MS
 }
 
@@ -1119,7 +1112,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_top_level_cache_control_without_ttl_defaults_to_1h() {
+    fn claude_top_level_cache_control_without_ttl_defaults_to_5m() {
         let body = json!({
             "model": "claude-sonnet-4-6",
             "cache_control": {"type":"ephemeral"},
@@ -1127,7 +1120,7 @@ mod tests {
         });
         let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
         assert!(hint.bind.key.contains("bp=auto"));
-        assert!(hint.bind.key.contains("ttl=1h"));
+        assert!(hint.bind.key.contains("ttl=5m"));
     }
 
     #[test]

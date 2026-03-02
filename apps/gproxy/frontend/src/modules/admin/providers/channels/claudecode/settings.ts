@@ -1,4 +1,8 @@
 import type { ChannelSettingsDraft } from "../../types";
+import {
+  normalizeTopLevelCacheControlModeDraft,
+  topLevelCacheControlModeDraftToSettingsValue,
+} from "../shared";
 
 const DEFAULTS = {
   base_url: "https://api.anthropic.com",
@@ -6,7 +10,7 @@ const DEFAULTS = {
   claudecode_ai_base_url: "https://claude.ai",
   claudecode_platform_base_url: "https://platform.claude.com",
   claudecode_prelude_text: "",
-  enable_top_level_cache_control: "false"
+  enable_top_level_cache_control: "off"
 } as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -38,13 +42,10 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.claudecode_prelude_text === "string") {
     out.claudecode_prelude_text = value.claudecode_prelude_text;
   }
-  if (typeof value.enable_top_level_cache_control === "boolean") {
-    out.enable_top_level_cache_control = value.enable_top_level_cache_control ? "true" : "false";
-  } else if (typeof value.enable_top_level_cache_control === "string") {
-    out.enable_top_level_cache_control =
-      value.enable_top_level_cache_control.trim().toLowerCase() === "true"
-        ? "true"
-        : "false";
+  if ("enable_top_level_cache_control" in value) {
+    out.enable_top_level_cache_control = normalizeTopLevelCacheControlModeDraft(
+      value.enable_top_level_cache_control
+    );
   }
   return out;
 }
@@ -77,12 +78,12 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
     payload.claudecode_prelude_text = preludeText;
   }
 
-  const enableTopLevelCacheControl =
-    (settings.enable_top_level_cache_control ?? DEFAULTS.enable_top_level_cache_control)
-      .trim()
-      .toLowerCase() === "true";
-  if (enableTopLevelCacheControl) {
-    payload.enable_top_level_cache_control = true;
+  const cacheControlMode = normalizeTopLevelCacheControlModeDraft(
+    settings.enable_top_level_cache_control ?? DEFAULTS.enable_top_level_cache_control
+  );
+  const cacheControlModeValue = topLevelCacheControlModeDraftToSettingsValue(cacheControlMode);
+  if (cacheControlModeValue) {
+    payload.enable_top_level_cache_control = cacheControlModeValue;
   }
 
   return payload;

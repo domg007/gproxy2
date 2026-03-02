@@ -3,6 +3,7 @@ import type { ChannelSettingsDraft } from "../types";
 export const BUILD_UA_OS = __APP_OS__;
 export const BUILD_UA_ARCH = __APP_ARCH__;
 export const DEFAULT_GPROXY_USER_AGENT_DRAFT = `gproxy/${__APP_VERSION__}(${BUILD_UA_OS},${BUILD_UA_ARCH})`;
+export type TopLevelCacheControlModeDraft = "off" | "auto" | "5m" | "1h";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -21,6 +22,38 @@ function toJsonObject(value: unknown): Record<string, unknown> | null {
     }
   }
   return null;
+}
+
+export function normalizeTopLevelCacheControlModeDraft(
+  value: unknown
+): TopLevelCacheControlModeDraft {
+  if (typeof value !== "string") {
+    return "off";
+  }
+  switch (value.trim().toLowerCase()) {
+    case "auto":
+      return "auto";
+    case "5m":
+      return "5m";
+    case "1h":
+      return "1h";
+    case "off":
+      return "off";
+    default:
+      return "off";
+  }
+}
+
+export function topLevelCacheControlModeDraftToSettingsValue(
+  value: TopLevelCacheControlModeDraft
+): string | null {
+  if (value === "off") {
+    return null;
+  }
+  if (value === "auto") {
+    return "auto";
+  }
+  return value;
 }
 
 export function createSettingsCodec(defaults: Record<string, string>, optionalKeys: string[]) {

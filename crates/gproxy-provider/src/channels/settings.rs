@@ -2,8 +2,8 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia,
-    openai, vertex, vertexexpress,
+    aistudio, antigravity, cache_control::TopLevelCacheControlMode, claude, claudecode, codex,
+    custom, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,15 +169,15 @@ impl ChannelSettings {
         }
     }
 
-    pub fn enable_top_level_cache_control(&self) -> bool {
+    pub fn top_level_cache_control_mode(&self) -> TopLevelCacheControlMode {
         match self {
             Self::Builtin(BuiltinChannelSettings::Claude(value)) => {
-                value.enable_top_level_cache_control
+                value.top_level_cache_control_mode
             }
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
-                value.enable_top_level_cache_control
+                value.top_level_cache_control_mode
             }
-            _ => false,
+            _ => TopLevelCacheControlMode::Disabled,
         }
     }
 
