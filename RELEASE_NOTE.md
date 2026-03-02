@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.3.11
+
+### Changed
+
+- Reworked admin provider workspace into four tabs: `Single Add`, `Bulk Import/Export`, `Credential List`, and `Config`.
+- Moved OAuth flows under `Single Add`; credential cards now live in `Credential List`, and editing opens inline below the list.
+- Added credential auto-naming fallback for create/import and card display: prefer `user_email`, then fall back to key/cookie prefix when name is empty.
+- Admin default landing module is now `Providers` (instead of `Global Settings`).
+- Added provider/credential list search with mode switch (`By ID` / `By Name`).
+- Added pagination plus page-size selection (`5/10/20/50`) for providers, credentials, request logs, usage rows, users, and user keys.
+- Added responsive default page size by viewport (mobile/tablet/desktop/large desktop).
+- Updated topbar and app-shell UX:
+  - show app version and short commit hash
+  - locale switch is now a single-toggle segmented control (`CN/EN` or `中/英`, based on locale)
+  - light/dark switch moved to a draggable floating action button.
+- Improved mobile navigation UX:
+  - sidebar can collapse behind a hamburger toggle
+  - toggle animates to `X` on expand
+  - active nav entry is hidden in expanded list to avoid duplicate current-item display.
+
+### Fixed
+
+- Fixed Android self-update asset resolution by supporting `gproxy-android-<arch>.zip`.
+- Fixed custom provider ID allocation to avoid collisions with builtin provider IDs by moving custom IDs to the `>= 1000` range across frontend creation, bootstrap seeding, and config import.
+
+### Compatibility
+
+- Custom provider IDs below `1000` are now rejected by admin upsert API for custom channels.
+- Admin hash-route fallback now resolves to `#/admin/providers` when module is missing or invalid.
+
 ## v0.3.10
 
 ### Changed
