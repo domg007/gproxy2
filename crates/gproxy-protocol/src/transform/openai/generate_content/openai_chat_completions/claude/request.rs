@@ -57,6 +57,8 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         let response_tool_choice =
             chat_tool_choice_to_response_tool_choice(tool_choice, function_call);
         let response_tools = chat_tools_to_response_tools(tools, functions, web_search_options);
+        let reasoning_max_tokens = max_completion_tokens.or(max_tokens);
+        let claude_max_tokens = reasoning_max_tokens.unwrap_or(8_192);
 
         let mut messages = Vec::new();
         let mut system_blocks = Vec::new();
@@ -272,7 +274,8 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                     })
                 }
             });
-        let thinking = extra_thinking.or_else(|| openai_reasoning_to_claude(response_reasoning));
+        let thinking = extra_thinking
+            .or_else(|| openai_reasoning_to_claude(response_reasoning, reasoning_max_tokens));
 
         let output_effort = response_text
             .as_ref()
@@ -465,7 +468,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
             query: QueryParameters::default(),
             headers: RequestHeaders::default(),
             body: RequestBody {
-                max_tokens: max_completion_tokens.or(max_tokens).unwrap_or(8_192),
+                max_tokens: claude_max_tokens,
                 messages,
                 model: Model::Custom(model),
                 container: None,

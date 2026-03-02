@@ -114,7 +114,7 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
 
         let disable_parallel_tool_use = parallel_disable(body.parallel_tool_calls);
         let tool_choice = openai_tool_choice_to_claude(body.tool_choice, disable_parallel_tool_use);
-        let thinking = openai_reasoning_to_claude(body.reasoning);
+        let thinking = openai_reasoning_to_claude(body.reasoning, None);
 
         let output_effort = body
             .text

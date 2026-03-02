@@ -124,7 +124,8 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
 
         let disable_parallel_tool_use = parallel_disable(body.parallel_tool_calls);
         let tool_choice = openai_tool_choice_to_claude(body.tool_choice, disable_parallel_tool_use);
-        let thinking = openai_reasoning_to_claude(body.reasoning.clone());
+        let thinking = openai_reasoning_to_claude(body.reasoning.clone(), body.max_output_tokens);
+        let claude_max_tokens = body.max_output_tokens.unwrap_or(8_192);
 
         let output_effort = body
             .text
@@ -359,7 +360,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
             query: QueryParameters::default(),
             headers: RequestHeaders::default(),
             body: RequestBody {
-                max_tokens: body.max_output_tokens.unwrap_or(8_192),
+                max_tokens: claude_max_tokens,
                 messages,
                 model: Model::Custom(body.model.unwrap_or_default()),
                 container: None,

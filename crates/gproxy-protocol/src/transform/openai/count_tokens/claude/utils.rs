@@ -119,43 +119,76 @@ pub fn openai_role_to_claude(role: ot::ResponseInputMessageRole) -> ct::BetaMess
 
 pub fn openai_reasoning_to_claude(
     reasoning: Option<ot::ResponseReasoning>,
+    max_tokens: Option<u64>,
 ) -> Option<ct::BetaThinkingConfigParam> {
+    const MIN_BUDGET_TOKENS: u64 = 1_024;
+
+    fn effort_ratio(effort: &ot::ResponseReasoningEffort) -> (u64, u64) {
+        match effort {
+            ot::ResponseReasoningEffort::Minimal => (1, 8),
+            ot::ResponseReasoningEffort::Low => (1, 4),
+            ot::ResponseReasoningEffort::Medium => (1, 2),
+            ot::ResponseReasoningEffort::High => (3, 4),
+            ot::ResponseReasoningEffort::XHigh => (19, 20),
+            ot::ResponseReasoningEffort::None => (0, 1),
+        }
+    }
+
+    fn budget_for_effort(effort: &ot::ResponseReasoningEffort, max_tokens: u64) -> Option<u64> {
+        if max_tokens < MIN_BUDGET_TOKENS {
+            return None;
+        }
+        let (num, den) = effort_ratio(effort);
+        let target = max_tokens.saturating_mul(num) / den;
+        let upper = max_tokens.saturating_sub(1);
+        if upper < MIN_BUDGET_TOKENS {
+            return None;
+        }
+        Some(target.clamp(MIN_BUDGET_TOKENS, upper))
+    }
+
     let effort = reasoning.and_then(|config| config.effort)?;
+    if !matches!(effort, ot::ResponseReasoningEffort::None)
+        && max_tokens.is_some_and(|tokens| tokens < MIN_BUDGET_TOKENS)
+    {
+        return Some(ct::BetaThinkingConfigParam::Disabled(
+            ct::BetaThinkingConfigDisabled {
+                type_: ct::BetaThinkingConfigDisabledType::Disabled,
+            },
+        ));
+    }
     Some(match effort {
         ot::ResponseReasoningEffort::None => {
             ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
                 type_: ct::BetaThinkingConfigDisabledType::Disabled,
             })
         }
-        ot::ResponseReasoningEffort::Minimal => {
-            ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                budget_tokens: 10_000,
-                type_: ct::BetaThinkingConfigEnabledType::Enabled,
-            })
-        }
-        ot::ResponseReasoningEffort::Low => {
-            ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                budget_tokens: 20_000,
-                type_: ct::BetaThinkingConfigEnabledType::Enabled,
-            })
-        }
         ot::ResponseReasoningEffort::Medium => {
-            ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                budget_tokens: 50_000,
-                type_: ct::BetaThinkingConfigEnabledType::Enabled,
+            ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
+                type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
             })
         }
-        ot::ResponseReasoningEffort::High => {
-            ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                budget_tokens: 100_000,
-                type_: ct::BetaThinkingConfigEnabledType::Enabled,
-            })
-        }
-        ot::ResponseReasoningEffort::XHigh => {
-            ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
-                budget_tokens: 190_000,
-                type_: ct::BetaThinkingConfigEnabledType::Enabled,
-            })
+        ot::ResponseReasoningEffort::Minimal
+        | ot::ResponseReasoningEffort::Low
+        | ot::ResponseReasoningEffort::High
+        | ot::ResponseReasoningEffort::XHigh => {
+            if let Some(max_tokens) = max_tokens {
+                match budget_for_effort(&effort, max_tokens) {
+                    Some(budget_tokens) => {
+                        ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
+                            budget_tokens,
+                            type_: ct::BetaThinkingConfigEnabledType::Enabled,
+                        })
+                    }
+                    None => ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
+                        type_: ct::BetaThinkingConfigDisabledType::Disabled,
+                    }),
+                }
+            } else {
+                ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
+                    type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
+                })
+            }
         }
     })
 }
@@ -430,4 +463,89 @@ fn json_object_to_btree(value: &serde_json::Value) -> Option<ct::JsonObject> {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect::<ct::JsonObject>(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reasoning(effort: ot::ResponseReasoningEffort) -> Option<ot::ResponseReasoning> {
+        Some(ot::ResponseReasoning {
+            effort: Some(effort),
+            ..ot::ResponseReasoning::default()
+        })
+    }
+
+    #[test]
+    fn reasoning_none_maps_to_disabled() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::None), Some(8_192));
+        assert!(matches!(
+            thinking,
+            Some(ct::BetaThinkingConfigParam::Disabled(_))
+        ));
+    }
+
+    #[test]
+    fn reasoning_budget_is_clamped_to_minimum() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::Minimal), Some(4_096));
+        match thinking {
+            Some(ct::BetaThinkingConfigParam::Enabled(config)) => {
+                assert_eq!(config.budget_tokens, 1_024);
+            }
+            other => panic!("unexpected thinking config: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reasoning_budget_never_exceeds_max_tokens() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::XHigh), Some(1_500));
+        match thinking {
+            Some(ct::BetaThinkingConfigParam::Enabled(config)) => {
+                assert_eq!(config.budget_tokens, 1_499);
+            }
+            other => panic!("unexpected thinking config: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reasoning_medium_maps_to_adaptive() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::Medium), Some(8_192));
+        assert!(matches!(
+            thinking,
+            Some(ct::BetaThinkingConfigParam::Adaptive(_))
+        ));
+    }
+
+    #[test]
+    fn reasoning_is_disabled_when_max_tokens_below_minimum() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::Low), Some(800));
+        assert!(matches!(
+            thinking,
+            Some(ct::BetaThinkingConfigParam::Disabled(_))
+        ));
+    }
+
+    #[test]
+    fn reasoning_budgeted_effort_without_max_tokens_maps_to_adaptive() {
+        let thinking = openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::High), None);
+        assert!(matches!(
+            thinking,
+            Some(ct::BetaThinkingConfigParam::Adaptive(_))
+        ));
+    }
+
+    #[test]
+    fn reasoning_budgeted_effort_is_disabled_when_max_tokens_is_1024() {
+        let thinking =
+            openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::High), Some(1_024));
+        assert!(matches!(
+            thinking,
+            Some(ct::BetaThinkingConfigParam::Disabled(_))
+        ));
+    }
 }
