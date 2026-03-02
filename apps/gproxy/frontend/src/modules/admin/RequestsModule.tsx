@@ -401,20 +401,22 @@ export function RequestsModule({
         <Button onClick={() => void query()}>{t("common.query")}</Button>
       </div>
       <div className="mt-4">
-        <Table
-          columns={tableColumns}
-          rows={pagedRows.map((row) => ({
-            [tableColumns[0]]: row.trace_id,
-            [tableColumns[1]]: formatAtForViewer(row.at),
-            [tableColumns[2]]: row.response_status ?? "",
-            [tableColumns[3]]:
-              kind === "upstream"
-                ? ((row as UpstreamRequestQueryRow).request_url ?? "")
-                : (row as DownstreamRequestQueryRow).request_path,
-            [tableColumns[4]]: row.request_method,
-            [tableColumns[5]]: buildPayloadCell(row)
-          }))}
-        />
+        <div className="query-result-table-wrap">
+          <Table
+            columns={tableColumns}
+            rows={pagedRows.map((row) => ({
+              [tableColumns[0]]: row.trace_id,
+              [tableColumns[1]]: formatAtForViewer(row.at),
+              [tableColumns[2]]: row.response_status ?? "",
+              [tableColumns[3]]:
+                kind === "upstream"
+                  ? ((row as UpstreamRequestQueryRow).request_url ?? "")
+                  : (row as DownstreamRequestQueryRow).request_path,
+              [tableColumns[4]]: row.request_method,
+              [tableColumns[5]]: buildPayloadCell(row)
+            }))}
+          />
+        </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
           <div>
             {t("common.pager.stats", {

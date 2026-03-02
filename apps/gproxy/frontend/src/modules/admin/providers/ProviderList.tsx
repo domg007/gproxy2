@@ -83,8 +83,8 @@ export function ProviderList({
   return (
     <aside className="space-y-3">
       <div className="text-sm font-semibold text-text">{t("providers.list")}</div>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="w-24">
+      <div className="flex flex-wrap items-end gap-2 sm:flex-nowrap">
+        <div className="w-20">
           <Select
             value={searchMode}
             onChange={(value) => setSearchMode(value as ProviderSearchMode)}
@@ -94,14 +94,14 @@ export function ProviderList({
             ]}
           />
         </div>
-        <div className="min-w-[180px] flex-1">
+        <div className="min-w-[120px] flex-1 sm:min-w-[140px]">
           <Input
             value={searchText}
             onChange={setSearchText}
             placeholder={t("providers.search.placeholder.provider")}
           />
         </div>
-        <div className="w-20">
+        <div className="w-16">
           <Select
             value={String(pageSize)}
             onChange={(value) => setPageSize(Number(value))}

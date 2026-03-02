@@ -175,7 +175,7 @@ export function UserListPane({
                 disabled={page <= 1}
                 onClick={() => setPage((prev) => Math.max(1, prev - 1))}
               >
-                {t("common.pager.prev")}
+                {t("users.pager.prev")}
               </Button>
               <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
               <Button
@@ -183,7 +183,7 @@ export function UserListPane({
                 disabled={page >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
-                {t("common.pager.next")}
+                {t("users.pager.next")}
               </Button>
             </div>
           </div>

@@ -369,21 +369,23 @@ export function UsageModule({
         <MetricCard label={t("metric.cache_creation_1h")} value={summary.cache_creation_input_tokens_1h} />
       </div>
       <Card title={t("usage.rows")}>
-        <Table
-          columns={tableColumns}
-          rows={pagedRows.map((row) => ({
-            [tableColumns[0]]: row.trace_id,
-            [tableColumns[1]]: row.provider_channel ?? "",
-            [tableColumns[2]]: row.model ?? "",
-            [tableColumns[3]]: row.input_tokens ?? "",
-            [tableColumns[4]]: row.output_tokens ?? "",
-            [tableColumns[5]]: row.cache_read_input_tokens ?? "",
-            [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
-            [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
-            [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
-            [tableColumns[9]]: formatAtForViewer(row.at)
-          }))}
-        />
+        <div className="query-result-table-wrap">
+          <Table
+            columns={tableColumns}
+            rows={pagedRows.map((row) => ({
+              [tableColumns[0]]: row.trace_id,
+              [tableColumns[1]]: row.provider_channel ?? "",
+              [tableColumns[2]]: row.model ?? "",
+              [tableColumns[3]]: row.input_tokens ?? "",
+              [tableColumns[4]]: row.output_tokens ?? "",
+              [tableColumns[5]]: row.cache_read_input_tokens ?? "",
+              [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
+              [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
+              [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
+              [tableColumns[9]]: formatAtForViewer(row.at)
+            }))}
+          />
+        </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
           <div>
             {t("common.pager.stats", {

@@ -537,6 +537,27 @@ body {
   padding: 0.58rem 0.5rem;
 }
 
+.query-result-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.query-result-table-wrap .data-table-wrap {
+  overflow-x: visible;
+}
+
+.query-result-table-wrap .data-table {
+  width: max(100%, 760px);
+  max-width: 200%;
+}
+
+.query-result-table-wrap .data-table th,
+.query-result-table-wrap .data-table td {
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .toast {
   border-radius: 0.85rem;
   border: 1px solid transparent;
