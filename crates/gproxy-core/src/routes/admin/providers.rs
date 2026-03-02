@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use gproxy_provider::ChannelId;
+use gproxy_provider::{ChannelId, parse_credential_pick_mode_from_provider_settings_value};
 
 use crate::AppState;
 
@@ -51,11 +51,21 @@ pub(super) async fn upsert_provider(
         payload.settings_json.as_str(),
     )
     .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
+    let settings_value = serde_json::from_str::<serde_json::Value>(payload.settings_json.as_str())
+        .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
+    let credential_pick_mode =
+        parse_credential_pick_mode_from_provider_settings_value(&settings_value);
     let dispatch = serde_json::from_str::<gproxy_provider::ProviderDispatchTable>(
         payload.dispatch_json.as_str(),
     )
     .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
-    state.upsert_provider_in_memory(channel, settings, dispatch, payload.enabled);
+    state.upsert_provider_in_memory(
+        channel,
+        settings,
+        dispatch,
+        credential_pick_mode,
+        payload.enabled,
+    );
     gproxy_admin::upsert_provider(&state.storage_writes, payload).await?;
     Ok(Json(Ack { ok: true }))
 }

@@ -95,6 +95,10 @@ export const enMessages = {
     "providers.uaTemplate.ide.pycharm": "IDE: PyCharm",
     "providers.uaTemplate.bot.googlebot": "Bot: Googlebot",
     "providers.uaTemplate.bot.bingbot": "Bot: Bingbot",
+    "providers.pickMode.round_robin_with_cache": "Round Robin + Cache",
+    "providers.pickMode.sticky_with_cache": "Sticky + Cache",
+    "providers.pickMode.round_robin_no_cache": "Round Robin + No Cache",
+    "providers.pickMode.sticky_no_cache": "Sticky + No Cache",
     "providers.custom.maskHint":
       "JSON object. Example: {\"rules\":[{\"path\":\"/v1/chat/completions\",\"remove_fields\":[\"metadata\",\"safety_identifier\"]}]}",
     "providers.save": "Save Provider",
@@ -294,6 +298,7 @@ export const enMessages = {
     "field.oauth_authorize_url": "oauth_authorize_url",
     "field.oauth_token_url": "oauth_token_url",
     "field.oauth_userinfo_url": "oauth_userinfo_url",
+    "field.credential_pick_mode": "credential_pick_mode",
     "field.claudecode_ai_base_url": "claudecode_ai_base_url",
     "field.claudecode_platform_base_url": "claudecode_platform_base_url",
     "field.claudecode_prelude_text": "claudecode_prelude_text",

@@ -2,9 +2,10 @@ use anyhow::{Context, Result};
 use gproxy_core::GlobalSettings;
 use gproxy_provider::{
     BUILTIN_CHANNELS, BuiltinChannel, ChannelCredential, ChannelCredentialState, ChannelId,
-    CredentialRef, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
-    ProviderRegistry, credential_health_from_storage, credential_health_to_storage,
-    credential_kind_for_storage, provider_settings_to_json_string,
+    CredentialPickMode, CredentialRef, ProviderCredentialState, ProviderDefinition,
+    ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
+    credential_health_to_storage, credential_kind_for_storage,
+    provider_settings_to_json_string_with_credential_pick_mode,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialStatusQuery, CredentialStatusWrite, CredentialWrite,
@@ -92,6 +93,7 @@ pub(super) async fn seed_registry_providers(
                 channel: channel_id.clone(),
                 dispatch: ProviderDispatchTable::default_for_builtin(builtin),
                 settings: resolve_provider_settings(&channel_id, &serde_json::json!({})),
+                credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
                 credentials: ProviderCredentialState::default(),
             },
         );
@@ -123,8 +125,11 @@ pub(super) async fn seed_registry_providers(
             id
         };
 
-        let settings_json = provider_settings_to_json_string(&provider.settings)
-            .context("serialize provider settings for bootstrap seed")?;
+        let settings_json = provider_settings_to_json_string_with_credential_pick_mode(
+            &provider.settings,
+            provider.credential_pick_mode,
+        )
+        .context("serialize provider settings for bootstrap seed")?;
         let dispatch_json = serde_json::to_string(&provider.dispatch)
             .context("serialize provider dispatch for bootstrap seed")?;
         batch.apply(StorageWriteEvent::UpsertProvider(ProviderWrite {

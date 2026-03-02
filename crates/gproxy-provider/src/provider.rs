@@ -25,6 +25,7 @@ use crate::channels::geminicli::{
 use crate::channels::groq::execute_groq_with_retry;
 use crate::channels::nvidia::execute_nvidia_with_retry;
 use crate::channels::openai::execute_openai_with_retry;
+use crate::channels::retry::CredentialPickMode;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthRequest, UpstreamOAuthResponse,
     UpstreamResponse,
@@ -49,6 +50,7 @@ pub struct ProviderDefinition {
     pub channel: ChannelId,
     pub dispatch: ProviderDispatchTable,
     pub settings: ChannelSettings,
+    pub credential_pick_mode: CredentialPickMode,
     pub credentials: ProviderCredentialState,
 }
 

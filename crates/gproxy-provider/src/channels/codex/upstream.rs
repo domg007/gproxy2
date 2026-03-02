@@ -11,7 +11,11 @@ use super::constants::{
 use super::oauth::{
     CodexRefreshedToken, codex_auth_material_from_credential, resolve_codex_access_token,
 };
-use crate::channels::retry::{CredentialRetryDecision, retry_with_eligible_credentials};
+use crate::channels::retry::{
+    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    configured_pick_mode_uses_cache, credential_pick_mode, retry_with_eligible_credentials,
+    retry_with_eligible_credentials_with_affinity,
+};
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
 };
@@ -69,12 +73,21 @@ pub async fn execute_codex_with_retry(
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), USER_AGENT_VALUE);
+    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
+        cache_affinity_hint_from_transform_request(request)
+    } else {
+        None
+    };
+    let pick_mode =
+        credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
-    retry_with_eligible_credentials(
+    retry_with_eligible_credentials_with_affinity(
         provider,
         credential_states,
         prepared.model.as_deref(),
         now_unix_ms,
+        pick_mode,
+        cache_affinity_hint,
         |credential| {
             if let ChannelCredential::Builtin(BuiltinChannelCredential::Codex(value)) =
                 &credential.credential

@@ -95,6 +95,10 @@ export const zhMessages = {
     "providers.uaTemplate.ide.pycharm": "经典 IDE：PyCharm",
     "providers.uaTemplate.bot.googlebot": "经典机器人：Googlebot",
     "providers.uaTemplate.bot.bingbot": "经典机器人：Bingbot",
+    "providers.pickMode.round_robin_with_cache": "轮询 + 缓存",
+    "providers.pickMode.sticky_with_cache": "固定 + 缓存",
+    "providers.pickMode.round_robin_no_cache": "轮询 + 不缓存",
+    "providers.pickMode.sticky_no_cache": "固定 + 不缓存",
     "providers.custom.maskHint":
       "JSON 对象示例：{\"rules\":[{\"path\":\"/v1/chat/completions\",\"remove_fields\":[\"metadata\",\"safety_identifier\"]}]}",
     "providers.save": "保存渠道",
@@ -294,6 +298,7 @@ export const zhMessages = {
     "field.oauth_authorize_url": "OAuth 授权 URL",
     "field.oauth_token_url": "OAuth Token URL",
     "field.oauth_userinfo_url": "OAuth 用户信息 URL",
+    "field.credential_pick_mode": "凭证选择模式",
     "field.claudecode_ai_base_url": "ClaudeCode AI 基础 URL",
     "field.claudecode_platform_base_url": "ClaudeCode 平台基础 URL",
     "field.claudecode_prelude_text": "ClaudeCode 前置文本",

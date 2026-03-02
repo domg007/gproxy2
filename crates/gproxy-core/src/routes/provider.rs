@@ -455,8 +455,11 @@ async fn persist_provider_and_credential(
 ) -> Result<(), HttpError> {
     let provider_id = resolve_provider_id(state, channel).await?;
     let provider_settings_json =
-        gproxy_provider::provider_settings_to_json_string(&provider.settings)
-            .map_err(|err| internal_error(err.to_string()))?;
+        gproxy_provider::provider_settings_to_json_string_with_credential_pick_mode(
+            &provider.settings,
+            provider.credential_pick_mode,
+        )
+        .map_err(|err| internal_error(err.to_string()))?;
     let provider_dispatch_json =
         serde_json::to_string(&provider.dispatch).map_err(|err| internal_error(err.to_string()))?;
 

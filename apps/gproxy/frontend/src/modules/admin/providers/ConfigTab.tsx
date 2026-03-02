@@ -110,6 +110,24 @@ export function ConfigTab({
       label: t("providers.uaTemplate.bot.bingbot")
     }
   ];
+  const credentialPickModeOptions = [
+    {
+      value: "round_robin_with_cache",
+      label: t("providers.pickMode.round_robin_with_cache")
+    },
+    {
+      value: "sticky_with_cache",
+      label: t("providers.pickMode.sticky_with_cache")
+    },
+    {
+      value: "round_robin_no_cache",
+      label: t("providers.pickMode.round_robin_no_cache")
+    },
+    {
+      value: "sticky_no_cache",
+      label: t("providers.pickMode.sticky_no_cache")
+    }
+  ];
 
   return (
     <div className="space-y-4">
@@ -138,6 +156,25 @@ export function ConfigTab({
               }))
             }
             options={channelOptions}
+          />
+        </div>
+        <div>
+          <Label>{t("field.credential_pick_mode")}</Label>
+          <Select
+            value={providerForm.credentialPickMode}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                credentialPickMode:
+                  value === "sticky_no_cache" ||
+                  value === "sticky_with_cache" ||
+                  value === "round_robin_no_cache" ||
+                  value === "round_robin_with_cache"
+                    ? value
+                    : "round_robin_with_cache"
+              }))
+            }
+            options={credentialPickModeOptions}
           />
         </div>
         <div className="md:col-span-2">

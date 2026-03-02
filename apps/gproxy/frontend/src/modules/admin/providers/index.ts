@@ -46,6 +46,7 @@ import {
   buildChannelSettingsJson,
   defaultChannelSettingsDraft,
   normalizeChannel,
+  parseCredentialPickModeFromSettings,
   parseChannelSettingsDraft
 } from "./settings";
 import type {
@@ -87,6 +88,7 @@ export {
   isCustomChannel,
   normalizeChannel,
   normalizeDispatchRules,
+  parseCredentialPickModeFromSettings,
   parseBulkCredentialText,
   parseChannelSettingsDraft,
   resolveProviderDispatchRules
@@ -120,6 +122,7 @@ export function createEmptyProviderFormState(): ProviderFormState {
     id: "",
     name: "",
     channel,
+    credentialPickMode: "round_robin_with_cache",
     settings: defaultChannelSettingsDraft(channel),
     dispatchRules: defaultDispatchRulesForChannel(channel),
     enabled: true
@@ -131,6 +134,7 @@ export function toProviderFormState(row: ProviderQueryRow): ProviderFormState {
     id: String(row.id),
     name: row.name,
     channel: row.channel,
+    credentialPickMode: parseCredentialPickModeFromSettings(row.settings_json),
     settings: parseChannelSettingsDraft(row.channel, row.settings_json),
     dispatchRules: resolveProviderDispatchRules(row.channel, row.dispatch_json),
     enabled: row.enabled

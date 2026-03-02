@@ -225,6 +225,8 @@ export function ProvidersModule({
       const savedId = parseRequiredI64(providerForm.id, "id");
       const rules = normalizeDispatchRules(providerForm.dispatchRules);
       const dispatchJson = buildDispatchJson(rules);
+      const settingsPayload = buildChannelSettingsJson(providerForm.channel, providerForm.settings);
+      settingsPayload.credential_pick_mode = providerForm.credentialPickMode;
       await apiRequest("/admin/providers/upsert", {
         apiKey,
         method: "POST",
@@ -232,9 +234,7 @@ export function ProvidersModule({
           id: savedId,
           name: providerForm.name.trim(),
           channel: providerForm.channel.trim(),
-          settings_json: JSON.stringify(
-            buildChannelSettingsJson(providerForm.channel, providerForm.settings)
-          ),
+          settings_json: JSON.stringify(settingsPayload),
           dispatch_json: JSON.stringify(dispatchJson),
           enabled: providerForm.enabled
         }

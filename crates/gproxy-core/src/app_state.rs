@@ -5,9 +5,9 @@ use arc_swap::ArcSwap;
 use gproxy_admin::{MemoryUser, MemoryUserKey};
 use gproxy_provider::ChannelSettings;
 use gproxy_provider::{
-    ChannelCredentialStateStore, ChannelId, CredentialRef, LocalTokenCount, LocalTokenizerError,
-    LocalTokenizerStore, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
-    ProviderRegistry, UpstreamCredentialUpdate,
+    ChannelCredentialStateStore, ChannelId, CredentialPickMode, CredentialRef, LocalTokenCount,
+    LocalTokenizerError, LocalTokenizerStore, ProviderCredentialState, ProviderDefinition,
+    ProviderDispatchTable, ProviderRegistry, UpstreamCredentialUpdate,
 };
 use gproxy_storage::{
     Scope, SeaOrmStorage, StorageWriteEvent, StorageWriteQueueError, StorageWriteSender,
@@ -348,6 +348,7 @@ impl AppState {
         channel: ChannelId,
         settings: ChannelSettings,
         dispatch: ProviderDispatchTable,
+        credential_pick_mode: CredentialPickMode,
         enabled: bool,
     ) {
         let mut snapshot = (*self.config.load_full()).clone();
@@ -355,11 +356,13 @@ impl AppState {
             if let Some(existing) = snapshot.providers.get_mut(&channel) {
                 existing.settings = settings;
                 existing.dispatch = dispatch;
+                existing.credential_pick_mode = credential_pick_mode;
             } else {
                 snapshot.providers.upsert(ProviderDefinition {
                     channel: channel.clone(),
                     dispatch,
                     settings,
+                    credential_pick_mode,
                     credentials: ProviderCredentialState::default(),
                 });
             }
@@ -477,6 +480,7 @@ mod tests {
             channel: channel.clone(),
             dispatch: ProviderDispatchTable::default(),
             settings: ChannelSettings::default(),
+            credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
             credentials: ProviderCredentialState {
                 credentials: vec![CredentialRef {
                     id: 1,

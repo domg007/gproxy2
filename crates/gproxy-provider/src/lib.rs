@@ -11,6 +11,7 @@ pub mod storage_codec;
 pub mod tokenizers;
 
 pub use channel::{BUILTIN_CHANNELS, BuiltinChannel, ChannelId};
+pub use channels::retry::CredentialPickMode;
 pub use channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential,
     UpstreamOAuthRequest, UpstreamOAuthResponse, UpstreamRequestMeta, UpstreamResponse,
@@ -36,8 +37,13 @@ pub use facade::{
 };
 pub use provider::{ProviderDefinition, ProviderRegistry, TokenizerResolutionContext};
 pub use settings::{
+    CACHE_AFFINITY_ENABLED_KEY, CREDENTIAL_PICK_MODE_KEY,
+    parse_credential_pick_mode_from_provider_settings_value,
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,
-    provider_settings_to_json_string, provider_settings_to_json_value,
+    provider_settings_to_json_string, provider_settings_to_json_string_with_cache_affinity,
+    provider_settings_to_json_string_with_credential_pick_mode, provider_settings_to_json_value,
+    provider_settings_to_json_value_with_cache_affinity,
+    provider_settings_to_json_value_with_credential_pick_mode,
 };
 pub use storage_codec::{
     credential_health_from_storage, credential_health_to_storage, credential_kind_for_storage,

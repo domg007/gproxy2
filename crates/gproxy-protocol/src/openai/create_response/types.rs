@@ -13,9 +13,9 @@ pub use crate::openai::count_tokens::types::{
     ResponseLocalShellCallOutput, ResponseMcpApprovalRequest, ResponseMcpApprovalResponse,
     ResponseMcpCall, ResponseMcpListTools, ResponseMessagePhase, ResponseOutputMessage,
     ResponseOutputRefusal, ResponseOutputText, ResponseReasoning, ResponseReasoningItem,
-    ResponseReasoningTextContent,
-    ResponseShellCall, ResponseShellCallOutput, ResponseSummaryTextContent, ResponseTextConfig,
-    ResponseTool, ResponseToolChoice, ResponseTruncation,
+    ResponseReasoningTextContent, ResponseShellCall, ResponseShellCallOutput,
+    ResponseSummaryTextContent, ResponseTextConfig, ResponseTool, ResponseToolChoice,
+    ResponseTruncation,
 };
 pub use crate::openai::types::{
     HttpMethod, OpenAiApiError, OpenAiApiErrorResponse, OpenAiResponseHeaders,

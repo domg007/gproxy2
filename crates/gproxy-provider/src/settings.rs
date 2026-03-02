@@ -1,8 +1,52 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::{
     BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
-    openai, vertexexpress,
+    openai, retry::CredentialPickMode, vertexexpress,
 };
+
+pub const CACHE_AFFINITY_ENABLED_KEY: &str = "cache_affinity_enabled";
+pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
+
+pub fn parse_credential_pick_mode_from_provider_settings_value(
+    value: &serde_json::Value,
+) -> CredentialPickMode {
+    if let Some(mode) = value
+        .get(CREDENTIAL_PICK_MODE_KEY)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .and_then(parse_credential_pick_mode_from_str)
+    {
+        return mode;
+    }
+
+    let legacy_cache_affinity_enabled = value
+        .get(CACHE_AFFINITY_ENABLED_KEY)
+        .and_then(serde_json::Value::as_bool);
+    match legacy_cache_affinity_enabled {
+        Some(false) => CredentialPickMode::StickyNoCache,
+        Some(true) => CredentialPickMode::RoundRobinWithCache,
+        None => CredentialPickMode::RoundRobinWithCache,
+    }
+}
+
+fn parse_credential_pick_mode_from_str(value: &str) -> Option<CredentialPickMode> {
+    match value {
+        "sticky_no_cache" => Some(CredentialPickMode::StickyNoCache),
+        "sticky_with_cache" => Some(CredentialPickMode::StickyWithCache),
+        "round_robin_with_cache" => Some(CredentialPickMode::RoundRobinWithCache),
+        "round_robin_no_cache" => Some(CredentialPickMode::RoundRobinNoCache),
+        _ => None,
+    }
+}
+
+fn credential_pick_mode_to_str(mode: CredentialPickMode) -> &'static str {
+    match mode {
+        CredentialPickMode::StickyNoCache => "sticky_no_cache",
+        CredentialPickMode::StickyWithCache => "sticky_with_cache",
+        CredentialPickMode::RoundRobinWithCache => "round_robin_with_cache",
+        CredentialPickMode::RoundRobinNoCache => "round_robin_no_cache",
+    }
+}
 
 pub fn parse_provider_settings_json_for_channel(
     channel: &ChannelId,
@@ -85,7 +129,10 @@ pub fn parse_provider_settings_value_for_channel(
     })
 }
 
-pub fn provider_settings_to_json_value(settings: &ChannelSettings) -> serde_json::Value {
+pub fn provider_settings_to_json_value_with_credential_pick_mode(
+    settings: &ChannelSettings,
+    credential_pick_mode: CredentialPickMode,
+) -> serde_json::Value {
     let mut root = serde_json::Map::new();
     root.insert(
         "base_url".to_string(),
@@ -182,7 +229,51 @@ pub fn provider_settings_to_json_value(settings: &ChannelSettings) -> serde_json
         _ => {}
     }
 
+    root.insert(
+        CREDENTIAL_PICK_MODE_KEY.to_string(),
+        serde_json::Value::String(credential_pick_mode_to_str(credential_pick_mode).to_string()),
+    );
+
     serde_json::Value::Object(root)
+}
+
+pub fn provider_settings_to_json_value(settings: &ChannelSettings) -> serde_json::Value {
+    provider_settings_to_json_value_with_credential_pick_mode(
+        settings,
+        CredentialPickMode::RoundRobinWithCache,
+    )
+}
+
+pub fn provider_settings_to_json_string_with_credential_pick_mode(
+    settings: &ChannelSettings,
+    credential_pick_mode: CredentialPickMode,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&provider_settings_to_json_value_with_credential_pick_mode(
+        settings,
+        credential_pick_mode,
+    ))
+}
+
+pub fn provider_settings_to_json_value_with_cache_affinity(
+    settings: &ChannelSettings,
+    cache_affinity_enabled: bool,
+) -> serde_json::Value {
+    let mode = if cache_affinity_enabled {
+        CredentialPickMode::RoundRobinWithCache
+    } else {
+        CredentialPickMode::StickyNoCache
+    };
+    provider_settings_to_json_value_with_credential_pick_mode(settings, mode)
+}
+
+pub fn provider_settings_to_json_string_with_cache_affinity(
+    settings: &ChannelSettings,
+    cache_affinity_enabled: bool,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&provider_settings_to_json_value_with_cache_affinity(
+        settings,
+        cache_affinity_enabled,
+    ))
 }
 
 pub fn provider_settings_to_json_string(
@@ -206,4 +297,46 @@ fn maybe_insert_opt_string(
 
 fn clean_opt(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
+        provider_settings_to_json_value_with_credential_pick_mode,
+    };
+    use crate::channels::retry::CredentialPickMode;
+    use crate::channels::settings::ChannelSettings;
+
+    #[test]
+    fn credential_pick_mode_defaults_round_robin_with_cache() {
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(&serde_json::json!({})),
+            CredentialPickMode::RoundRobinWithCache
+        );
+    }
+
+    #[test]
+    fn parse_legacy_bool_works() {
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(
+                &serde_json::json!({ "cache_affinity_enabled": false })
+            ),
+            CredentialPickMode::StickyNoCache
+        );
+    }
+
+    #[test]
+    fn serialize_settings_includes_pick_mode() {
+        let value = provider_settings_to_json_value_with_credential_pick_mode(
+            &ChannelSettings::default(),
+            CredentialPickMode::RoundRobinNoCache,
+        );
+        assert_eq!(
+            value
+                .get(CREDENTIAL_PICK_MODE_KEY)
+                .and_then(serde_json::Value::as_str),
+            Some("round_robin_no_cache")
+        );
+    }
 }

@@ -7,4 +7,4 @@ pub mod upstream;
 pub use credential::DeepseekCredential;
 pub use dispatch::default_dispatch_table;
 pub use settings::DeepseekSettings;
-pub use upstream::execute_deepseek_with_retry;
+pub use upstream::{execute_deepseek_with_retry, normalize_deepseek_upstream_response_body};

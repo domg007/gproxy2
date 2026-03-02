@@ -2,6 +2,11 @@ export type DispatchMode = "passthrough" | "transform" | "local" | "unsupported"
 export type WorkspaceTab = "config" | "credentials";
 export type CredentialsSubTab = "single" | "bulk" | "oauth";
 export type CredentialBulkMode = "keys" | "json" | "claudecode_cookie";
+export type CredentialPickMode =
+  | "sticky_no_cache"
+  | "sticky_with_cache"
+  | "round_robin_with_cache"
+  | "round_robin_no_cache";
 
 export type DispatchRuleDraft = {
   id: string;
@@ -20,6 +25,7 @@ export type ProviderFormState = {
   id: string;
   name: string;
   channel: string;
+  credentialPickMode: CredentialPickMode;
   settings: ChannelSettingsDraft;
   dispatchRules: DispatchRuleDraft[];
   enabled: boolean;

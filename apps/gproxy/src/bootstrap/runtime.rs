@@ -12,7 +12,8 @@ use gproxy_core::{
 use gproxy_provider::{
     ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialRef,
     LocalTokenizerStore, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
-    ProviderRegistry, parse_provider_settings_value_for_channel,
+    ProviderRegistry, parse_credential_pick_mode_from_provider_settings_value,
+    parse_provider_settings_value_for_channel,
 };
 use gproxy_storage::{
     Scope, SeaOrmStorage, StorageWriteSinkError, StorageWriteWorkerConfig, UserKeyQuery, UserQuery,
@@ -261,6 +262,8 @@ fn build_provider_registry(config: &BootstrapConfig) -> ProviderRegistry {
 
         let channel = ChannelId::parse(channel_cfg.id.trim());
         let settings = resolve_provider_settings(&channel, &channel_cfg.settings);
+        let credential_pick_mode =
+            parse_credential_pick_mode_from_provider_settings_value(&channel_cfg.settings);
         let (credentials, channel_states) = dedupe_credentials(&channel, channel_cfg);
 
         let dispatch = channel_cfg
@@ -274,6 +277,7 @@ fn build_provider_registry(config: &BootstrapConfig) -> ProviderRegistry {
             channel,
             dispatch,
             settings,
+            credential_pick_mode,
             credentials: ProviderCredentialState {
                 credentials,
                 channel_states,
