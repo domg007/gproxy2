@@ -118,6 +118,8 @@ export interface UsageQueryRow {
   output_tokens: number | null;
   cache_read_input_tokens: number | null;
   cache_creation_input_tokens: number | null;
+  cache_creation_input_tokens_5min: number | null;
+  cache_creation_input_tokens_1h: number | null;
 }
 
 export interface UsageSummary {
@@ -126,6 +128,8 @@ export interface UsageSummary {
   output_tokens: number;
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
+  cache_creation_input_tokens_5min: number;
+  cache_creation_input_tokens_1h: number;
 }
 
 export interface ApiErrorData {

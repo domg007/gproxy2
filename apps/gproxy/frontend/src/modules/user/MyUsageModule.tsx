@@ -14,7 +14,9 @@ function emptySummary(): UsageSummary {
     input_tokens: 0,
     output_tokens: 0,
     cache_read_input_tokens: 0,
-    cache_creation_input_tokens: 0
+    cache_creation_input_tokens: 0,
+    cache_creation_input_tokens_5min: 0,
+    cache_creation_input_tokens_1h: 0
   };
 }
 
@@ -168,6 +170,10 @@ export function MyUsageModule({
     t("table.model"),
     t("table.input"),
     t("table.output"),
+    t("table.cache_read"),
+    t("table.cache_creation"),
+    t("table.cache_creation_5m"),
+    t("table.cache_creation_1h"),
     t("table.at")
   ];
 
@@ -271,12 +277,14 @@ export function MyUsageModule({
           <Button onClick={() => void query()}>{t("common.query")}</Button>
         </div>
       </Card>
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-7">
         <MetricCard label={t("metric.count")} value={summary.count} />
         <MetricCard label={t("metric.input_tokens")} value={summary.input_tokens} />
         <MetricCard label={t("metric.output_tokens")} value={summary.output_tokens} />
         <MetricCard label={t("metric.cache_read")} value={summary.cache_read_input_tokens} />
         <MetricCard label={t("metric.cache_creation")} value={summary.cache_creation_input_tokens} />
+        <MetricCard label={t("metric.cache_creation_5m")} value={summary.cache_creation_input_tokens_5min} />
+        <MetricCard label={t("metric.cache_creation_1h")} value={summary.cache_creation_input_tokens_1h} />
       </div>
       <Card title={t("myUsage.rows")}>
         <Table
@@ -287,7 +295,11 @@ export function MyUsageModule({
             [tableColumns[2]]: row.model ?? "",
             [tableColumns[3]]: row.input_tokens ?? "",
             [tableColumns[4]]: row.output_tokens ?? "",
-            [tableColumns[5]]: formatAtForViewer(row.at)
+            [tableColumns[5]]: row.cache_read_input_tokens ?? "",
+            [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
+            [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
+            [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
+            [tableColumns[9]]: formatAtForViewer(row.at)
           }))}
         />
       </Card>
