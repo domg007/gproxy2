@@ -346,6 +346,42 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
 
+  deploy-docs-cloudflare:
+    name: Build and Deploy Docs (Cloudflare Pages)
+        if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - name: Build docs
+        run: |
+          cd docs
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Deploy docs to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: "docs"
+          command: pages deploy ./dist --project-name=${{ secrets.CLOUDFLARE_PROJECT_ID }}
+
   docker-build:
     name: Build Docker (${{ matrix.variant }}-${{ matrix.arch }})
     if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
