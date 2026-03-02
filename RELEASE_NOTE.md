@@ -1,5 +1,32 @@
 # Release Notes
 
+## v0.3.10
+
+### Changed
+
+- Added top-level cache-control mode enum for Claude/ClaudeCode provider settings and admin UI:
+  - `off` / `auto` / `5m` / `1h`.
+- Updated top-level cache-control injection behavior:
+  - `auto` injects `{"type":"ephemeral"}` without TTL
+  - `5m` / `1h` inject `{"type":"ephemeral","ttl":"5m|1h"}`.
+- Enhanced provider usage metrics and frontend display:
+  - added cache read input tokens
+  - added cache creation input tokens
+  - added cache creation split by TTL (`5m`, `1h`).
+- Updated EN/ZH i18n entries for cache-control modes and usage token labels.
+
+### Fixed
+
+- Fixed user-key copy/visibility button clickability in admin/user key lists.
+- Added copy success/failure feedback for admin-side user-key copy action.
+- Fixed Claude cache-affinity fallback for top-level cache-control without TTL:
+  - default fallback is now `5m` (was `1h`).
+
+### Compatibility
+
+- `enable_top_level_cache_control` no longer accepts legacy boolean values (`true` / `false`).
+- Use string mode values only: `off`, `auto`, `5m`, `1h`.
+
 ## v0.3.9
 
 ### Changed
