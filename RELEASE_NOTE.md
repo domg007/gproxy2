@@ -1,5 +1,32 @@
 # Release Notes
 
+## v0.3.12
+
+### Changed
+
+- Added request/usage counting capabilities and related admin APIs for upstream/downstream visibility.
+- Added request path filtering in the admin request module.
+- Added context flags for recording upstream and stream usage events.
+- Enforced direct stream-to-stream chat conversion paths and completed direct chat mapping behavior.
+- Added broader `reasoning_content` support in Chat Completions data structures and transform flows.
+- Enhanced MCP tool-use handling in OpenAI Chat Completions streaming transforms.
+- Split China update channels into separate `staging`/`release` feeds and added update source configuration.
+- Improved downstream event handling with async-stream based processing and updated related dependencies.
+- Added docs asset sync script (`docs/scripts/sync-downloads.mjs`) and updated docs/homepage links.
+- Improved frontend usability and i18n copy (responsive table wrapper, navigation labels, provider mode labels, OAuth wording).
+
+### Fixed
+
+- Fixed token usage accounting across Claude/OpenAI/Gemini response transforms:
+  - cache creation/read tokens are now consistently reflected in input/prompt/total token semantics
+  - applied to both non-stream and stream transforms, including reverse-direction mappings.
+- Fixed stream mapping gaps by removing unsupported Gemini metadata fallback paths in direct chat stream transforms.
+
+### Compatibility
+
+- Usage values (especially input/prompt/total) can be higher than `v0.3.11` in cache-heavy traffic due to corrected accounting semantics.
+- If you use usage numbers for billing, quota, or alerts, recalibrate thresholds after upgrading.
+
 ## v0.3.11
 
 ### Changed

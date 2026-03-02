@@ -1590,7 +1590,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "http",
  "serde",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "base64 0.22.1",
  "dashmap",
@@ -1694,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "sea-orm",
  "serde",
@@ -5313,9 +5313,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c745c48e1007337ed136dc99df34128b9faa6ed542d80a1c673cf55a6d7236c8"
+checksum = "3be3d40e40a133f9c916ee3f9f4fa2d9d63435b5fbe1bfc6d9dae0aa0ada1513"
 
 [[package]]
 name = "zmij"
