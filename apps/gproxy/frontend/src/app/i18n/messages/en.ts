@@ -300,6 +300,8 @@ export const enMessages = {
     "field.oauth_userinfo_url": "oauth_userinfo_url",
     "field.enable_top_level_cache_control": "enable_top_level_cache_control",
     "field.credential_pick_mode": "credential_pick_mode",
+    "field.credential_round_robin_enabled": "credential_round_robin_enabled",
+    "field.credential_cache_affinity_enabled": "credential_cache_affinity_enabled",
     "field.claudecode_ai_base_url": "claudecode_ai_base_url",
     "field.claudecode_platform_base_url": "claudecode_platform_base_url",
     "field.claudecode_prelude_text": "claudecode_prelude_text",

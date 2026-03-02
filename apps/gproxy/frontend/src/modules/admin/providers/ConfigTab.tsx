@@ -112,24 +112,6 @@ export function ConfigTab({
       label: t("providers.uaTemplate.bot.bingbot")
     }
   ];
-  const credentialPickModeOptions = [
-    {
-      value: "round_robin_with_cache",
-      label: t("providers.pickMode.round_robin_with_cache")
-    },
-    {
-      value: "sticky_with_cache",
-      label: t("providers.pickMode.sticky_with_cache")
-    },
-    {
-      value: "round_robin_no_cache",
-      label: t("providers.pickMode.round_robin_no_cache")
-    },
-    {
-      value: "sticky_no_cache",
-      label: t("providers.pickMode.sticky_no_cache")
-    }
-  ];
 
   return (
     <div className="space-y-4">
@@ -188,22 +170,48 @@ export function ConfigTab({
           </div>
         ) : null}
         <div>
-          <Label>{t("field.credential_pick_mode")}</Label>
+          <Label>{t("field.credential_round_robin_enabled")}</Label>
           <Select
-            value={providerForm.credentialPickMode}
+            value={providerForm.credentialRoundRobinEnabled ? "true" : "false"}
+            onChange={(value) =>
+              setProviderForm((prev) => {
+                const roundRobinEnabled = value === "true";
+                return {
+                  ...prev,
+                  credentialRoundRobinEnabled: roundRobinEnabled,
+                  credentialCacheAffinityEnabled: roundRobinEnabled
+                    ? prev.credentialCacheAffinityEnabled
+                    : false
+                };
+              })
+            }
+            options={[
+              { value: "false", label: t("common.disabled") },
+              { value: "true", label: t("common.enabled") }
+            ]}
+          />
+        </div>
+        <div>
+          <Label>{t("field.credential_cache_affinity_enabled")}</Label>
+          <Select
+            value={
+              providerForm.credentialRoundRobinEnabled &&
+              providerForm.credentialCacheAffinityEnabled
+                ? "true"
+                : "false"
+            }
             onChange={(value) =>
               setProviderForm((prev) => ({
                 ...prev,
-                credentialPickMode:
-                  value === "sticky_no_cache" ||
-                  value === "sticky_with_cache" ||
-                  value === "round_robin_no_cache" ||
-                  value === "round_robin_with_cache"
-                    ? value
-                    : "round_robin_with_cache"
+                credentialCacheAffinityEnabled:
+                  prev.credentialRoundRobinEnabled && value === "true"
               }))
             }
-            options={credentialPickModeOptions}
+            options={[
+              { value: "false", label: t("common.disabled") },
+              { value: "true", label: t("common.enabled") }
+            ]}
+            disabled={!providerForm.credentialRoundRobinEnabled}
           />
         </div>
         <div className="md:col-span-2">

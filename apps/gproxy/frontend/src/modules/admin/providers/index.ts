@@ -46,7 +46,7 @@ import {
   buildChannelSettingsJson,
   defaultChannelSettingsDraft,
   normalizeChannel,
-  parseCredentialPickModeFromSettings,
+  parseCredentialRoutingFlagsFromSettings,
   parseChannelSettingsDraft
 } from "./settings";
 import type {
@@ -88,7 +88,7 @@ export {
   isCustomChannel,
   normalizeChannel,
   normalizeDispatchRules,
-  parseCredentialPickModeFromSettings,
+  parseCredentialRoutingFlagsFromSettings,
   parseBulkCredentialText,
   parseChannelSettingsDraft,
   resolveProviderDispatchRules
@@ -122,7 +122,8 @@ export function createEmptyProviderFormState(): ProviderFormState {
     id: "",
     name: "",
     channel,
-    credentialPickMode: "round_robin_with_cache",
+    credentialRoundRobinEnabled: true,
+    credentialCacheAffinityEnabled: true,
     settings: defaultChannelSettingsDraft(channel),
     dispatchRules: defaultDispatchRulesForChannel(channel),
     enabled: true
@@ -130,11 +131,15 @@ export function createEmptyProviderFormState(): ProviderFormState {
 }
 
 export function toProviderFormState(row: ProviderQueryRow): ProviderFormState {
+  const credentialRoutingFlags = parseCredentialRoutingFlagsFromSettings(
+    row.settings_json
+  );
   return {
     id: String(row.id),
     name: row.name,
     channel: row.channel,
-    credentialPickMode: parseCredentialPickModeFromSettings(row.settings_json),
+    credentialRoundRobinEnabled: credentialRoutingFlags.roundRobinEnabled,
+    credentialCacheAffinityEnabled: credentialRoutingFlags.cacheAffinityEnabled,
     settings: parseChannelSettingsDraft(row.channel, row.settings_json),
     dispatchRules: resolveProviderDispatchRules(row.channel, row.dispatch_json),
     enabled: row.enabled

@@ -48,7 +48,6 @@ pub struct CredentialAttempt<Material> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialPickMode {
     StickyNoCache,
-    StickyWithCache,
     RoundRobinWithCache,
     RoundRobinNoCache,
 }
@@ -101,13 +100,6 @@ pub fn credential_pick_mode(
                 CredentialPickMode::RoundRobinNoCache
             }
         }
-        CredentialPickMode::StickyWithCache => {
-            if cache_affinity_hint.is_some() {
-                CredentialPickMode::StickyWithCache
-            } else {
-                CredentialPickMode::StickyNoCache
-            }
-        }
         CredentialPickMode::RoundRobinNoCache => CredentialPickMode::RoundRobinNoCache,
         CredentialPickMode::StickyNoCache => CredentialPickMode::StickyNoCache,
     }
@@ -116,7 +108,7 @@ pub fn credential_pick_mode(
 pub fn configured_pick_mode_uses_cache(configured_pick_mode: CredentialPickMode) -> bool {
     matches!(
         configured_pick_mode,
-        CredentialPickMode::RoundRobinWithCache | CredentialPickMode::StickyWithCache
+        CredentialPickMode::RoundRobinWithCache
     )
 }
 
@@ -159,10 +151,7 @@ where
         });
     }
 
-    let use_cache_affinity = matches!(
-        pick_mode,
-        CredentialPickMode::RoundRobinWithCache | CredentialPickMode::StickyWithCache
-    );
+    let use_cache_affinity = matches!(pick_mode, CredentialPickMode::RoundRobinWithCache);
     let scoped_affinity_key = if use_cache_affinity {
         cache_affinity_hint
             .as_ref()
@@ -272,10 +261,7 @@ fn pick_candidate_index<Material>(
     now_unix_ms: u64,
     pick_mode: CredentialPickMode,
 ) -> (usize, bool) {
-    if matches!(
-        pick_mode,
-        CredentialPickMode::RoundRobinWithCache | CredentialPickMode::StickyWithCache
-    ) {
+    if matches!(pick_mode, CredentialPickMode::RoundRobinWithCache) {
         if let Some(key) = scoped_affinity_key
             && let Some(credential_id) = get_affinity_credential_id(key, now_unix_ms)
             && let Some(idx) = remaining

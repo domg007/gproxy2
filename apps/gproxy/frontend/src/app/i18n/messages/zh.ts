@@ -300,6 +300,8 @@ export const zhMessages = {
     "field.oauth_userinfo_url": "OAuth 用户信息 URL",
     "field.enable_top_level_cache_control": "启用顶层 cache_control",
     "field.credential_pick_mode": "凭证选择模式",
+    "field.credential_round_robin_enabled": "启用凭证轮询",
+    "field.credential_cache_affinity_enabled": "启用缓存亲和池",
     "field.claudecode_ai_base_url": "ClaudeCode AI 基础 URL",
     "field.claudecode_platform_base_url": "ClaudeCode 平台基础 URL",
     "field.claudecode_prelude_text": "ClaudeCode 前置文本",

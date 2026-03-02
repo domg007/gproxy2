@@ -228,7 +228,11 @@ export function ProvidersModule({
       const rules = normalizeDispatchRules(providerForm.dispatchRules);
       const dispatchJson = buildDispatchJson(rules);
       const settingsPayload = buildChannelSettingsJson(providerForm.channel, providerForm.settings);
-      settingsPayload.credential_pick_mode = providerForm.credentialPickMode;
+      settingsPayload.credential_round_robin_enabled =
+        providerForm.credentialRoundRobinEnabled;
+      settingsPayload.credential_cache_affinity_enabled =
+        providerForm.credentialRoundRobinEnabled &&
+        providerForm.credentialCacheAffinityEnabled;
       await apiRequest("/admin/providers/upsert", {
         apiKey,
         method: "POST",

@@ -6,10 +6,25 @@ use crate::channels::{
 
 pub const CACHE_AFFINITY_ENABLED_KEY: &str = "cache_affinity_enabled";
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
+pub const CREDENTIAL_ROUND_ROBIN_ENABLED_KEY: &str = "credential_round_robin_enabled";
+pub const CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY: &str = "credential_cache_affinity_enabled";
 
 pub fn parse_credential_pick_mode_from_provider_settings_value(
     value: &serde_json::Value,
 ) -> CredentialPickMode {
+    let round_robin_enabled = value
+        .get(CREDENTIAL_ROUND_ROBIN_ENABLED_KEY)
+        .and_then(serde_json::Value::as_bool);
+    let cache_affinity_enabled = value
+        .get(CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY)
+        .and_then(serde_json::Value::as_bool);
+    if round_robin_enabled.is_some() || cache_affinity_enabled.is_some() {
+        return credential_pick_mode_from_bools(
+            round_robin_enabled.unwrap_or(true),
+            cache_affinity_enabled.unwrap_or(true),
+        );
+    }
+
     if let Some(mode) = value
         .get(CREDENTIAL_PICK_MODE_KEY)
         .and_then(serde_json::Value::as_str)
@@ -32,19 +47,42 @@ pub fn parse_credential_pick_mode_from_provider_settings_value(
 fn parse_credential_pick_mode_from_str(value: &str) -> Option<CredentialPickMode> {
     match value {
         "sticky_no_cache" => Some(CredentialPickMode::StickyNoCache),
-        "sticky_with_cache" => Some(CredentialPickMode::StickyWithCache),
+        // Legacy mode. We no longer support sticky+cache affinity.
+        "sticky_with_cache" => Some(CredentialPickMode::StickyNoCache),
         "round_robin_with_cache" => Some(CredentialPickMode::RoundRobinWithCache),
         "round_robin_no_cache" => Some(CredentialPickMode::RoundRobinNoCache),
         _ => None,
     }
 }
 
+fn credential_pick_mode_from_bools(
+    round_robin_enabled: bool,
+    cache_affinity_enabled: bool,
+) -> CredentialPickMode {
+    if round_robin_enabled {
+        if cache_affinity_enabled {
+            CredentialPickMode::RoundRobinWithCache
+        } else {
+            CredentialPickMode::RoundRobinNoCache
+        }
+    } else {
+        CredentialPickMode::StickyNoCache
+    }
+}
+
 fn credential_pick_mode_to_str(mode: CredentialPickMode) -> &'static str {
     match mode {
         CredentialPickMode::StickyNoCache => "sticky_no_cache",
-        CredentialPickMode::StickyWithCache => "sticky_with_cache",
         CredentialPickMode::RoundRobinWithCache => "round_robin_with_cache",
         CredentialPickMode::RoundRobinNoCache => "round_robin_no_cache",
+    }
+}
+
+fn credential_pick_mode_to_bools(mode: CredentialPickMode) -> (bool, bool) {
+    match mode {
+        CredentialPickMode::StickyNoCache => (false, false),
+        CredentialPickMode::RoundRobinWithCache => (true, true),
+        CredentialPickMode::RoundRobinNoCache => (true, false),
     }
 }
 
@@ -243,6 +281,17 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
         _ => {}
     }
 
+    let (round_robin_enabled, cache_affinity_enabled) =
+        credential_pick_mode_to_bools(credential_pick_mode);
+    root.insert(
+        CREDENTIAL_ROUND_ROBIN_ENABLED_KEY.to_string(),
+        serde_json::Value::Bool(round_robin_enabled),
+    );
+    root.insert(
+        CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY.to_string(),
+        serde_json::Value::Bool(cache_affinity_enabled),
+    );
+    // Keep for backward compatibility with older readers.
     root.insert(
         CREDENTIAL_PICK_MODE_KEY.to_string(),
         serde_json::Value::String(credential_pick_mode_to_str(credential_pick_mode).to_string()),
@@ -316,7 +365,9 @@ fn clean_opt(value: Option<&str>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
+        CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY, CREDENTIAL_PICK_MODE_KEY,
+        CREDENTIAL_ROUND_ROBIN_ENABLED_KEY,
+        parse_credential_pick_mode_from_provider_settings_value,
         provider_settings_to_json_value_with_credential_pick_mode,
     };
     use crate::channels::retry::CredentialPickMode;
@@ -341,6 +392,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_sticky_with_cache_downgrades_to_sticky_no_cache() {
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(
+                &serde_json::json!({ "credential_pick_mode": "sticky_with_cache" })
+            ),
+            CredentialPickMode::StickyNoCache
+        );
+    }
+
+    #[test]
+    fn parse_two_bools_prefers_three_valid_combinations() {
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(&serde_json::json!({
+                "credential_round_robin_enabled": true,
+                "credential_cache_affinity_enabled": true
+            })),
+            CredentialPickMode::RoundRobinWithCache
+        );
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(&serde_json::json!({
+                "credential_round_robin_enabled": true,
+                "credential_cache_affinity_enabled": false
+            })),
+            CredentialPickMode::RoundRobinNoCache
+        );
+        assert_eq!(
+            parse_credential_pick_mode_from_provider_settings_value(&serde_json::json!({
+                "credential_round_robin_enabled": false,
+                "credential_cache_affinity_enabled": true
+            })),
+            CredentialPickMode::StickyNoCache
+        );
+    }
+
+    #[test]
     fn serialize_settings_includes_pick_mode() {
         let value = provider_settings_to_json_value_with_credential_pick_mode(
             &ChannelSettings::default(),
@@ -351,6 +437,18 @@ mod tests {
                 .get(CREDENTIAL_PICK_MODE_KEY)
                 .and_then(serde_json::Value::as_str),
             Some("round_robin_no_cache")
+        );
+        assert_eq!(
+            value
+                .get(CREDENTIAL_ROUND_ROBIN_ENABLED_KEY)
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value
+                .get(CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY)
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
         );
     }
 }

@@ -1,36 +1,87 @@
 import { getChannelConfig } from "./channels/registry";
-import type { ChannelSettingsDraft, CredentialPickMode } from "./types";
+import type { ChannelSettingsDraft } from "./types";
 
-const DEFAULT_CREDENTIAL_PICK_MODE: CredentialPickMode = "round_robin_with_cache";
+type CredentialRoutingFlags = {
+  roundRobinEnabled: boolean;
+  cacheAffinityEnabled: boolean;
+};
+
+const DEFAULT_CREDENTIAL_ROUTING_FLAGS: CredentialRoutingFlags = {
+  roundRobinEnabled: true,
+  cacheAffinityEnabled: true
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function parseCredentialPickModeFromSettings(
-  value: unknown
-): CredentialPickMode {
-  if (!isObject(value)) {
-    return DEFAULT_CREDENTIAL_PICK_MODE;
+function normalizeCredentialRoutingFlags(
+  flags: CredentialRoutingFlags
+): CredentialRoutingFlags {
+  if (!flags.roundRobinEnabled) {
+    return {
+      roundRobinEnabled: false,
+      cacheAffinityEnabled: false
+    };
   }
+  return flags;
+}
+
+export function parseCredentialRoutingFlagsFromSettings(
+  value: unknown
+): CredentialRoutingFlags {
+  if (!isObject(value)) {
+    return DEFAULT_CREDENTIAL_ROUTING_FLAGS;
+  }
+  const roundRobinEnabled = value.credential_round_robin_enabled;
+  const cacheAffinityEnabled = value.credential_cache_affinity_enabled;
+  if (
+    typeof roundRobinEnabled === "boolean" ||
+    typeof cacheAffinityEnabled === "boolean"
+  ) {
+    return normalizeCredentialRoutingFlags({
+      roundRobinEnabled:
+        typeof roundRobinEnabled === "boolean"
+          ? roundRobinEnabled
+          : DEFAULT_CREDENTIAL_ROUTING_FLAGS.roundRobinEnabled,
+      cacheAffinityEnabled:
+        typeof cacheAffinityEnabled === "boolean"
+          ? cacheAffinityEnabled
+          : DEFAULT_CREDENTIAL_ROUTING_FLAGS.cacheAffinityEnabled
+    });
+  }
+
   const raw = value.credential_pick_mode;
   if (typeof raw === "string") {
     const trimmed = raw.trim();
-    if (
-      trimmed === "sticky_no_cache" ||
-      trimmed === "sticky_with_cache" ||
-      trimmed === "round_robin_with_cache" ||
-      trimmed === "round_robin_no_cache"
-    ) {
-      return trimmed;
+    if (trimmed === "round_robin_with_cache") {
+      return {
+        roundRobinEnabled: true,
+        cacheAffinityEnabled: true
+      };
+    }
+    if (trimmed === "round_robin_no_cache") {
+      return {
+        roundRobinEnabled: true,
+        cacheAffinityEnabled: false
+      };
+    }
+    if (trimmed === "sticky_no_cache" || trimmed === "sticky_with_cache") {
+      return {
+        roundRobinEnabled: false,
+        cacheAffinityEnabled: false
+      };
     }
   }
 
   const legacyBool = value.cache_affinity_enabled;
   if (typeof legacyBool === "boolean") {
-    return legacyBool ? "round_robin_with_cache" : "sticky_no_cache";
+    return {
+      roundRobinEnabled: legacyBool,
+      cacheAffinityEnabled: legacyBool
+    };
   }
-  return DEFAULT_CREDENTIAL_PICK_MODE;
+  return DEFAULT_CREDENTIAL_ROUTING_FLAGS;
 }
 
 export function normalizeChannel(channel: string): string {
