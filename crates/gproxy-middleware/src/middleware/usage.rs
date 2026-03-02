@@ -364,9 +364,7 @@ impl UsageParser {
                 from_message_start,
                 from_message_delta,
                 ..
-            } => from_message_delta
-                .clone()
-                .or_else(|| from_message_start.clone())
+            } => merge_usage_snapshots(from_message_delta.clone(), from_message_start.clone())
                 .map(UsageSnapshot::with_derived_totals),
         }
     }
@@ -430,9 +428,7 @@ impl UsageParser {
                     }
                 }
 
-                from_message_delta
-                    .clone()
-                    .or_else(|| from_message_start.clone())
+                merge_usage_snapshots(from_message_delta.clone(), from_message_start.clone())
                     .map(UsageSnapshot::with_derived_totals)
             }
             Self::GeminiSse { buffer, latest } => {
@@ -668,6 +664,40 @@ fn usage_from_claude_delta_usage(usage: &BetaMessageDeltaUsage) -> UsageSnapshot
         reasoning_tokens: None,
         thoughts_tokens: None,
         tool_use_prompt_tokens: None,
+    }
+}
+
+fn merge_usage_snapshots(
+    preferred: Option<UsageSnapshot>,
+    fallback: Option<UsageSnapshot>,
+) -> Option<UsageSnapshot> {
+    match (preferred, fallback) {
+        (Some(mut preferred), Some(fallback)) => {
+            preferred.input_tokens = preferred.input_tokens.or(fallback.input_tokens);
+            preferred.output_tokens = preferred.output_tokens.or(fallback.output_tokens);
+            preferred.total_tokens = preferred.total_tokens.or(fallback.total_tokens);
+            preferred.cache_creation_input_tokens = preferred
+                .cache_creation_input_tokens
+                .or(fallback.cache_creation_input_tokens);
+            preferred.cache_creation_input_tokens_5min = preferred
+                .cache_creation_input_tokens_5min
+                .or(fallback.cache_creation_input_tokens_5min);
+            preferred.cache_creation_input_tokens_1h = preferred
+                .cache_creation_input_tokens_1h
+                .or(fallback.cache_creation_input_tokens_1h);
+            preferred.cache_read_input_tokens = preferred
+                .cache_read_input_tokens
+                .or(fallback.cache_read_input_tokens);
+            preferred.reasoning_tokens = preferred.reasoning_tokens.or(fallback.reasoning_tokens);
+            preferred.thoughts_tokens = preferred.thoughts_tokens.or(fallback.thoughts_tokens);
+            preferred.tool_use_prompt_tokens = preferred
+                .tool_use_prompt_tokens
+                .or(fallback.tool_use_prompt_tokens);
+            Some(preferred)
+        }
+        (Some(preferred), None) => Some(preferred),
+        (None, Some(fallback)) => Some(fallback),
+        (None, None) => None,
     }
 }
 
