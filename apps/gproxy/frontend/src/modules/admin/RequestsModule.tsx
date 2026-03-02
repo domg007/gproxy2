@@ -9,31 +9,86 @@ import type { DownstreamRequestQueryRow, UpstreamRequestQueryRow } from "../../l
 import { Button, Card, Input, Label, SearchableSelect, Select, Table } from "../../components/ui";
 import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
 
-function truncateText(value: string, limit: number): string {
+function truncateText(value: string, limit: number): { preview: string; truncated: boolean } {
   if (value.length <= limit) {
-    return value;
+    return { preview: value, truncated: false };
   }
-  return `${value.slice(0, limit)}...(truncated)`;
+  return { preview: value.slice(0, limit), truncated: true };
 }
 
-function bytesToUtf8Preview(bytes: number[] | null, limit = 800): string {
+type PayloadPreview = {
+  preview: string;
+  full: string;
+  truncated: boolean;
+};
+
+function EyeToggleIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+      {open ? <circle cx="12" cy="12" r="2.5" /> : <path d="M4 20L20 4" />}
+    </svg>
+  );
+}
+
+function PayloadSection({ title, section }: { title: string; section: PayloadPreview }) {
+  const [showFull, setShowFull] = useState(false);
+  if (!section.preview) {
+    return null;
+  }
+  const canToggle = section.truncated && section.full !== section.preview;
+  const content = showFull ? section.full : section.preview;
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1 font-semibold text-muted">
+        <span>{title}</span>
+        {canToggle ? (
+          <button
+            type="button"
+            className="inline-flex cursor-pointer items-center text-muted hover:text-text"
+            aria-label={`${showFull ? "show truncated" : "show full"} ${title}`}
+            onClick={() => setShowFull((value) => !value)}
+          >
+            <EyeToggleIcon open={showFull} />
+          </button>
+        ) : null}
+      </div>
+      <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">{content}</pre>
+    </div>
+  );
+}
+
+function bytesToUtf8Preview(bytes: number[] | null, limit = 800): PayloadPreview {
   if (!bytes || bytes.length === 0) {
-    return "";
+    return { preview: "", full: "", truncated: false };
   }
   try {
     const decoded = new TextDecoder().decode(new Uint8Array(bytes));
-    return truncateText(decoded, limit);
+    const { preview, truncated } = truncateText(decoded, limit);
+    return { preview, full: decoded, truncated };
   } catch {
-    return `[binary ${bytes.length} bytes]`;
+    const binary = `[binary ${bytes.length} bytes]`;
+    return { preview: binary, full: binary, truncated: false };
   }
 }
 
-function jsonToPreview(value: Record<string, unknown>, limit = 500): string {
+function jsonToPreview(value: Record<string, unknown>, limit = 500): PayloadPreview {
   const text = JSON.stringify(value);
   if (!text || text === "{}") {
-    return "";
+    return { preview: "", full: "", truncated: false };
   }
-  return truncateText(text, limit);
+  const { preview, truncated } = truncateText(text, limit);
+  return { preview, full: text, truncated };
 }
 
 export function RequestsModule({
@@ -206,7 +261,12 @@ export function RequestsModule({
     const responseHeaders = jsonToPreview(row.response_headers_json);
     const requestBody = bytesToUtf8Preview(row.request_body);
     const responseBody = bytesToUtf8Preview(row.response_body);
-    const hasContent = Boolean(requestHeaders || responseHeaders || requestBody || responseBody);
+    const hasContent = Boolean(
+      requestHeaders.preview ||
+        responseHeaders.preview ||
+        requestBody.preview ||
+        responseBody.preview
+    );
 
     if (!hasContent) {
       return <span className="text-xs text-muted">-</span>;
@@ -214,40 +274,12 @@ export function RequestsModule({
 
     return (
       <details>
-        <summary className="cursor-pointer text-xs text-muted">view</summary>
+        <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
         <div className="mt-2 space-y-2 text-xs">
-          {requestHeaders ? (
-            <div>
-              <div className="mb-1 font-semibold text-muted">req headers</div>
-              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
-                {requestHeaders}
-              </pre>
-            </div>
-          ) : null}
-          {requestBody ? (
-            <div>
-              <div className="mb-1 font-semibold text-muted">req body</div>
-              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
-                {requestBody}
-              </pre>
-            </div>
-          ) : null}
-          {responseHeaders ? (
-            <div>
-              <div className="mb-1 font-semibold text-muted">resp headers</div>
-              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
-                {responseHeaders}
-              </pre>
-            </div>
-          ) : null}
-          {responseBody ? (
-            <div>
-              <div className="mb-1 font-semibold text-muted">resp body</div>
-              <pre className="whitespace-pre-wrap break-all rounded px-2 py-1">
-                {responseBody}
-              </pre>
-            </div>
-          ) : null}
+          <PayloadSection title="req headers" section={requestHeaders} />
+          <PayloadSection title="req body" section={requestBody} />
+          <PayloadSection title="resp headers" section={responseHeaders} />
+          <PayloadSection title="resp body" section={responseBody} />
         </div>
       </details>
     );
