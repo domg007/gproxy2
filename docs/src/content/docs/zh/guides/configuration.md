@@ -178,6 +178,17 @@ secret = "custom-provider-api-key"
 - `partial`：模型级冷却（部分可用）
 - `dead`：不可用
 
+## 凭证选择模式
+
+在 `channels.settings` 里，可通过以下两个字段控制多凭证路由：
+
+- `credential_round_robin_enabled`
+- `credential_cache_affinity_enabled`
+
+完整行为矩阵、内部亲和池设计、命中判定机制，以及 OpenAI/Claude/Gemini 上游缓存命中建议，见：
+
+- [凭证选择与缓存亲和池](/zh/guides/credential-selection-cache-affinity/)
+
 ## dispatch 与转换能力
 
 `dispatch` 决定“请求进入后如何被实现”：

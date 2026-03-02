@@ -178,6 +178,17 @@ Health status types:
 - `partial`: model-level cooldown (partially available)
 - `dead`: unavailable
 
+## Credential selection mode
+
+In `channels.settings`, you can control multi-credential routing with:
+
+- `credential_round_robin_enabled`
+- `credential_cache_affinity_enabled`
+
+For full behavior matrix, internal affinity-pool design, hit judgment, and upstream OpenAI/Claude/Gemini cache strategy guidance, see:
+
+- [Credential Selection and Cache Affinity](/guides/credential-selection-cache-affinity/)
+
 ## Dispatch and conversion
 
 `dispatch` defines how a request is executed:

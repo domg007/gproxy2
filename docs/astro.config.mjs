@@ -33,6 +33,11 @@ export default defineConfig({
 					translations: { 'zh-CN': '核心指南' },
 					items: [
 						{ label: 'Configuration', translations: { 'zh-CN': '配置说明' }, slug: 'guides/configuration' },
+						{
+							label: 'Credential Selection & Cache',
+							translations: { 'zh-CN': '凭证选择与缓存亲和' },
+							slug: 'guides/credential-selection-cache-affinity',
+						},
 						{ label: 'Deployment', translations: { 'zh-CN': '部署' }, slug: 'guides/deployment' },
 						{
 							label: 'Custom Channels',

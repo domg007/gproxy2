@@ -237,6 +237,48 @@ Each credential can include:
 - `partial` (with model cooldown list)
 - `dead`
 
+### Credential Selection and Cache Affinity
+
+Provider credential routing is controlled by two settings in `channels.settings`:
+
+- `credential_round_robin_enabled` (default `true`)
+- `credential_cache_affinity_enabled` (default `true`, only effective when round-robin is enabled)
+
+Effective behavior:
+
+- `credential_round_robin_enabled = false` -> `StickyNoCache`
+  - no round-robin
+  - no cache affinity pool
+  - picks the smallest available credential id and keeps using it until unavailable/cooldown
+- `credential_round_robin_enabled = true` and `credential_cache_affinity_enabled = true` -> `RoundRobinWithCache`
+  - round-robin/random among eligible credentials
+  - enables internal cache affinity pool for cache-key sticky routing
+- `credential_round_robin_enabled = true` and `credential_cache_affinity_enabled = false` -> `RoundRobinNoCache`
+  - round-robin/random among eligible credentials
+  - no cache affinity pool
+
+Example:
+
+```toml
+[[channels]]
+id = "openai"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.openai.com"
+credential_round_robin_enabled = true
+credential_cache_affinity_enabled = true
+```
+
+Legacy compatibility:
+
+- `credential_pick_mode` is still accepted for backward compatibility.
+- legacy `sticky_with_cache` is treated as `sticky_no_cache`.
+- legacy `cache_affinity_enabled` is still parsed.
+
+Detailed design and cache-hit strategy (OpenAI/Claude/Gemini):  
+https://gproxy-docs.leenhawk.com/guides/credential-selection-cache-affinity/
+
 ## CLI and Environment Overrides
 
 Priority: `CLI flags / env vars > gproxy.toml > defaults`

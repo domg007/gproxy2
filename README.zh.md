@@ -235,6 +235,48 @@ enable_top_level_cache_control = true
 - `partial`（带 `models` 冷却列表）
 - `dead`
 
+### 凭证选择模式与缓存亲和池
+
+Provider 的凭证选择由 `channels.settings` 里的两个开关控制：
+
+- `credential_round_robin_enabled`（默认 `true`）
+- `credential_cache_affinity_enabled`（默认 `true`，仅在启用轮询时生效）
+
+最终行为：
+
+- `credential_round_robin_enabled = false` -> `StickyNoCache`
+  - 不轮询
+  - 不启用缓存亲和池
+  - 固定选择当前可用凭证中 `id` 最小的一个；该凭证冷却/不可用时再切换
+- `credential_round_robin_enabled = true` 且 `credential_cache_affinity_enabled = true` -> `RoundRobinWithCache`
+  - 在可用凭证中轮询/随机
+  - 启用内部缓存亲和池，尽量把同一缓存键路由到同一凭证
+- `credential_round_robin_enabled = true` 且 `credential_cache_affinity_enabled = false` -> `RoundRobinNoCache`
+  - 在可用凭证中轮询/随机
+  - 不启用缓存亲和池
+
+示例：
+
+```toml
+[[channels]]
+id = "openai"
+enabled = true
+
+[channels.settings]
+base_url = "https://api.openai.com"
+credential_round_robin_enabled = true
+credential_cache_affinity_enabled = true
+```
+
+兼容性说明：
+
+- 仍兼容旧字段 `credential_pick_mode`。
+- 旧模式 `sticky_with_cache` 会自动降级为 `sticky_no_cache`。
+- 旧字段 `cache_affinity_enabled` 仍可解析。
+
+完整设计与上游缓存命中策略（OpenAI/Claude/Gemini）详见：  
+https://gproxy-docs.leenhawk.com/zh/guides/credential-selection-cache-affinity/
+
 ## CLI 与环境变量覆盖
 
 配置优先级：`CLI 参数 / 环境变量 > gproxy.toml > 默认值`
