@@ -68,12 +68,21 @@ function setHashRoute(role: UserRole, moduleId: string): void {
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
+  const appVersion = useMemo(() => __APP_VERSION__.trim() || "dev", []);
+  const appCommit = useMemo(() => {
+    const commit = __APP_COMMIT__.trim();
+    if (!commit || commit === "unknown") {
+      return "unknown";
+    }
+    return commit.slice(0, 8);
+  }, []);
 
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
   const [activeModule, setActiveModule] = useState<string>("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
+  const [selfUpdating, setSelfUpdating] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme());
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -246,6 +255,31 @@ export function App() {
     notify("info", t("app.loggedOut"));
   }, [notify, t]);
 
+  const triggerSelfUpdate = useCallback(async () => {
+    if (role !== "admin" || !apiKey) {
+      return;
+    }
+    if (!window.confirm(t("global.selfUpdateConfirm"))) {
+      return;
+    }
+    setSelfUpdating(true);
+    try {
+      const result = await apiRequest<{ release_tag?: string; tag?: string }>(
+        "/admin/system/self_update",
+        {
+          apiKey,
+          method: "POST"
+        }
+      );
+      const tag = result.release_tag ?? result.tag ?? "latest";
+      notify("success", t("global.selfUpdateOk", { tag }));
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      setSelfUpdating(false);
+    }
+  }, [apiKey, notify, role, t]);
+
   const content = useMemo(() => {
     if (!apiKey || !role) {
       return null;
@@ -305,6 +339,21 @@ export function App() {
           <div className="flex items-center gap-3">
             <h1 className="topbar-title">{t("app.title")}</h1>
             <Badge active>{role}</Badge>
+            <code className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
+              v{appVersion}
+            </code>
+            <code className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
+              {appCommit}
+            </code>
+            {role === "admin" ? (
+              <Button
+                variant="neutral"
+                onClick={() => void triggerSelfUpdate()}
+                disabled={selfUpdating}
+              >
+                {selfUpdating ? t("global.selfUpdateRunning") : t("global.selfUpdateButton")}
+              </Button>
+            ) : null}
           </div>
           <div className="flex items-center gap-3">
             <div className="w-28">
