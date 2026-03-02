@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.3.14
+
+### Added
+
+- Added OpenAI Chat Completions `reasoning_details` support across request/stream/types, including stream<->non-stream aggregation paths.
+- Added Claude thinking-to-OpenAI chat streaming mapping for both `reasoning_content` and encrypted `reasoning_details` (`reasoning.encrypted`).
+- Added ClaudeCode model-list alias expansion: `/v1/models` now includes paired `-nothinking` model IDs.
+- Added protocol-aware transform stream serialization error chunks:
+  - Gemini NDJSON emits one-line JSON error objects.
+  - SSE protocols emit `event: error` chunks.
+- Added Cloudflare publish secret validation in release workflow before deployment steps run.
+
+### Changed
+
+- Updated OpenAI->Claude reasoning defaults and budgeting:
+  - when chat `reasoning_effort` is omitted, `claude-sonnet-4-6` / `claude-opus-4-6` default to `adaptive`, while other Claude models default to `disabled`.
+  - medium effort maps to budgeted Claude thinking with max-token-aware clamping.
+- Refined OpenAI chat/embeddings extra thinking config mapping in transform flows.
+- ClaudeCode upstream request normalization supports `-nothinking` only for `claude-sonnet-4-6` / `claude-opus-4-6` (strip suffix + remove `thinking` before forwarding).
+
+### Fixed
+
+- Fixed transform streaming failure behavior: serialization issues now surface as stream error chunks instead of abrupt stream termination.
+- Fixed Claude reasoning budget edge cases where computed budget could exceed allowed max-token bounds.
+- Fixed Windows release workflow by excluding `aarch64-pc-windows-msvc` from UPX installation path.
+
+### Compatibility
+
+- Streaming clients should handle transform-time stream error payloads (`event: error` for SSE, JSON error lines for Gemini NDJSON).
+- ClaudeCode model listing returns extra `-nothinking` IDs only for `claude-sonnet-4-6` / `claude-opus-4-6`.
+
 ## v0.3.13
 
 ### Added
