@@ -25,12 +25,14 @@ use crate::AppState;
 
 use super::super::{
     HttpError, ModelProtocolPreference, anthropic_headers_from_request,
-    apply_credential_update_and_persist, authorize_provider_access, bad_request, collect_headers,
-    collect_unscoped_model_ids, deserialize_json_scalar, enqueue_upstream_request_event_from_meta,
-    execute_transform_candidates, execute_transform_request, internal_error,
-    model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
-    oauth_callback_response_to_axum, oauth_response_to_axum, parse_optional_query_value,
-    persist_provider_and_credential, resolve_credential_id, resolve_provider, resolve_provider_id,
+    apply_credential_update_and_persist, authorize_provider_access, bad_request,
+    capture_tracked_http_events, collect_headers, collect_unscoped_model_ids,
+    deserialize_json_scalar, enqueue_internal_tracked_http_events,
+    enqueue_upstream_request_event_from_meta, execute_transform_candidates,
+    execute_transform_request, internal_error, model_protocol_preference,
+    normalize_gemini_model_path, now_unix_ms, oauth_callback_response_to_axum,
+    oauth_response_to_axum, parse_optional_query_value, persist_provider_and_credential,
+    resolve_credential_id, resolve_provider, resolve_provider_id,
     response_from_status_headers_and_bytes, serialize_json_scalar,
     split_provider_prefixed_plain_model, upstream_error_request_meta, upstream_error_status,
     websocket_upgrade_required_response,
@@ -54,9 +56,20 @@ pub(in crate::routes::provider) async fn oauth_start(
         query,
         headers: collect_headers(&headers),
     };
-    let response = match provider.execute_oauth_start(http.as_ref(), &request).await {
+    let (response_result, tracked_http_events) = capture_tracked_http_events(async {
+        provider.execute_oauth_start(http.as_ref(), &request).await
+    })
+    .await;
+    let response = match response_result {
         Ok(response) => response,
         Err(err) => {
+            enqueue_internal_tracked_http_events(
+                state.as_ref(),
+                provider_id,
+                None,
+                tracked_http_events.as_slice(),
+            )
+            .await;
             let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
@@ -82,6 +95,13 @@ pub(in crate::routes::provider) async fn oauth_start(
         Some(response.body.clone()),
     )
     .await;
+    enqueue_internal_tracked_http_events(
+        state.as_ref(),
+        provider_id,
+        None,
+        tracked_http_events.as_slice(),
+    )
+    .await;
     Ok(oauth_response_to_axum(response))
 }
 
@@ -103,12 +123,22 @@ pub(in crate::routes::provider) async fn oauth_callback(
         query,
         headers: collect_headers(&headers),
     };
-    let result = match provider
-        .execute_oauth_callback(http.as_ref(), &request)
-        .await
-    {
+    let (callback_result, tracked_http_events) = capture_tracked_http_events(async {
+        provider
+            .execute_oauth_callback(http.as_ref(), &request)
+            .await
+    })
+    .await;
+    let result = match callback_result {
         Ok(result) => result,
         Err(err) => {
+            enqueue_internal_tracked_http_events(
+                state.as_ref(),
+                provider_id,
+                None,
+                tracked_http_events.as_slice(),
+            )
+            .await;
             let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
@@ -159,6 +189,13 @@ pub(in crate::routes::provider) async fn oauth_callback(
         Some(result.response.body.clone()),
     )
     .await;
+    enqueue_internal_tracked_http_events(
+        state.as_ref(),
+        provider_id,
+        resolved_credential_id,
+        tracked_http_events.as_slice(),
+    )
+    .await;
 
     Ok(oauth_callback_response_to_axum(
         result,
@@ -180,18 +217,28 @@ pub(in crate::routes::provider) async fn upstream_usage(
         .then(|| state.load_spoof_http());
     let now = now_unix_ms();
     let credential_id = parse_optional_query_value::<i64>(query.as_deref(), "credential_id")?;
-    let upstream = match provider
-        .execute_upstream_usage_with_retry_with_spoof(
-            http.as_ref(),
-            spoof_http.as_deref(),
-            &state.credential_states,
-            credential_id,
-            now,
-        )
-        .await
-    {
+    let (upstream_result, tracked_http_events) = capture_tracked_http_events(async {
+        provider
+            .execute_upstream_usage_with_retry_with_spoof(
+                http.as_ref(),
+                spoof_http.as_deref(),
+                &state.credential_states,
+                credential_id,
+                now,
+            )
+            .await
+    })
+    .await;
+    let upstream = match upstream_result {
         Ok(upstream) => upstream,
         Err(err) => {
+            enqueue_internal_tracked_http_events(
+                state.as_ref(),
+                provider_id,
+                credential_id,
+                tracked_http_events.as_slice(),
+            )
+            .await;
             let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
@@ -232,6 +279,13 @@ pub(in crate::routes::provider) async fn upstream_usage(
         Some(payload.status_code),
         payload.headers.as_slice(),
         Some(payload.body.clone()),
+    )
+    .await;
+    enqueue_internal_tracked_http_events(
+        state.as_ref(),
+        provider_id,
+        upstream_credential_id.or(credential_id),
+        tracked_http_events.as_slice(),
     )
     .await;
     Ok(oauth_response_to_axum(payload))

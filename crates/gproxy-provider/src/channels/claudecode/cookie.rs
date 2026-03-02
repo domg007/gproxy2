@@ -9,6 +9,7 @@ use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::constants::{CLAUDE_API_VERSION, CLIENT_ID, OAUTH_BETA, OAUTH_SCOPE, TOKEN_UA};
 use super::oauth::parse_query_value as parse_simple_query_value;
+use crate::channels::upstream::tracked_request;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct TokenResponse {
@@ -90,22 +91,22 @@ pub(crate) async fn exchange_tokens_with_cookie(
     body.push_str(url_encode(state.as_str()).as_str());
 
     let origin = claude_ai_base_url.trim_end_matches('/');
-    let response = client
-        .request(
-            WreqMethod::POST,
-            format!("{}/v1/oauth/token", api_base_url.trim_end_matches('/')).as_str(),
-        )
-        .header("anthropic-version", CLAUDE_API_VERSION)
-        .header("anthropic-beta", OAUTH_BETA)
-        .header("content-type", "application/x-www-form-urlencoded")
-        .header("accept", "application/json, text/plain, */*")
-        .header("user-agent", TOKEN_UA)
-        .header("origin", origin)
-        .header("referer", format!("{origin}/"))
-        .body(body)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
+    let response = tracked_request(
+        client,
+        WreqMethod::POST,
+        format!("{}/v1/oauth/token", api_base_url.trim_end_matches('/')).as_str(),
+    )
+    .header("anthropic-version", CLAUDE_API_VERSION)
+    .header("anthropic-beta", OAUTH_BETA)
+    .header("content-type", "application/x-www-form-urlencoded")
+    .header("accept", "application/json, text/plain, */*")
+    .header("user-agent", TOKEN_UA)
+    .header("origin", origin)
+    .header("referer", format!("{origin}/"))
+    .body(body)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
 
     let status = response.status();
     let bytes = response.bytes().await.map_err(|err| err.to_string())?;
@@ -133,15 +134,15 @@ async fn fetch_org_uuid_from_bootstrap(
     cookie: &str,
     claude_ai_base_url: &str,
 ) -> Result<String, String> {
-    let response = client
-        .request(
-            WreqMethod::GET,
-            format!("{}/api/bootstrap", claude_ai_base_url.trim_end_matches('/')).as_str(),
-        )
-        .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
+    let response = tracked_request(
+        client,
+        WreqMethod::GET,
+        format!("{}/api/bootstrap", claude_ai_base_url.trim_end_matches('/')).as_str(),
+    )
+    .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
 
     let status = response.status();
     let bytes = response.bytes().await.map_err(|err| err.to_string())?;
@@ -174,19 +175,19 @@ async fn fetch_org_uuid_from_organizations(
     cookie: &str,
     claude_ai_base_url: &str,
 ) -> Result<String, String> {
-    let response = client
-        .request(
-            WreqMethod::GET,
-            format!(
-                "{}/api/organizations",
-                claude_ai_base_url.trim_end_matches('/')
-            )
-            .as_str(),
+    let response = tracked_request(
+        client,
+        WreqMethod::GET,
+        format!(
+            "{}/api/organizations",
+            claude_ai_base_url.trim_end_matches('/')
         )
-        .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
+        .as_str(),
+    )
+    .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
 
     let status = response.status();
     let bytes = response.bytes().await.map_err(|err| err.to_string())?;
@@ -234,21 +235,21 @@ async fn authorize_with_cookie(
     let mut headers = build_cookie_headers(cookie, claude_ai_base_url)?;
     headers.insert("content-type", HeaderValue::from_static("application/json"));
 
-    let response = client
-        .request(
-            WreqMethod::POST,
-            format!(
-                "{}/v1/oauth/{}/authorize",
-                api_base_url.trim_end_matches('/'),
-                org_uuid
-            )
-            .as_str(),
+    let response = tracked_request(
+        client,
+        WreqMethod::POST,
+        format!(
+            "{}/v1/oauth/{}/authorize",
+            api_base_url.trim_end_matches('/'),
+            org_uuid
         )
-        .headers(headers)
-        .body(serde_json::to_vec(&payload).map_err(|err| err.to_string())?)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
+        .as_str(),
+    )
+    .headers(headers)
+    .body(serde_json::to_vec(&payload).map_err(|err| err.to_string())?)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
 
     let status = response.status();
     let bytes = response.bytes().await.map_err(|err| err.to_string())?;

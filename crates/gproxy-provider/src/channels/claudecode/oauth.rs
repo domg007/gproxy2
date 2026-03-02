@@ -19,7 +19,7 @@ use super::credential::ClaudeCodeCredential;
 use crate::channels::ChannelSettings;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential, UpstreamOAuthRequest,
-    UpstreamOAuthResponse, UpstreamRequestMeta,
+    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_request,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 
@@ -415,20 +415,20 @@ pub(crate) async fn refresh_claudecode_access_token(
             url_encode(material.refresh_token.as_str()),
         );
 
-        let response = client
-            .request(
-                WreqMethod::POST,
-                format!("{}/v1/oauth/token", api_base_url.trim_end_matches('/')).as_str(),
-            )
-            .header("anthropic-version", CLAUDE_API_VERSION)
-            .header("anthropic-beta", OAUTH_BETA)
-            .header("content-type", "application/x-www-form-urlencoded")
-            .header("accept", "application/json, text/plain, */*")
-            .header("user-agent", TOKEN_UA)
-            .body(body)
-            .send()
-            .await
-            .map_err(|err| ClaudeCodeTokenRefreshError::Transient(err.to_string()))?;
+        let response = tracked_request(
+            client,
+            WreqMethod::POST,
+            format!("{}/v1/oauth/token", api_base_url.trim_end_matches('/')).as_str(),
+        )
+        .header("anthropic-version", CLAUDE_API_VERSION)
+        .header("anthropic-beta", OAUTH_BETA)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("accept", "application/json, text/plain, */*")
+        .header("user-agent", TOKEN_UA)
+        .body(body)
+        .send()
+        .await
+        .map_err(|err| ClaudeCodeTokenRefreshError::Transient(err.to_string()))?;
 
         match parse_refreshed_token_response(response, material, now_unix_ms).await {
             Ok(mut token) => {
@@ -638,7 +638,7 @@ async fn exchange_code_for_tokens(
         ("origin".to_string(), origin.to_string()),
         ("referer".to_string(), format!("{origin}/")),
     ];
-    let mut req = client.request(WreqMethod::POST, token_url.as_str());
+    let mut req = tracked_request(client, WreqMethod::POST, token_url.as_str());
     for (name, value) in &sent_headers {
         req = req.header(name.as_str(), value.as_str());
     }
@@ -676,18 +676,18 @@ async fn fetch_oauth_profile(
     api_base_url: &str,
     access_token: &str,
 ) -> Result<OAuthProfileParsed, UpstreamError> {
-    let response = client
-        .request(
-            WreqMethod::GET,
-            format!("{}/api/oauth/profile", api_base_url.trim_end_matches('/')).as_str(),
-        )
-        .header("authorization", format!("Bearer {access_token}"))
-        .header("user-agent", CLAUDE_CODE_UA)
-        .header("accept", "application/json")
-        .header("anthropic-beta", OAUTH_BETA)
-        .send()
-        .await
-        .map_err(|err| UpstreamError::UpstreamRequest(err.to_string()))?;
+    let response = tracked_request(
+        client,
+        WreqMethod::GET,
+        format!("{}/api/oauth/profile", api_base_url.trim_end_matches('/')).as_str(),
+    )
+    .header("authorization", format!("Bearer {access_token}"))
+    .header("user-agent", CLAUDE_CODE_UA)
+    .header("accept", "application/json")
+    .header("anthropic-beta", OAUTH_BETA)
+    .send()
+    .await
+    .map_err(|err| UpstreamError::UpstreamRequest(err.to_string()))?;
 
     let status = response.status();
     let bytes = response

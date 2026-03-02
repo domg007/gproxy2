@@ -1,10 +1,26 @@
 use gproxy_middleware::TransformResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use tokio::task_local;
+use wreq::RequestBuilder as WreqRequestBuilder;
 use wreq::Response as WreqResponse;
+use wreq::header::HeaderMap;
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::ChannelCredential;
+
+task_local! {
+    static TRACKED_HTTP_EVENT_SINK: Arc<Mutex<Vec<TrackedHttpEvent>>>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackedHttpEvent {
+    pub request_meta: UpstreamRequestMeta,
+    pub response_status: Option<u16>,
+    pub response_headers: Vec<(String, String)>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpstreamCredentialUpdate {
@@ -173,6 +189,129 @@ pub fn tracked_request_meta(
     UpstreamRequestMeta::from_url(method, url, headers, body)
 }
 
+fn push_tracked_http_event(event: TrackedHttpEvent) {
+    let _ = TRACKED_HTTP_EVENT_SINK.try_with(|sink| {
+        if let Ok(mut guard) = sink.lock() {
+            guard.push(event);
+        }
+    });
+}
+
+fn response_headers_to_pairs(response: &WreqResponse) -> Vec<(String, String)> {
+    response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+pub struct TrackedRequestBuilder {
+    inner: WreqRequestBuilder,
+    method: String,
+    url: String,
+    request_headers: Vec<(String, String)>,
+    request_body: Option<Vec<u8>>,
+}
+
+impl TrackedRequestBuilder {
+    pub fn header(self, name: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        let mut this = self;
+        let name = name.as_ref().to_string();
+        let value = value.as_ref().to_string();
+        this.inner = this.inner.header(name.as_str(), value.as_str());
+        this.request_headers.push((name, value));
+        this
+    }
+
+    pub fn headers(self, headers: HeaderMap) -> Self {
+        let mut this = self;
+        for (name, value) in headers.iter() {
+            if let Ok(value) = value.to_str() {
+                this.request_headers
+                    .push((name.as_str().to_string(), value.to_string()));
+            }
+        }
+        this.inner = this.inner.headers(headers);
+        this
+    }
+
+    pub fn bearer_auth(self, token: impl AsRef<str>) -> Self {
+        let mut this = self;
+        let token_value = format!("Bearer {}", token.as_ref());
+        this.inner = this.inner.bearer_auth(token.as_ref());
+        this.request_headers
+            .push(("authorization".to_string(), token_value));
+        this
+    }
+
+    pub fn body(self, body: impl Into<Vec<u8>>) -> Self {
+        let mut this = self;
+        let body = body.into();
+        this.inner = this.inner.body(body.clone());
+        this.request_body = Some(body);
+        this
+    }
+
+    pub async fn send(self) -> Result<WreqResponse, wreq::Error> {
+        let request_meta = tracked_request_meta(
+            self.method,
+            self.url.as_str(),
+            self.request_headers,
+            self.request_body,
+        );
+        match self.inner.send().await {
+            Ok(response) => {
+                push_tracked_http_event(TrackedHttpEvent {
+                    request_meta,
+                    response_status: Some(response.status().as_u16()),
+                    response_headers: response_headers_to_pairs(&response),
+                });
+                Ok(response)
+            }
+            Err(err) => {
+                push_tracked_http_event(TrackedHttpEvent {
+                    request_meta,
+                    response_status: None,
+                    response_headers: Vec::new(),
+                });
+                Err(err)
+            }
+        }
+    }
+}
+
+pub fn tracked_request(
+    client: &WreqClient,
+    method: WreqMethod,
+    url: &str,
+) -> TrackedRequestBuilder {
+    TrackedRequestBuilder {
+        inner: client.request(method.clone(), url),
+        method: method.as_str().to_string(),
+        url: url.to_string(),
+        request_headers: Vec::new(),
+        request_body: None,
+    }
+}
+
+pub async fn capture_tracked_http_events<T>(
+    fut: impl Future<Output = T>,
+) -> (T, Vec<TrackedHttpEvent>) {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let output = TRACKED_HTTP_EVENT_SINK.scope(sink.clone(), fut).await;
+    let events = sink
+        .lock()
+        .ok()
+        .map(|mut guard| std::mem::take(&mut *guard))
+        .unwrap_or_default();
+    (output, events)
+}
+
 pub async fn tracked_send_request(
     client: &WreqClient,
     method: WreqMethod,
@@ -181,7 +320,7 @@ pub async fn tracked_send_request(
     body: Option<Vec<u8>>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
     let method_name = method.as_str().to_string();
-    let mut req = client.request(method, url);
+    let mut req = tracked_request(client, method, url);
     for (name, value) in &headers {
         req = req.header(name.as_str(), value.as_str());
     }

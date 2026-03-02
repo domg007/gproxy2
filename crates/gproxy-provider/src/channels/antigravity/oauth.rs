@@ -19,7 +19,7 @@ use super::credential::AntigravityCredential;
 use crate::channels::ChannelSettings;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential, UpstreamOAuthRequest,
-    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_send_request,
+    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_request, tracked_send_request,
 };
 use crate::channels::utils::parse_query_value;
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
@@ -635,8 +635,7 @@ async fn try_onboard_user(
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
     let url = format!("{}/v1internal:onboardUser", base_url.trim_end_matches('/'));
     for _ in 0..3 {
-        let response = client
-            .request(WreqMethod::POST, url.as_str())
+        let response = tracked_request(client, WreqMethod::POST, url.as_str())
             .bearer_auth(access_token)
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
             .header("accept-encoding", "gzip")
@@ -717,8 +716,7 @@ async fn call_code_assist(
     });
     let body = serde_json::to_vec(&body)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-    let response = client
-        .request(WreqMethod::POST, url.as_str())
+    let response = tracked_request(client, WreqMethod::POST, url.as_str())
         .bearer_auth(access_token)
         .header("user-agent", ANTIGRAVITY_USER_AGENT)
         .header("accept-encoding", "gzip")
@@ -745,8 +743,7 @@ async fn fetch_user_email(
     access_token: &str,
     userinfo_url: &str,
 ) -> Result<Option<String>, UpstreamError> {
-    let response = client
-        .request(WreqMethod::GET, userinfo_url)
+    let response = tracked_request(client, WreqMethod::GET, userinfo_url)
         .bearer_auth(access_token)
         .header("user-agent", ANTIGRAVITY_USER_AGENT)
         .send()

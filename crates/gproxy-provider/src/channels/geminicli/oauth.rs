@@ -18,7 +18,7 @@ use super::credential::GeminiCliCredential;
 use crate::channels::ChannelSettings;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential, UpstreamOAuthRequest,
-    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_send_request,
+    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_request, tracked_send_request,
 };
 use crate::channels::utils::parse_query_value;
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
@@ -1110,8 +1110,7 @@ async fn load_code_assist_payload(
         "metadata": code_assist_metadata(project_id),
     });
     let user_agent = geminicli_user_agent(None);
-    let response = client
-        .request(WreqMethod::POST, url.as_str())
+    let response = tracked_request(client, WreqMethod::POST, url.as_str())
         .bearer_auth(access_token)
         .header("user-agent", user_agent.as_str())
         .header("accept-encoding", "gzip")
@@ -1156,8 +1155,7 @@ async fn onboard_user_project(
     let body = serde_json::to_vec(&body)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
     let user_agent = geminicli_user_agent(None);
-    let response = client
-        .request(WreqMethod::POST, url.as_str())
+    let response = tracked_request(client, WreqMethod::POST, url.as_str())
         .bearer_auth(access_token)
         .header("user-agent", user_agent.as_str())
         .header("accept-encoding", "gzip")
@@ -1192,8 +1190,7 @@ async fn onboard_user_project(
             break;
         };
         let operation_url = format!("{}/v1internal/{name}", base_url.trim_end_matches('/'));
-        let poll_response = client
-            .request(WreqMethod::GET, operation_url.as_str())
+        let poll_response = tracked_request(client, WreqMethod::GET, operation_url.as_str())
             .bearer_auth(access_token)
             .header("user-agent", user_agent.as_str())
             .header("accept-encoding", "gzip")
@@ -1227,8 +1224,7 @@ async fn fetch_user_email(
     userinfo_url: &str,
 ) -> Result<Option<String>, UpstreamError> {
     let user_agent = geminicli_user_agent(None);
-    let response = client
-        .request(WreqMethod::GET, userinfo_url)
+    let response = tracked_request(client, WreqMethod::GET, userinfo_url)
         .bearer_auth(access_token)
         .header("user-agent", user_agent.as_str())
         .send()

@@ -2,9 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokenizers::Tokenizer;
-use wreq::Client as WreqClient;
+use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::LocalTokenizerError;
+use crate::channels::upstream::tracked_request;
 
 const HUGGINGFACE_BASE_URL: &str = "https://huggingface.co";
 const HUGGINGFACE_RESOLVE_SUFFIX: &str = "resolve/main/tokenizer.json";
@@ -135,7 +136,7 @@ async fn download_tokenizer_bytes(
     let mut current_url = url.to_string();
 
     loop {
-        let mut request = http_client.get(current_url.clone());
+        let mut request = tracked_request(http_client, WreqMethod::GET, current_url.as_str());
         if let Some(token) = hf_token
             && !token.is_empty()
         {

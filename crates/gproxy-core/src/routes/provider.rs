@@ -42,9 +42,9 @@ use tokio::sync::mpsc;
 
 use gproxy_provider::{
     BuiltinChannel, ChannelId, CredentialRef, ProviderDefinition, RouteImplementation, RouteKey,
-    TokenizerResolutionContext, UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthResponse,
-    UpstreamRequestMeta, UpstreamResponse, credential_kind_for_storage, parse_query_value,
-    try_local_response_for_channel,
+    TokenizerResolutionContext, TrackedHttpEvent, UpstreamCredentialUpdate, UpstreamError,
+    UpstreamOAuthResponse, UpstreamRequestMeta, UpstreamResponse, capture_tracked_http_events,
+    credential_kind_for_storage, parse_query_value, try_local_response_for_channel,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialStatusWrite, CredentialWrite, ProviderQuery, ProviderWrite, Scope,

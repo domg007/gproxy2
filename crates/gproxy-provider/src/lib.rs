@@ -13,8 +13,9 @@ pub mod tokenizers;
 pub use channel::{BUILTIN_CHANNELS, BuiltinChannel, ChannelId};
 pub use channels::retry::CredentialPickMode;
 pub use channels::upstream::{
-    UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential,
-    UpstreamOAuthRequest, UpstreamOAuthResponse, UpstreamRequestMeta, UpstreamResponse,
+    TrackedHttpEvent, UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthCallbackResult,
+    UpstreamOAuthCredential, UpstreamOAuthRequest, UpstreamOAuthResponse, UpstreamRequestMeta,
+    UpstreamResponse, capture_tracked_http_events,
 };
 pub use channels::utils::parse_query_value;
 pub use channels::{

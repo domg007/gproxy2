@@ -3,13 +3,14 @@ use super::{
     CompletionUsage, CredentialStatusWrite, GeminiUsageMetadata, OpenAiEmbeddingModel,
     OpenAiEmbeddingUsage, OperationFamily, ProtocolKind, ProviderDefinition, RequestAuthContext,
     ResponseInput, ResponseUsage, RouteImplementation, RouteKey, StorageWriteEvent, SystemTime,
-    TokenizerResolutionContext, TransformRequest, UNIX_EPOCH, UpstreamError, UpstreamRequestMeta,
-    UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot, UsageWrite,
-    claude_count_tokens_request, claude_count_tokens_response, claude_create_message_response,
-    execute_local_count_token_request, gemini_count_tokens_request, gemini_count_tokens_response,
-    gemini_generate_content_response, openai_chat_completions_response,
-    openai_compact_response_response, openai_count_tokens_request, openai_count_tokens_response,
-    openai_create_response_response, openai_embeddings_response,
+    TokenizerResolutionContext, TrackedHttpEvent, TransformRequest, UNIX_EPOCH, UpstreamError,
+    UpstreamRequestMeta, UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot,
+    UsageWrite, claude_count_tokens_request, claude_count_tokens_response,
+    claude_create_message_response, execute_local_count_token_request, gemini_count_tokens_request,
+    gemini_count_tokens_response, gemini_generate_content_response,
+    openai_chat_completions_response, openai_compact_response_response,
+    openai_count_tokens_request, openai_count_tokens_response, openai_create_response_response,
+    openai_embeddings_response,
 };
 use gproxy_provider::{
     credential_health_to_storage,
@@ -942,5 +943,42 @@ pub(super) async fn enqueue_upstream_request_event_from_meta(
         .await
     {
         eprintln!("provider: upstream event enqueue failed: {err}");
+    }
+}
+
+pub(super) async fn enqueue_internal_tracked_http_events(
+    state: &AppState,
+    provider_id: Option<i64>,
+    credential_id: Option<i64>,
+    events: &[TrackedHttpEvent],
+) {
+    if events.is_empty() {
+        return;
+    }
+    let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
+    for event in events {
+        let upstream_event = UpstreamRequestWrite {
+            at_unix_ms: now_unix_ms_i64(),
+            internal: true,
+            provider_id,
+            credential_id,
+            request_method: event.request_meta.method.clone(),
+            request_headers_json: headers_pairs_to_json(event.request_meta.headers.as_slice()),
+            request_url: Some(event.request_meta.url.clone()),
+            request_body: if mask_sensitive_info {
+                None
+            } else {
+                event.request_meta.body.clone()
+            },
+            response_status: event.response_status.map(i32::from),
+            response_headers_json: headers_pairs_to_json(event.response_headers.as_slice()),
+            response_body: None,
+        };
+        if let Err(err) = state
+            .enqueue_storage_write(StorageWriteEvent::UpsertUpstreamRequest(upstream_event))
+            .await
+        {
+            eprintln!("provider: tracked http event enqueue failed: {err}");
+        }
     }
 }

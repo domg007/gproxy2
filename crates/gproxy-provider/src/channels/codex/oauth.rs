@@ -19,7 +19,7 @@ use super::credential::CodexCredential;
 use crate::channels::ChannelSettings;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthCredential, UpstreamOAuthRequest,
-    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_send_request,
+    UpstreamOAuthResponse, UpstreamRequestMeta, tracked_request, tracked_send_request,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 
@@ -904,16 +904,16 @@ async fn refresh_access_token(
     }))
     .map_err(|err| CodexTokenRefreshError::Transient(err.to_string()))?;
 
-    let response = client
-        .request(
-            WreqMethod::POST,
-            format!("{}/oauth/token", issuer.trim_end_matches('/')),
-        )
-        .header("content-type", "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|err| CodexTokenRefreshError::Transient(err.to_string()))?;
+    let response = tracked_request(
+        client,
+        WreqMethod::POST,
+        format!("{}/oauth/token", issuer.trim_end_matches('/')).as_str(),
+    )
+    .header("content-type", "application/json")
+    .body(body)
+    .send()
+    .await
+    .map_err(|err| CodexTokenRefreshError::Transient(err.to_string()))?;
 
     let status = response.status().as_u16();
     let bytes = response

@@ -8,6 +8,7 @@ use wreq::{Client as WreqClient, Method as WreqMethod};
 use super::constants::{DEFAULT_SCOPE, DEFAULT_TOKEN_URI, TOKEN_REFRESH_SKEW_MS};
 use super::credential::VertexServiceAccountCredential;
 use crate::channels::ChannelSettings;
+use crate::channels::upstream::tracked_request;
 
 #[derive(Clone)]
 pub(crate) struct VertexAuthMaterial {
@@ -194,8 +195,7 @@ async fn refresh_vertex_access_token(
         "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={assertion}"
     );
 
-    let response = client
-        .request(WreqMethod::POST, material.token_uri.as_str())
+    let response = tracked_request(client, WreqMethod::POST, material.token_uri.as_str())
         .header("content-type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
