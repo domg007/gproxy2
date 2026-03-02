@@ -65,6 +65,7 @@ pub struct ClaudeToOpenAiResponseStream {
     response_id: String,
     model: String,
     input_tokens: u64,
+    cache_creation_input_tokens: u64,
     cached_input_tokens: u64,
     output_tokens: u64,
     incomplete_reason: Option<rt::ResponseIncompleteReason>,
@@ -82,8 +83,13 @@ impl ClaudeToOpenAiResponseStream {
             return None;
         }
 
+        let input_tokens = self
+            .input_tokens
+            .saturating_add(self.cache_creation_input_tokens)
+            .saturating_add(self.cached_input_tokens);
+
         Some(response_usage_from_counts(
-            self.input_tokens,
+            input_tokens,
             self.cached_input_tokens,
             self.output_tokens,
             0,
@@ -1023,6 +1029,7 @@ impl ClaudeToOpenAiResponseStream {
                 self.response_id = event.message.id;
                 self.model = claude_model_to_string(&event.message.model);
                 self.input_tokens = event.message.usage.input_tokens;
+                self.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
                 self.cached_input_tokens = event.message.usage.cache_read_input_tokens;
                 self.output_tokens = event.message.usage.output_tokens;
                 self.incomplete_reason =
@@ -1044,6 +1051,9 @@ impl ClaudeToOpenAiResponseStream {
             ClaudeCreateMessageStreamEvent::MessageDelta(event) => {
                 if let Some(input_tokens) = event.usage.input_tokens {
                     self.input_tokens = input_tokens;
+                }
+                if let Some(cache_creation_input_tokens) = event.usage.cache_creation_input_tokens {
+                    self.cache_creation_input_tokens = cache_creation_input_tokens;
                 }
                 if let Some(cached_input_tokens) = event.usage.cache_read_input_tokens {
                     self.cached_input_tokens = cached_input_tokens;

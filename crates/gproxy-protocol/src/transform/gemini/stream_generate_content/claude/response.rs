@@ -35,6 +35,10 @@ enum ClaudeBlockState {
 pub struct ClaudeToGeminiStream {
     response_id: Option<String>,
     model_version: Option<String>,
+    input_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
     usage_metadata: Option<GeminiUsageMetadata>,
     blocks: BTreeMap<u64, ClaudeBlockState>,
     finished: bool,
@@ -47,16 +51,31 @@ impl ClaudeToGeminiStream {
 
     fn usage_from_counts(
         input_tokens: u64,
+        cache_creation_tokens: u64,
         cached_tokens: u64,
         output_tokens: u64,
     ) -> GeminiUsageMetadata {
+        let prompt_tokens = input_tokens.saturating_add(cache_creation_tokens);
         GeminiUsageMetadata {
-            prompt_token_count: Some(input_tokens),
+            prompt_token_count: Some(prompt_tokens),
             cached_content_token_count: Some(cached_tokens),
             candidates_token_count: Some(output_tokens),
-            total_token_count: Some(input_tokens.saturating_add(output_tokens)),
+            total_token_count: Some(
+                prompt_tokens
+                    .saturating_add(cached_tokens)
+                    .saturating_add(output_tokens),
+            ),
             ..GeminiUsageMetadata::default()
         }
+    }
+
+    fn sync_usage_metadata(&mut self) {
+        self.usage_metadata = Some(Self::usage_from_counts(
+            self.input_tokens,
+            self.cache_creation_input_tokens,
+            self.cached_input_tokens,
+            self.output_tokens,
+        ));
     }
 
     fn finish_reason_from_stop_reason(stop_reason: Option<BetaStopReason>) -> GeminiFinishReason {
@@ -183,11 +202,11 @@ impl ClaudeToGeminiStream {
             ClaudeCreateMessageStreamEvent::MessageStart(event) => {
                 self.response_id = Some(event.message.id);
                 self.model_version = Some(claude_model_to_string(&event.message.model));
-                self.usage_metadata = Some(Self::usage_from_counts(
-                    event.message.usage.input_tokens,
-                    event.message.usage.cache_read_input_tokens,
-                    event.message.usage.output_tokens,
-                ));
+                self.input_tokens = event.message.usage.input_tokens;
+                self.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
+                self.cached_input_tokens = event.message.usage.cache_read_input_tokens;
+                self.output_tokens = event.message.usage.output_tokens;
+                self.sync_usage_metadata();
             }
             ClaudeCreateMessageStreamEvent::ContentBlockStart(event) => {
                 let state = match event.content_block {
@@ -253,11 +272,17 @@ impl ClaudeToGeminiStream {
                 self.blocks.remove(&event.index);
             }
             ClaudeCreateMessageStreamEvent::MessageDelta(event) => {
-                self.usage_metadata = Some(Self::usage_from_counts(
-                    event.usage.input_tokens.unwrap_or(0),
-                    event.usage.cache_read_input_tokens.unwrap_or(0),
-                    event.usage.output_tokens,
-                ));
+                if let Some(input_tokens) = event.usage.input_tokens {
+                    self.input_tokens = input_tokens;
+                }
+                if let Some(cache_creation_input_tokens) = event.usage.cache_creation_input_tokens {
+                    self.cache_creation_input_tokens = cache_creation_input_tokens;
+                }
+                if let Some(cached_input_tokens) = event.usage.cache_read_input_tokens {
+                    self.cached_input_tokens = cached_input_tokens;
+                }
+                self.output_tokens = event.usage.output_tokens;
+                self.sync_usage_metadata();
 
                 let finish_reason = Self::finish_reason_from_stop_reason(event.delta.stop_reason);
                 let prompt_feedback = if matches!(finish_reason, GeminiFinishReason::Safety) {

@@ -110,12 +110,18 @@ impl TryFrom<ClaudeCreateMessageResponse> for GeminiGenerateContentResponse {
                 };
 
                 let usage_metadata = GeminiUsageMetadata {
-                    prompt_token_count: Some(body.usage.input_tokens),
+                    prompt_token_count: Some(
+                        body.usage
+                            .input_tokens
+                            .saturating_add(body.usage.cache_creation_input_tokens),
+                    ),
                     cached_content_token_count: Some(body.usage.cache_read_input_tokens),
                     candidates_token_count: Some(body.usage.output_tokens),
                     total_token_count: Some(
                         body.usage
                             .input_tokens
+                            .saturating_add(body.usage.cache_creation_input_tokens)
+                            .saturating_add(body.usage.cache_read_input_tokens)
                             .saturating_add(body.usage.output_tokens),
                     ),
                     ..GeminiUsageMetadata::default()

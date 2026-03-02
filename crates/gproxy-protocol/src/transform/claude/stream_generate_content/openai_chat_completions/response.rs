@@ -9,7 +9,7 @@ use crate::openai::create_chat_completions::stream::{
     OpenAiChatCompletionsSseStreamBody,
 };
 use crate::openai::create_chat_completions::types::{
-    ChatCompletionFinishReason, ChatCompletionServiceTier,
+    ChatCompletionFinishReason, ChatCompletionServiceTier, CompletionUsage,
 };
 use crate::transform::claude::stream_generate_content::utils::{
     input_json_delta_event, message_delta_event, message_start_event, message_stop_event,
@@ -66,6 +66,22 @@ impl OpenAiChatCompletionsToClaudeStream {
         matches!(self.state, StreamState::Finished)
     }
 
+    fn apply_usage(&mut self, usage: &CompletionUsage) {
+        let cached_tokens = usage
+            .prompt_tokens_details
+            .as_ref()
+            .and_then(|details| details.cached_tokens)
+            .unwrap_or(0);
+        let total_input_tokens = if usage.total_tokens >= usage.completion_tokens {
+            usage.total_tokens.saturating_sub(usage.completion_tokens)
+        } else {
+            usage.prompt_tokens
+        };
+        self.input_tokens = total_input_tokens.saturating_sub(cached_tokens);
+        self.cached_input_tokens = cached_tokens;
+        self.output_tokens = usage.completion_tokens;
+    }
+
     pub fn on_event(
         &mut self,
         event: OpenAiChatCompletionsSseEvent,
@@ -96,13 +112,7 @@ impl OpenAiChatCompletionsToClaudeStream {
                 _ => BetaServiceTier::Standard,
             };
             if let Some(usage) = chunk.usage.as_ref() {
-                self.input_tokens = usage.prompt_tokens;
-                self.cached_input_tokens = usage
-                    .prompt_tokens_details
-                    .as_ref()
-                    .and_then(|details| details.cached_tokens)
-                    .unwrap_or(0);
-                self.output_tokens = usage.completion_tokens;
+                self.apply_usage(usage);
             }
             out.push(message_start_event(
                 self.message_id.clone(),
@@ -115,13 +125,7 @@ impl OpenAiChatCompletionsToClaudeStream {
         }
 
         if let Some(usage) = chunk.usage {
-            self.input_tokens = usage.prompt_tokens;
-            self.cached_input_tokens = usage
-                .prompt_tokens_details
-                .as_ref()
-                .and_then(|details| details.cached_tokens)
-                .unwrap_or(0);
-            self.output_tokens = usage.completion_tokens;
+            self.apply_usage(&usage);
         }
         if matches!(
             chunk_service_tier,

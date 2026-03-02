@@ -261,6 +261,12 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiChatCompletionsResponse {
                     _ => oct::ChatCompletionFinishReason::Stop,
                 };
 
+                let prompt_tokens = usage
+                    .input_tokens
+                    .saturating_add(usage.cache_creation_input_tokens)
+                    .saturating_add(usage.cache_read_input_tokens);
+                let total_tokens = prompt_tokens.saturating_add(usage.output_tokens);
+
                 OpenAiChatCompletionsResponse::Success {
                     stats_code,
                     headers: OpenAiResponseHeaders {
@@ -306,8 +312,8 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiChatCompletionsResponse {
                         system_fingerprint: None,
                         usage: Some(oct::CompletionUsage {
                             completion_tokens: usage.output_tokens,
-                            prompt_tokens: usage.input_tokens,
-                            total_tokens: usage.input_tokens.saturating_add(usage.output_tokens),
+                            prompt_tokens,
+                            total_tokens,
                             completion_tokens_details: Some(oct::CompletionTokensDetails {
                                 accepted_prediction_tokens: None,
                                 audio_tokens: None,

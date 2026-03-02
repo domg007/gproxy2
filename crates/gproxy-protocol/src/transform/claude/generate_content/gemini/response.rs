@@ -145,17 +145,23 @@ impl TryFrom<GeminiGenerateContentResponse> for ClaudeCreateMessageResponse {
                     };
 
                     let usage_metadata = body.usage_metadata.unwrap_or_default();
-                    let input_tokens = usage_metadata
+                    let prompt_input_tokens = usage_metadata
                         .prompt_token_count
                         .unwrap_or(0)
                         .saturating_add(usage_metadata.tool_use_prompt_token_count.unwrap_or(0));
+                    let cached_tokens = usage_metadata.cached_content_token_count.unwrap_or(0);
                     let output_tokens = usage_metadata
                         .candidates_token_count
                         .unwrap_or(0)
                         .saturating_add(usage_metadata.thoughts_token_count.unwrap_or(0));
+                    let total_input_tokens = usage_metadata
+                        .total_token_count
+                        .map(|total| total.saturating_sub(output_tokens))
+                        .unwrap_or_else(|| prompt_input_tokens.saturating_add(cached_tokens));
+                    let input_tokens = total_input_tokens.saturating_sub(cached_tokens);
                     let usage = beta_usage_from_counts(
                         input_tokens,
-                        usage_metadata.cached_content_token_count.unwrap_or(0),
+                        cached_tokens,
                         output_tokens,
                         BetaServiceTier::Standard,
                     );

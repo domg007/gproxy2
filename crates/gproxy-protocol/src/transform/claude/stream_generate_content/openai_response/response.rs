@@ -10,7 +10,7 @@ use crate::openai::create_response::stream::{
     ResponseStreamContentPart, ResponseStreamEvent,
 };
 use crate::openai::create_response::types::{
-    ResponseIncompleteReason, ResponseOutputItem, ResponseServiceTier,
+    ResponseIncompleteReason, ResponseOutputItem, ResponseServiceTier, ResponseUsage,
 };
 use crate::transform::claude::stream_generate_content::utils::{
     input_json_delta_event, message_delta_event, message_start_event, message_stop_event,
@@ -73,6 +73,18 @@ impl OpenAiResponseToClaudeStream {
         matches!(self.state, StreamState::Finished)
     }
 
+    fn apply_usage(&mut self, usage: &ResponseUsage) {
+        let cached_tokens = usage.input_tokens_details.cached_tokens;
+        let total_input_tokens = if usage.total_tokens >= usage.output_tokens {
+            usage.total_tokens.saturating_sub(usage.output_tokens)
+        } else {
+            usage.input_tokens
+        };
+        self.input_tokens = total_input_tokens.saturating_sub(cached_tokens);
+        self.cached_input_tokens = cached_tokens;
+        self.output_tokens = usage.output_tokens;
+    }
+
     fn next_block(&mut self) -> u64 {
         let index = self.next_block_index;
         self.next_block_index = self.next_block_index.saturating_add(1);
@@ -104,9 +116,7 @@ impl OpenAiResponseToClaudeStream {
             _ => BetaServiceTier::Standard,
         };
         if let Some(usage) = response.usage.as_ref() {
-            self.input_tokens = usage.input_tokens;
-            self.cached_input_tokens = usage.input_tokens_details.cached_tokens;
-            self.output_tokens = usage.output_tokens;
+            self.apply_usage(usage);
         }
         self.ensure_running(out);
     }

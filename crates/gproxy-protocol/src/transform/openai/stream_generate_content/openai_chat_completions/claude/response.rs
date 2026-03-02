@@ -30,6 +30,7 @@ pub struct ClaudeToOpenAiChatCompletionsStream {
     model: String,
     created: u64,
     input_tokens: u64,
+    cache_creation_input_tokens: u64,
     cached_input_tokens: u64,
     output_tokens: u64,
     incomplete_finish_reason: Option<ct::ChatCompletionFinishReason>,
@@ -82,10 +83,15 @@ impl ClaudeToOpenAiChatCompletionsStream {
             return None;
         }
 
+        let prompt_tokens = self
+            .input_tokens
+            .saturating_add(self.cache_creation_input_tokens)
+            .saturating_add(self.cached_input_tokens);
+
         Some(ct::CompletionUsage {
             completion_tokens: self.output_tokens,
-            prompt_tokens: self.input_tokens,
-            total_tokens: self.input_tokens.saturating_add(self.output_tokens),
+            prompt_tokens,
+            total_tokens: prompt_tokens.saturating_add(self.output_tokens),
             completion_tokens_details: Some(ct::CompletionTokensDetails {
                 accepted_prediction_tokens: None,
                 audio_tokens: None,
@@ -306,6 +312,7 @@ impl ClaudeToOpenAiChatCompletionsStream {
                 self.response_id = event.message.id;
                 self.model = claude_model_to_string(&event.message.model);
                 self.input_tokens = event.message.usage.input_tokens;
+                self.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
                 self.cached_input_tokens = event.message.usage.cache_read_input_tokens;
                 self.output_tokens = event.message.usage.output_tokens;
                 self.incomplete_finish_reason =
@@ -385,6 +392,9 @@ impl ClaudeToOpenAiChatCompletionsStream {
             ClaudeCreateMessageStreamEvent::MessageDelta(event) => {
                 if let Some(input_tokens) = event.usage.input_tokens {
                     self.input_tokens = input_tokens;
+                }
+                if let Some(cache_creation_input_tokens) = event.usage.cache_creation_input_tokens {
+                    self.cache_creation_input_tokens = cache_creation_input_tokens;
                 }
                 if let Some(cached_input_tokens) = event.usage.cache_read_input_tokens {
                     self.cached_input_tokens = cached_input_tokens;
@@ -499,7 +509,8 @@ mod tests {
     use super::*;
     use crate::claude::count_tokens::types as cct;
     use crate::claude::create_message::stream::{
-        BetaRawContentBlockStartEvent, BetaRawContentBlockStartEventType,
+        BetaMessageDeltaUsage, BetaRawContentBlockStartEvent, BetaRawContentBlockStartEventType,
+        BetaRawMessageDelta, BetaRawMessageDeltaEvent, BetaRawMessageDeltaEventType,
         ClaudeCreateMessageStreamEvent,
     };
     use crate::claude::create_message::types::{BetaServiceTier, BetaStopReason};
@@ -554,8 +565,20 @@ mod tests {
                     Some(ct::ChatCompletionFinishReason::Stop)
                 );
                 assert_eq!(
+                    chunk.usage.as_ref().map(|usage| usage.prompt_tokens),
+                    Some(13)
+                );
+                assert_eq!(
                     chunk.usage.as_ref().map(|usage| usage.total_tokens),
-                    Some(14)
+                    Some(16)
+                );
+                assert_eq!(
+                    chunk
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| usage.prompt_tokens_details.as_ref())
+                        .and_then(|details| details.cached_tokens),
+                    Some(2)
                 );
             }
             other => panic!("unexpected third event: {other:?}"),
@@ -664,6 +687,55 @@ mod tests {
                 );
             }
             other => panic!("unexpected finish event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn claude_stream_usage_includes_cache_creation_tokens() {
+        let stream = ClaudeCreateMessageSseStreamBody {
+            events: vec![
+                message_start_event(
+                    "msg_3".to_string(),
+                    "claude-sonnet".to_string(),
+                    BetaServiceTier::Standard,
+                    10,
+                    20,
+                ),
+                start_text_block_event(0),
+                text_delta_event(0, "ok".to_string()),
+                stop_block_event(0),
+                ClaudeCreateMessageStreamEvent::MessageDelta(BetaRawMessageDeltaEvent {
+                    context_management: None,
+                    delta: BetaRawMessageDelta {
+                        container: None,
+                        stop_reason: Some(BetaStopReason::EndTurn),
+                        stop_sequence: None,
+                    },
+                    type_: BetaRawMessageDeltaEventType::MessageDelta,
+                    usage: BetaMessageDeltaUsage {
+                        cache_creation_input_tokens: Some(5),
+                        cache_read_input_tokens: Some(20),
+                        input_tokens: Some(10),
+                        iterations: None,
+                        output_tokens: 3,
+                        server_tool_use: None,
+                    },
+                }),
+                message_stop_event(),
+            ],
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        assert_eq!(converted.events.len(), 4);
+
+        match &converted.events[2].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                let usage = chunk.usage.as_ref().expect("usage should be present");
+                assert_eq!(usage.prompt_tokens, 35);
+                assert_eq!(usage.completion_tokens, 3);
+                assert_eq!(usage.total_tokens, 38);
+            }
+            other => panic!("unexpected third event: {other:?}"),
         }
     }
 }

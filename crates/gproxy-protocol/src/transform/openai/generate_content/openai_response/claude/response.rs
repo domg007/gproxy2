@@ -427,8 +427,13 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                     BetaServiceTier::Priority => rt::ResponseServiceTier::Priority,
                     BetaServiceTier::Batch => rt::ResponseServiceTier::Flex,
                 });
+                let input_tokens = body
+                    .usage
+                    .input_tokens
+                    .saturating_add(body.usage.cache_creation_input_tokens)
+                    .saturating_add(body.usage.cache_read_input_tokens);
                 let usage = Some(rt::ResponseUsage {
-                    input_tokens: body.usage.input_tokens,
+                    input_tokens,
                     input_tokens_details: rt::ResponseInputTokensDetails {
                         cached_tokens: body.usage.cache_read_input_tokens,
                     },
@@ -436,10 +441,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                     output_tokens_details: rt::ResponseOutputTokensDetails {
                         reasoning_tokens: 0,
                     },
-                    total_tokens: body
-                        .usage
-                        .input_tokens
-                        .saturating_add(body.usage.output_tokens),
+                    total_tokens: input_tokens.saturating_add(body.usage.output_tokens),
                 });
 
                 OpenAiCreateResponseResponse::Success {

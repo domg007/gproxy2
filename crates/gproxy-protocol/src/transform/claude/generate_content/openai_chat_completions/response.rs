@@ -129,13 +129,19 @@ impl TryFrom<OpenAiChatCompletionsResponse> for ClaudeCreateMessageResponse {
                     .usage
                     .as_ref()
                     .map(|usage| {
+                        let cached_tokens = usage
+                            .prompt_tokens_details
+                            .as_ref()
+                            .and_then(|details| details.cached_tokens)
+                            .unwrap_or(0);
+                        let total_input_tokens = if usage.total_tokens >= usage.completion_tokens {
+                            usage.total_tokens.saturating_sub(usage.completion_tokens)
+                        } else {
+                            usage.prompt_tokens
+                        };
                         (
-                            usage.prompt_tokens,
-                            usage
-                                .prompt_tokens_details
-                                .as_ref()
-                                .and_then(|details| details.cached_tokens)
-                                .unwrap_or(0),
+                            total_input_tokens.saturating_sub(cached_tokens),
+                            cached_tokens,
                             usage.completion_tokens,
                         )
                     })

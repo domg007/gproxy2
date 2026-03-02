@@ -365,9 +365,15 @@ impl TryFrom<OpenAiCreateResponseResponse> for ClaudeCreateMessageResponse {
                     .usage
                     .as_ref()
                     .map(|usage| {
+                        let cached_tokens = usage.input_tokens_details.cached_tokens;
+                        let total_input_tokens = if usage.total_tokens >= usage.output_tokens {
+                            usage.total_tokens.saturating_sub(usage.output_tokens)
+                        } else {
+                            usage.input_tokens
+                        };
                         (
-                            usage.input_tokens,
-                            usage.input_tokens_details.cached_tokens,
+                            total_input_tokens.saturating_sub(cached_tokens),
+                            cached_tokens,
                             usage.output_tokens,
                         )
                     })

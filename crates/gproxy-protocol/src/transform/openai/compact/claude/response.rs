@@ -170,19 +170,23 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCompactResponse {
                         created_at: 0,
                         object: OpenAiCompactedResponseObject::ResponseCompaction,
                         output,
-                        usage: cpt::ResponseUsage {
-                            input_tokens: body.usage.input_tokens,
-                            input_tokens_details: cpt::ResponseInputTokensDetails {
-                                cached_tokens: body.usage.cache_read_input_tokens,
-                            },
-                            output_tokens: body.usage.output_tokens,
-                            output_tokens_details: cpt::ResponseOutputTokensDetails {
-                                reasoning_tokens: 0,
-                            },
-                            total_tokens: body
+                        usage: {
+                            let input_tokens = body
                                 .usage
                                 .input_tokens
-                                .saturating_add(body.usage.output_tokens),
+                                .saturating_add(body.usage.cache_creation_input_tokens)
+                                .saturating_add(body.usage.cache_read_input_tokens);
+                            cpt::ResponseUsage {
+                                input_tokens,
+                                input_tokens_details: cpt::ResponseInputTokensDetails {
+                                    cached_tokens: body.usage.cache_read_input_tokens,
+                                },
+                                output_tokens: body.usage.output_tokens,
+                                output_tokens_details: cpt::ResponseOutputTokensDetails {
+                                    reasoning_tokens: 0,
+                                },
+                                total_tokens: input_tokens.saturating_add(body.usage.output_tokens),
+                            }
                         },
                     },
                 }
