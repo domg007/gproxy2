@@ -39,6 +39,7 @@ pub struct ClaudeToOpenAiChatCompletionsStream {
     choice_tool_counts: BTreeMap<u32, u32>,
     choice_has_tool_calls: BTreeSet<u32>,
     text_blocks: BTreeSet<u64>,
+    thinking_blocks: BTreeSet<u64>,
     tool_blocks: BTreeMap<u64, String>,
     tool_states: BTreeMap<String, OpenAiChatToolState>,
     started: bool,
@@ -175,6 +176,30 @@ impl ClaudeToOpenAiChatCompletionsStream {
             ChatCompletionChunkDelta {
                 content: if refusal { None } else { Some(text.clone()) },
                 refusal: if refusal { Some(text) } else { None },
+                ..Default::default()
+            },
+            None,
+            None,
+        ));
+    }
+
+    fn emit_reasoning_content(
+        &mut self,
+        output_index: u64,
+        text: String,
+        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+
+        let choice_index = self.ensure_choice_index(output_index);
+        self.maybe_emit_role(out, choice_index);
+
+        out.push(self.chunk_event(
+            choice_index,
+            ChatCompletionChunkDelta {
+                reasoning_content: Some(text),
                 ..Default::default()
             },
             None,
@@ -326,6 +351,9 @@ impl ClaudeToOpenAiChatCompletionsStream {
                         self.text_blocks.insert(output_index);
                         self.emit_content(output_index, block.text, false, &mut out);
                     }
+                    BetaContentBlock::Thinking(_) | BetaContentBlock::RedactedThinking(_) => {
+                        self.thinking_blocks.insert(output_index);
+                    }
                     BetaContentBlock::ToolUse(block) => {
                         let arguments = serde_json::to_string(&block.input)
                             .unwrap_or_else(|_| "{}".to_string());
@@ -376,6 +404,11 @@ impl ClaudeToOpenAiChatCompletionsStream {
                         self.emit_content(event.index, delta.text, false, &mut out);
                     }
                 }
+                BetaRawContentBlockDelta::Thinking(delta) => {
+                    if self.thinking_blocks.contains(&event.index) {
+                        self.emit_reasoning_content(event.index, delta.thinking, &mut out);
+                    }
+                }
                 BetaRawContentBlockDelta::InputJson(delta) => {
                     if let Some(call_id) = self.tool_blocks.get(&event.index).cloned() {
                         self.emit_tool_call_arguments_delta(&call_id, delta.partial_json, &mut out);
@@ -385,6 +418,7 @@ impl ClaudeToOpenAiChatCompletionsStream {
             },
             ClaudeCreateMessageStreamEvent::ContentBlockStop(event) => {
                 self.text_blocks.remove(&event.index);
+                self.thinking_blocks.remove(&event.index);
                 if let Some(call_id) = self.tool_blocks.remove(&event.index) {
                     self.tool_states.remove(&call_id);
                 }
@@ -509,11 +543,13 @@ mod tests {
     use super::*;
     use crate::claude::count_tokens::types as cct;
     use crate::claude::create_message::stream::{
-        BetaMessageDeltaUsage, BetaRawContentBlockStartEvent, BetaRawContentBlockStartEventType,
-        BetaRawMessageDelta, BetaRawMessageDeltaEvent, BetaRawMessageDeltaEventType,
-        ClaudeCreateMessageStreamEvent,
+        BetaMessageDeltaUsage, BetaRawContentBlockDelta, BetaRawContentBlockDeltaEvent,
+        BetaRawContentBlockDeltaEventType, BetaRawContentBlockStartEvent,
+        BetaRawContentBlockStartEventType, BetaRawMessageDelta, BetaRawMessageDeltaEvent,
+        BetaRawMessageDeltaEventType, BetaSignatureDelta, BetaSignatureDeltaType,
+        BetaThinkingDelta, BetaThinkingDeltaType, ClaudeCreateMessageStreamEvent,
     };
-    use crate::claude::create_message::types::{BetaServiceTier, BetaStopReason};
+    use crate::claude::create_message::types::{BetaServiceTier, BetaStopReason, BetaThinkingBlock};
     use crate::transform::claude::stream_generate_content::utils::{
         message_delta_event, message_start_event, message_stop_event, start_text_block_event,
         stop_block_event, text_delta_event,
@@ -736,6 +772,73 @@ mod tests {
                 assert_eq!(usage.total_tokens, 38);
             }
             other => panic!("unexpected third event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn claude_thinking_stream_maps_to_chat_reasoning_content() {
+        let stream = ClaudeCreateMessageSseStreamBody {
+            events: vec![
+                message_start_event(
+                    "msg_4".to_string(),
+                    "claude-sonnet".to_string(),
+                    BetaServiceTier::Standard,
+                    7,
+                    0,
+                ),
+                ClaudeCreateMessageStreamEvent::ContentBlockStart(BetaRawContentBlockStartEvent {
+                    content_block: BetaContentBlock::Thinking(BetaThinkingBlock {
+                        signature: String::new(),
+                        thinking: String::new(),
+                        type_: cct::BetaThinkingBlockType::Thinking,
+                    }),
+                    index: 0,
+                    type_: BetaRawContentBlockStartEventType::ContentBlockStart,
+                }),
+                ClaudeCreateMessageStreamEvent::ContentBlockDelta(BetaRawContentBlockDeltaEvent {
+                    delta: BetaRawContentBlockDelta::Thinking(BetaThinkingDelta {
+                        thinking: "plan".to_string(),
+                        type_: BetaThinkingDeltaType::ThinkingDelta,
+                    }),
+                    index: 0,
+                    type_: BetaRawContentBlockDeltaEventType::ContentBlockDelta,
+                }),
+                ClaudeCreateMessageStreamEvent::ContentBlockDelta(BetaRawContentBlockDeltaEvent {
+                    delta: BetaRawContentBlockDelta::Signature(BetaSignatureDelta {
+                        signature: "sig_1".to_string(),
+                        type_: BetaSignatureDeltaType::SignatureDelta,
+                    }),
+                    index: 0,
+                    type_: BetaRawContentBlockDeltaEventType::ContentBlockDelta,
+                }),
+                stop_block_event(0),
+                message_delta_event(Some(BetaStopReason::EndTurn), 7, 0, 1),
+                message_stop_event(),
+            ],
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        assert_eq!(converted.events.len(), 4);
+
+        match &converted.events[0].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                assert_eq!(
+                    chunk.choices[0].delta.role,
+                    Some(ct::ChatCompletionDeltaRole::Assistant)
+                );
+            }
+            other => panic!("unexpected first event: {other:?}"),
+        }
+
+        match &converted.events[1].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                assert_eq!(
+                    chunk.choices[0].delta.reasoning_content.as_deref(),
+                    Some("plan")
+                );
+                assert!(chunk.choices[0].delta.content.is_none());
+            }
+            other => panic!("unexpected second event: {other:?}"),
         }
     }
 }
