@@ -10,6 +10,7 @@ type UserKeysPaneProps = {
   selectedUser: UserQueryRow | null;
   selectedUserId: number | null;
   keyRows: UserKeyQueryRow[];
+  notify: (kind: "success" | "error" | "info", message: string) => void;
   onGenerateKey: () => void;
   onRefreshKeys: () => void;
   onDeleteKey: (id: number) => void;
@@ -19,6 +20,7 @@ export function UserKeysPane({
   selectedUser,
   selectedUserId,
   keyRows,
+  notify,
   onGenerateKey,
   onRefreshKeys,
   onDeleteKey
@@ -43,7 +45,7 @@ export function UserKeysPane({
     return (
       <button
         type="button"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        className="relative z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
         onClick={() => toggleKeyVisibility(id)}
         aria-label={shown ? t("common.hide") : t("common.show")}
         title={shown ? t("common.hide") : t("common.show")}
@@ -65,14 +67,21 @@ export function UserKeysPane({
     );
   };
 
+  const copyKey = async (key: string) => {
+    try {
+      await copyTextToClipboard(key);
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
   const renderCopyButton = (key: string) => {
     return (
       <button
         type="button"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
-        onClick={() => {
-          void copyTextToClipboard(key).catch(() => {});
-        }}
+        className="relative z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        onClick={() => void copyKey(key)}
         aria-label={t("common.copy")}
         title={t("common.copy")}
       >
@@ -122,8 +131,8 @@ export function UserKeysPane({
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-text">{t("users.keyTitle", { id: row.id })}</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <div className="truncate font-mono text-xs text-muted">
+                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                    <div className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
                       {revealedKeyIds.has(row.id) ? row.api_key : maskApiKey(row.api_key)}
                     </div>
                     {renderVisibilityButton(row.id)}

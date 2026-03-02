@@ -31,6 +31,10 @@ export type UsageDisplayRow = {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  cacheCreationTokens5m: number;
+  cacheCreationTokens1h: number;
   cacheTokens: number;
   totalTokens: number;
 };
@@ -42,6 +46,8 @@ export type UsageSampleRow = {
   output_tokens: number | null;
   cache_read_input_tokens: number | null;
   cache_creation_input_tokens: number | null;
+  cache_creation_input_tokens_5min: number | null;
+  cache_creation_input_tokens_1h: number | null;
 };
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -549,6 +555,10 @@ function summarizeRows(
   let calls = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheCreationTokens5m = 0;
+  let cacheCreationTokens1h = 0;
   let cacheTokens = 0;
   let totalTokens = 0;
 
@@ -562,11 +572,18 @@ function summarizeRows(
     }
     const input = asToken(row.input_tokens);
     const output = asToken(row.output_tokens);
-    const cache =
-      asToken(row.cache_read_input_tokens) + asToken(row.cache_creation_input_tokens);
+    const cacheRead = asToken(row.cache_read_input_tokens);
+    const cacheCreation = asToken(row.cache_creation_input_tokens);
+    const cacheCreation5m = asToken(row.cache_creation_input_tokens_5min);
+    const cacheCreation1h = asToken(row.cache_creation_input_tokens_1h);
+    const cache = cacheRead + cacheCreation;
     calls += 1;
     inputTokens += input;
     outputTokens += output;
+    cacheReadTokens += cacheRead;
+    cacheCreationTokens += cacheCreation;
+    cacheCreationTokens5m += cacheCreation5m;
+    cacheCreationTokens1h += cacheCreation1h;
     cacheTokens += cache;
     totalTokens += input + output + cache;
   }
@@ -579,6 +596,10 @@ function summarizeRows(
     calls,
     inputTokens,
     outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    cacheCreationTokens5m,
+    cacheCreationTokens1h,
     cacheTokens,
     totalTokens
   };

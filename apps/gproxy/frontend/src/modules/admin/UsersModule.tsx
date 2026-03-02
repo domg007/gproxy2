@@ -248,6 +248,7 @@ export function UsersModule({
               selectedUser={selectedUser}
               selectedUserId={selectedUserId}
               keyRows={keyRows}
+              notify={notify}
               onGenerateKey={() => void generateUserKey()}
               onRefreshKeys={() => void loadUserKeys(selectedUserId)}
               onDeleteKey={(id) => void removeUserKey(id)}

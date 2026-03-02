@@ -63,7 +63,7 @@ export function MyKeysModule({
     return (
       <button
         type="button"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        className="relative z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
         onClick={() => toggleKeyVisibility(id)}
         aria-label={shown ? t("common.hide") : t("common.show")}
         title={shown ? t("common.hide") : t("common.show")}
@@ -89,7 +89,7 @@ export function MyKeysModule({
     return (
       <button
         type="button"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+        className="relative z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
         onClick={() => void copyKey(key)}
         aria-label={t("common.copy")}
         title={t("common.copy")}
@@ -244,8 +244,8 @@ export function MyKeysModule({
             [tableColumns[0]]: row.id,
             [tableColumns[1]]: row.user_id,
             [tableColumns[2]]: (
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
                   {revealedKeyIds.has(row.id) ? row.api_key : maskApiKey(row.api_key)}
                 </span>
                 {renderVisibilityButton(row.id)}

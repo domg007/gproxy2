@@ -371,7 +371,11 @@ export function CredentialCardsSection({
                         {usageDisplayKind === "tokens" ? (
                           <div className="text-xs text-muted">
                             {t("providers.usage.calls")}/{t("providers.usage.tokens_input")}/
-                            {t("providers.usage.tokens_output")}/{t("providers.usage.tokens_cache")}/
+                            {t("providers.usage.tokens_output")}/
+                            {t("providers.usage.tokens_cache_read")}/
+                            {t("providers.usage.tokens_cache_creation")}/
+                            {t("providers.usage.tokens_cache_creation_5m")}/
+                            {t("providers.usage.tokens_cache_creation_1h")}/
                             {t("providers.usage.tokens_total")}
                           </div>
                         ) : null}
@@ -418,7 +422,7 @@ export function CredentialCardsSection({
                                       const rangeText = `${formatAtForViewer(item.fromUnixMs)} - ${formatAtForViewer(item.toUnixMs)}`;
                                       const cellText =
                                         usageDisplayKind === "tokens"
-                                          ? `${item.calls}/${item.inputTokens}/${item.outputTokens}/${item.cacheTokens}/${item.totalTokens}`
+                                          ? `${item.calls}/${item.inputTokens}/${item.outputTokens}/${item.cacheReadTokens}/${item.cacheCreationTokens}/${item.cacheCreationTokens5m}/${item.cacheCreationTokens1h}/${item.totalTokens}`
                                           : `${item.calls}`;
                                       return (
                                         <td
