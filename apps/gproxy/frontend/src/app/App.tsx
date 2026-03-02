@@ -335,8 +335,8 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar-shell">
-        <div className="topbar-panel mx-auto flex w-full max-w-[1700px] items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
+        <div className="topbar-panel mx-auto flex w-full max-w-[1700px] flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 md:gap-3">
             <h1 className="topbar-title">{t("app.title")}</h1>
             <Badge active>{role}</Badge>
             <code className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
@@ -355,7 +355,7 @@ export function App() {
               </Button>
             ) : null}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:flex-nowrap md:justify-end md:gap-3">
             <div className="w-28">
               <Select
                 value={locale}
