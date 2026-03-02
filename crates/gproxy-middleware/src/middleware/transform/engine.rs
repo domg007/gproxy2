@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
@@ -53,21 +53,16 @@ use gproxy_protocol::openai::create_chat_completions::response::OpenAiChatComple
 use gproxy_protocol::openai::create_chat_completions::stream::{
     OpenAiChatCompletionsSseData, OpenAiChatCompletionsSseEvent, OpenAiChatCompletionsSseStreamBody,
 };
-use gproxy_protocol::openai::create_chat_completions::types as ct;
 use gproxy_protocol::openai::create_chat_completions::types::HttpMethod as OpenAiChatHttpMethod;
 use gproxy_protocol::openai::create_response::request::{
     OpenAiCreateResponseRequest, PathParameters as OpenAiCreateResponsePathParameters,
     QueryParameters as OpenAiCreateResponseQueryParameters,
     RequestHeaders as OpenAiCreateResponseRequestHeaders,
 };
-use gproxy_protocol::openai::create_response::response::{
-    OpenAiCreateResponseResponse, ResponseBody as OpenAiCreateResponseBody,
-};
+use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse;
 use gproxy_protocol::openai::create_response::stream::{
     OpenAiCreateResponseSseData, OpenAiCreateResponseSseEvent, OpenAiCreateResponseSseStreamBody,
-    ResponseStreamEvent,
 };
-use gproxy_protocol::openai::create_response::types as rt;
 use gproxy_protocol::openai::create_response::types::HttpMethod as OpenAiResponseHttpMethod;
 use gproxy_protocol::openai::embeddings::request::OpenAiEmbeddingsRequest;
 use gproxy_protocol::openai::embeddings::response::OpenAiEmbeddingsResponse;
@@ -81,6 +76,9 @@ use gproxy_protocol::transform::claude::stream_generate_content::openai_response
 use gproxy_protocol::transform::gemini::stream_generate_content::claude::response::ClaudeToGeminiStream;
 use gproxy_protocol::transform::gemini::stream_generate_content::openai_chat_completions::response::OpenAiChatCompletionsToGeminiStream;
 use gproxy_protocol::transform::gemini::stream_generate_content::openai_response::response::OpenAiResponseToGeminiStream;
+use gproxy_protocol::transform::openai::stream_generate_content::openai_chat_completions::claude::response::ClaudeToOpenAiChatCompletionsStream;
+use gproxy_protocol::transform::openai::stream_generate_content::openai_chat_completions::gemini::response::GeminiToOpenAiChatCompletionsStream;
+use gproxy_protocol::transform::openai::stream_generate_content::openai_chat_completions::openai_response::response::OpenAiResponseToOpenAiChatCompletionsStream;
 use gproxy_protocol::transform::openai::stream_generate_content::openai_response::claude::response::ClaudeToOpenAiResponseStream;
 use gproxy_protocol::transform::openai::stream_generate_content::openai_response::gemini::response::GeminiToOpenAiResponseStream;
 use gproxy_protocol::transform::openai::stream_generate_content::openai_response::openai_chat_completions::response::OpenAiChatCompletionsToOpenAiResponseStream;
@@ -812,458 +810,14 @@ impl OpenAiResponseStreamConverter {
     }
 }
 
-#[derive(Debug, Clone)]
-struct OpenAiChatToolState {
-    choice_index: u32,
-    tool_index: u32,
-    call_id: String,
-    name: String,
-    name_emitted: bool,
-}
-
-#[derive(Debug, Default)]
-struct OpenAiResponseToOpenAiChatStream {
-    response_id: String,
-    model: String,
-    created: u64,
-    service_tier: Option<ct::ChatCompletionServiceTier>,
-    usage: Option<ct::CompletionUsage>,
-    output_choice_map: BTreeMap<u64, u32>,
-    role_emitted: BTreeSet<u32>,
-    choice_tool_counts: BTreeMap<u32, u32>,
-    choice_has_tool_calls: BTreeSet<u32>,
-    choice_finish_reasons: BTreeMap<u32, ct::ChatCompletionFinishReason>,
-    tool_states: BTreeMap<String, OpenAiChatToolState>,
-    finished: bool,
-}
-
-impl OpenAiResponseToOpenAiChatStream {
-    fn map_service_tier(
-        tier: Option<rt::ResponseServiceTier>,
-    ) -> Option<ct::ChatCompletionServiceTier> {
-        tier.map(|tier| match tier {
-            rt::ResponseServiceTier::Auto => ct::ChatCompletionServiceTier::Auto,
-            rt::ResponseServiceTier::Default => ct::ChatCompletionServiceTier::Default,
-            rt::ResponseServiceTier::Flex => ct::ChatCompletionServiceTier::Flex,
-            rt::ResponseServiceTier::Scale => ct::ChatCompletionServiceTier::Scale,
-            rt::ResponseServiceTier::Priority => ct::ChatCompletionServiceTier::Priority,
-        })
-    }
-
-    fn map_usage(usage: Option<rt::ResponseUsage>) -> Option<ct::CompletionUsage> {
-        usage.map(|usage| ct::CompletionUsage {
-            completion_tokens: usage.output_tokens,
-            prompt_tokens: usage.input_tokens,
-            total_tokens: usage.total_tokens,
-            completion_tokens_details: Some(ct::CompletionTokensDetails {
-                accepted_prediction_tokens: None,
-                audio_tokens: None,
-                reasoning_tokens: Some(usage.output_tokens_details.reasoning_tokens),
-                rejected_prediction_tokens: None,
-            }),
-            prompt_tokens_details: Some(ct::PromptTokensDetails {
-                audio_tokens: None,
-                cached_tokens: Some(usage.input_tokens_details.cached_tokens),
-            }),
-        })
-    }
-
-    fn update_metadata_from_response(&mut self, response: &OpenAiCreateResponseBody) {
-        self.response_id = response.id.clone();
-        self.model = response.model.clone();
-        self.created = response.created_at;
-        self.service_tier = Self::map_service_tier(response.service_tier.clone());
-        self.usage = Self::map_usage(response.usage.clone());
-    }
-
-    fn default_finish_reason(
-        &self,
-        response: &OpenAiCreateResponseBody,
-    ) -> ct::ChatCompletionFinishReason {
-        match response
-            .incomplete_details
-            .as_ref()
-            .and_then(|details| details.reason.as_ref())
-        {
-            Some(rt::ResponseIncompleteReason::MaxOutputTokens) => {
-                ct::ChatCompletionFinishReason::Length
-            }
-            Some(rt::ResponseIncompleteReason::ContentFilter) => {
-                ct::ChatCompletionFinishReason::ContentFilter
-            }
-            None => {
-                if self.choice_has_tool_calls.is_empty() {
-                    ct::ChatCompletionFinishReason::Stop
-                } else {
-                    ct::ChatCompletionFinishReason::ToolCalls
-                }
-            }
-        }
-    }
-
-    fn fallback_response_id(&self) -> String {
-        if self.response_id.is_empty() {
-            "chatcmpl-stream".to_string()
-        } else {
-            self.response_id.clone()
-        }
-    }
-
-    fn fallback_model(&self) -> String {
-        if self.model.is_empty() {
-            "chat.completion".to_string()
-        } else {
-            self.model.clone()
-        }
-    }
-
-    fn chunk_event(
-        &self,
-        index: u32,
-        delta: gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta,
-        finish_reason: Option<ct::ChatCompletionFinishReason>,
-        usage: Option<ct::CompletionUsage>,
-    ) -> OpenAiChatCompletionsSseEvent {
-        OpenAiChatCompletionsSseEvent {
-            event: None,
-            data: OpenAiChatCompletionsSseData::Chunk(
-                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk {
-                    id: self.fallback_response_id(),
-                    choices: vec![gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkChoice {
-                        delta,
-                        finish_reason,
-                        index,
-                        logprobs: None,
-                    }],
-                    created: self.created,
-                    model: self.fallback_model(),
-                    object: gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkObject::ChatCompletionChunk,
-                    service_tier: self.service_tier.clone(),
-                    system_fingerprint: None,
-                    usage,
-                },
-            ),
-        }
-    }
-
-    fn ensure_choice_index(&mut self, output_index: u64) -> u32 {
-        if let Some(choice_index) = self.output_choice_map.get(&output_index) {
-            return *choice_index;
-        }
-        let choice_index = u32::try_from(self.output_choice_map.len()).unwrap_or(u32::MAX);
-        self.output_choice_map.insert(output_index, choice_index);
-        choice_index
-    }
-
-    fn maybe_emit_role(&mut self, out: &mut Vec<OpenAiChatCompletionsSseEvent>, choice_index: u32) {
-        if self.role_emitted.insert(choice_index) {
-            out.push(self.chunk_event(
-                choice_index,
-                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                    role: Some(ct::ChatCompletionDeltaRole::Assistant),
-                    ..Default::default()
-                },
-                None,
-                None,
-            ));
-        }
-    }
-
-    fn register_tool_call(
-        &mut self,
-        output_index: u64,
-        call_id: String,
-        name: String,
-    ) -> OpenAiChatToolState {
-        let choice_index = self.ensure_choice_index(output_index);
-        let tool_index_ref = self.choice_tool_counts.entry(choice_index).or_insert(0);
-        let tool_index = *tool_index_ref;
-        *tool_index_ref = tool_index.saturating_add(1);
-        self.choice_has_tool_calls.insert(choice_index);
-        let state = OpenAiChatToolState {
-            choice_index,
-            tool_index,
-            call_id: call_id.clone(),
-            name,
-            name_emitted: false,
-        };
-        self.tool_states.insert(call_id, state.clone());
-        state
-    }
-
-    fn map_finish_reason_for_choice(
-        &self,
-        choice_index: u32,
-        default_reason: ct::ChatCompletionFinishReason,
-    ) -> ct::ChatCompletionFinishReason {
-        self.choice_finish_reasons
-            .get(&choice_index)
-            .cloned()
-            .unwrap_or_else(|| {
-                if self.choice_has_tool_calls.contains(&choice_index) {
-                    ct::ChatCompletionFinishReason::ToolCalls
-                } else {
-                    default_reason
-                }
-            })
-    }
-
-    fn sorted_choice_indexes(&self) -> Vec<u32> {
-        let mut indexes = self.output_choice_map.values().copied().collect::<Vec<_>>();
-        indexes.sort_unstable();
-        indexes.dedup();
-        indexes
-    }
-
-    fn on_stream_event(
-        &mut self,
-        event: ResponseStreamEvent,
-    ) -> Vec<OpenAiChatCompletionsSseEvent> {
-        let mut out = Vec::new();
-        match event {
-            ResponseStreamEvent::Created { response, .. }
-            | ResponseStreamEvent::Queued { response, .. }
-            | ResponseStreamEvent::InProgress { response, .. } => {
-                self.update_metadata_from_response(&response);
-            }
-            ResponseStreamEvent::OutputItemAdded {
-                item, output_index, ..
-            } => match item {
-                rt::ResponseOutputItem::Message(_) => {
-                    let choice_index = self.ensure_choice_index(output_index);
-                    self.maybe_emit_role(&mut out, choice_index);
-                }
-                rt::ResponseOutputItem::FunctionToolCall(call) => {
-                    let call_id = call.id.unwrap_or(call.call_id);
-                    let state = self.register_tool_call(output_index, call_id, call.name);
-                    self.maybe_emit_role(&mut out, state.choice_index);
-                    out.push(self.chunk_event(
-                        state.choice_index,
-                        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                            tool_calls: Some(vec![
-                                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCall {
-                                    index: state.tool_index,
-                                    id: Some(state.call_id.clone()),
-                                    function: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionFunctionCallDelta {
-                                        name: Some(state.name.clone()),
-                                        arguments: None,
-                                    }),
-                                    type_: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCallType::Function),
-                                },
-                            ]),
-                            ..Default::default()
-                        },
-                        None,
-                        None,
-                    ));
-                    if let Some(tool) = self.tool_states.get_mut(&state.call_id) {
-                        tool.name_emitted = true;
-                    }
-                }
-                rt::ResponseOutputItem::CustomToolCall(call) => {
-                    let call_id = call.id.unwrap_or(call.call_id);
-                    let state = self.register_tool_call(output_index, call_id, call.name);
-                    self.maybe_emit_role(&mut out, state.choice_index);
-                    out.push(self.chunk_event(
-                        state.choice_index,
-                        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                            tool_calls: Some(vec![
-                                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCall {
-                                    index: state.tool_index,
-                                    id: Some(state.call_id.clone()),
-                                    function: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionFunctionCallDelta {
-                                        name: Some(state.name.clone()),
-                                        arguments: None,
-                                    }),
-                                    type_: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCallType::Function),
-                                },
-                            ]),
-                            ..Default::default()
-                        },
-                        None,
-                        None,
-                    ));
-                    if let Some(tool) = self.tool_states.get_mut(&state.call_id) {
-                        tool.name_emitted = true;
-                    }
-                }
-                _ => {}
-            },
-            ResponseStreamEvent::OutputTextDelta {
-                output_index,
-                delta,
-                obfuscation,
-                ..
-            } => {
-                let choice_index = self.ensure_choice_index(output_index);
-                self.maybe_emit_role(&mut out, choice_index);
-                out.push(self.chunk_event(
-                    choice_index,
-                    gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                        content: Some(delta),
-                        obfuscation,
-                        ..Default::default()
-                    },
-                    None,
-                    None,
-                ));
-            }
-            ResponseStreamEvent::RefusalDelta {
-                output_index,
-                delta,
-                obfuscation,
-                ..
-            } => {
-                let choice_index = self.ensure_choice_index(output_index);
-                self.maybe_emit_role(&mut out, choice_index);
-                out.push(self.chunk_event(
-                    choice_index,
-                    gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                        refusal: Some(delta),
-                        obfuscation,
-                        ..Default::default()
-                    },
-                    None,
-                    None,
-                ));
-            }
-            ResponseStreamEvent::FunctionCallArgumentsDelta { item_id, delta, .. }
-            | ResponseStreamEvent::CustomToolCallInputDelta { item_id, delta, .. } => {
-                if let Some(tool) = self.tool_states.get(&item_id).cloned() {
-                    self.maybe_emit_role(&mut out, tool.choice_index);
-                    out.push(self.chunk_event(
-                        tool.choice_index,
-                        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDelta {
-                            tool_calls: Some(vec![
-                                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCall {
-                                    index: tool.tool_index,
-                                    id: Some(tool.call_id.clone()),
-                                    function: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionFunctionCallDelta {
-                                        name: if tool.name_emitted {
-                                            None
-                                        } else {
-                                            Some(tool.name.clone())
-                                        },
-                                        arguments: Some(delta),
-                                    }),
-                                    type_: Some(gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunkDeltaToolCallType::Function),
-                                },
-                            ]),
-                            ..Default::default()
-                        },
-                        None,
-                        None,
-                    ));
-                    if let Some(tool_state) = self.tool_states.get_mut(&item_id) {
-                        tool_state.name_emitted = true;
-                    }
-                }
-            }
-            ResponseStreamEvent::OutputItemDone {
-                item, output_index, ..
-            } => {
-                let choice_index = self.ensure_choice_index(output_index);
-                match item {
-                    rt::ResponseOutputItem::FunctionToolCall(_)
-                    | rt::ResponseOutputItem::CustomToolCall(_) => {
-                        self.choice_finish_reasons
-                            .insert(choice_index, ct::ChatCompletionFinishReason::ToolCalls);
-                    }
-                    _ => {}
-                }
-            }
-            ResponseStreamEvent::Completed { response, .. }
-            | ResponseStreamEvent::Incomplete { response, .. }
-            | ResponseStreamEvent::Failed { response, .. } => {
-                self.update_metadata_from_response(&response);
-                if !self.finished {
-                    let default_reason = self.default_finish_reason(&response);
-                    let mut choices = self.sorted_choice_indexes();
-                    if choices.is_empty() {
-                        choices.push(0);
-                    }
-
-                    for choice_index in &choices {
-                        out.push(self.chunk_event(
-                            *choice_index,
-                            Default::default(),
-                            Some(self.map_finish_reason_for_choice(
-                                *choice_index,
-                                default_reason.clone(),
-                            )),
-                            None,
-                        ));
-                    }
-
-                    if let Some(last) = out.last_mut()
-                        && let OpenAiChatCompletionsSseData::Chunk(chunk) = &mut last.data
-                    {
-                        chunk.usage = self.usage.clone();
-                    }
-
-                    out.push(OpenAiChatCompletionsSseEvent {
-                        event: None,
-                        data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
-                    });
-                    self.finished = true;
-                }
-            }
-            ResponseStreamEvent::Error { .. } => {
-                if !self.finished {
-                    out.push(OpenAiChatCompletionsSseEvent {
-                        event: None,
-                        data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
-                    });
-                    self.finished = true;
-                }
-            }
-            _ => {}
-        }
-        out
-    }
-
-    fn on_event(
-        &mut self,
-        event: OpenAiCreateResponseSseEvent,
-    ) -> Vec<OpenAiChatCompletionsSseEvent> {
-        match event.data {
-            OpenAiCreateResponseSseData::Done(_) => {
-                if self.finished {
-                    Vec::new()
-                } else {
-                    self.finished = true;
-                    vec![OpenAiChatCompletionsSseEvent {
-                        event: None,
-                        data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
-                    }]
-                }
-            }
-            OpenAiCreateResponseSseData::Event(event) => self.on_stream_event(event),
-        }
-    }
-
-    fn finish(&mut self) -> Vec<OpenAiChatCompletionsSseEvent> {
-        if self.finished {
-            Vec::new()
-        } else {
-            self.finished = true;
-            vec![OpenAiChatCompletionsSseEvent {
-                event: None,
-                data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
-            }]
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 #[allow(clippy::large_enum_variant)]
 enum OpenAiChatStreamConverter {
     #[default]
     Identity,
-    ViaOpenAiResponse {
-        converter: OpenAiResponseStreamConverter,
-        bridge: OpenAiResponseToOpenAiChatStream,
-    },
+    FromOpenAiResponse(OpenAiResponseToOpenAiChatCompletionsStream),
+    FromClaude(ClaudeToOpenAiChatCompletionsStream),
+    FromGemini(GeminiToOpenAiChatCompletionsStream),
 }
 
 impl OpenAiChatStreamConverter {
@@ -1278,27 +832,33 @@ impl OpenAiChatStreamConverter {
                     "openai chat stream converter source protocol mismatch",
                 )),
             },
-            Self::ViaOpenAiResponse { converter, bridge } => {
-                let mut out = Vec::new();
-                for response_event in converter.on_event(event)? {
-                    out.extend(bridge.on_event(response_event));
-                }
-                Ok(out)
-            }
+            Self::FromOpenAiResponse(converter) => match event {
+                SourceStreamEvent::OpenAiResponse(event) => Ok(converter.on_event(event)),
+                _ => Err(MiddlewareTransformError::Unsupported(
+                    "openai chat stream converter source protocol mismatch",
+                )),
+            },
+            Self::FromClaude(converter) => match event {
+                SourceStreamEvent::Claude(event) => Ok(converter.on_event(event)?),
+                _ => Err(MiddlewareTransformError::Unsupported(
+                    "openai chat stream converter source protocol mismatch",
+                )),
+            },
+            Self::FromGemini(converter) => match event {
+                SourceStreamEvent::Gemini(event) => Ok(converter.on_sse_event(event)?),
+                _ => Err(MiddlewareTransformError::Unsupported(
+                    "openai chat stream converter source protocol mismatch",
+                )),
+            },
         }
     }
 
     fn finish(&mut self) -> Result<Vec<OpenAiChatCompletionsSseEvent>, MiddlewareTransformError> {
         match self {
             Self::Identity => Ok(Vec::new()),
-            Self::ViaOpenAiResponse { converter, bridge } => {
-                let mut out = Vec::new();
-                for response_event in converter.finish() {
-                    out.extend(bridge.on_event(response_event));
-                }
-                out.extend(bridge.finish());
-                Ok(out)
-            }
+            Self::FromOpenAiResponse(converter) => Ok(converter.finish()),
+            Self::FromClaude(converter) => Ok(converter.finish()),
+            Self::FromGemini(converter) => Ok(converter.finish()),
         }
     }
 }
@@ -1323,19 +883,12 @@ impl StreamOutputConverter {
             })),
             ProtocolKind::OpenAiChatCompletion => Ok(Self::OpenAiChat(match from_protocol {
                 ProtocolKind::OpenAiChatCompletion => OpenAiChatStreamConverter::Identity,
-                ProtocolKind::OpenAi => OpenAiChatStreamConverter::ViaOpenAiResponse {
-                    converter: OpenAiResponseStreamConverter::Identity,
-                    bridge: Default::default(),
-                },
-                ProtocolKind::Claude => OpenAiChatStreamConverter::ViaOpenAiResponse {
-                    converter: OpenAiResponseStreamConverter::FromClaude(Default::default()),
-                    bridge: Default::default(),
-                },
+                ProtocolKind::OpenAi => {
+                    OpenAiChatStreamConverter::FromOpenAiResponse(Default::default())
+                }
+                ProtocolKind::Claude => OpenAiChatStreamConverter::FromClaude(Default::default()),
                 ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
-                    OpenAiChatStreamConverter::ViaOpenAiResponse {
-                        converter: OpenAiResponseStreamConverter::FromGemini(Default::default()),
-                        bridge: Default::default(),
-                    }
+                    OpenAiChatStreamConverter::FromGemini(Default::default())
                 }
             })),
             ProtocolKind::Claude => Ok(Self::Claude(match from_protocol {
@@ -3144,9 +2697,130 @@ fn transform_stream_response(
     input: TransformResponse,
     dst_protocol: ProtocolKind,
 ) -> Result<TransformResponse, MiddlewareTransformError> {
-    let generated = demote_stream_response_to_generate(input)?;
-    let generated = transform_generate_response(generated, dst_protocol)?;
-    promote_generate_response_to_stream(generated, dst_protocol)
+    Ok(match input {
+        TransformResponse::StreamGenerateContentOpenAiResponse(response) => match dst_protocol {
+            ProtocolKind::OpenAi => {
+                TransformResponse::StreamGenerateContentOpenAiResponse(response)
+            }
+            ProtocolKind::OpenAiChatCompletion => {
+                TransformResponse::StreamGenerateContentOpenAiChatCompletions(
+                    OpenAiChatCompletionsSseStreamBody::try_from(response)?,
+                )
+            }
+            ProtocolKind::Claude => TransformResponse::StreamGenerateContentClaude(
+                ClaudeCreateMessageSseStreamBody::try_from(response)?,
+            ),
+            ProtocolKind::Gemini => TransformResponse::StreamGenerateContentGeminiSse(
+                GeminiStreamGenerateContentResponse::SseSuccess {
+                    stats_code: StatusCode::OK,
+                    headers: Default::default(),
+                    body: GeminiSseStreamBody::try_from(response)?,
+                },
+            ),
+            ProtocolKind::GeminiNDJson => TransformResponse::StreamGenerateContentGeminiNdjson(
+                GeminiStreamGenerateContentResponse::NdjsonSuccess {
+                    stats_code: StatusCode::OK,
+                    headers: Default::default(),
+                    body: GeminiNdjsonStreamBody::try_from(response)?,
+                },
+            ),
+        },
+        TransformResponse::StreamGenerateContentOpenAiChatCompletions(response) => {
+            match dst_protocol {
+                ProtocolKind::OpenAi => TransformResponse::StreamGenerateContentOpenAiResponse(
+                    OpenAiCreateResponseSseStreamBody::try_from(response)?,
+                ),
+                ProtocolKind::OpenAiChatCompletion => {
+                    TransformResponse::StreamGenerateContentOpenAiChatCompletions(response)
+                }
+                ProtocolKind::Claude => TransformResponse::StreamGenerateContentClaude(
+                    ClaudeCreateMessageSseStreamBody::try_from(response)?,
+                ),
+                ProtocolKind::Gemini => TransformResponse::StreamGenerateContentGeminiSse(
+                    GeminiStreamGenerateContentResponse::SseSuccess {
+                        stats_code: StatusCode::OK,
+                        headers: Default::default(),
+                        body: GeminiSseStreamBody::try_from(response)?,
+                    },
+                ),
+                ProtocolKind::GeminiNDJson => TransformResponse::StreamGenerateContentGeminiNdjson(
+                    GeminiStreamGenerateContentResponse::NdjsonSuccess {
+                        stats_code: StatusCode::OK,
+                        headers: Default::default(),
+                        body: GeminiNdjsonStreamBody::try_from(response)?,
+                    },
+                ),
+            }
+        }
+        TransformResponse::StreamGenerateContentClaude(response) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::StreamGenerateContentOpenAiResponse(
+                OpenAiCreateResponseSseStreamBody::try_from(response)?,
+            ),
+            ProtocolKind::OpenAiChatCompletion => {
+                TransformResponse::StreamGenerateContentOpenAiChatCompletions(
+                    OpenAiChatCompletionsSseStreamBody::try_from(response)?,
+                )
+            }
+            ProtocolKind::Claude => TransformResponse::StreamGenerateContentClaude(response),
+            ProtocolKind::Gemini => TransformResponse::StreamGenerateContentGeminiSse(
+                GeminiStreamGenerateContentResponse::SseSuccess {
+                    stats_code: StatusCode::OK,
+                    headers: Default::default(),
+                    body: GeminiSseStreamBody::try_from(response)?,
+                },
+            ),
+            ProtocolKind::GeminiNDJson => TransformResponse::StreamGenerateContentGeminiNdjson(
+                GeminiStreamGenerateContentResponse::NdjsonSuccess {
+                    stats_code: StatusCode::OK,
+                    headers: Default::default(),
+                    body: GeminiNdjsonStreamBody::try_from(response)?,
+                },
+            ),
+        },
+        TransformResponse::StreamGenerateContentGeminiSse(stream) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::StreamGenerateContentOpenAiResponse(
+                OpenAiCreateResponseSseStreamBody::try_from(stream)?,
+            ),
+            ProtocolKind::OpenAiChatCompletion => {
+                TransformResponse::StreamGenerateContentOpenAiChatCompletions(
+                    OpenAiChatCompletionsSseStreamBody::try_from(stream)?,
+                )
+            }
+            ProtocolKind::Claude => TransformResponse::StreamGenerateContentClaude(
+                ClaudeCreateMessageSseStreamBody::try_from(stream)?,
+            ),
+            ProtocolKind::Gemini => {
+                TransformResponse::StreamGenerateContentGeminiSse(ensure_gemini_sse_stream(stream))
+            }
+            ProtocolKind::GeminiNDJson => TransformResponse::StreamGenerateContentGeminiNdjson(
+                ensure_gemini_ndjson_stream(stream),
+            ),
+        },
+        TransformResponse::StreamGenerateContentGeminiNdjson(stream) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::StreamGenerateContentOpenAiResponse(
+                OpenAiCreateResponseSseStreamBody::try_from(stream)?,
+            ),
+            ProtocolKind::OpenAiChatCompletion => {
+                TransformResponse::StreamGenerateContentOpenAiChatCompletions(
+                    OpenAiChatCompletionsSseStreamBody::try_from(stream)?,
+                )
+            }
+            ProtocolKind::Claude => TransformResponse::StreamGenerateContentClaude(
+                ClaudeCreateMessageSseStreamBody::try_from(stream)?,
+            ),
+            ProtocolKind::Gemini => {
+                TransformResponse::StreamGenerateContentGeminiSse(ensure_gemini_sse_stream(stream))
+            }
+            ProtocolKind::GeminiNDJson => TransformResponse::StreamGenerateContentGeminiNdjson(
+                ensure_gemini_ndjson_stream(stream),
+            ),
+        },
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "stream response transform requires stream_generate_content destination payload",
+            ));
+        }
+    })
 }
 
 fn ensure_gemini_sse_stream(
@@ -3243,6 +2917,8 @@ fn transform_compact_response(
 mod tests {
     use super::*;
     use gproxy_protocol::gemini::generate_content::response::ResponseBody as GeminiGenerateContentResponseBody;
+    use gproxy_protocol::openai::create_response::types as rt;
+    use gproxy_protocol::transform::openai::stream_generate_content::openai_response::utils::response_snapshot;
 
     #[test]
     fn encode_gemini_sse_event_filters_done_marker() {
@@ -3263,5 +2939,62 @@ mod tests {
         .expect("chunk should serialize");
         let text = std::str::from_utf8(encoded.as_ref()).expect("valid utf8");
         assert_eq!(text, "data: {}\n\n");
+    }
+
+    #[test]
+    fn stream_output_converter_chat_routes_directly() {
+        let from_openai =
+            StreamOutputConverter::new(ProtocolKind::OpenAi, ProtocolKind::OpenAiChatCompletion)
+                .expect("openai -> chat converter");
+        assert!(matches!(
+            from_openai,
+            StreamOutputConverter::OpenAiChat(OpenAiChatStreamConverter::FromOpenAiResponse(_))
+        ));
+
+        let from_claude =
+            StreamOutputConverter::new(ProtocolKind::Claude, ProtocolKind::OpenAiChatCompletion)
+                .expect("claude -> chat converter");
+        assert!(matches!(
+            from_claude,
+            StreamOutputConverter::OpenAiChat(OpenAiChatStreamConverter::FromClaude(_))
+        ));
+
+        let from_gemini =
+            StreamOutputConverter::new(ProtocolKind::Gemini, ProtocolKind::OpenAiChatCompletion)
+                .expect("gemini -> chat converter");
+        assert!(matches!(
+            from_gemini,
+            StreamOutputConverter::OpenAiChat(OpenAiChatStreamConverter::FromGemini(_))
+        ));
+    }
+
+    #[test]
+    fn transform_stream_response_non_stream_input_is_unsupported() {
+        let response = OpenAiCreateResponseResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: Default::default(),
+            body: response_snapshot(
+                "resp_1",
+                "gpt-5",
+                Some(rt::ResponseStatus::Completed),
+                None,
+                None,
+                None,
+                None,
+            ),
+        };
+
+        let err = transform_stream_response(
+            TransformResponse::GenerateContentOpenAiResponse(response),
+            ProtocolKind::OpenAiChatCompletion,
+        )
+        .expect_err("non-stream payload should be rejected");
+
+        assert!(matches!(
+            err,
+            MiddlewareTransformError::Unsupported(
+                "stream response transform requires stream_generate_content destination payload"
+            )
+        ));
     }
 }
