@@ -289,7 +289,9 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                 top_p: body.top_p,
                 user: body.user,
                 verbosity: response_text_to_chat_verbosity(body.text.as_ref()),
-                extra_body: None,
+                thinking: None,
+                thinking_config: None,
+                cached_content: None,
                 web_search_options,
             },
         })

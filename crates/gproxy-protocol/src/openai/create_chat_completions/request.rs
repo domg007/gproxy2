@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::openai::create_chat_completions::types::{self, HttpMethod};
+use crate::openai::create_chat_completions::types::{
+    self, ChatCompletionClaudeThinkingConfig, ChatCompletionGeminiExtraThinkingConfig, HttpMethod,
+};
 
 /// Request descriptor for OpenAI `chat.completions.create` endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,8 +147,21 @@ pub struct RequestBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verbosity: Option<types::ChatCompletionVerbosity>,
     /// Provider-specific OpenAI-compatible extension payload (flattened).
-    #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
-    pub extra_body: Option<types::ChatCompletionExtraBody>,
+    /// Claude-compatible extended thinking control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ChatCompletionClaudeThinkingConfig>,
+        #[serde(
+        rename = "thinking_config",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thinking_config: Option<ChatCompletionGeminiExtraThinkingConfig>,
+    #[serde(
+        rename = "cached_content",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cached_content: Option<String>,
     /// Web-search tool options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_search_options: Option<types::ChatCompletionWebSearchOptions>,

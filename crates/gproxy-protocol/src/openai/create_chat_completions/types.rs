@@ -752,17 +752,6 @@ pub struct ChatCompletionWebSearchLocationApproximate {
     pub timezone: Option<String>,
 }
 
-/// OpenAI-compat provider extension bag (for non-OpenAI fields).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ChatCompletionExtraBody {
-    /// Claude-compatible extended thinking control.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<ChatCompletionClaudeThinkingConfig>,
-    /// Gemini-compatible extensions.
-    #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
-    pub google: Option<ChatCompletionGeminiExtraGoogle>,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChatCompletionClaudeThinkingConfig {
@@ -808,21 +797,6 @@ pub enum ChatCompletionClaudeThinkingAdaptiveType {
     Adaptive,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct ChatCompletionGeminiExtraGoogle {
-    #[serde(
-        rename = "thinking_config",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub thinking_config: Option<ChatCompletionGeminiExtraThinkingConfig>,
-    #[serde(
-        rename = "cached_content",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub cached_content: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ChatCompletionGeminiExtraThinkingConfig {

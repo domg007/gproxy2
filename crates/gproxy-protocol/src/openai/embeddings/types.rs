@@ -4,55 +4,6 @@ pub use crate::openai::types::{
     HttpMethod, OpenAiApiError, OpenAiApiErrorResponse, OpenAiResponseHeaders,
 };
 
-/// Provider-specific extension bag for OpenAI-compatible `/embeddings` payloads.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct OpenAiEmbeddingExtraBody {
-    /// NVIDIA extension: query vs passage embedding behavior.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_type: Option<OpenAiEmbeddingNvidiaInputType>,
-    /// NVIDIA extension: overlength handling strategy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub truncate: Option<OpenAiEmbeddingNvidiaTruncate>,
-    /// NVIDIA extension: output embedding precision/format.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding_type: Option<OpenAiEmbeddingNvidiaEmbeddingType>,
-}
-
-/// NVIDIA `input_type` for embedding requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpenAiEmbeddingNvidiaInputType {
-    #[serde(rename = "query")]
-    Query,
-    #[serde(rename = "passage")]
-    Passage,
-}
-
-/// NVIDIA truncation policy for overlength input.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpenAiEmbeddingNvidiaTruncate {
-    #[serde(rename = "NONE")]
-    None,
-    #[serde(rename = "START")]
-    Start,
-    #[serde(rename = "END")]
-    End,
-}
-
-/// NVIDIA compressed embedding output type.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpenAiEmbeddingNvidiaEmbeddingType {
-    #[serde(rename = "float")]
-    Float,
-    #[serde(rename = "binary")]
-    Binary,
-    #[serde(rename = "ubinary")]
-    Ubinary,
-    #[serde(rename = "int8")]
-    Int8,
-    #[serde(rename = "uint8")]
-    Uint8,
-}
-
 /// Input union accepted by OpenAI `/embeddings`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]

@@ -47,7 +47,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
             top_p,
             user,
             verbosity,
-            extra_body,
+            thinking: chat_thinking,
             web_search_options,
             ..
         } = value.body;
@@ -250,9 +250,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         let disable_parallel_tool_use = parallel_disable(parallel_tool_calls);
         let tool_choice =
             openai_tool_choice_to_claude(response_tool_choice, disable_parallel_tool_use);
-        let extra_thinking = extra_body
-            .and_then(|extra| extra.thinking)
-            .map(|thinking| match thinking {
+        let extra_thinking = chat_thinking.map(|thinking| match thinking {
                 oct::ChatCompletionClaudeThinkingConfig::Enabled(config) => {
                     ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {
                         budget_tokens: config.budget_tokens,

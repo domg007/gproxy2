@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::openai::embeddings::types::{
-    HttpMethod, OpenAiEmbeddingEncodingFormat, OpenAiEmbeddingExtraBody, OpenAiEmbeddingInput,
-    OpenAiEmbeddingModel,
+    HttpMethod, OpenAiEmbeddingEncodingFormat, OpenAiEmbeddingInput, OpenAiEmbeddingModel,
 };
 
 /// Request descriptor for OpenAI `embeddings.create` endpoint.
@@ -60,9 +59,6 @@ pub struct RequestBody {
     /// Optional caller-specified end-user identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    /// Provider-specific OpenAI-compatible extension payload.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra_body: Option<OpenAiEmbeddingExtraBody>,
 }
 
 impl Default for RequestBody {
@@ -73,7 +69,6 @@ impl Default for RequestBody {
             dimensions: None,
             encoding_format: None,
             user: None,
-            extra_body: None,
         }
     }
 }

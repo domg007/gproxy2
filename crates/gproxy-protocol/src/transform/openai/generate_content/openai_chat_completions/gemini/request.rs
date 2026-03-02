@@ -44,7 +44,8 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
             top_logprobs,
             top_p,
             verbosity,
-            extra_body,
+            thinking_config: chat_thinking_config,
+            cached_content: chat_cached_content,
             web_search_options,
             ..
         } = value.body;
@@ -283,34 +284,30 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
             top_logprobs,
         );
         let mut has_generation_config = generation_config.is_some();
-        let extra_google = extra_body.and_then(|extra| extra.google);
-        let mut cached_content = None;
-        if let Some(extra_google) = extra_google {
-            cached_content = extra_google.cached_content;
-            if let Some(thinking_config) = extra_google.thinking_config {
-                let converted_thinking = gt::GeminiThinkingConfig {
-                    include_thoughts: thinking_config.include_thoughts,
-                    thinking_budget: thinking_config.thinking_budget,
-                    thinking_level: thinking_config.thinking_level.map(|level| match level {
-                        oct::ChatCompletionGeminiExtraThinkingLevel::Minimal => {
-                            gt::GeminiThinkingLevel::Minimal
-                        }
-                        oct::ChatCompletionGeminiExtraThinkingLevel::Low => {
-                            gt::GeminiThinkingLevel::Low
-                        }
-                        oct::ChatCompletionGeminiExtraThinkingLevel::Medium => {
-                            gt::GeminiThinkingLevel::Medium
-                        }
-                        oct::ChatCompletionGeminiExtraThinkingLevel::High => {
-                            gt::GeminiThinkingLevel::High
-                        }
-                    }),
-                };
-                generation_config
-                    .get_or_insert_with(gt::GeminiGenerationConfig::default)
-                    .thinking_config = Some(converted_thinking);
-                has_generation_config = true;
-            }
+        let cached_content = chat_cached_content;
+        if let Some(thinking_config) = chat_thinking_config {
+            let converted_thinking = gt::GeminiThinkingConfig {
+                include_thoughts: thinking_config.include_thoughts,
+                thinking_budget: thinking_config.thinking_budget,
+                thinking_level: thinking_config.thinking_level.map(|level| match level {
+                    oct::ChatCompletionGeminiExtraThinkingLevel::Minimal => {
+                        gt::GeminiThinkingLevel::Minimal
+                    }
+                    oct::ChatCompletionGeminiExtraThinkingLevel::Low => {
+                        gt::GeminiThinkingLevel::Low
+                    }
+                    oct::ChatCompletionGeminiExtraThinkingLevel::Medium => {
+                        gt::GeminiThinkingLevel::Medium
+                    }
+                    oct::ChatCompletionGeminiExtraThinkingLevel::High => {
+                        gt::GeminiThinkingLevel::High
+                    }
+                }),
+            };
+            generation_config
+                .get_or_insert_with(gt::GeminiGenerationConfig::default)
+                .thinking_config = Some(converted_thinking);
+            has_generation_config = true;
         }
 
         if let Some(stop_sequences) = chat_stop_to_vec(stop) {

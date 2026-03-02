@@ -55,7 +55,6 @@ impl TryFrom<GeminiEmbedContentRequest> for OpenAiEmbeddingsRequest {
                 dimensions: value.body.output_dimensionality,
                 encoding_format: None,
                 user: None,
-                extra_body: None,
             },
         })
     }
