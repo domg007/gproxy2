@@ -9,18 +9,41 @@
   - `push` on `main/master` now publishes a `staging` prerelease (not marked as latest)
   - `push` on `main/master` now also publishes Docker staging tags (`staging`, `staging-<sha>`, and `-musl` variants)
   - stable `release` publish behavior remains unchanged (`latest` + tag-based images).
+- Refactored cache-affinity key derivation for content-generation routes:
+  - switched from whole-body/single-key affinity to protocol-aware prefix-block affinity with multi-candidate matching
+  - kept in-memory affinity pool storage/key scoping in v1 format (`{channel}::{affinity_key}`)
+  - aligned key derivation across OpenAI Chat/Responses, Claude Messages, and Gemini GenerateContent paths.
+- Unified affinity hint calculation callsites across upstream channels:
+  - affinity hint now derives from `protocol + prepared model + prepared body`
+  - avoids protocol ambiguity and keeps hint calculation consistent with final outbound request payload.
+- Updated Claude/ClaudeCode top-level cache-control injection behavior:
+  - when enabled and absent in request, injects top-level `{"type":"ephemeral"}` only
+  - no longer injects client-side TTL; effective TTL is left to upstream server semantics.
 
 ### Fixed
 
 - Fixed self-update channel routing:
   - staging builds now track the `staging` release stream
   - stable builds continue to track the latest stable release stream.
+- Fixed Claude auto cache-affinity TTL classification:
+  - top-level `cache_control: {"type":"ephemeral"}` now maps to `1h` affinity TTL to match upstream automatic caching behavior
+  - explicit/other Claude cache-control TTL handling remains unchanged (`1h` when declared, otherwise `5m`).
+- Fixed retry-affinity lifecycle behavior:
+  - on retry after affinity-hit failure, only the matched key mapping is cleared
+  - on success, bind key is always written and matched key TTL is refreshed.
+
+### Docs
+
+- Updated cache-affinity design docs (EN/ZH):
+  - clarified credential pick modes and internal affinity pool behavior
+  - documented v1 key derivation/TTL rules for OpenAI, Claude, and Gemini
+  - documented multi-candidate matching, bind-key behavior, and retry cleanup semantics.
 
 ## v0.3.7
 
 ### Changed
 
-- Updated workspace/package release version to `0.3.6`.
+- Updated workspace/package release version to `0.3.7`.
 - Reverted the temporary OAuth-specific provider fallback patch; provider availability now follows unified bootstrap seeding.
 
 ### Fixed
