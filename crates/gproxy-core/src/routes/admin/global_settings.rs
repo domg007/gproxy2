@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 
 use crate::{
     AppState, GlobalSettings, build_claudecode_spoof_client, build_http_client,
-    normalize_spoof_emulation,
+    normalize_spoof_emulation, normalize_update_source,
 };
 
 use super::{Ack, HttpError, authorize_admin};
@@ -28,12 +28,14 @@ pub(super) async fn upsert_global_settings(
 ) -> Result<Json<Ack>, HttpError> {
     authorize_admin(&headers, &state)?;
     payload.spoof_emulation = normalize_spoof_emulation(Some(payload.spoof_emulation.as_str()));
+    payload.update_source = normalize_update_source(Some(payload.update_source.as_str()));
 
     let global = GlobalSettings {
         host: payload.host.clone(),
         port: payload.port,
         proxy: payload.proxy.clone(),
         spoof_emulation: payload.spoof_emulation.clone(),
+        update_source: payload.update_source.clone(),
         hf_token: payload.hf_token.clone(),
         hf_url: payload.hf_url.clone(),
         admin_key: payload.admin_key.clone(),

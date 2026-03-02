@@ -16,6 +16,7 @@ use gproxy_storage::Scope;
 
 use crate::{
     AppState, build_claudecode_spoof_client, build_http_client, normalize_spoof_emulation,
+    normalize_update_source,
 };
 
 use super::{
@@ -147,6 +148,7 @@ pub(super) async fn export_config_toml(
             port: snapshot.global.port,
             proxy: snapshot.global.proxy.clone().unwrap_or_default(),
             spoof_emulation: snapshot.global.spoof_emulation.clone(),
+            update_source: snapshot.global.update_source.clone(),
             hf_token: snapshot.global.hf_token.clone().unwrap_or_default(),
             hf_url: snapshot.global.hf_url.clone().unwrap_or_default(),
             admin_key: snapshot.global.admin_key.clone(),
@@ -226,6 +228,9 @@ pub(super) async fn apply_imported_global(
     if let Some(spoof_emulation) = imported.spoof_emulation.as_ref() {
         global.spoof_emulation = normalize_spoof_emulation(Some(spoof_emulation.as_str()));
     }
+    if let Some(update_source) = imported.update_source.as_ref() {
+        global.update_source = normalize_update_source(Some(update_source.as_str()));
+    }
     if let Some(hf_token) = imported.hf_token.as_ref() {
         global.hf_token = if hf_token.trim().is_empty() {
             None
@@ -276,6 +281,7 @@ pub(super) async fn apply_imported_global(
             port: global.port,
             proxy: global.proxy.clone(),
             spoof_emulation: global.spoof_emulation.clone(),
+            update_source: global.update_source.clone(),
             hf_token: global.hf_token.clone(),
             hf_url: global.hf_url.clone(),
             admin_key: global.admin_key.clone(),

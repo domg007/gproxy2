@@ -204,6 +204,7 @@ pub(super) async fn seed_global_settings(
             hf_url: global.hf_url.clone(),
             proxy: global.proxy.clone(),
             spoof_emulation: global.spoof_emulation.clone(),
+            update_source: global.update_source.clone(),
             admin_key: global.admin_key.clone(),
             mask_sensitive_info: global.mask_sensitive_info,
             dsn: global.dsn.clone(),

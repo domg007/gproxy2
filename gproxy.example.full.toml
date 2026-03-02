@@ -11,6 +11,8 @@ host = "0.0.0.0"
 port = 8787
 # Empty string means no proxy.
 proxy = ""
+# Self-update source: international|china.
+update_source = "international"
 # Optional HuggingFace token for tokenizer download.
 hf_token = ""
 # Default HF endpoint.

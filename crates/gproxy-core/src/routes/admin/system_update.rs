@@ -10,12 +10,14 @@ use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::normalize_update_source;
 
 use super::{HttpError, authorize_admin};
 
 const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 const GPROXY_REPO_API_STAGING: &str =
     "https://api.github.com/repos/LeenHawk/gproxy/releases/tags/staging";
+const GPROXY_CHINA_DOWNLOADS_BASE_DEFAULT: &str = "https://gproxy-docs.leenhawk.com/downloads";
 
 #[derive(Debug, Deserialize, Clone)]
 struct GithubReleaseAsset {
@@ -27,6 +29,26 @@ struct GithubReleaseAsset {
 struct GithubReleaseInfo {
     tag_name: String,
     assets: Vec<GithubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChinaReleaseManifest {
+    tag: String,
+    #[serde(default)]
+    channel: Option<String>,
+    assets: Vec<ChinaReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct ChinaReleaseAsset {
+    name: String,
+    url: String,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedReleaseAsset {
+    name: String,
+    download_url: String,
 }
 
 struct SelfUpdateResult {
@@ -41,17 +63,21 @@ pub(super) async fn system_self_update(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let proxy = state.config.load().global.proxy.clone();
+    let snapshot = state.config.load();
+    let proxy = snapshot.global.proxy.clone();
+    let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
+    drop(snapshot);
     let update_channel = build_update_channel();
 
-    let result = self_update_to_latest_release(proxy, update_channel.as_str())
-        .await
-        .map_err(|err| {
-            HttpError::new(
-                StatusCode::BAD_GATEWAY,
-                format!("self_update_failed: {err}"),
-            )
-        })?;
+    let result =
+        self_update_to_latest_release(proxy, update_source.as_str(), update_channel.as_str())
+            .await
+            .map_err(|err| {
+                HttpError::new(
+                    StatusCode::BAD_GATEWAY,
+                    format!("self_update_failed: {err}"),
+                )
+            })?;
 
     schedule_self_restart(result.staged_binary_path.clone()).map_err(|err| {
         HttpError::new(
@@ -63,6 +89,7 @@ pub(super) async fn system_self_update(
     Ok(Json(serde_json::json!({
         "ok": true,
         "from_version": env!("CARGO_PKG_VERSION"),
+        "update_source": update_source,
         "update_channel": update_channel,
         "release_tag": result.release_tag,
         "asset": result.asset_name,
@@ -75,6 +102,7 @@ pub(super) async fn system_self_update(
 
 async fn self_update_to_latest_release(
     proxy: Option<String>,
+    update_source: &str,
     update_channel: &str,
 ) -> Result<SelfUpdateResult, String> {
     #[cfg(windows)]
@@ -82,10 +110,9 @@ async fn self_update_to_latest_release(
         let target_asset = target_release_asset_name()?;
         let client = build_self_update_client(proxy)?;
         let (release_tag, asset) =
-            fetch_latest_release_asset(&client, &target_asset, update_channel).await?;
+            fetch_release_asset(&client, &target_asset, update_source, update_channel).await?;
 
-        let zip_bytes =
-            download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
+        let zip_bytes = download_bytes_with_redirects(&client, &asset.download_url, 8).await?;
         let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
         let staged_binary_path = stage_windows_binary_bytes(binary_bytes)?;
 
@@ -95,7 +122,7 @@ async fn self_update_to_latest_release(
 
         return Ok(SelfUpdateResult {
             release_tag,
-            asset_name: asset.name,
+            asset_name: asset.name.clone(),
             installed_to,
             staged_binary_path: Some(staged_binary_path),
         });
@@ -106,10 +133,9 @@ async fn self_update_to_latest_release(
         let target_asset = target_release_asset_name()?;
         let client = build_self_update_client(proxy)?;
         let (release_tag, asset) =
-            fetch_latest_release_asset(&client, &target_asset, update_channel).await?;
+            fetch_release_asset(&client, &target_asset, update_source, update_channel).await?;
 
-        let zip_bytes =
-            download_bytes_with_redirects(&client, &asset.browser_download_url, 8).await?;
+        let zip_bytes = download_bytes_with_redirects(&client, &asset.download_url, 8).await?;
         let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
         install_binary_bytes(binary_bytes)?;
 
@@ -119,19 +145,31 @@ async fn self_update_to_latest_release(
 
         Ok(SelfUpdateResult {
             release_tag,
-            asset_name: asset.name,
+            asset_name: asset.name.clone(),
             installed_to,
             staged_binary_path: None,
         })
     }
 }
 
-async fn fetch_latest_release_asset(
+async fn fetch_release_asset(
+    client: &wreq::Client,
+    target_asset: &str,
+    update_source: &str,
+    update_channel: &str,
+) -> Result<(String, ResolvedReleaseAsset), String> {
+    match update_source {
+        "china" => fetch_china_release_asset(client, target_asset, update_channel).await,
+        _ => fetch_github_release_asset(client, target_asset, update_channel).await,
+    }
+}
+
+async fn fetch_github_release_asset(
     client: &wreq::Client,
     target_asset: &str,
     update_channel: &str,
-) -> Result<(String, GithubReleaseAsset), String> {
-    let release_url = release_api_url_for_channel(update_channel);
+) -> Result<(String, ResolvedReleaseAsset), String> {
+    let release_url = github_release_api_url_for_channel(update_channel);
     let release_resp = client
         .get(release_url)
         .header("accept", "application/vnd.github+json")
@@ -171,21 +209,124 @@ async fn fetch_latest_release_asset(
             format!("asset_not_found_for_target:{target_asset}; available=[{names}]")
         })?;
 
-    Ok((release.tag_name, asset))
+    Ok((
+        release.tag_name,
+        ResolvedReleaseAsset {
+            name: asset.name,
+            download_url: asset.browser_download_url,
+        },
+    ))
+}
+
+async fn fetch_china_release_asset(
+    client: &wreq::Client,
+    target_asset: &str,
+    update_channel: &str,
+) -> Result<(String, ResolvedReleaseAsset), String> {
+    let manifest_url = china_manifest_url_for_channel(update_channel);
+    let response = client
+        .get(&manifest_url)
+        .header("accept", "application/json")
+        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+        .send()
+        .await
+        .map_err(|err| format!("fetch_china_manifest:{manifest_url}:{err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map(|body| String::from_utf8_lossy(&body).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("fetch_china_manifest_status_{status}: {body}"));
+    }
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|err| format!("read_china_manifest_body: {err}"))?;
+    let manifest: ChinaReleaseManifest =
+        serde_json::from_slice(&body).map_err(|err| format!("parse_china_manifest_json: {err}"))?;
+    if let Some(channel) = manifest.channel.as_deref() {
+        let normalized = channel.trim().to_ascii_lowercase();
+        if normalized != update_channel {
+            return Err(format!(
+                "china_manifest_channel_mismatch: expected={update_channel} actual={normalized}"
+            ));
+        }
+    }
+    let asset = manifest
+        .assets
+        .iter()
+        .find(|item| item.name == target_asset)
+        .cloned()
+        .ok_or_else(|| {
+            let names = manifest
+                .assets
+                .iter()
+                .map(|item| item.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("china_asset_not_found_for_target:{target_asset}; available=[{names}]")
+        })?;
+
+    Ok((
+        manifest.tag,
+        ResolvedReleaseAsset {
+            name: asset.name,
+            download_url: resolve_china_asset_url(&manifest_url, asset.url.as_str()),
+        },
+    ))
 }
 
 fn build_update_channel() -> String {
-    option_env!("GPROXY_UPDATE_CHANNEL")
+    let channel = option_env!("GPROXY_UPDATE_CHANNEL")
         .unwrap_or("stable")
         .trim()
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+    match channel.as_str() {
+        "staging" => "staging".to_string(),
+        _ => "release".to_string(),
+    }
 }
 
-fn release_api_url_for_channel(update_channel: &str) -> &'static str {
+fn github_release_api_url_for_channel(update_channel: &str) -> &'static str {
     match update_channel {
         "staging" => GPROXY_REPO_API_STAGING,
         _ => GPROXY_REPO_API_LATEST,
     }
+}
+
+fn china_downloads_base() -> String {
+    env::var("GPROXY_CHINA_DOWNLOADS_BASE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| GPROXY_CHINA_DOWNLOADS_BASE_DEFAULT.to_string())
+}
+
+fn china_manifest_url_for_channel(update_channel: &str) -> String {
+    format!(
+        "{}/{update_channel}/manifest.json",
+        china_downloads_base().trim_end_matches('/')
+    )
+}
+
+fn resolve_china_asset_url(manifest_url: &str, raw_url: &str) -> String {
+    let trimmed = raw_url.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return trimmed.to_string();
+    }
+    let base = manifest_url
+        .rsplit_once('/')
+        .map(|(prefix, _)| prefix)
+        .unwrap_or(manifest_url);
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        trimmed.trim_start_matches('/')
+    )
 }
 
 fn build_self_update_client(proxy: Option<String>) -> Result<wreq::Client, String> {

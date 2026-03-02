@@ -25,6 +25,9 @@ pub const DEFAULT_DATA_DIR: &str = "./data";
 pub const DEFAULT_DSN: &str = "sqlite://./data/gproxy.db?mode=rwc";
 pub const DEFAULT_MASK_SENSITIVE_INFO: bool = true;
 pub const DEFAULT_HF_URL: &str = "https://huggingface.co";
+pub const DEFAULT_UPDATE_SOURCE: &str = "international";
+pub const UPDATE_SOURCE_INTERNATIONAL: &str = "international";
+pub const UPDATE_SOURCE_CHINA: &str = "china";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlobalSettings {
@@ -32,6 +35,7 @@ pub struct GlobalSettings {
     pub port: u16,
     pub proxy: Option<String>,
     pub spoof_emulation: String,
+    pub update_source: String,
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,
     pub admin_key: String,
@@ -49,6 +53,7 @@ impl Default for GlobalSettings {
             port: DEFAULT_PORT,
             proxy: None,
             spoof_emulation: DEFAULT_SPOOF_EMULATION.to_string(),
+            update_source: DEFAULT_UPDATE_SOURCE.to_string(),
             hf_token: None,
             hf_url: Some(DEFAULT_HF_URL.to_string()),
             admin_key: String::new(),
@@ -56,6 +61,16 @@ impl Default for GlobalSettings {
             dsn: DEFAULT_DSN.to_string(),
             data_dir: DEFAULT_DATA_DIR.to_string(),
         }
+    }
+}
+
+pub fn normalize_update_source(value: Option<&str>) -> String {
+    let normalized = value
+        .map(|item| item.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| DEFAULT_UPDATE_SOURCE.to_string());
+    match normalized.as_str() {
+        "china" | "cn" | "domestic" | "mainland" => UPDATE_SOURCE_CHINA.to_string(),
+        _ => UPDATE_SOURCE_INTERNATIONAL.to_string(),
     }
 }
 

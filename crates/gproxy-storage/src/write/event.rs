@@ -6,6 +6,10 @@ fn default_spoof_emulation() -> String {
     "chrome_136".to_string()
 }
 
+fn default_update_source() -> String {
+    "international".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalSettingsWrite {
     pub host: String,
@@ -13,6 +17,8 @@ pub struct GlobalSettingsWrite {
     pub proxy: Option<String>,
     #[serde(default = "default_spoof_emulation")]
     pub spoof_emulation: String,
+    #[serde(default = "default_update_source")]
+    pub update_source: String,
     pub admin_key: String,
     pub hf_token: Option<String>,
     pub hf_url: Option<String>,

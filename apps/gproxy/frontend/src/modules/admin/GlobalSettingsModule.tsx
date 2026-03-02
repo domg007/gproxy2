@@ -7,6 +7,7 @@ import { Button, Card, Input, Label, Select } from "../../components/ui";
 
 const DEFAULT_HF_URL = "https://huggingface.co";
 const DEFAULT_SPOOF_EMULATION = "chrome_136";
+const DEFAULT_UPDATE_SOURCE = "international";
 const SPOOF_EMULATION_OPTIONS = [
   { value: "chrome_136", label: "Chrome 136" },
   { value: "chrome_137", label: "Chrome 137" },
@@ -17,6 +18,10 @@ const SPOOF_EMULATION_OPTIONS = [
   { value: "firefox_139", label: "Firefox 139" },
   { value: "safari_18_5", label: "Safari 18.5" }
 ];
+const UPDATE_SOURCE_OPTIONS = [
+  { value: "international", labelKey: "global.updateSource.international" },
+  { value: "china", labelKey: "global.updateSource.china" }
+] as const;
 
 export function GlobalSettingsModule({
   apiKey,
@@ -38,6 +43,7 @@ export function GlobalSettingsModule({
     hfUrl: DEFAULT_HF_URL,
     proxy: "",
     spoofEmulation: DEFAULT_SPOOF_EMULATION,
+    updateSource: DEFAULT_UPDATE_SOURCE,
     adminKey: "",
     dsn: "",
     dataDir: "",
@@ -59,6 +65,7 @@ export function GlobalSettingsModule({
           hfUrl: row.hf_url ?? DEFAULT_HF_URL,
           proxy: row.proxy ?? "",
           spoofEmulation: row.spoof_emulation ?? DEFAULT_SPOOF_EMULATION,
+          updateSource: row.update_source ?? DEFAULT_UPDATE_SOURCE,
           adminKey: row.admin_key,
           dsn: row.dsn,
           dataDir: row.data_dir,
@@ -88,6 +95,7 @@ export function GlobalSettingsModule({
           hf_url: form.hfUrl.trim() || null,
           proxy: form.proxy.trim() || null,
           spoof_emulation: form.spoofEmulation,
+          update_source: form.updateSource,
           admin_key: form.adminKey.trim(),
           mask_sensitive_info: form.maskSensitiveInfo,
           dsn: form.dsn.trim(),
@@ -252,6 +260,17 @@ export function GlobalSettingsModule({
             value={form.spoofEmulation}
             onChange={(v) => setForm((p) => ({ ...p, spoofEmulation: v }))}
             options={SPOOF_EMULATION_OPTIONS}
+          />
+        </div>
+        <div>
+          <Label>{t("field.update_source")}</Label>
+          <Select
+            value={form.updateSource}
+            onChange={(v) => setForm((p) => ({ ...p, updateSource: v }))}
+            options={UPDATE_SOURCE_OPTIONS.map((item) => ({
+              value: item.value,
+              label: t(item.labelKey)
+            }))}
           />
         </div>
         <div>

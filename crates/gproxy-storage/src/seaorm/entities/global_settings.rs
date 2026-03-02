@@ -14,6 +14,7 @@ pub struct Model {
     pub hf_url: Option<String>,
     pub proxy: Option<String>,
     pub spoof_emulation: Option<String>,
+    pub update_source: Option<String>,
     pub dsn: String,
     pub data_dir: String,
     pub mask_sensitive_info: bool,

@@ -7,7 +7,7 @@ use clap::Parser;
 use gproxy_admin::{MemoryUser, MemoryUserKey};
 use gproxy_core::{
     AppState, AppStateInit, GlobalSettings, build_claudecode_spoof_client, build_http_client,
-    normalize_spoof_emulation,
+    normalize_spoof_emulation, normalize_update_source,
 };
 use gproxy_provider::{
     ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialRef,
@@ -220,6 +220,9 @@ fn merge_global_settings(config: &BootstrapConfig) -> GlobalSettings {
         global.proxy = Some(proxy.clone());
     }
     global.spoof_emulation = normalize_spoof_emulation(config.global.spoof_emulation.as_deref());
+    if let Some(update_source) = config.global.update_source.as_deref() {
+        global.update_source = normalize_update_source(Some(update_source));
+    }
     if let Some(hf_token) = config.global.hf_token.as_ref() {
         global.hf_token = Some(hf_token.clone());
     }
@@ -256,6 +259,7 @@ fn merge_global_settings_from_storage(
     current.port = u16::try_from(row.port).unwrap_or(current.port);
     current.proxy = row.proxy.clone();
     current.spoof_emulation = normalize_spoof_emulation(row.spoof_emulation.as_deref());
+    current.update_source = normalize_update_source(row.update_source.as_deref());
     current.hf_token = row.hf_token.clone();
     current.hf_url = row.hf_url.clone();
     current.mask_sensitive_info = row.mask_sensitive_info;

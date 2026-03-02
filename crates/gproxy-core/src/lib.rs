@@ -5,7 +5,9 @@ pub mod http_clients;
 pub mod routes;
 pub mod upstream_http;
 
-pub use app_state::{AppState, AppStateInit, GlobalSettings, RuntimeConfigSnapshot};
+pub use app_state::{
+    AppState, AppStateInit, GlobalSettings, RuntimeConfigSnapshot, normalize_update_source,
+};
 pub use http_clients::UpstreamHttpClients;
 pub use routes::management_router;
 pub use upstream_http::{

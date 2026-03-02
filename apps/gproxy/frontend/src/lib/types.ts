@@ -12,6 +12,7 @@ export interface GlobalSettingsRow {
   hf_url: string | null;
   proxy: string | null;
   spoof_emulation: string | null;
+  update_source: string | null;
   dsn: string;
   data_dir: string;
   mask_sensitive_info: boolean;
