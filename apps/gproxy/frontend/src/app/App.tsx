@@ -479,12 +479,21 @@ export function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="topbar-locale-toggle"
+                className="topbar-locale-toggle topbar-segmented"
                 onClick={toggleLocale}
                 aria-label={t("app.locale.switcher")}
                 title={t("app.locale.switcher")}
               >
-                {t("app.locale.toggle")}
+                <span
+                  className={`topbar-segmented-item ${locale === "zh" ? "topbar-segmented-item-active" : ""}`}
+                >
+                  {t("app.locale.short.zh")}
+                </span>
+                <span
+                  className={`topbar-segmented-item ${locale === "en" ? "topbar-segmented-item-active" : ""}`}
+                >
+                  {t("app.locale.short.en")}
+                </span>
               </button>
             </div>
             <Button variant="neutral" onClick={onLogout}>

@@ -38,6 +38,7 @@ export const zhMessages = {
     "app.locale.zh": "中文",
     "app.locale.short.zh": "中",
     "app.locale.short.en": "英",
+    "app.locale.toggle": "中/英",
     "app.locale.switcher": "语言切换",
     "app.error.usernameEmpty": "用户名不能为空",
     "app.error.passwordEmpty": "密码不能为空",

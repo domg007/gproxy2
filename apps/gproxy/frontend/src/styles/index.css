@@ -141,21 +141,21 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
-  border-radius: 0.72rem;
-  background: color-mix(in srgb, var(--bg-surface-strong) 92%, transparent);
-  color: var(--text);
+  border: none;
+  background: transparent;
   cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  padding: 0.36rem 0.66rem;
-  transition: border-color 0.16s ease, background-color 0.16s ease;
+  padding: 0;
+  border-radius: 0.72rem;
+  overflow: hidden;
+  transition: transform 0.12s ease;
+}
+
+.topbar-locale-toggle .topbar-segmented-item {
+  pointer-events: none;
 }
 
 .topbar-locale-toggle:hover {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+  transform: translateY(-1px);
 }
 
 .theme-fab {
