@@ -1,5 +1,32 @@
 # Release Notes
 
+## v0.3.13
+
+### Added
+
+- Added automatic upstream HTTP tracking in provider runtime via a unified tracked request wrapper (`wreq` path).
+- Added internal upstream request event ingestion for auto-captured request/response metadata (`internal=true`), including OAuth/cookie/token/profile side calls.
+- Added docs publish integration for Cloudflare Pages with latest release package sync for the `/downloads` page.
+
+### Changed
+
+- Switched provider-side direct HTTP calls to tracked request flow so OAuth and auxiliary upstream calls are recorded without manual per-branch wiring.
+- Wrapped provider execution and OAuth/usage handlers with per-request tracked HTTP capture scopes and centralized event enqueueing.
+- Increased body capture limits from `32MB` to `50MB` in provider/downstream capture paths.
+
+### Fixed
+
+- Fixed missing upstream records for OAuth-related upstream calls, including ClaudeCode cookie exchange/token refresh and related OAuth helper requests.
+- Fixed gaps where non-main upstream requests (for example token/profile side calls) could bypass upstream recording.
+- Fixed missing status code in auto-captured upstream events on failed requests.
+- Fixed missing error response payload in upstream records by capturing upstream error bodies (when available).
+
+### Compatibility
+
+- Upstream request log volume can increase after upgrade because internal auxiliary upstream calls are now recorded.
+- To inspect only user-facing/main upstream requests, filter with `internal = false` in admin queries.
+- `mask_sensitive_info` remains enabled by default; when enabled, request/response bodies are masked in stored records.
+
 ## v0.3.12
 
 ### Changed

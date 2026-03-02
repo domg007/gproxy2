@@ -348,7 +348,7 @@ jobs:
 
   deploy-docs-cloudflare:
     name: Build and Deploy Docs (Cloudflare Pages)
-        if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+    if: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
     needs: build
     runs-on: ubuntu-latest
     steps:
