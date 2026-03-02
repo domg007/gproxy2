@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoginView } from "../components/LoginView";
 import { Nav, type NavItem } from "../components/Nav";
 import { Toast, type ToastState } from "../components/Toast";
-import { Badge, Button, Select } from "../components/ui";
+import { Badge, Button } from "../components/ui";
 import { apiRequest } from "../lib/api";
 import type { ThemeMode, UserRole } from "../lib/types";
 import { detectRole } from "./session";
@@ -82,7 +82,6 @@ export function App() {
   const [activeModule, setActiveModule] = useState<string>("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
-  const [selfUpdating, setSelfUpdating] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredTheme());
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -255,31 +254,6 @@ export function App() {
     notify("info", t("app.loggedOut"));
   }, [notify, t]);
 
-  const triggerSelfUpdate = useCallback(async () => {
-    if (role !== "admin" || !apiKey) {
-      return;
-    }
-    if (!window.confirm(t("global.selfUpdateConfirm"))) {
-      return;
-    }
-    setSelfUpdating(true);
-    try {
-      const result = await apiRequest<{ release_tag?: string; tag?: string }>(
-        "/admin/system/self_update",
-        {
-          apiKey,
-          method: "POST"
-        }
-      );
-      const tag = result.release_tag ?? result.tag ?? "latest";
-      notify("success", t("global.selfUpdateOk", { tag }));
-    } catch (error) {
-      notify("error", error instanceof Error ? error.message : String(error));
-    } finally {
-      setSelfUpdating(false);
-    }
-  }, [apiKey, notify, role, t]);
-
   const content = useMemo(() => {
     if (!apiKey || !role) {
       return null;
@@ -332,6 +306,11 @@ export function App() {
     );
   }
 
+  const toggleTheme = () => {
+    setThemeMode((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+  const isDarkTheme = themeMode === "dark";
+
   return (
     <div className="app-shell">
       <header className="topbar-shell">
@@ -345,37 +324,48 @@ export function App() {
             <code className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
               {appCommit}
             </code>
-            {role === "admin" ? (
-              <Button
-                variant="neutral"
-                onClick={() => void triggerSelfUpdate()}
-                disabled={selfUpdating}
-              >
-                {selfUpdating ? t("global.selfUpdateRunning") : t("global.selfUpdateButton")}
-              </Button>
-            ) : null}
           </div>
-          <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:flex-nowrap md:justify-end md:gap-3">
-            <div className="w-28">
-              <Select
-                value={locale}
-                onChange={(value) => setLocale(value as "en" | "zh")}
-                options={[
-                  { value: "en", label: t("app.locale.en") },
-                  { value: "zh", label: t("app.locale.zh") }
-                ]}
-              />
-            </div>
-            <div className="w-36">
-              <Select
-                value={themeMode}
-                onChange={(value) => setThemeMode(value as ThemeMode)}
-                options={[
-                  { value: "system", label: t("app.theme.system") },
-                  { value: "light", label: t("app.theme.light") },
-                  { value: "dark", label: t("app.theme.dark") }
-                ]}
-              />
+          <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-end md:gap-3">
+            <div className="flex items-center gap-2">
+              <div className="topbar-segmented" role="group" aria-label={t("app.locale.switcher")}>
+                <button
+                  type="button"
+                  className={`topbar-segmented-item ${locale === "zh" ? "topbar-segmented-item-active" : ""}`}
+                  onClick={() => setLocale("zh")}
+                >
+                  CN
+                </button>
+                <button
+                  type="button"
+                  className={`topbar-segmented-item ${locale === "en" ? "topbar-segmented-item-active" : ""}`}
+                  onClick={() => setLocale("en")}
+                >
+                  EN
+                </button>
+              </div>
+              <button
+                type="button"
+                className="topbar-theme-toggle"
+                onClick={toggleTheme}
+                aria-label={t("app.theme.toggle")}
+                title={t("app.theme.toggle")}
+              >
+                {isDarkTheme ? (
+                  <svg viewBox="0 0 24 24" className="topbar-theme-icon" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M21.64 13a1 1 0 0 0-1.06-.57 8 8 0 0 1-9-9 1 1 0 0 0-1.63-.93A10 10 0 1 0 22.5 14.67a1 1 0 0 0-.86-1.67z"
+                    />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="topbar-theme-icon" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 4a1 1 0 0 1 1 1v1.35a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm8-5a1 1 0 1 1 0 2h-1.35a1 1 0 1 1 0-2zM6.35 12a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2zm10.27 5.66a1 1 0 0 1 1.42 0l.95.96a1 1 0 1 1-1.41 1.41l-.96-.95a1 1 0 0 1 0-1.42zM5.04 6.45a1 1 0 0 1 1.41 0l.96.95A1 1 0 0 1 6 8.82l-.95-.96a1 1 0 0 1 0-1.41zm13.95 0a1 1 0 0 1 0 1.41l-.95.96a1 1 0 1 1-1.42-1.42l.96-.95a1 1 0 0 1 1.41 0zM7.41 16.59a1 1 0 0 1 0 1.42l-.96.95a1 1 0 0 1-1.41-1.41l.95-.96a1 1 0 0 1 1.42 0z"
+                    />
+                  </svg>
+                )}
+              </button>
             </div>
             <Button variant="neutral" onClick={onLogout}>
               {t("app.logout")}
