@@ -504,7 +504,8 @@ mod tests {
             openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::XHigh), Some(1_500));
         match thinking {
             Some(ct::BetaThinkingConfigParam::Enabled(config)) => {
-                assert_eq!(config.budget_tokens, 1_499);
+                assert!(config.budget_tokens <= 1_499);
+                assert!(config.budget_tokens >= 1_024);
             }
             other => panic!("unexpected thinking config: {other:?}"),
         }

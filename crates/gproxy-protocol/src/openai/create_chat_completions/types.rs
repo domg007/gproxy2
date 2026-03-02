@@ -759,15 +759,8 @@ pub struct ChatCompletionExtraBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ChatCompletionClaudeThinkingConfig>,
     /// Gemini-compatible extensions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
     pub google: Option<ChatCompletionGeminiExtraGoogle>,
-    /// Compatibility shim for payloads that wrap again with `extra_body`.
-    #[serde(
-        rename = "extra_body",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub extra_body: Option<Box<ChatCompletionExtraBody>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -943,6 +936,8 @@ pub struct ChatCompletionMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_details: Option<Vec<ChatCompletionReasoningDetail>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
     pub role: ChatCompletionAssistantRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -953,6 +948,22 @@ pub struct ChatCompletionMessage {
     pub function_call: Option<ChatCompletionFunctionCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ChatCompletionMessageToolCall>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatCompletionReasoningDetail {
+    #[serde(rename = "type")]
+    pub type_: ChatCompletionReasoningDetailType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatCompletionReasoningDetailType {
+    #[serde(rename = "reasoning.encrypted")]
+    ReasoningEncrypted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1099,6 +1110,7 @@ mod tests {
         let message = ChatCompletionMessage {
             content: None,
             reasoning_content: Some("reasoning text".to_string()),
+            reasoning_details: None,
             refusal: None,
             role: ChatCompletionAssistantRole::Assistant,
             annotations: None,
@@ -1112,6 +1124,40 @@ mod tests {
 
         let decoded: ChatCompletionMessage = serde_json::from_value(value).unwrap();
         assert_eq!(decoded.reasoning_content.as_deref(), Some("reasoning text"));
+    }
+
+    #[test]
+    fn assistant_response_reasoning_details_roundtrip() {
+        let message = ChatCompletionMessage {
+            content: None,
+            reasoning_content: None,
+            reasoning_details: Some(vec![ChatCompletionReasoningDetail {
+                type_: ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                id: Some("reasoning_0".to_string()),
+                data: Some("sig".to_string()),
+            }]),
+            refusal: None,
+            role: ChatCompletionAssistantRole::Assistant,
+            annotations: None,
+            audio: None,
+            function_call: None,
+            tool_calls: None,
+        };
+
+        let value = serde_json::to_value(&message).unwrap();
+        assert_eq!(value["reasoning_details"][0]["type"], "reasoning.encrypted");
+        assert_eq!(value["reasoning_details"][0]["id"], "reasoning_0");
+        assert_eq!(value["reasoning_details"][0]["data"], "sig");
+
+        let decoded: ChatCompletionMessage = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            decoded
+                .reasoning_details
+                .as_ref()
+                .and_then(|details| details.first())
+                .and_then(|detail| detail.id.as_deref()),
+            Some("reasoning_0")
+        );
     }
 }
 

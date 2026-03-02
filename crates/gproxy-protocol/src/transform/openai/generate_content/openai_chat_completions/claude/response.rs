@@ -285,6 +285,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiChatCompletionsResponse {
                                     Some(content_parts.join("\n"))
                                 },
                                 reasoning_content: None,
+                                reasoning_details: None,
                                 refusal: if refusal_parts.is_empty() {
                                     None
                                 } else {

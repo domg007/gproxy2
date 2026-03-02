@@ -64,6 +64,7 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiChatCompletionsSseStreamBo
                                 delta: ChatCompletionChunkDelta {
                                     content: choice.message.content,
                                     reasoning_content: choice.message.reasoning_content,
+                                    reasoning_details: choice.message.reasoning_details,
                                     function_call: choice
                                         .message
                                         .function_call
@@ -155,6 +156,7 @@ mod tests {
                     message: ct::ChatCompletionMessage {
                         content: Some("final".to_string()),
                         reasoning_content: Some("reasoning text".to_string()),
+                        reasoning_details: None,
                         refusal: None,
                         role: ct::ChatCompletionAssistantRole::Assistant,
                         annotations: None,
@@ -184,6 +186,65 @@ mod tests {
         assert_eq!(
             first_chunk.choices[0].delta.reasoning_content.as_deref(),
             Some("reasoning text")
+        );
+    }
+
+    #[test]
+    fn nonstream_to_stream_preserves_reasoning_details() {
+        let response = OpenAiChatCompletionsResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: OpenAiResponseHeaders::default(),
+            body: ct::ChatCompletion {
+                id: "chatcmpl_2".to_string(),
+                choices: vec![ct::ChatCompletionChoice {
+                    finish_reason: ct::ChatCompletionFinishReason::Stop,
+                    index: 0,
+                    logprobs: None,
+                    message: ct::ChatCompletionMessage {
+                        content: None,
+                        reasoning_content: None,
+                        reasoning_details: Some(vec![ct::ChatCompletionReasoningDetail {
+                            type_: ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                            id: Some("reasoning_0".to_string()),
+                            data: Some("sig_0".to_string()),
+                        }]),
+                        refusal: None,
+                        role: ct::ChatCompletionAssistantRole::Assistant,
+                        annotations: None,
+                        audio: None,
+                        function_call: None,
+                        tool_calls: None,
+                    },
+                }],
+                created: 1,
+                model: "gpt-5".to_string(),
+                object: ct::ChatCompletionObject::ChatCompletion,
+                service_tier: None,
+                system_fingerprint: None,
+                usage: None,
+            },
+        };
+
+        let stream = OpenAiChatCompletionsSseStreamBody::try_from(response).unwrap();
+        let first_chunk = stream
+            .events
+            .iter()
+            .find_map(|event| match &event.data {
+                OpenAiChatCompletionsSseData::Chunk(chunk) => Some(chunk),
+                OpenAiChatCompletionsSseData::Done(_) => None,
+            })
+            .expect("first chunk");
+        let details = first_chunk.choices[0]
+            .delta
+            .reasoning_details
+            .as_ref()
+            .expect("reasoning_details should be present");
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].id.as_deref(), Some("reasoning_0"));
+        assert_eq!(details[0].data.as_deref(), Some("sig_0"));
+        assert_eq!(
+            details[0].type_,
+            ct::ChatCompletionReasoningDetailType::ReasoningEncrypted
         );
     }
 }

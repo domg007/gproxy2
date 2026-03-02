@@ -134,13 +134,10 @@ impl ClaudeToOpenAiChatCompletionsStream {
     }
 
     fn ensure_choice_index(&mut self, output_index: u64) -> u32 {
-        if let Some(choice_index) = self.output_choice_map.get(&output_index) {
-            return *choice_index;
-        }
-
-        let choice_index = u32::try_from(self.output_choice_map.len()).unwrap_or(u32::MAX);
-        self.output_choice_map.insert(output_index, choice_index);
-        choice_index
+        // Claude stream content block index is not Chat choice index.
+        // Keep a single assistant choice for chat-completions compatibility.
+        self.output_choice_map.insert(output_index, 0);
+        0
     }
 
     fn maybe_emit_role(&mut self, out: &mut Vec<OpenAiChatCompletionsSseEvent>, choice_index: u32) {
@@ -200,6 +197,35 @@ impl ClaudeToOpenAiChatCompletionsStream {
             choice_index,
             ChatCompletionChunkDelta {
                 reasoning_content: Some(text),
+                ..Default::default()
+            },
+            None,
+            None,
+        ));
+    }
+
+    fn emit_reasoning_signature(
+        &mut self,
+        output_index: u64,
+        signature: String,
+        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
+    ) {
+        if signature.is_empty() {
+            return;
+        }
+
+        let choice_index = self.ensure_choice_index(output_index);
+        self.maybe_emit_role(out, choice_index);
+        let reasoning_id = format!("reasoning_{output_index}");
+
+        out.push(self.chunk_event(
+            choice_index,
+            ChatCompletionChunkDelta {
+                reasoning_details: Some(vec![ct::ChatCompletionReasoningDetail {
+                    type_: ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                    id: Some(reasoning_id),
+                    data: Some(signature),
+                }]),
                 ..Default::default()
             },
             None,
@@ -407,6 +433,11 @@ impl ClaudeToOpenAiChatCompletionsStream {
                 BetaRawContentBlockDelta::Thinking(delta) => {
                     if self.thinking_blocks.contains(&event.index) {
                         self.emit_reasoning_content(event.index, delta.thinking, &mut out);
+                    }
+                }
+                BetaRawContentBlockDelta::Signature(delta) => {
+                    if self.thinking_blocks.contains(&event.index) {
+                        self.emit_reasoning_signature(event.index, delta.signature, &mut out);
                     }
                 }
                 BetaRawContentBlockDelta::InputJson(delta) => {
@@ -818,7 +849,7 @@ mod tests {
         };
 
         let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
-        assert_eq!(converted.events.len(), 4);
+        assert_eq!(converted.events.len(), 5);
 
         match &converted.events[0].data {
             OpenAiChatCompletionsSseData::Chunk(chunk) => {
@@ -839,6 +870,23 @@ mod tests {
                 assert!(chunk.choices[0].delta.content.is_none());
             }
             other => panic!("unexpected second event: {other:?}"),
+        }
+
+        match &converted.events[2].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                let details = chunk.choices[0]
+                    .delta
+                    .reasoning_details
+                    .as_ref()
+                    .expect("reasoning details chunk");
+                assert_eq!(details[0].id.as_deref(), Some("reasoning_0"));
+                assert_eq!(details[0].data.as_deref(), Some("sig_1"));
+                assert_eq!(
+                    details[0].type_,
+                    ct::ChatCompletionReasoningDetailType::ReasoningEncrypted
+                );
+            }
+            other => panic!("unexpected third event: {other:?}"),
         }
     }
 }

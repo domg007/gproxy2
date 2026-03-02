@@ -283,11 +283,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
             top_logprobs,
         );
         let mut has_generation_config = generation_config.is_some();
-        let extra_google = extra_body.and_then(|extra| {
-            extra
-                .google
-                .or_else(|| extra.extra_body.and_then(|nested| nested.google))
-        });
+        let extra_google = extra_body.and_then(|extra| extra.google);
         let mut cached_content = None;
         if let Some(extra_google) = extra_google {
             cached_content = extra_google.cached_content;

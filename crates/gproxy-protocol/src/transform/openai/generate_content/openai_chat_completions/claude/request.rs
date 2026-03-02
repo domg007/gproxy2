@@ -251,11 +251,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         let tool_choice =
             openai_tool_choice_to_claude(response_tool_choice, disable_parallel_tool_use);
         let extra_thinking = extra_body
-            .and_then(|extra| {
-                extra
-                    .thinking
-                    .or_else(|| extra.extra_body.and_then(|nested| nested.thinking))
-            })
+            .and_then(|extra| extra.thinking)
             .map(|thinking| match thinking {
                 oct::ChatCompletionClaudeThinkingConfig::Enabled(config) => {
                     ct::BetaThinkingConfigParam::Enabled(ct::BetaThinkingConfigEnabled {

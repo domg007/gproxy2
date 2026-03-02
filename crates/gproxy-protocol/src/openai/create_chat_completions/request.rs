@@ -144,8 +144,8 @@ pub struct RequestBody {
     /// Verbosity hint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verbosity: Option<types::ChatCompletionVerbosity>,
-    /// Provider-specific OpenAI-compatible extension payload.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Provider-specific OpenAI-compatible extension payload (flattened).
+    #[serde(flatten, default, skip_serializing_if = "Option::is_none")]
     pub extra_body: Option<types::ChatCompletionExtraBody>,
     /// Web-search tool options.
     #[serde(default, skip_serializing_if = "Option::is_none")]

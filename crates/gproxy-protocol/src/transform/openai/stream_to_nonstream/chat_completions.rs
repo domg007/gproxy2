@@ -21,6 +21,7 @@ struct ToolCallAcc {
 struct ChoiceAcc {
     content: String,
     reasoning_content: String,
+    reasoning_details: Vec<ct::ChatCompletionReasoningDetail>,
     refusal: String,
     annotations: Vec<ct::ChatCompletionAnnotation>,
     has_function_call: bool,
@@ -100,6 +101,11 @@ impl ChoiceAcc {
                 } else {
                     Some(self.reasoning_content)
                 },
+                reasoning_details: if self.reasoning_details.is_empty() {
+                    None
+                } else {
+                    Some(self.reasoning_details)
+                },
                 refusal: if self.refusal.is_empty() {
                     None
                 } else {
@@ -151,6 +157,9 @@ fn apply_chunk(chunk: ChatCompletionChunk, acc: &mut StreamAcc) {
         }
         if let Some(reasoning_content) = choice.delta.reasoning_content {
             entry.reasoning_content.push_str(&reasoning_content);
+        }
+        if let Some(reasoning_details) = choice.delta.reasoning_details {
+            entry.reasoning_details.extend(reasoning_details);
         }
         if let Some(refusal) = choice.delta.refusal {
             entry.refusal.push_str(&refusal);
@@ -327,6 +336,62 @@ mod tests {
         assert_eq!(
             body.choices[0].message.reasoning_content.as_deref(),
             Some("reasoning text")
+        );
+    }
+
+    #[test]
+    fn stream_to_nonstream_preserves_reasoning_details() {
+        let stream = OpenAiChatCompletionsSseStreamBody {
+            events: vec![
+                OpenAiChatCompletionsSseEvent {
+                    event: None,
+                    data: OpenAiChatCompletionsSseData::Chunk(ChatCompletionChunk {
+                        id: "chatcmpl_2".to_string(),
+                        choices: vec![ChatCompletionChunkChoice {
+                            delta: ChatCompletionChunkDelta {
+                                role: Some(ct::ChatCompletionDeltaRole::Assistant),
+                                reasoning_details: Some(vec![ct::ChatCompletionReasoningDetail {
+                                    type_: ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                                    id: Some("reasoning_0".to_string()),
+                                    data: Some("sig_0".to_string()),
+                                }]),
+                                ..ChatCompletionChunkDelta::default()
+                            },
+                            finish_reason: Some(ct::ChatCompletionFinishReason::Stop),
+                            index: 0,
+                            logprobs: None,
+                        }],
+                        created: 1,
+                        model: "gpt-5".to_string(),
+                        object: ChatCompletionChunkObject::ChatCompletionChunk,
+                        service_tier: None,
+                        system_fingerprint: None,
+                        usage: None,
+                    }),
+                },
+                OpenAiChatCompletionsSseEvent {
+                    event: None,
+                    data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
+                },
+            ],
+        };
+
+        let response = OpenAiChatCompletionsResponse::try_from(stream).unwrap();
+        let body = match response {
+            OpenAiChatCompletionsResponse::Success { body, .. } => body,
+            other => panic!("unexpected response: {other:?}"),
+        };
+        let details = body.choices[0]
+            .message
+            .reasoning_details
+            .as_ref()
+            .expect("reasoning_details should be present");
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].id.as_deref(), Some("reasoning_0"));
+        assert_eq!(details[0].data.as_deref(), Some("sig_0"));
+        assert_eq!(
+            details[0].type_,
+            ct::ChatCompletionReasoningDetailType::ReasoningEncrypted
         );
     }
 }

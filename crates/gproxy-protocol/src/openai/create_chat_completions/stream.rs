@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::openai::create_chat_completions::types::{
     ChatCompletionAnnotation, ChatCompletionDeltaRole, ChatCompletionFinishReason,
-    ChatCompletionFunctionCall, ChatCompletionLogprobs, ChatCompletionServiceTier, CompletionUsage,
+    ChatCompletionFunctionCall, ChatCompletionLogprobs, ChatCompletionReasoningDetail,
+    ChatCompletionServiceTier, CompletionUsage,
 };
 
 /// Parsed SSE stream body for `POST /chat/completions` with `stream=true`.
@@ -79,6 +80,8 @@ pub struct ChatCompletionChunkDelta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_details: Option<Vec<ChatCompletionReasoningDetail>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function_call: Option<ChatCompletionFunctionCallDelta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
@@ -130,6 +133,7 @@ pub enum ChatCompletionChunkDeltaToolCallType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openai::create_chat_completions::types::ChatCompletionReasoningDetailType;
 
     #[test]
     fn chunk_delta_reasoning_content_roundtrip() {
@@ -143,5 +147,32 @@ mod tests {
 
         let decoded: ChatCompletionChunkDelta = serde_json::from_value(value).unwrap();
         assert_eq!(decoded.reasoning_content.as_deref(), Some("reasoning text"));
+    }
+
+    #[test]
+    fn chunk_delta_reasoning_details_roundtrip() {
+        let delta = ChatCompletionChunkDelta {
+            reasoning_details: Some(vec![ChatCompletionReasoningDetail {
+                type_: ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                id: Some("reasoning_0".to_string()),
+                data: Some("sig".to_string()),
+            }]),
+            ..ChatCompletionChunkDelta::default()
+        };
+
+        let value = serde_json::to_value(&delta).unwrap();
+        assert_eq!(value["reasoning_details"][0]["type"], "reasoning.encrypted");
+        assert_eq!(value["reasoning_details"][0]["id"], "reasoning_0");
+        assert_eq!(value["reasoning_details"][0]["data"], "sig");
+
+        let decoded: ChatCompletionChunkDelta = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            decoded
+                .reasoning_details
+                .as_ref()
+                .and_then(|details| details.first())
+                .and_then(|detail| detail.id.as_deref()),
+            Some("reasoning_0")
+        );
     }
 }
