@@ -1593,8 +1593,10 @@ name = "gproxy"
 version = "0.3.11"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum",
  "clap",
+ "futures-util",
  "gproxy-admin",
  "gproxy-core",
  "gproxy-provider",

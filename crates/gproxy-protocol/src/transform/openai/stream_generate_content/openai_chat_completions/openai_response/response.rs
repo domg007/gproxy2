@@ -152,7 +152,9 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
         }
     }
 
-    fn map_output_text_annotation(annotation: serde_json::Value) -> Option<ct::ChatCompletionAnnotation> {
+    fn map_output_text_annotation(
+        annotation: serde_json::Value,
+    ) -> Option<ct::ChatCompletionAnnotation> {
         match serde_json::from_value::<ot::ResponseOutputTextAnnotation>(annotation).ok()? {
             ot::ResponseOutputTextAnnotation::UrlCitation(citation) => {
                 Some(ct::ChatCompletionAnnotation {
@@ -206,11 +208,7 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
         })
     }
 
-    fn emit_error_refusal(
-        &mut self,
-        text: String,
-        out: &mut Vec<OpenAiChatCompletionsSseEvent>,
-    ) {
+    fn emit_error_refusal(&mut self, text: String, out: &mut Vec<OpenAiChatCompletionsSseEvent>) {
         let choice_index = self.ensure_choice_index(0);
         self.maybe_emit_role(out, choice_index);
         out.push(self.chunk_event(

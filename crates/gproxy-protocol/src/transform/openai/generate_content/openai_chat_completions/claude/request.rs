@@ -19,8 +19,7 @@ use crate::transform::openai::generate_content::openai_chat_completions::openai:
     chat_reasoning_to_response_reasoning, chat_response_text_config, chat_stop_to_vec,
     chat_text_content_to_plain_text, chat_text_content_to_response_input_message_content,
     chat_tool_choice_to_response_tool_choice, chat_tools_to_response_tools,
-    chat_user_content_to_response_input_message_content,
-    pseudo_reasoning_signature,
+    chat_user_content_to_response_input_message_content, pseudo_reasoning_signature,
 };
 use crate::transform::utils::TransformError;
 

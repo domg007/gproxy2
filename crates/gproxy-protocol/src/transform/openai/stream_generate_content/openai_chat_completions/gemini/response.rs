@@ -211,13 +211,7 @@ impl GeminiToOpenAiChatCompletionsStream {
     ) {
         let choice_index = self.ensure_choice_index(output_index);
         self.maybe_emit_role(out, choice_index);
-        out.push(self.chunk_event(
-            choice_index,
-            Default::default(),
-            None,
-            None,
-            Some(logprobs),
-        ));
+        out.push(self.chunk_event(choice_index, Default::default(), None, None, Some(logprobs)));
     }
 
     fn emit_error_refusal(&mut self, text: String, out: &mut Vec<OpenAiChatCompletionsSseEvent>) {
@@ -373,9 +367,7 @@ impl GeminiToOpenAiChatCompletionsStream {
             | GeminiFinishReason::Spii
             | GeminiFinishReason::ImageSafety
             | GeminiFinishReason::ImageProhibitedContent
-            | GeminiFinishReason::ImageRecitation => {
-                ct::ChatCompletionFinishReason::ContentFilter
-            }
+            | GeminiFinishReason::ImageRecitation => ct::ChatCompletionFinishReason::ContentFilter,
             GeminiFinishReason::MalformedFunctionCall
             | GeminiFinishReason::UnexpectedToolCall
             | GeminiFinishReason::TooManyToolCalls => ct::ChatCompletionFinishReason::ToolCalls,
@@ -903,7 +895,10 @@ mod tests {
         });
 
         let logprobs = logprobs.expect("expected logprobs chunk");
-        let content = logprobs.content.as_ref().expect("expected content logprobs");
+        let content = logprobs
+            .content
+            .as_ref()
+            .expect("expected content logprobs");
         assert_eq!(content.len(), 1);
         assert_eq!(content[0].token, "h");
         assert_eq!(content[0].top_logprobs.len(), 2);
@@ -930,13 +925,17 @@ mod tests {
 
         let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
         let finish_reason = converted.events.iter().find_map(|event| match &event.data {
-            OpenAiChatCompletionsSseData::Chunk(chunk) => {
-                chunk.choices.first().and_then(|choice| choice.finish_reason.clone())
-            }
+            OpenAiChatCompletionsSseData::Chunk(chunk) => chunk
+                .choices
+                .first()
+                .and_then(|choice| choice.finish_reason.clone()),
             OpenAiChatCompletionsSseData::Done(_) => None,
         });
 
-        assert_eq!(finish_reason, Some(ct::ChatCompletionFinishReason::ToolCalls));
+        assert_eq!(
+            finish_reason,
+            Some(ct::ChatCompletionFinishReason::ToolCalls)
+        );
     }
 
     #[test]
@@ -970,5 +969,4 @@ mod tests {
             Some(OpenAiChatCompletionsSseData::Done(_))
         ));
     }
-
 }

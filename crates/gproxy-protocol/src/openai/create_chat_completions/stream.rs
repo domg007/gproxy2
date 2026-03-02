@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::openai::create_chat_completions::types::{
     ChatCompletionAnnotation, ChatCompletionDeltaRole, ChatCompletionFinishReason,
-    ChatCompletionFunctionCall, ChatCompletionLogprobs, ChatCompletionServiceTier,
-    CompletionUsage,
+    ChatCompletionFunctionCall, ChatCompletionLogprobs, ChatCompletionServiceTier, CompletionUsage,
 };
 
 /// Parsed SSE stream body for `POST /chat/completions` with `stream=true`.

@@ -570,7 +570,10 @@ mod tests {
     #[test]
     fn claude_mcp_tool_use_stream_maps_to_chat_tool_calls() {
         let mut input = cct::JsonObject::new();
-        input.insert("foo".to_string(), serde_json::Value::String("bar".to_string()));
+        input.insert(
+            "foo".to_string(),
+            serde_json::Value::String("bar".to_string()),
+        );
 
         let stream = ClaudeCreateMessageSseStreamBody {
             events: vec![

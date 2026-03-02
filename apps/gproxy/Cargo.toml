@@ -8,9 +8,11 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
+async-stream = "0.3"
 anyhow = "1"
 axum = { version = "0.8", features = ["http2"] }
 clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
 gproxy-core = { path = "../../crates/gproxy-core" }
 gproxy-admin = { path = "../../crates/gproxy-admin" }
 gproxy-provider = { path = "../../crates/gproxy-provider" }

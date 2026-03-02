@@ -16,8 +16,7 @@ use crate::transform::openai::generate_content::openai_chat_completions::openai:
     chat_reasoning_to_response_reasoning, chat_response_text_config, chat_stop_to_vec,
     chat_text_content_to_plain_text, chat_text_content_to_response_input_message_content,
     chat_tool_choice_to_response_tool_choice, chat_tools_to_response_tools,
-    chat_user_content_to_response_input_message_content,
-    pseudo_reasoning_signature,
+    chat_user_content_to_response_input_message_content, pseudo_reasoning_signature,
 };
 use crate::transform::utils::TransformError;
 
@@ -423,7 +422,10 @@ mod tests {
         assert_eq!(content.role, Some(gt::GeminiContentRole::Model));
         let part = content.parts.first().expect("first part");
         assert_eq!(part.thought, Some(true));
-        assert_eq!(part.thought_signature.as_deref(), Some("gproxy_reasoning_0_0"));
+        assert_eq!(
+            part.thought_signature.as_deref(),
+            Some("gproxy_reasoning_0_0")
+        );
         assert_eq!(part.text.as_deref(), Some("reasoning text"));
     }
 }
