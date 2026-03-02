@@ -4,7 +4,7 @@
 
 Chinese version: [README.zh.md](./README.zh.md)
 
-If you want to look at the full docs, click [here](https://gproxy-docs.leenhawk.com/).
+If you want to look at the full docs, click [here](https://gproxy.leenhawk.com/).
 
 ## Key Features
 
@@ -277,7 +277,7 @@ Legacy compatibility:
 - legacy `cache_affinity_enabled` is still parsed.
 
 Detailed design and cache-hit strategy (OpenAI/Claude/Gemini):  
-https://gproxy-docs.leenhawk.com/guides/credential-selection-cache-affinity/
+https://gproxy.leenhawk.com/guides/credential-selection-cache-affinity/
 
 ## CLI and Environment Overrides
 

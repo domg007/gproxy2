@@ -17,7 +17,7 @@ use super::{HttpError, authorize_admin};
 const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 const GPROXY_REPO_API_STAGING: &str =
     "https://api.github.com/repos/LeenHawk/gproxy/releases/tags/staging";
-const GPROXY_CHINA_DOWNLOADS_BASE_DEFAULT: &str = "https://gproxy-docs.leenhawk.com/downloads";
+const GPROXY_CHINA_DOWNLOADS_BASE_DEFAULT: &str = "https://gproxy.leenhawk.com/downloads";
 
 #[derive(Debug, Deserialize, Clone)]
 struct GithubReleaseAsset {

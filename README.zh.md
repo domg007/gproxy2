@@ -2,7 +2,7 @@
 
 `gproxy` 是一个基于 Rust 的多通道 LLM 代理服务，统一对外提供 OpenAI / Claude / Gemini 风格接口，并内置管理后台、用户与密钥管理、请求与用量审计。
 
-假如你打算查看完整文档，查看[此处](https://gproxy-docs.leenhawk.com/).
+假如你打算查看完整文档，查看[此处](https://gproxy.leenhawk.com/).
 
 ## 主要能力
 
@@ -275,7 +275,7 @@ credential_cache_affinity_enabled = true
 - 旧字段 `cache_affinity_enabled` 仍可解析。
 
 完整设计与上游缓存命中策略（OpenAI/Claude/Gemini）详见：  
-https://gproxy-docs.leenhawk.com/zh/guides/credential-selection-cache-affinity/
+https://gproxy.leenhawk.com/zh/guides/credential-selection-cache-affinity/
 
 ## CLI 与环境变量覆盖
 

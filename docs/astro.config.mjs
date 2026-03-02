@@ -4,7 +4,7 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://gproxy-docs.leenhawk.com',
+	site: 'https://gproxy.leenhawk.com',
 	integrations: [
 		starlight({
 			title: {
