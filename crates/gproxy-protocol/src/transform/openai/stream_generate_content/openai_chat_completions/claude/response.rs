@@ -343,8 +343,17 @@ impl ClaudeToOpenAiChatCompletionsStream {
                             &mut out,
                         );
                     }
-                    BetaContentBlock::McpToolUse(_) => {
-                        self.tool_blocks.remove(&output_index);
+                    BetaContentBlock::McpToolUse(block) => {
+                        let arguments = serde_json::to_string(&block.input)
+                            .unwrap_or_else(|_| "{}".to_string());
+                        self.start_tool_call(
+                            output_index,
+                            block.id,
+                            block.name,
+                            arguments,
+                            true,
+                            &mut out,
+                        );
                     }
                     other => {
                         if let Ok(text) = serde_json::to_string(&other) {
@@ -488,6 +497,11 @@ fn server_tool_name(name: &BetaServerToolUseName) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::count_tokens::types as cct;
+    use crate::claude::create_message::stream::{
+        BetaRawContentBlockStartEvent, BetaRawContentBlockStartEventType,
+        ClaudeCreateMessageStreamEvent,
+    };
     use crate::claude::create_message::types::{BetaServiceTier, BetaStopReason};
     use crate::transform::claude::stream_generate_content::utils::{
         message_delta_event, message_start_event, message_stop_event, start_text_block_event,
@@ -551,5 +565,102 @@ mod tests {
             converted.events[3].data,
             OpenAiChatCompletionsSseData::Done(_)
         ));
+    }
+
+    #[test]
+    fn claude_mcp_tool_use_stream_maps_to_chat_tool_calls() {
+        let mut input = cct::JsonObject::new();
+        input.insert("foo".to_string(), serde_json::Value::String("bar".to_string()));
+
+        let stream = ClaudeCreateMessageSseStreamBody {
+            events: vec![
+                message_start_event(
+                    "msg_2".to_string(),
+                    "claude-sonnet".to_string(),
+                    BetaServiceTier::Standard,
+                    9,
+                    1,
+                ),
+                ClaudeCreateMessageStreamEvent::ContentBlockStart(BetaRawContentBlockStartEvent {
+                    content_block: BetaContentBlock::McpToolUse(cct::BetaMcpToolUseBlockParam {
+                        id: "mcp_call_1".to_string(),
+                        input: input.clone(),
+                        name: "list_tools".to_string(),
+                        server_name: "local".to_string(),
+                        type_: cct::BetaMcpToolUseBlockType::McpToolUse,
+                        cache_control: None,
+                    }),
+                    index: 0,
+                    type_: BetaRawContentBlockStartEventType::ContentBlockStart,
+                }),
+                stop_block_event(0),
+                message_delta_event(Some(BetaStopReason::ToolUse), 9, 1, 2),
+                message_stop_event(),
+            ],
+        };
+
+        let converted = OpenAiChatCompletionsSseStreamBody::try_from(stream).unwrap();
+        assert_eq!(converted.events.len(), 5);
+
+        match &converted.events[1].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                let tool_calls = chunk.choices[0]
+                    .delta
+                    .tool_calls
+                    .as_ref()
+                    .expect("tool call start chunk");
+                assert_eq!(tool_calls[0].id.as_deref(), Some("mcp_call_1"));
+                assert_eq!(
+                    tool_calls[0]
+                        .function
+                        .as_ref()
+                        .and_then(|function| function.name.as_deref()),
+                    Some("list_tools")
+                );
+                assert_eq!(
+                    tool_calls[0]
+                        .function
+                        .as_ref()
+                        .and_then(|function| function.arguments.as_deref()),
+                    None
+                );
+            }
+            other => panic!("unexpected tool call start event: {other:?}"),
+        }
+
+        match &converted.events[2].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                let tool_calls = chunk.choices[0]
+                    .delta
+                    .tool_calls
+                    .as_ref()
+                    .expect("tool call args chunk");
+                assert_eq!(
+                    tool_calls[0]
+                        .function
+                        .as_ref()
+                        .and_then(|function| function.name.as_deref()),
+                    None
+                );
+                assert_eq!(
+                    tool_calls[0]
+                        .function
+                        .as_ref()
+                        .and_then(|function| function.arguments.as_deref()),
+                    Some(serde_json::to_string(&input).unwrap().as_str())
+                );
+            }
+            other => panic!("unexpected tool call args event: {other:?}"),
+        }
+
+        match &converted.events[3].data {
+            OpenAiChatCompletionsSseData::Chunk(chunk) => {
+                assert_eq!(
+                    chunk.choices[0].finish_reason,
+                    Some(ct::ChatCompletionFinishReason::ToolCalls)
+                );
+            }
+            other => panic!("unexpected finish event: {other:?}"),
+        }
     }
 }
