@@ -21,6 +21,22 @@ function emptySummary(): UsageSummary {
   };
 }
 
+function defaultPageSizeByViewport(): number {
+  if (typeof window === "undefined") {
+    return 20;
+  }
+  if (window.innerWidth < 640) {
+    return 5;
+  }
+  if (window.innerWidth < 1024) {
+    return 10;
+  }
+  if (window.innerWidth < 1600) {
+    return 20;
+  }
+  return 50;
+}
+
 export function UsageModule({
   apiKey,
   notify
@@ -30,6 +46,8 @@ export function UsageModule({
 }) {
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
+  const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
+  const [page, setPage] = useState(1);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
   const [knownChannels, setKnownChannels] = useState<string[]>([]);
   const [knownModels, setKnownModels] = useState<string[]>([]);
@@ -163,6 +181,7 @@ export function UsageModule({
         })
       ]);
       setRows(rowsResult);
+      setPage(1);
       setSummary(summaryResult);
       collectUsageMetadata(rowsResult);
     } catch (error) {
@@ -252,6 +271,23 @@ export function UsageModule({
     }
   }, [filters.model, modelOptions]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [page, pageSize, rows]);
+
   return (
     <div className="space-y-4">
       <Card title={t("usage.title")} subtitle={t("usage.subtitle")}>
@@ -335,7 +371,7 @@ export function UsageModule({
       <Card title={t("usage.rows")}>
         <Table
           columns={tableColumns}
-          rows={rows.map((row) => ({
+          rows={pagedRows.map((row) => ({
             [tableColumns[0]]: row.trace_id,
             [tableColumns[1]]: row.provider_channel ?? "",
             [tableColumns[2]]: row.model ?? "",
@@ -348,6 +384,44 @@ export function UsageModule({
             [tableColumns[9]]: formatAtForViewer(row.at)
           }))}
         />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <div>
+            {t("common.pager.stats", {
+              shown: pagedRows.length,
+              total: rows.length
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <span>{t("common.show")}</span>
+            <div className="w-20">
+              <Select
+                value={String(pageSize)}
+                onChange={(value) => setPageSize(Number(value))}
+                options={[
+                  { value: "5", label: "5" },
+                  { value: "10", label: "10" },
+                  { value: "20", label: "20" },
+                  { value: "50", label: "50" }
+                ]}
+              />
+            </div>
+            <Button
+              variant="neutral"
+              disabled={page <= 1}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            >
+              {t("common.pager.prev")}
+            </Button>
+            <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
+            <Button
+              variant="neutral"
+              disabled={page >= totalPages}
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            >
+              {t("common.pager.next")}
+            </Button>
+          </div>
+        </div>
       </Card>
     </div>
   );
