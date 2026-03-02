@@ -972,7 +972,11 @@ pub(super) async fn enqueue_internal_tracked_http_events(
             },
             response_status: event.response_status.map(i32::from),
             response_headers_json: headers_pairs_to_json(event.response_headers.as_slice()),
-            response_body: None,
+            response_body: if mask_sensitive_info {
+                None
+            } else {
+                event.response_body.clone()
+            },
         };
         if let Err(err) = state
             .enqueue_storage_write(StorageWriteEvent::UpsertUpstreamRequest(upstream_event))

@@ -1,4 +1,6 @@
 use gproxy_middleware::TransformResponse;
+use http::Response as HttpResponse;
+use http_body_util::BodyExt as _;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::future::Future;
@@ -20,6 +22,7 @@ pub struct TrackedHttpEvent {
     pub request_meta: UpstreamRequestMeta,
     pub response_status: Option<u16>,
     pub response_headers: Vec<(String, String)>,
+    pub response_body: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,18 +269,52 @@ impl TrackedRequestBuilder {
         );
         match self.inner.send().await {
             Ok(response) => {
-                push_tracked_http_event(TrackedHttpEvent {
-                    request_meta,
-                    response_status: Some(response.status().as_u16()),
-                    response_headers: response_headers_to_pairs(&response),
-                });
-                Ok(response)
+                let response_status = response.status().as_u16();
+                let response_headers = response_headers_to_pairs(&response);
+                if response.status().is_client_error() || response.status().is_server_error() {
+                    let raw: HttpResponse<wreq::Body> = response.into();
+                    let (parts, body) = raw.into_parts();
+                    match body.collect().await {
+                        Ok(collected) => {
+                            let response_body = collected.to_bytes().to_vec();
+                            push_tracked_http_event(TrackedHttpEvent {
+                                request_meta,
+                                response_status: Some(response_status),
+                                response_headers,
+                                response_body: Some(response_body.clone()),
+                            });
+                            Ok(WreqResponse::from(HttpResponse::from_parts(
+                                parts,
+                                response_body,
+                            )))
+                        }
+                        Err(err) => {
+                            push_tracked_http_event(TrackedHttpEvent {
+                                request_meta,
+                                response_status: Some(response_status),
+                                response_headers,
+                                response_body: None,
+                            });
+                            Err(err)
+                        }
+                    }
+                } else {
+                    push_tracked_http_event(TrackedHttpEvent {
+                        request_meta,
+                        response_status: Some(response_status),
+                        response_headers,
+                        response_body: None,
+                    });
+                    Ok(response)
+                }
             }
             Err(err) => {
+                let response_status = err.status().map(|value| value.as_u16());
                 push_tracked_http_event(TrackedHttpEvent {
                     request_meta,
-                    response_status: None,
+                    response_status,
                     response_headers: Vec::new(),
+                    response_body: None,
                 });
                 Err(err)
             }

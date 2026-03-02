@@ -1680,6 +1680,8 @@ dependencies = [
  "base64 0.22.1",
  "dashmap",
  "gproxy-middleware",
+ "http",
+ "http-body-util",
  "jsonwebtoken",
  "rand 0.10.0",
  "serde",

@@ -11,6 +11,8 @@ repository.workspace = true
 gproxy-middleware = { path = "../gproxy-middleware" }
 base64 = "0.22"
 dashmap = "6"
+http = "1"
+http-body-util = "0.1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 rand = "0.10"
 serde = { version = "1", features = ["derive"] }
