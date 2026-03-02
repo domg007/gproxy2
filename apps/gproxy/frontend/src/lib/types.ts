@@ -136,6 +136,10 @@ export interface UsageSummary {
   cache_creation_input_tokens_1h: number;
 }
 
+export interface UsageQueryCount {
+  count: number;
+}
+
 export interface ApiErrorData {
   status: number;
   message: string;

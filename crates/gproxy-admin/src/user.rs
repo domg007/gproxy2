@@ -1,6 +1,6 @@
 use gproxy_storage::{
-    Scope, StorageWriteEvent, StorageWriteSender, UsageQuery, UsageQueryRow, UsageSummary,
-    UserKeyQueryRow, UserKeyWrite,
+    Scope, StorageWriteEvent, StorageWriteSender, UsageQuery, UsageQueryCount, UsageQueryRow,
+    UsageSummary, UserKeyQueryRow, UserKeyWrite,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -179,4 +179,16 @@ pub async fn summarize_my_usages(
     let me = authenticate_user_key(users, keys, current_api_key).await?;
     query.user_id = Scope::Eq(me.user_id);
     Ok(storage.summarize_usages(&query).await?)
+}
+
+pub async fn count_my_usages(
+    storage: &gproxy_storage::SeaOrmStorage,
+    users: &[MemoryUser],
+    keys: &HashMap<String, MemoryUserKey>,
+    current_api_key: &str,
+    mut query: UsageQuery,
+) -> Result<UsageQueryCount, AdminApiError> {
+    let me = authenticate_user_key(users, keys, current_api_key).await?;
+    query.user_id = Scope::Eq(me.user_id);
+    Ok(storage.count_usages(&query).await?)
 }

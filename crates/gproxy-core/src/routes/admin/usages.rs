@@ -27,3 +27,13 @@ pub(super) async fn summarize_usages(
     let storage = state.load_storage();
     Ok(Json(gproxy_admin::summarize_usages(&storage, query).await?))
 }
+
+pub(super) async fn count_usages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::UsageQuery>,
+) -> Result<Json<gproxy_storage::UsageQueryCount>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.load_storage();
+    Ok(Json(gproxy_admin::count_usages(&storage, query).await?))
+}

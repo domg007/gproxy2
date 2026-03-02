@@ -5,9 +5,19 @@ import { apiRequest, formatError } from "../../lib/api";
 import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
-import type { UsageQueryRow, UsageSummary } from "../../lib/types";
+import type { UsageQueryCount, UsageQueryRow, UsageSummary } from "../../lib/types";
 import { Button, Card, Input, Label, MetricCard, SearchableSelect, Select, Table } from "../../components/ui";
 import { useAdminFilterOptions } from "./hooks/useAdminFilterOptions";
+
+type UsageQuerySnapshot = {
+  channel: string;
+  model: string;
+  userId: number | null;
+  userKeyId: number | null;
+  fromUnixMs: number | null;
+  toUnixMs: number | null;
+  maxRows: number | null;
+};
 
 function emptySummary(): UsageSummary {
   return {
@@ -37,6 +47,24 @@ function defaultPageSizeByViewport(): number {
   return 50;
 }
 
+function toPositiveOrNull(value: number | null): number | null {
+  if (value === null || value <= 0) {
+    return null;
+  }
+  return value;
+}
+
+function buildUsageBasePayload(snapshot: UsageQuerySnapshot) {
+  return {
+    channel: snapshot.channel ? scopeEq(snapshot.channel) : scopeAll<string>(),
+    model: snapshot.model ? scopeEq(snapshot.model) : scopeAll<string>(),
+    user_id: snapshot.userId === null ? scopeAll<number>() : scopeEq(snapshot.userId),
+    user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    from_unix_ms: snapshot.fromUnixMs,
+    to_unix_ms: snapshot.toUnixMs
+  };
+}
+
 export function UsageModule({
   apiKey,
   notify
@@ -46,9 +74,13 @@ export function UsageModule({
 }) {
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
   const [page, setPage] = useState(1);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
+  const [activeQuery, setActiveQuery] = useState<UsageQuerySnapshot | null>(null);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const [loadingMeta, setLoadingMeta] = useState(false);
   const [knownChannels, setKnownChannels] = useState<string[]>([]);
   const [knownModels, setKnownModels] = useState<string[]>([]);
   const [knownModelsByChannel, setKnownModelsByChannel] = useState<Record<string, string[]>>({});
@@ -79,24 +111,6 @@ export function UsageModule({
     const value = Number(filters.userId);
     return Number.isInteger(value) ? value : null;
   }, [filters.userId]);
-
-  const buildPayload = () => {
-    const userId = parseOptionalI64(filters.userId);
-    const userKeyId = parseOptionalI64(filters.userKeyId);
-    const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
-    const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
-    const limit = parseOptionalI64(filters.limit) ?? 200;
-
-    return {
-      channel: filters.channel.trim() ? scopeEq(filters.channel.trim()) : scopeAll<string>(),
-      model: filters.model.trim() ? scopeEq(filters.model.trim()) : scopeAll<string>(),
-      user_id: userId === null ? scopeAll<number>() : scopeEq(userId),
-      user_key_id: userKeyId === null ? scopeAll<number>() : scopeEq(userKeyId),
-      from_unix_ms: fromUnixMs,
-      to_unix_ms: toUnixMs,
-      limit
-    };
-  };
 
   const collectUsageMetadata = (usageRows: UsageQueryRow[]) => {
     const channels = usageRows
@@ -153,6 +167,7 @@ export function UsageModule({
           user_key_id: scopeAll<number>(),
           from_unix_ms: null,
           to_unix_ms: null,
+          offset: 0,
           limit: 1000
         }
       });
@@ -165,42 +180,6 @@ export function UsageModule({
   useEffect(() => {
     void loadUsageFilterOptions();
   }, [apiKey]);
-
-  const query = async () => {
-    try {
-      const [rowsResult, summaryResult] = await Promise.all([
-        apiRequest<UsageQueryRow[]>("/admin/usages/query", {
-          apiKey,
-          method: "POST",
-          body: buildPayload()
-        }),
-        apiRequest<UsageSummary>("/admin/usages/summary", {
-          apiKey,
-          method: "POST",
-          body: buildPayload()
-        })
-      ]);
-      setRows(rowsResult);
-      setPage(1);
-      setSummary(summaryResult);
-      collectUsageMetadata(rowsResult);
-    } catch (error) {
-      notify("error", formatError(error));
-    }
-  };
-
-  const tableColumns = [
-    t("table.trace_id"),
-    t("table.provider"),
-    t("table.model"),
-    t("table.input"),
-    t("table.output"),
-    t("table.cache_read"),
-    t("table.cache_creation"),
-    t("table.cache_creation_5m"),
-    t("table.cache_creation_1h"),
-    t("table.at")
-  ];
 
   const channelOptions = useMemo(() => {
     const channels = Array.from(
@@ -240,8 +219,7 @@ export function UsageModule({
         const user = userById.get(row.user_id);
         const userMeta = user ? `${user.name} (#${row.user_id})` : `user #${row.user_id}`;
         const key = row.api_key.trim();
-        const preview =
-          key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
+        const preview = key.length <= 14 ? key : `${key.slice(0, 6)}...${key.slice(-4)}`;
         return {
           value: String(row.id),
           label: `#${row.id} · ${userMeta} · ${preview}`
@@ -275,7 +253,7 @@ export function UsageModule({
     setPage(1);
   }, [pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   useEffect(() => {
     if (page > totalPages) {
@@ -283,10 +261,109 @@ export function UsageModule({
     }
   }, [page, totalPages]);
 
-  const pagedRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return rows.slice(start, start + pageSize);
-  }, [page, pageSize, rows]);
+  const buildSnapshot = (): UsageQuerySnapshot => {
+    const userId = parseOptionalI64(filters.userId);
+    const userKeyId = parseOptionalI64(filters.userKeyId);
+    const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
+    const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
+    return {
+      channel: filters.channel.trim(),
+      model: filters.model.trim(),
+      userId,
+      userKeyId,
+      fromUnixMs,
+      toUnixMs,
+      maxRows: toPositiveOrNull(parseOptionalI64(filters.limit))
+    };
+  };
+
+  const query = () => {
+    const snapshot = buildSnapshot();
+    setActiveQuery(snapshot);
+    setPage(1);
+    setRows([]);
+    setTotalRows(0);
+  };
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    setLoadingMeta(true);
+    const fetchMeta = async () => {
+      try {
+        const basePayload = buildUsageBasePayload(activeQuery);
+        const [countResult, summaryResult] = await Promise.all([
+          apiRequest<UsageQueryCount>("/admin/usages/count", {
+            apiKey,
+            method: "POST",
+            body: basePayload
+          }),
+          apiRequest<UsageSummary>("/admin/usages/summary", {
+            apiKey,
+            method: "POST",
+            body: basePayload
+          })
+        ]);
+        const maxRows = activeQuery.maxRows;
+        setTotalRows(maxRows === null ? countResult.count : Math.min(countResult.count, maxRows));
+        setSummary(summaryResult);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        setLoadingMeta(false);
+      }
+    };
+    void fetchMeta();
+  }, [activeQuery, apiKey, notify]);
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    const offset = (page - 1) * pageSize;
+    const maxRows = activeQuery.maxRows;
+    const remaining = maxRows === null ? pageSize : Math.max(0, maxRows - offset);
+    const limit = Math.min(pageSize, remaining);
+    if (limit <= 0) {
+      setRows([]);
+      return;
+    }
+    setLoadingRows(true);
+    const fetchRows = async () => {
+      try {
+        const data = await apiRequest<UsageQueryRow[]>("/admin/usages/query", {
+          apiKey,
+          method: "POST",
+          body: {
+            ...buildUsageBasePayload(activeQuery),
+            offset,
+            limit
+          }
+        });
+        setRows(data);
+        collectUsageMetadata(data);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        setLoadingRows(false);
+      }
+    };
+    void fetchRows();
+  }, [activeQuery, apiKey, notify, page, pageSize]);
+
+  const tableColumns = [
+    t("table.trace_id"),
+    t("table.provider"),
+    t("table.model"),
+    t("table.input"),
+    t("table.output"),
+    t("table.cache_read"),
+    t("table.cache_creation"),
+    t("table.cache_creation_5m"),
+    t("table.cache_creation_1h"),
+    t("table.at")
+  ];
 
   return (
     <div className="space-y-4">
@@ -356,7 +433,9 @@ export function UsageModule({
           </div>
         </div>
         <div className="mt-3">
-          <Button onClick={() => void query()}>{t("common.query")}</Button>
+          <Button onClick={query} disabled={loadingRows || loadingMeta}>
+            {loadingRows || loadingMeta ? t("common.loading") : t("common.query")}
+          </Button>
         </div>
       </Card>
       <div className="grid gap-3 md:grid-cols-7">
@@ -372,7 +451,7 @@ export function UsageModule({
         <div className="query-result-table-wrap">
           <Table
             columns={tableColumns}
-            rows={pagedRows.map((row) => ({
+            rows={rows.map((row) => ({
               [tableColumns[0]]: row.trace_id,
               [tableColumns[1]]: row.provider_channel ?? "",
               [tableColumns[2]]: row.model ?? "",
@@ -389,8 +468,8 @@ export function UsageModule({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
           <div>
             {t("common.pager.stats", {
-              shown: pagedRows.length,
-              total: rows.length
+              shown: rows.length,
+              total: totalRows
             })}
           </div>
           <div className="flex items-center gap-2">
@@ -409,7 +488,7 @@ export function UsageModule({
             </div>
             <Button
               variant="neutral"
-              disabled={page <= 1}
+              disabled={page <= 1 || loadingRows}
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             >
               {t("common.pager.prev")}
@@ -417,7 +496,7 @@ export function UsageModule({
             <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
             <Button
               variant="neutral"
-              disabled={page >= totalPages}
+              disabled={page >= totalPages || loadingRows || loadingMeta}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
               {t("common.pager.next")}

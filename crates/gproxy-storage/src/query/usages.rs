@@ -11,6 +11,7 @@ pub struct UsageQuery {
     pub user_key_id: Scope<i64>,
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
+    pub offset: Option<u64>,
     pub limit: Option<u64>,
 }
 
@@ -43,4 +44,9 @@ pub struct UsageSummary {
     pub cache_creation_input_tokens: i64,
     pub cache_creation_input_tokens_5min: i64,
     pub cache_creation_input_tokens_1h: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct UsageQueryCount {
+    pub count: u64,
 }

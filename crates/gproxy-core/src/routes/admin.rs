@@ -252,5 +252,6 @@ pub fn router() -> Router<Arc<AppState>> {
             post(count_downstream_requests),
         )
         .route("/usages/query", post(query_usages))
+        .route("/usages/count", post(count_usages))
         .route("/usages/summary", post(summarize_usages))
 }

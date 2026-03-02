@@ -15,8 +15,8 @@ use crate::query::{
     CredentialQuery, CredentialQueryRow, CredentialStatusQuery, CredentialStatusQueryRow,
     DownstreamRequestQuery, DownstreamRequestQueryRow, GlobalSettingsRow, ProviderQuery,
     ProviderQueryRow, RequestQueryCount, Scope, UpstreamRequestQuery, UpstreamRequestQueryRow,
-    UsageQuery, UsageQueryRow, UsageSummary, UserKeyMemoryRow, UserKeyQuery, UserKeyQueryRow,
-    UserQuery, UserQueryRow,
+    UsageQuery, UsageQueryCount, UsageQueryRow, UsageSummary, UserKeyMemoryRow, UserKeyQuery,
+    UserKeyQueryRow, UserQuery, UserQueryRow,
 };
 
 impl SeaOrmStorage {
@@ -418,6 +418,11 @@ impl SeaOrmStorage {
             .order_by(usages::Column::TraceId, Order::Desc);
 
         stmt = apply_usage_filters(stmt, query);
+        if let Some(offset) = query.offset
+            && offset > 0
+        {
+            stmt = stmt.offset(offset);
+        }
         if let Some(limit) = query.limit
             && limit > 0
         {
@@ -477,6 +482,14 @@ impl SeaOrmStorage {
             cache_creation_input_tokens_5min: row.cache_creation_input_tokens_5min.unwrap_or(0),
             cache_creation_input_tokens_1h: row.cache_creation_input_tokens_1h.unwrap_or(0),
         })
+    }
+
+    pub async fn count_usages(&self, query: &UsageQuery) -> Result<UsageQueryCount, DbErr> {
+        let mut stmt =
+            usages::Entity::find().join(JoinType::LeftJoin, usages::Relation::Providers.def());
+        stmt = apply_usage_filters(stmt, query);
+        let count = stmt.count(self.connection()).await?;
+        Ok(UsageQueryCount { count })
     }
 }
 

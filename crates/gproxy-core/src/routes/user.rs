@@ -36,6 +36,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/keys/delete", post(delete_my_key))
         .route("/password/change", post(change_my_password))
         .route("/usages/query", post(query_my_usages))
+        .route("/usages/count", post(count_my_usages))
         .route("/usages/summary", post(summarize_my_usages))
 }
 
@@ -159,5 +160,19 @@ async fn summarize_my_usages(
     let storage = state.load_storage();
     Ok(Json(
         gproxy_admin::summarize_my_usages(&storage, &users, &keys, api_key, query).await?,
+    ))
+}
+
+async fn count_my_usages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::UsageQuery>,
+) -> Result<Json<gproxy_storage::UsageQueryCount>, HttpError> {
+    let api_key = api_key_from_headers(&headers)?;
+    let users = state.load_users();
+    let keys = state.load_keys();
+    let storage = state.load_storage();
+    Ok(Json(
+        gproxy_admin::count_my_usages(&storage, &users, &keys, api_key, query).await?,
     ))
 }

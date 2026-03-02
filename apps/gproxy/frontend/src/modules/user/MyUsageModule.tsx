@@ -5,8 +5,17 @@ import { apiRequest, formatError } from "../../lib/api";
 import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
-import type { UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
-import { Button, Card, Input, Label, MetricCard, SearchableSelect, Table } from "../../components/ui";
+import type { UsageQueryCount, UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
+import { Button, Card, Input, Label, MetricCard, SearchableSelect, Select, Table } from "../../components/ui";
+
+type UsageQuerySnapshot = {
+  channel: string;
+  model: string;
+  userKeyId: number | null;
+  fromUnixMs: number | null;
+  toUnixMs: number | null;
+  maxRows: number | null;
+};
 
 function emptySummary(): UsageSummary {
   return {
@@ -20,6 +29,40 @@ function emptySummary(): UsageSummary {
   };
 }
 
+function defaultPageSizeByViewport(): number {
+  if (typeof window === "undefined") {
+    return 20;
+  }
+  if (window.innerWidth < 640) {
+    return 5;
+  }
+  if (window.innerWidth < 1024) {
+    return 10;
+  }
+  if (window.innerWidth < 1600) {
+    return 20;
+  }
+  return 50;
+}
+
+function toPositiveOrNull(value: number | null): number | null {
+  if (value === null || value <= 0) {
+    return null;
+  }
+  return value;
+}
+
+function buildUsageBasePayload(snapshot: UsageQuerySnapshot) {
+  return {
+    channel: snapshot.channel ? scopeEq(snapshot.channel) : scopeAll<string>(),
+    model: snapshot.model ? scopeEq(snapshot.model) : scopeAll<string>(),
+    user_id: scopeAll<number>(),
+    user_key_id: snapshot.userKeyId === null ? scopeAll<number>() : scopeEq(snapshot.userKeyId),
+    from_unix_ms: snapshot.fromUnixMs,
+    to_unix_ms: snapshot.toUnixMs
+  };
+}
+
 export function MyUsageModule({
   apiKey,
   notify
@@ -30,6 +73,12 @@ export function MyUsageModule({
   const { t } = useI18n();
   const [rows, setRows] = useState<UsageQueryRow[]>([]);
   const [summary, setSummary] = useState<UsageSummary>(emptySummary());
+  const [totalRows, setTotalRows] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
+  const [page, setPage] = useState(1);
+  const [activeQuery, setActiveQuery] = useState<UsageQuerySnapshot | null>(null);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const [loadingMeta, setLoadingMeta] = useState(false);
   const [userKeyRows, setUserKeyRows] = useState<UserKeyQueryRow[]>([]);
   const [knownChannels, setKnownChannels] = useState<string[]>([]);
   const [knownModels, setKnownModels] = useState<string[]>([]);
@@ -44,23 +93,6 @@ export function MyUsageModule({
   });
 
   const selectedChannel = filters.channel.trim();
-
-  const payload = () => {
-    const userKeyId = parseOptionalI64(filters.userKeyId);
-    const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
-    const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
-    const limit = parseOptionalI64(filters.limit) ?? 200;
-
-    return {
-      channel: filters.channel.trim() ? scopeEq(filters.channel.trim()) : scopeAll<string>(),
-      model: filters.model.trim() ? scopeEq(filters.model.trim()) : scopeAll<string>(),
-      user_id: scopeAll<number>(),
-      user_key_id: userKeyId === null ? scopeAll<number>() : scopeEq(userKeyId),
-      from_unix_ms: fromUnixMs,
-      to_unix_ms: toUnixMs,
-      limit
-    };
-  };
 
   const loadUserKeys = async () => {
     try {
@@ -128,6 +160,7 @@ export function MyUsageModule({
           user_key_id: scopeAll<number>(),
           from_unix_ms: null,
           to_unix_ms: null,
+          offset: 0,
           limit: 1000
         }
       });
@@ -142,26 +175,26 @@ export function MyUsageModule({
     void loadUsageFilterOptions();
   }, [apiKey]);
 
-  const query = async () => {
-    try {
-      const [queryResult, summaryResult] = await Promise.all([
-        apiRequest<UsageQueryRow[]>("/user/usages/query", {
-          apiKey,
-          method: "POST",
-          body: payload()
-        }),
-        apiRequest<UsageSummary>("/user/usages/summary", {
-          apiKey,
-          method: "POST",
-          body: payload()
-        })
-      ]);
-      setRows(queryResult);
-      setSummary(summaryResult);
-      collectUsageMetadata(queryResult);
-    } catch (error) {
-      notify("error", formatError(error));
-    }
+  const buildSnapshot = (): UsageQuerySnapshot => {
+    const userKeyId = parseOptionalI64(filters.userKeyId);
+    const fromUnixMs = parseDateTimeLocalToUnixMs(filters.fromAt);
+    const toUnixMs = parseDateTimeLocalToUnixMs(filters.toAt);
+    return {
+      channel: filters.channel.trim(),
+      model: filters.model.trim(),
+      userKeyId,
+      fromUnixMs,
+      toUnixMs,
+      maxRows: toPositiveOrNull(parseOptionalI64(filters.limit))
+    };
+  };
+
+  const query = () => {
+    const snapshot = buildSnapshot();
+    setActiveQuery(snapshot);
+    setPage(1);
+    setRows([]);
+    setTotalRows(0);
   };
 
   const tableColumns = [
@@ -217,6 +250,85 @@ export function MyUsageModule({
       setFilters((prev) => ({ ...prev, model: "" }));
     }
   }, [filters.model, modelOptions]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    setLoadingMeta(true);
+    const fetchMeta = async () => {
+      try {
+        const basePayload = buildUsageBasePayload(activeQuery);
+        const [countResult, summaryResult] = await Promise.all([
+          apiRequest<UsageQueryCount>("/user/usages/count", {
+            apiKey,
+            method: "POST",
+            body: basePayload
+          }),
+          apiRequest<UsageSummary>("/user/usages/summary", {
+            apiKey,
+            method: "POST",
+            body: basePayload
+          })
+        ]);
+        const maxRows = activeQuery.maxRows;
+        setTotalRows(maxRows === null ? countResult.count : Math.min(countResult.count, maxRows));
+        setSummary(summaryResult);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        setLoadingMeta(false);
+      }
+    };
+    void fetchMeta();
+  }, [activeQuery, apiKey, notify]);
+
+  useEffect(() => {
+    if (!activeQuery) {
+      return;
+    }
+    const offset = (page - 1) * pageSize;
+    const maxRows = activeQuery.maxRows;
+    const remaining = maxRows === null ? pageSize : Math.max(0, maxRows - offset);
+    const limit = Math.min(pageSize, remaining);
+    if (limit <= 0) {
+      setRows([]);
+      return;
+    }
+    setLoadingRows(true);
+    const fetchRows = async () => {
+      try {
+        const data = await apiRequest<UsageQueryRow[]>("/user/usages/query", {
+          apiKey,
+          method: "POST",
+          body: {
+            ...buildUsageBasePayload(activeQuery),
+            offset,
+            limit
+          }
+        });
+        setRows(data);
+        collectUsageMetadata(data);
+      } catch (error) {
+        notify("error", formatError(error));
+      } finally {
+        setLoadingRows(false);
+      }
+    };
+    void fetchRows();
+  }, [activeQuery, apiKey, notify, page, pageSize]);
 
   return (
     <div className="space-y-4">
@@ -274,7 +386,9 @@ export function MyUsageModule({
           </div>
         </div>
         <div className="mt-3">
-          <Button onClick={() => void query()}>{t("common.query")}</Button>
+          <Button onClick={query} disabled={loadingRows || loadingMeta}>
+            {loadingRows || loadingMeta ? t("common.loading") : t("common.query")}
+          </Button>
         </div>
       </Card>
       <div className="grid gap-3 md:grid-cols-7">
@@ -287,21 +401,61 @@ export function MyUsageModule({
         <MetricCard label={t("metric.cache_creation_1h")} value={summary.cache_creation_input_tokens_1h} />
       </div>
       <Card title={t("myUsage.rows")}>
-        <Table
-          columns={tableColumns}
-          rows={rows.map((row) => ({
-            [tableColumns[0]]: row.trace_id,
-            [tableColumns[1]]: row.provider_channel ?? "",
-            [tableColumns[2]]: row.model ?? "",
-            [tableColumns[3]]: row.input_tokens ?? "",
-            [tableColumns[4]]: row.output_tokens ?? "",
-            [tableColumns[5]]: row.cache_read_input_tokens ?? "",
-            [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
-            [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
-            [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
-            [tableColumns[9]]: formatAtForViewer(row.at)
-          }))}
-        />
+        <div className="query-result-table-wrap">
+          <Table
+            columns={tableColumns}
+            rows={rows.map((row) => ({
+              [tableColumns[0]]: row.trace_id,
+              [tableColumns[1]]: row.provider_channel ?? "",
+              [tableColumns[2]]: row.model ?? "",
+              [tableColumns[3]]: row.input_tokens ?? "",
+              [tableColumns[4]]: row.output_tokens ?? "",
+              [tableColumns[5]]: row.cache_read_input_tokens ?? "",
+              [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
+              [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
+              [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
+              [tableColumns[9]]: formatAtForViewer(row.at)
+            }))}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <div>
+            {t("common.pager.stats", {
+              shown: rows.length,
+              total: totalRows
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <span>{t("common.show")}</span>
+            <div className="w-20">
+              <Select
+                value={String(pageSize)}
+                onChange={(value) => setPageSize(Number(value))}
+                options={[
+                  { value: "5", label: "5" },
+                  { value: "10", label: "10" },
+                  { value: "20", label: "20" },
+                  { value: "50", label: "50" }
+                ]}
+              />
+            </div>
+            <Button
+              variant="neutral"
+              disabled={page <= 1 || loadingRows}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            >
+              {t("common.pager.prev")}
+            </Button>
+            <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
+            <Button
+              variant="neutral"
+              disabled={page >= totalPages || loadingRows || loadingMeta}
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            >
+              {t("common.pager.next")}
+            </Button>
+          </div>
+        </div>
       </Card>
     </div>
   );

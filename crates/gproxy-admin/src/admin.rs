@@ -3,8 +3,8 @@ use gproxy_storage::{
     CredentialStatusWrite, CredentialWrite, DownstreamRequestQuery, DownstreamRequestQueryRow,
     GlobalSettingsRow, GlobalSettingsWrite, ProviderQuery, ProviderQueryRow, ProviderWrite,
     RequestQueryCount, Scope, StorageWriteEvent, StorageWriteSender, UpstreamRequestQuery,
-    UpstreamRequestQueryRow, UsageQuery, UsageQueryRow, UsageSummary, UserKeyQuery,
-    UserKeyQueryRow, UserKeyWrite, UserQuery, UserQueryRow, UserWrite,
+    UpstreamRequestQueryRow, UsageQuery, UsageQueryCount, UsageQueryRow, UsageSummary,
+    UserKeyQuery, UserKeyQueryRow, UserKeyWrite, UserQuery, UserQueryRow, UserWrite,
 };
 use std::collections::HashMap;
 
@@ -227,6 +227,13 @@ pub async fn summarize_usages(
     query: UsageQuery,
 ) -> Result<UsageSummary, AdminApiError> {
     Ok(storage.summarize_usages(&query).await?)
+}
+
+pub async fn count_usages(
+    storage: &gproxy_storage::SeaOrmStorage,
+    query: UsageQuery,
+) -> Result<UsageQueryCount, AdminApiError> {
+    Ok(storage.count_usages(&query).await?)
 }
 
 pub fn default_user_query() -> UserQuery {
