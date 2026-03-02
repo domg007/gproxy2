@@ -163,13 +163,9 @@ pub fn openai_reasoning_to_claude(
                 type_: ct::BetaThinkingConfigDisabledType::Disabled,
             })
         }
-        ot::ResponseReasoningEffort::Medium => {
-            ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
-                type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
-            })
-        }
         ot::ResponseReasoningEffort::Minimal
         | ot::ResponseReasoningEffort::Low
+        | ot::ResponseReasoningEffort::Medium
         | ot::ResponseReasoningEffort::High
         | ot::ResponseReasoningEffort::XHigh => {
             if let Some(max_tokens) = max_tokens {
@@ -512,13 +508,15 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_medium_maps_to_adaptive() {
+    fn reasoning_medium_maps_to_budgeted_enabled() {
         let thinking =
             openai_reasoning_to_claude(reasoning(ot::ResponseReasoningEffort::Medium), Some(8_192));
-        assert!(matches!(
-            thinking,
-            Some(ct::BetaThinkingConfigParam::Adaptive(_))
-        ));
+        match thinking {
+            Some(ct::BetaThinkingConfigParam::Enabled(config)) => {
+                assert_eq!(config.budget_tokens, 4_096);
+            }
+            other => panic!("unexpected thinking config: {other:?}"),
+        }
     }
 
     #[test]
