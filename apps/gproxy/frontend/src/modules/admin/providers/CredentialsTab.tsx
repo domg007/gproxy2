@@ -21,6 +21,7 @@ import type { CooldownItem, CredentialHealthKind, TranslateFn } from "./credenti
 import {
   availableBulkModes,
   buildBulkExportText,
+  credentialDefaultNameFromSecretJson,
   defaultBulkMode,
   getChannelConfig,
   parseBulkCredentialText,
@@ -43,6 +44,8 @@ type OAuthReadableResult = {
   interval?: string;
   instructions?: string;
 };
+
+type CredentialSearchMode = "id" | "name";
 
 export type CredentialsTabMode = "single" | "bulk" | "list";
 
@@ -99,6 +102,22 @@ export type CredentialsTabActions = {
   onUpsertCredential: () => void;
   onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void;
 };
+
+function defaultCredentialPageSize(): number {
+  if (typeof window === "undefined") {
+    return 20;
+  }
+  if (window.innerWidth < 640) {
+    return 5;
+  }
+  if (window.innerWidth < 1024) {
+    return 10;
+  }
+  if (window.innerWidth < 1600) {
+    return 20;
+  }
+  return 50;
+}
 
 function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
   const text = raw.trim();
@@ -243,6 +262,10 @@ export function CredentialsTab({
   const [singleQuickAddText, setSingleQuickAddText] = useState("");
   const [singleQuickAddError, setSingleQuickAddError] = useState("");
   const [listEditorCredentialId, setListEditorCredentialId] = useState<number | null>(null);
+  const [listSearchMode, setListSearchMode] = useState<CredentialSearchMode>("name");
+  const [listSearchText, setListSearchText] = useState("");
+  const [listPageSize, setListPageSize] = useState<number>(() => defaultCredentialPageSize());
+  const [listPage, setListPage] = useState(1);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const oauthReadableResult = useMemo(
     () => parseOAuthReadableResult(oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? ""),
@@ -263,6 +286,10 @@ export function CredentialsTab({
     setExpandedCooldownCredentialId(null);
     setSelectedCooldownKeysByCredential({});
     setListEditorCredentialId(null);
+    setListSearchMode("name");
+    setListSearchText("");
+    setListPageSize(defaultCredentialPageSize());
+    setListPage(1);
   }, [channel, credentialSchema, supportsOAuth]);
 
   useEffect(() => {
@@ -273,6 +300,40 @@ export function CredentialsTab({
       setListEditorCredentialId(null);
     }
   }, [credentialRows, listEditorCredentialId]);
+
+  const filteredCredentialRows = useMemo(() => {
+    const needle = listSearchText.trim().toLowerCase();
+    if (!needle) {
+      return credentialRows;
+    }
+    return credentialRows.filter((row) => {
+      if (listSearchMode === "id") {
+        return String(row.id).includes(needle);
+      }
+      const displayName =
+        row.name ??
+        credentialDefaultNameFromSecretJson(channel, row.secret_json) ??
+        "";
+      return displayName.toLowerCase().includes(needle);
+    });
+  }, [channel, credentialRows, listSearchMode, listSearchText]);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [listSearchMode, listSearchText, listPageSize]);
+
+  const listTotalPages = Math.max(1, Math.ceil(filteredCredentialRows.length / listPageSize));
+
+  useEffect(() => {
+    if (listPage > listTotalPages) {
+      setListPage(listTotalPages);
+    }
+  }, [listPage, listTotalPages]);
+
+  const pagedCredentialRows = useMemo(() => {
+    const start = (listPage - 1) * listPageSize;
+    return filteredCredentialRows.slice(start, start + listPageSize);
+  }, [filteredCredentialRows, listPage, listPageSize]);
 
   const singleQuickAddPlaceholder = useMemo(() => {
     if (channel === "claudecode") {
@@ -756,45 +817,114 @@ export function CredentialsTab({
         </>
       ) : (
         <>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-24">
+              <Select
+                value={listSearchMode}
+                onChange={(value) => setListSearchMode(value as CredentialSearchMode)}
+                options={[
+                  { value: "id", label: t("providers.search.mode.id") },
+                  { value: "name", label: t("providers.search.mode.name") }
+                ]}
+              />
+            </div>
+            <div className="min-w-[180px] flex-1">
+              <Input
+                value={listSearchText}
+                onChange={setListSearchText}
+                placeholder={t("providers.search.placeholder.credential")}
+              />
+            </div>
+            <div className="w-20">
+              <Select
+                value={String(listPageSize)}
+                onChange={(value) => setListPageSize(Number(value))}
+                options={[
+                  { value: "5", label: "5" },
+                  { value: "10", label: "10" },
+                  { value: "20", label: "20" },
+                  { value: "50", label: "50" }
+                ]}
+              />
+            </div>
+          </div>
 
-          <CredentialCardsSection
-            channel={channel}
-            credentialRows={credentialRows}
-            statusesByCredential={statusesByCredential}
-            usageByCredential={usageByCredential}
-            liveUsageRowsByCredential={liveUsageRowsByCredential}
-            usageDisplayKindByCredential={usageDisplayKindByCredential}
-            usageDisplayRowsByCredential={usageDisplayRowsByCredential}
-            usageLoadingByCredential={usageLoadingByCredential}
-            usageErrorByCredential={usageErrorByCredential}
-            supportsUpstreamUsage={supportsUpstreamUsage}
-            expandedCooldownCredentialId={expandedCooldownCredentialId}
-            setExpandedCooldownCredentialId={setExpandedCooldownCredentialId}
-            selectedCooldownKeysByCredential={selectedCooldownKeysByCredential}
-            setSelectedCooldownKeysByCredential={setSelectedCooldownKeysByCredential}
-            statusEditorCredentialId={statusEditorCredentialId}
-            setStatusEditorCredentialId={setStatusEditorCredentialId}
-            statusForm={statusForm}
-            setStatusForm={setStatusForm}
-            onEditCredential={(row) => {
-              setListEditorCredentialId(row.id);
-              onEditCredential(row);
-            }}
-            onCopyCredential={onCopyCredential}
-            onRemoveCredential={onRemoveCredential}
-            onToggleCredentialEnabled={onToggleCredentialEnabled}
-            onSetCredentialHealth={onSetCredentialHealth}
-            onQueryUpstreamUsage={onQueryUpstreamUsage}
-            onUpsertStatus={onUpsertStatus}
-            normalizeHealthKind={normalizeHealthKind}
-            parseCooldowns={parseCooldowns}
-            healthLabel={healthLabel}
-            cooldownKey={cooldownKey}
-            formatWindowLabel={formatWindowLabel}
-            resolveUsageGroupLabel={resolveUsageGroupLabel}
-            resolveLiveLimitLabel={resolveLiveLimitLabel}
-            t={t}
-          />
+          {filteredCredentialRows.length === 0 ? (
+            <div className="provider-card text-sm text-muted">
+              {t("providers.search.emptyCredential")}
+            </div>
+          ) : (
+            <>
+              <CredentialCardsSection
+                channel={channel}
+                credentialRows={pagedCredentialRows}
+                statusesByCredential={statusesByCredential}
+                usageByCredential={usageByCredential}
+                liveUsageRowsByCredential={liveUsageRowsByCredential}
+                usageDisplayKindByCredential={usageDisplayKindByCredential}
+                usageDisplayRowsByCredential={usageDisplayRowsByCredential}
+                usageLoadingByCredential={usageLoadingByCredential}
+                usageErrorByCredential={usageErrorByCredential}
+                supportsUpstreamUsage={supportsUpstreamUsage}
+                expandedCooldownCredentialId={expandedCooldownCredentialId}
+                setExpandedCooldownCredentialId={setExpandedCooldownCredentialId}
+                selectedCooldownKeysByCredential={selectedCooldownKeysByCredential}
+                setSelectedCooldownKeysByCredential={setSelectedCooldownKeysByCredential}
+                statusEditorCredentialId={statusEditorCredentialId}
+                setStatusEditorCredentialId={setStatusEditorCredentialId}
+                statusForm={statusForm}
+                setStatusForm={setStatusForm}
+                onEditCredential={(row) => {
+                  setListEditorCredentialId(row.id);
+                  onEditCredential(row);
+                }}
+                onCopyCredential={onCopyCredential}
+                onRemoveCredential={onRemoveCredential}
+                onToggleCredentialEnabled={onToggleCredentialEnabled}
+                onSetCredentialHealth={onSetCredentialHealth}
+                onQueryUpstreamUsage={onQueryUpstreamUsage}
+                onUpsertStatus={onUpsertStatus}
+                normalizeHealthKind={normalizeHealthKind}
+                parseCooldowns={parseCooldowns}
+                healthLabel={healthLabel}
+                cooldownKey={cooldownKey}
+                formatWindowLabel={formatWindowLabel}
+                resolveUsageGroupLabel={resolveUsageGroupLabel}
+                resolveLiveLimitLabel={resolveLiveLimitLabel}
+                t={t}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                <div>
+                  {t("providers.pager.stats", {
+                    shown: pagedCredentialRows.length,
+                    total: filteredCredentialRows.length
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="neutral"
+                    disabled={listPage <= 1}
+                    onClick={() => setListPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    {t("providers.pager.prev")}
+                  </Button>
+                  <span>
+                    {t("providers.pager.page", {
+                      current: listPage,
+                      total: listTotalPages
+                    })}
+                  </span>
+                  <Button
+                    variant="neutral"
+                    disabled={listPage >= listTotalPages}
+                    onClick={() => setListPage((prev) => Math.min(listTotalPages, prev + 1))}
+                  >
+                    {t("providers.pager.next")}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
 
           {listEditorCredentialId !== null ? (
             <div className="provider-card space-y-3">
