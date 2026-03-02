@@ -17,7 +17,6 @@ import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import { CredentialBulkSection } from "./credentials-tab/CredentialBulkSection";
 import { CredentialCardsSection } from "./credentials-tab/CredentialCardsSection";
 import { CredentialSingleSection } from "./credentials-tab/CredentialSingleSection";
-import { CredentialsSubTabs } from "./credentials-tab/CredentialsSubTabs";
 import type { CooldownItem, CredentialHealthKind, TranslateFn } from "./credentials-tab/shared";
 import {
   availableBulkModes,
@@ -27,7 +26,6 @@ import {
   parseBulkCredentialText,
   type BulkCredentialImportEntry,
   type CredentialBulkMode,
-  type CredentialsSubTab,
   type LiveUsageRow,
   type UsageDisplayKind,
   type UsageDisplayRow,
@@ -45,6 +43,8 @@ type OAuthReadableResult = {
   interval?: string;
   instructions?: string;
 };
+
+export type CredentialsTabMode = "single" | "bulk" | "list";
 
 export type CredentialsTabViewModel = {
   selectedProvider: ProviderQueryRow | null;
@@ -147,10 +147,12 @@ function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
 }
 
 export function CredentialsTab({
+  mode,
   viewModel,
   actions,
   t
 }: {
+  mode: CredentialsTabMode;
   viewModel: CredentialsTabViewModel;
   actions: CredentialsTabActions;
   t: TranslateFn;
@@ -226,7 +228,6 @@ export function CredentialsTab({
     () => availableBulkModes(channel, credentialSchema, supportsOAuth),
     [channel, credentialSchema, supportsOAuth]
   );
-  const [subTab, setSubTab] = useState<CredentialsSubTab>("single");
   const [bulkMode, setBulkMode] = useState<CredentialBulkMode>(
     defaultBulkMode(channel, credentialSchema, supportsOAuth)
   );
@@ -241,6 +242,7 @@ export function CredentialsTab({
   const [bulkError, setBulkError] = useState("");
   const [singleQuickAddText, setSingleQuickAddText] = useState("");
   const [singleQuickAddError, setSingleQuickAddError] = useState("");
+  const [listEditorCredentialId, setListEditorCredentialId] = useState<number | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const oauthReadableResult = useMemo(
     () => parseOAuthReadableResult(oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? ""),
@@ -252,7 +254,6 @@ export function CredentialsTab({
   const oauthOpenUrl = oauthReadableResult?.authUrl ?? oauthReadableResult?.verificationUri;
 
   useEffect(() => {
-    setSubTab("single");
     setBulkMode(defaultBulkMode(channel, credentialSchema, supportsOAuth));
     setBulkInputText("");
     setBulkExportText("");
@@ -261,13 +262,17 @@ export function CredentialsTab({
     setSingleQuickAddError("");
     setExpandedCooldownCredentialId(null);
     setSelectedCooldownKeysByCredential({});
+    setListEditorCredentialId(null);
   }, [channel, credentialSchema, supportsOAuth]);
 
   useEffect(() => {
-    if (!supportsOAuth && subTab === "oauth") {
-      setSubTab("single");
+    if (listEditorCredentialId === null) {
+      return;
     }
-  }, [subTab, supportsOAuth]);
+    if (!credentialRows.some((row) => row.id === listEditorCredentialId)) {
+      setListEditorCredentialId(null);
+    }
+  }, [credentialRows, listEditorCredentialId]);
 
   const singleQuickAddPlaceholder = useMemo(() => {
     if (channel === "claudecode") {
@@ -616,200 +621,202 @@ export function CredentialsTab({
     );
   };
 
-  return (
-    <div className="space-y-4">
-      <CredentialCardsSection
-        channel={channel}
-        credentialRows={credentialRows}
-        statusesByCredential={statusesByCredential}
-        usageByCredential={usageByCredential}
-        liveUsageRowsByCredential={liveUsageRowsByCredential}
-        usageDisplayKindByCredential={usageDisplayKindByCredential}
-        usageDisplayRowsByCredential={usageDisplayRowsByCredential}
-        usageLoadingByCredential={usageLoadingByCredential}
-        usageErrorByCredential={usageErrorByCredential}
-        supportsUpstreamUsage={supportsUpstreamUsage}
-        expandedCooldownCredentialId={expandedCooldownCredentialId}
-        setExpandedCooldownCredentialId={setExpandedCooldownCredentialId}
-        selectedCooldownKeysByCredential={selectedCooldownKeysByCredential}
-        setSelectedCooldownKeysByCredential={setSelectedCooldownKeysByCredential}
-        statusEditorCredentialId={statusEditorCredentialId}
-        setStatusEditorCredentialId={setStatusEditorCredentialId}
-        statusForm={statusForm}
-        setStatusForm={setStatusForm}
-        onEditCredential={(row) => {
-          setSubTab("single");
-          onEditCredential(row);
-        }}
-        onCopyCredential={onCopyCredential}
-        onRemoveCredential={onRemoveCredential}
-        onToggleCredentialEnabled={onToggleCredentialEnabled}
-        onSetCredentialHealth={onSetCredentialHealth}
-        onQueryUpstreamUsage={onQueryUpstreamUsage}
-        onUpsertStatus={onUpsertStatus}
-        normalizeHealthKind={normalizeHealthKind}
-        parseCooldowns={parseCooldowns}
-        healthLabel={healthLabel}
-        cooldownKey={cooldownKey}
-        formatWindowLabel={formatWindowLabel}
-        resolveUsageGroupLabel={resolveUsageGroupLabel}
-        resolveLiveLimitLabel={resolveLiveLimitLabel}
-        t={t}
-      />
-
-      <CredentialsSubTabs
-        subTab={subTab}
-        setSubTab={setSubTab}
-        supportsOAuth={supportsOAuth}
-        t={t}
-      />
-
-      {subTab === "single" ? (
-        <div className="space-y-3">
-          <CredentialSingleSection
-            credentialForm={credentialForm}
-            setCredentialForm={setCredentialForm}
-            credentialSchema={credentialSchema}
-            renderCredentialField={renderCredentialField}
-            onUpsertCredential={onUpsertCredential}
-            extraSectionBeforeOAuth={
-              <div className="space-y-3 rounded-xl border border-border p-3">
+  const oauthSection = supportsOAuth ? (
+    <div className="provider-card space-y-2">
+      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+        {t("providers.section.oauth")}
+      </div>
+      {oauthUi?.startFields.map((field) => renderOAuthField("start", field, oauthStartQuery))}
+      <div className="flex flex-wrap gap-2">
+        {oauthStartButtons.map((button) => (
+          <Button
+            key={button.labelKey}
+            variant={button.mode ? "neutral" : "primary"}
+            onClick={() => onRunCredentialOAuthStart(undefined, button.mode, button.queryDefaults)}
+          >
+            {t(button.labelKey)}
+          </Button>
+        ))}
+        {oauthOpenUrl ? (
+          <a
+            className="btn btn-primary inline-flex"
+            href={oauthOpenUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("providers.oauth.openAuthUrl")}
+          </a>
+        ) : null}
+        {!oauthCallbackUsesCustomFields
+          ? oauthCallbackButtons.map((button) => (
+              <Button
+                key={button.labelKey}
+                variant={button.mode ? "neutral" : "primary"}
+                onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
+              >
+                {t(button.labelKey)}
+              </Button>
+            ))
+          : null}
+      </div>
+      {!oauthCallbackUsesCustomFields
+        ? oauthUi?.callbackFields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))
+        : null}
+      {oauthCallbackUsesCustomFields ? (
+        <div className="space-y-2">
+          {oauthCallbackButtons.map((button) => {
+            const fields = button.fields ?? oauthUi?.callbackFields ?? [];
+            return (
+              <div
+                key={`callback-${button.labelKey}`}
+                className="space-y-2 rounded-lg border border-border p-3"
+              >
                 <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                  {t("providers.singleQuick.title")}
+                  {t(button.labelKey)}
                 </div>
-                <div className="text-sm text-muted">{t("providers.singleQuick.hint")}</div>
-                <TextArea
-                  rows={4}
-                  value={singleQuickAddText}
-                  onChange={(value) => {
-                    setSingleQuickAddText(value);
-                    setSingleQuickAddError("");
-                  }}
-                  placeholder={singleQuickAddPlaceholder}
-                />
-                {singleQuickAddError ? (
-                  <div className="text-sm text-red-500">{singleQuickAddError}</div>
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={runSingleQuickAdd}>{t("providers.singleQuick.add")}</Button>
-                  <Button
-                    variant="neutral"
-                    onClick={() => {
-                      setSingleQuickAddText("");
-                      setSingleQuickAddError("");
-                    }}
-                  >
-                    {t("providers.bulk.clearInput")}
-                  </Button>
-                </div>
-              </div>
-            }
-            t={t}
-          />
-        </div>
-      ) : subTab === "oauth" ? (
-        supportsOAuth ? (
-          <div className="provider-card space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {t("providers.section.oauth")}
-            </div>
-            {oauthUi?.startFields.map((field) => renderOAuthField("start", field, oauthStartQuery))}
-            <div className="flex flex-wrap gap-2">
-              {oauthStartButtons.map((button) => (
+                {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
                 <Button
-                  key={button.labelKey}
                   variant={button.mode ? "neutral" : "primary"}
-                  onClick={() => onRunCredentialOAuthStart(undefined, button.mode, button.queryDefaults)}
+                  onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
                 >
                   {t(button.labelKey)}
                 </Button>
-              ))}
-              {oauthOpenUrl ? (
-                <a
-                  className="btn btn-primary inline-flex"
-                  href={oauthOpenUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {t("providers.oauth.openAuthUrl")}
-                </a>
-              ) : null}
-              {!oauthCallbackUsesCustomFields
-                ? oauthCallbackButtons.map((button) => (
-                    <Button
-                      key={button.labelKey}
-                      variant={button.mode ? "neutral" : "primary"}
-                      onClick={() =>
-                        onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
-                      }
-                    >
-                      {t(button.labelKey)}
-                    </Button>
-                  ))
-                : null}
-            </div>
-            {!oauthCallbackUsesCustomFields
-              ? oauthUi?.callbackFields.map((field) =>
-                  renderOAuthField("callback", field, oauthCallbackQuery)
-                )
-              : null}
-            {oauthCallbackUsesCustomFields ? (
-              <div className="space-y-2">
-                {oauthCallbackButtons.map((button) => {
-                  const fields = button.fields ?? oauthUi?.callbackFields ?? [];
-                  return (
-                    <div
-                      key={`callback-${button.labelKey}`}
-                      className="space-y-2 rounded-lg border border-border p-3"
-                    >
-                      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                        {t(button.labelKey)}
-                      </div>
-                      {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
-                      <Button
-                        variant={button.mode ? "neutral" : "primary"}
-                        onClick={() =>
-                          onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
-                        }
-                      >
-                        {t(button.labelKey)}
-                      </Button>
-                    </div>
-                  );
-                })}
               </div>
-            ) : null}
-            {oauthRawResult ? (
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                  {t("providers.oauth.response")}
-                </div>
-                <TextArea value={oauthRawResult} rows={10} readOnly onChange={() => {}} />
-              </div>
-            ) : null}
+            );
+          })}
+        </div>
+      ) : null}
+      {oauthRawResult ? (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            {t("providers.oauth.response")}
           </div>
-        ) : (
-          <div className="provider-card text-sm text-muted">{t("providers.oauth.unsupported")}</div>
-        )
+          <TextArea value={oauthRawResult} rows={10} readOnly onChange={() => {}} />
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <div className="provider-card text-sm text-muted">{t("providers.oauth.unsupported")}</div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {mode === "single" ? (
+        <>
+          <div className="space-y-3 rounded-xl border border-border p-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              {t("providers.singleQuick.title")}
+            </div>
+            <div className="text-sm text-muted">{t("providers.singleQuick.hint")}</div>
+            <TextArea
+              rows={4}
+              value={singleQuickAddText}
+              onChange={(value) => {
+                setSingleQuickAddText(value);
+                setSingleQuickAddError("");
+              }}
+              placeholder={singleQuickAddPlaceholder}
+            />
+            {singleQuickAddError ? <div className="text-sm text-red-500">{singleQuickAddError}</div> : null}
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={runSingleQuickAdd}>{t("providers.singleQuick.add")}</Button>
+              <Button
+                variant="neutral"
+                onClick={() => {
+                  setSingleQuickAddText("");
+                  setSingleQuickAddError("");
+                }}
+              >
+                {t("providers.bulk.clearInput")}
+              </Button>
+            </div>
+          </div>
+          {oauthSection}
+        </>
+      ) : mode === "bulk" ? (
+        <>
+          <CredentialBulkSection
+            bulkModes={bulkModes}
+            bulkMode={bulkMode}
+            setBulkMode={setBulkMode}
+            bulkInputText={bulkInputText}
+            setBulkInputText={setBulkInputText}
+            bulkPlaceholder={bulkPlaceholder}
+            bulkError={bulkError}
+            setBulkError={setBulkError}
+            runBulkImport={runBulkImport}
+            runBulkExport={runBulkExport}
+            openBulkImportFilePicker={openBulkImportFilePicker}
+            runBulkExportFile={runBulkExportFile}
+            bulkFileInputRef={bulkFileInputRef}
+            onBulkImportFileChange={onBulkImportFileChange}
+            bulkExportText={bulkExportText}
+            t={t}
+          />
+        </>
       ) : (
-        <CredentialBulkSection
-          bulkModes={bulkModes}
-          bulkMode={bulkMode}
-          setBulkMode={setBulkMode}
-          bulkInputText={bulkInputText}
-          setBulkInputText={setBulkInputText}
-          bulkPlaceholder={bulkPlaceholder}
-          bulkError={bulkError}
-          setBulkError={setBulkError}
-          runBulkImport={runBulkImport}
-          runBulkExport={runBulkExport}
-          openBulkImportFilePicker={openBulkImportFilePicker}
-          runBulkExportFile={runBulkExportFile}
-          bulkFileInputRef={bulkFileInputRef}
-          onBulkImportFileChange={onBulkImportFileChange}
-          bulkExportText={bulkExportText}
-          t={t}
-        />
+        <>
+
+          <CredentialCardsSection
+            channel={channel}
+            credentialRows={credentialRows}
+            statusesByCredential={statusesByCredential}
+            usageByCredential={usageByCredential}
+            liveUsageRowsByCredential={liveUsageRowsByCredential}
+            usageDisplayKindByCredential={usageDisplayKindByCredential}
+            usageDisplayRowsByCredential={usageDisplayRowsByCredential}
+            usageLoadingByCredential={usageLoadingByCredential}
+            usageErrorByCredential={usageErrorByCredential}
+            supportsUpstreamUsage={supportsUpstreamUsage}
+            expandedCooldownCredentialId={expandedCooldownCredentialId}
+            setExpandedCooldownCredentialId={setExpandedCooldownCredentialId}
+            selectedCooldownKeysByCredential={selectedCooldownKeysByCredential}
+            setSelectedCooldownKeysByCredential={setSelectedCooldownKeysByCredential}
+            statusEditorCredentialId={statusEditorCredentialId}
+            setStatusEditorCredentialId={setStatusEditorCredentialId}
+            statusForm={statusForm}
+            setStatusForm={setStatusForm}
+            onEditCredential={(row) => {
+              setListEditorCredentialId(row.id);
+              onEditCredential(row);
+            }}
+            onCopyCredential={onCopyCredential}
+            onRemoveCredential={onRemoveCredential}
+            onToggleCredentialEnabled={onToggleCredentialEnabled}
+            onSetCredentialHealth={onSetCredentialHealth}
+            onQueryUpstreamUsage={onQueryUpstreamUsage}
+            onUpsertStatus={onUpsertStatus}
+            normalizeHealthKind={normalizeHealthKind}
+            parseCooldowns={parseCooldowns}
+            healthLabel={healthLabel}
+            cooldownKey={cooldownKey}
+            formatWindowLabel={formatWindowLabel}
+            resolveUsageGroupLabel={resolveUsageGroupLabel}
+            resolveLiveLimitLabel={resolveLiveLimitLabel}
+            t={t}
+          />
+
+          {listEditorCredentialId !== null ? (
+            <div className="provider-card space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                  {t("providers.subtab.single")} #{listEditorCredentialId}
+                </div>
+                <Button variant="neutral" onClick={() => setListEditorCredentialId(null)}>
+                  {t("common.close")}
+                </Button>
+              </div>
+              <CredentialSingleSection
+                credentialForm={credentialForm}
+                setCredentialForm={setCredentialForm}
+                credentialSchema={credentialSchema}
+                renderCredentialField={renderCredentialField}
+                onUpsertCredential={onUpsertCredential}
+                t={t}
+              />
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );

@@ -589,7 +589,7 @@ export function ProvidersModule({
     setCredentialForm(
       credentialFormFromRow(selectedProvider?.channel ?? providerForm.channel, row)
     );
-    setActiveTab("credentials");
+    setActiveTab("list");
   };
 
   const copyCredential = async (row: CredentialQueryRow) => {
@@ -726,12 +726,22 @@ export function ProvidersModule({
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {([
-                  { id: "config", label: t("providers.tab.config"), enabled: true },
                   {
-                    id: "credentials",
-                    label: t("providers.tab.credentials"),
+                    id: "single",
+                    label: t("providers.tab.single"),
                     enabled: !!selectedProvider
-                  }
+                  },
+                  {
+                    id: "bulk",
+                    label: t("providers.tab.bulk"),
+                    enabled: !!selectedProvider
+                  },
+                  {
+                    id: "list",
+                    label: t("providers.tab.list"),
+                    enabled: !!selectedProvider
+                  },
+                  { id: "config", label: t("providers.tab.config"), enabled: true },
                 ] as Array<{ id: WorkspaceTab; label: string; enabled: boolean }>).map((tab) => (
                   <button
                     key={tab.id}
@@ -766,8 +776,31 @@ export function ProvidersModule({
                 />
               ) : null}
 
-              {activeTab === "credentials" ? (
-                <CredentialsTab viewModel={credentialsViewModel} actions={credentialsActions} t={t} />
+              {activeTab === "single" ? (
+                <CredentialsTab
+                  mode="single"
+                  viewModel={credentialsViewModel}
+                  actions={credentialsActions}
+                  t={t}
+                />
+              ) : null}
+
+              {activeTab === "bulk" ? (
+                <CredentialsTab
+                  mode="bulk"
+                  viewModel={credentialsViewModel}
+                  actions={credentialsActions}
+                  t={t}
+                />
+              ) : null}
+
+              {activeTab === "list" ? (
+                <CredentialsTab
+                  mode="list"
+                  viewModel={credentialsViewModel}
+                  actions={credentialsActions}
+                  t={t}
+                />
               ) : null}
             </div>
           )}
