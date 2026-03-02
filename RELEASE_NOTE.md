@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.3.9
+
+### Changed
+
+- Add unquote and normalizeClaudeCodeCookie functions for credential handling
+
 ## v0.3.8
 
 ### Changed

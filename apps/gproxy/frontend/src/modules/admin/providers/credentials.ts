@@ -94,6 +94,35 @@ function encodeCredentialPayload(
   };
 }
 
+function unquote(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+function normalizeClaudeCodeCookie(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const sessionKeyMatch = trimmed.match(/(?:^|[;\s])sessionKey\s*=\s*([^;]+)/i);
+  if (sessionKeyMatch) {
+    return unquote(sessionKeyMatch[1]?.trim() ?? "");
+  }
+  const unquoted = unquote(trimmed);
+  const keyMatch = unquoted.match(/(sk-ant-[A-Za-z0-9_-]+)/);
+  if (keyMatch) {
+    return keyMatch[1];
+  }
+  return unquoted;
+}
+
 export function credentialSchemaForChannel(channel: string): ChannelCredentialSchema {
   const normalized = normalizeChannel(channel);
   const config = getChannelConfig(normalized) ?? getChannelConfig("custom");
@@ -153,6 +182,7 @@ export function buildCredentialSecretJson(
   values: Record<string, CredentialFieldValue>
 ): string {
   const schema = credentialSchemaForChannel(channel);
+  const normalizedChannel = normalizeChannel(channel);
   const payload: Record<string, unknown> = {};
 
   for (const field of schema.fields) {
@@ -167,7 +197,11 @@ export function buildCredentialSecretJson(
       }
       continue;
     }
-    const text = typeof raw === "string" ? raw.trim() : "";
+    const rawText = typeof raw === "string" ? raw.trim() : "";
+    const text =
+      normalizedChannel === "claudecode" && field.key === "cookie"
+        ? normalizeClaudeCodeCookie(rawText)
+        : rawText;
     if (field.type === "optional_string") {
       if (text) {
         payload[field.key] = text;
