@@ -5,6 +5,7 @@ use gproxy_provider::{
     CredentialPickMode, CredentialRef, ProviderCredentialState, ProviderDefinition,
     ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
     credential_health_to_storage, credential_kind_for_storage,
+    parse_credential_pick_mode_from_provider_settings_value,
     provider_settings_to_json_string_with_credential_pick_mode,
 };
 use gproxy_storage::{
@@ -82,22 +83,51 @@ pub(super) async fn seed_registry_providers(
         .collect::<std::collections::HashSet<_>>();
     let mut next_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
 
-    // Builtin providers are always seeded so runtime and storage stay in sync
-    // even when config.toml is absent.
+    // Prefer existing storage provider settings/pick mode/dispatch so runtime does
+    // not overwrite admin updates on restart when config.toml is absent.
     let mut provider_by_channel = std::collections::BTreeMap::<String, ProviderDefinition>::new();
+    for row in &existing {
+        let channel = ChannelId::parse(row.channel.as_str());
+        let dispatch = serde_json::from_value::<ProviderDispatchTable>(row.dispatch_json.clone())
+            .unwrap_or_else(|err| {
+                eprintln!(
+                    "bootstrap: invalid dispatch for channel={} ({err}), fallback to default",
+                    row.channel
+                );
+                match channel {
+                    ChannelId::Builtin(builtin) => ProviderDispatchTable::default_for_builtin(builtin),
+                    ChannelId::Custom(_) => ProviderDispatchTable::default_for_custom(),
+                }
+            });
+        provider_by_channel.insert(
+            row.channel.clone(),
+            ProviderDefinition {
+                channel: channel.clone(),
+                dispatch,
+                settings: resolve_provider_settings(&channel, &row.settings_json),
+                credential_pick_mode: parse_credential_pick_mode_from_provider_settings_value(
+                    &row.settings_json,
+                ),
+                credentials: ProviderCredentialState::default(),
+            },
+        );
+    }
+
+    // Ensure builtin channels always exist.
     for builtin in BUILTIN_CHANNELS {
         let channel_id = ChannelId::builtin(builtin);
-        provider_by_channel.insert(
-            channel_id.as_str().to_string(),
+        provider_by_channel.entry(channel_id.as_str().to_string()).or_insert_with(|| {
             ProviderDefinition {
                 channel: channel_id.clone(),
                 dispatch: ProviderDispatchTable::default_for_builtin(builtin),
                 settings: resolve_provider_settings(&channel_id, &serde_json::json!({})),
                 credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
                 credentials: ProviderCredentialState::default(),
-            },
-        );
+            }
+        });
     }
+
+    // config.toml providers (if present) override storage values.
     for provider in &registry.providers {
         provider_by_channel.insert(provider.channel.as_str().to_string(), provider.clone());
     }
