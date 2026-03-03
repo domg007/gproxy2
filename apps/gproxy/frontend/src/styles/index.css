@@ -343,6 +343,34 @@ body {
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.09);
 }
 
+.cache-breakpoints-panel {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+}
+
+.cache-breakpoint-reference-card {
+  border: 1px solid color-mix(in srgb, var(--border) 95%, transparent);
+  background: color-mix(in srgb, var(--bg-soft) 86%, transparent);
+  color: var(--text);
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.cache-breakpoint-reference-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--bg-soft) 72%, var(--accent) 6%);
+}
+
+.cache-breakpoint-slot {
+  border: 1px solid color-mix(in srgb, var(--border) 95%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-strong) 92%, transparent);
+}
+
+.cache-breakpoint-empty {
+  border: 1px dashed color-mix(in srgb, var(--border) 95%, transparent);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
+}
+
 .workspace-tab {
   border-radius: 0.78rem;
   border: 1px solid var(--border);

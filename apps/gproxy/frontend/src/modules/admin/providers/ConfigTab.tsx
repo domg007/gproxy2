@@ -338,14 +338,14 @@ export function ConfigTab({
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted">
                   {renderEyeIcon(false)}
                 </span>
-                <span className="text-sm text-gray-400">
+                <span className="text-sm text-muted">
                   {t("providers.cacheBreakpoints.compact", { count: cacheBreakpointRules.length })}
                 </span>
               </button>
             ) : (
-              <div className="rounded border border-gray-200 p-3">
+              <div className="cache-breakpoints-panel rounded p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs text-gray-500">{t("providers.cacheBreakpoints.hint")}</div>
+                  <div className="text-xs text-muted">{t("providers.cacheBreakpoints.hint")}</div>
                   <div className="flex items-center gap-2">
                     <Button variant="neutral" onClick={applyRecommendedTemplate}>
                       {t("providers.cacheBreakpoints.template")}
@@ -362,7 +362,7 @@ export function ConfigTab({
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="mb-2 text-xs text-gray-500">
+                  <div className="mb-2 text-xs text-muted">
                     {t("providers.cacheBreakpoints.examples")}
                   </div>
                   <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
@@ -371,7 +371,7 @@ export function ConfigTab({
                         key={item.id}
                         draggable
                         onDragStart={(event) => onRuleCardDragStart(event, item.rule)}
-                        className="flex min-h-[40px] cursor-grab items-center justify-center rounded border border-gray-200 bg-gray-50 px-2 py-2 text-center text-sm hover:bg-gray-100 active:cursor-grabbing"
+                        className="cache-breakpoint-reference-card flex min-h-[40px] cursor-grab items-center justify-center rounded px-2 py-2 text-center text-sm active:cursor-grabbing"
                       >
                         {item.label}
                       </div>
@@ -379,17 +379,17 @@ export function ConfigTab({
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="mb-2 text-xs text-gray-500">{t("providers.cacheBreakpoints.slots")}</div>
+                  <div className="mb-2 text-xs text-muted">{t("providers.cacheBreakpoints.slots")}</div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {cacheBreakpointSlots.map((rule, idx) => (
                       <div
                         key={`cache-slot-${idx + 1}`}
                         onDragOver={onRuleSlotDragOver}
                         onDrop={(event) => onRuleSlotDrop(idx, event)}
-                        className="rounded border border-gray-200 p-2"
+                        className="cache-breakpoint-slot rounded p-2"
                       >
                         <div className="mb-2 flex items-center justify-between">
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-muted">
                             {t("providers.cacheBreakpoints.slot.title", { index: idx + 1 })}
                           </div>
                           <Button variant="neutral" onClick={() => replaceCacheBreakpointSlot(idx, null)}>
@@ -454,7 +454,7 @@ export function ConfigTab({
                             />
                           </div>
                         ) : (
-                          <div className="flex min-h-[124px] items-center justify-center rounded border border-dashed border-gray-300 px-2 text-center text-sm text-gray-500">
+                          <div className="cache-breakpoint-empty flex min-h-[124px] items-center justify-center rounded px-2 text-center text-sm">
                             {t("providers.cacheBreakpoints.slot.empty")}
                           </div>
                         )}
