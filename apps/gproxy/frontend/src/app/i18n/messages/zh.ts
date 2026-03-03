@@ -121,7 +121,6 @@ export const zhMessages = {
     "providers.uaTemplate.bot.googlebot": "经典机器人：Googlebot",
     "providers.uaTemplate.bot.bingbot": "经典机器人：Bingbot",
     "providers.pickMode.round_robin_with_cache": "轮询 + 缓存",
-    "providers.pickMode.sticky_with_cache": "固定 + 缓存",
     "providers.pickMode.round_robin_no_cache": "轮询 + 不缓存",
     "providers.pickMode.sticky_no_cache": "固定 + 不缓存",
     "providers.custom.maskHint":

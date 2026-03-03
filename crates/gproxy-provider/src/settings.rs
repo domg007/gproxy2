@@ -4,7 +4,6 @@ use crate::channels::{
     openai, retry::CredentialPickMode, vertexexpress,
 };
 
-pub const CACHE_AFFINITY_ENABLED_KEY: &str = "cache_affinity_enabled";
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
 pub const CREDENTIAL_ROUND_ROBIN_ENABLED_KEY: &str = "credential_round_robin_enabled";
 pub const CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY: &str = "credential_cache_affinity_enabled";
@@ -34,21 +33,12 @@ pub fn parse_credential_pick_mode_from_provider_settings_value(
         return mode;
     }
 
-    let legacy_cache_affinity_enabled = value
-        .get(CACHE_AFFINITY_ENABLED_KEY)
-        .and_then(serde_json::Value::as_bool);
-    match legacy_cache_affinity_enabled {
-        Some(false) => CredentialPickMode::StickyNoCache,
-        Some(true) => CredentialPickMode::RoundRobinWithCache,
-        None => CredentialPickMode::RoundRobinWithCache,
-    }
+    CredentialPickMode::RoundRobinWithCache
 }
 
 fn parse_credential_pick_mode_from_str(value: &str) -> Option<CredentialPickMode> {
     match value {
         "sticky_no_cache" => Some(CredentialPickMode::StickyNoCache),
-        // Legacy mode. We no longer support sticky+cache affinity.
-        "sticky_with_cache" => Some(CredentialPickMode::StickyNoCache),
         "round_robin_with_cache" => Some(CredentialPickMode::RoundRobinWithCache),
         "round_robin_no_cache" => Some(CredentialPickMode::RoundRobinNoCache),
         _ => None,
@@ -382,22 +372,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_legacy_bool_works() {
+    fn parse_legacy_bool_is_ignored() {
         assert_eq!(
             parse_credential_pick_mode_from_provider_settings_value(
                 &serde_json::json!({ "cache_affinity_enabled": false })
             ),
-            CredentialPickMode::StickyNoCache
+            CredentialPickMode::RoundRobinWithCache
         );
     }
 
     #[test]
-    fn parse_sticky_with_cache_downgrades_to_sticky_no_cache() {
+    fn parse_sticky_with_cache_is_ignored() {
         assert_eq!(
             parse_credential_pick_mode_from_provider_settings_value(
                 &serde_json::json!({ "credential_pick_mode": "sticky_with_cache" })
             ),
-            CredentialPickMode::StickyNoCache
+            CredentialPickMode::RoundRobinWithCache
         );
     }
 

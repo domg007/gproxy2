@@ -273,8 +273,6 @@ credential_cache_affinity_enabled = true
 Legacy compatibility:
 
 - `credential_pick_mode` is still accepted for backward compatibility.
-- legacy `sticky_with_cache` is treated as `sticky_no_cache`.
-- legacy `cache_affinity_enabled` is still parsed.
 
 Detailed design and cache-hit strategy (OpenAI/Claude/Gemini):  
 https://gproxy.leenhawk.com/guides/credential-selection-cache-affinity/

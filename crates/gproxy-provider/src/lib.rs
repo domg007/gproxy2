@@ -38,8 +38,7 @@ pub use facade::{
 };
 pub use provider::{ProviderDefinition, ProviderRegistry, TokenizerResolutionContext};
 pub use settings::{
-    CACHE_AFFINITY_ENABLED_KEY, CREDENTIAL_PICK_MODE_KEY,
-    parse_credential_pick_mode_from_provider_settings_value,
+    CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,
     provider_settings_to_json_string, provider_settings_to_json_string_with_cache_affinity,
     provider_settings_to_json_string_with_credential_pick_mode, provider_settings_to_json_value,

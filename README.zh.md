@@ -271,8 +271,6 @@ credential_cache_affinity_enabled = true
 兼容性说明：
 
 - 仍兼容旧字段 `credential_pick_mode`。
-- 旧模式 `sticky_with_cache` 会自动降级为 `sticky_no_cache`。
-- 旧字段 `cache_affinity_enabled` 仍可解析。
 
 完整设计与上游缓存命中策略（OpenAI/Claude/Gemini）详见：  
 https://gproxy.leenhawk.com/zh/guides/credential-selection-cache-affinity/

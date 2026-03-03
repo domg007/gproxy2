@@ -31,7 +31,7 @@ Notes:
 
 - `StickyWithCache` is intentionally not supported.
 - If round-robin is disabled, affinity is forced off.
-- Legacy fields `credential_pick_mode` and `cache_affinity_enabled` are still parsed for compatibility.
+- Legacy field `credential_pick_mode` is still parsed for compatibility.
 
 ## Internal affinity pool design (v1)
 
@@ -48,17 +48,21 @@ This is still the v1 pool format (no v2 namespace, no storage schema change).
 `RoundRobinWithCache` uses a multi-candidate hint:
 
 - `CacheAffinityHint { candidates, bind }`
-- each candidate has `{ key, ttl_ms }`
+- each candidate has `{ key, ttl_ms, key_len }`
 
 Selection flow:
 
 1. Build candidate keys from request body with protocol-specific block/prefix rules.
-2. Match candidates in priority order (longest prefix first).
-3. If a non-expired mapping exists and credential is currently eligible, pick it.
-4. Otherwise, use normal round-robin among eligible credentials.
-5. On success, always bind the `bind` key.
-6. If a candidate key was matched, refresh that matched key TTL too.
+2. Scan candidates in order. The scan stops at the first miss, or at the first hit whose mapped credential is not currently eligible.
+3. For the contiguous hit prefix, sum `key_len` by credential and pick the credential with the largest total score.
+4. If scores tie, pick the credential that appears earlier in the current eligible list.
+5. If no candidate is usable, fall back to normal round-robin among eligible credentials.
+6. On success, always bind the `bind` key and refresh the matched key (if any).
 7. If an affinity-picked attempt fails and retries, only clear the matched key for that attempt.
+
+Important:
+
+- This is GPROXY internal routing affinity, not the upstream provider's native cache-hit decision.
 
 ## Key derivation and TTL rules by protocol
 
@@ -178,19 +182,23 @@ These are provider behaviors, independent from GPROXY affinity internals.
 
 ### OpenAI
 
-- Prompt caching is prefix-oriented.
-- Stable system/tools/prompt prefix and stable model improve hit rate.
-- `prompt_cache_key` and retention policy affect cache affinity and upstream behavior.
+- Prompt caching is exact-prefix based.
+- Requests are routed by a prefix hash; `prompt_cache_key` is combined with that routing key.
+- Keep static content (instructions/tools/examples/images schema) in the prefix, and move variable content to the tail.
+- Retention (`in_memory` vs `24h`) affects lifetime behavior, but cache matching remains prefix-oriented.
 
 ### Claude
 
-- Supports explicit block-level breakpoints and automatic top-level caching.
-- Cache hit is prefix/breakpoint driven and sensitive to block ordering and cacheable boundaries.
+- Prefix hierarchy is `tools -> system -> messages`.
+- Supports explicit block-level breakpoints and automatic top-level `cache_control`.
+- Uses backward sequential checking with a 20-block lookback window around breakpoints.
+- Cacheability depends on block eligibility; ordering and breakpoint placement directly impact hit rate.
 
 ### Gemini
 
-- Context caching is centered around `cachedContent` reuse.
-- Reusing the same cached content handle typically improves hit rate.
+- Explicit context caching is centered around `cachedContent` reuse (cached content is treated as prompt prefix).
+- Implicit caching is provider-managed and works best when similar prefixes are sent close in time.
+- Reusing the same `cachedContent` handle typically improves explicit-cache hit behavior.
 - GPROXY currently supports generation routes and does not expose cached-content management routes.
 
 ## Practical tips

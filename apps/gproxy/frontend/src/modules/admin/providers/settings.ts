@@ -66,20 +66,12 @@ export function parseCredentialRoutingFlagsFromSettings(
         cacheAffinityEnabled: false
       };
     }
-    if (trimmed === "sticky_no_cache" || trimmed === "sticky_with_cache") {
+    if (trimmed === "sticky_no_cache") {
       return {
         roundRobinEnabled: false,
         cacheAffinityEnabled: false
       };
     }
-  }
-
-  const legacyBool = value.cache_affinity_enabled;
-  if (typeof legacyBool === "boolean") {
-    return {
-      roundRobinEnabled: legacyBool,
-      cacheAffinityEnabled: legacyBool
-    };
   }
   return DEFAULT_CREDENTIAL_ROUTING_FLAGS;
 }

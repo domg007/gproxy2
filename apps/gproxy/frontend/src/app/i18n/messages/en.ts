@@ -121,7 +121,6 @@ export const enMessages = {
     "providers.uaTemplate.bot.googlebot": "Bot: Googlebot",
     "providers.uaTemplate.bot.bingbot": "Bot: Bingbot",
     "providers.pickMode.round_robin_with_cache": "Round Robin + Cache",
-    "providers.pickMode.sticky_with_cache": "Sticky + Cache",
     "providers.pickMode.round_robin_no_cache": "Round Robin + No Cache",
     "providers.pickMode.sticky_no_cache": "Sticky + No Cache",
     "providers.custom.maskHint":

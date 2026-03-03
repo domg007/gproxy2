@@ -479,23 +479,28 @@ fn pick_candidate_index<Material>(
         let mut representative_match = HashMap::<i64, (usize, usize)>::new();
 
         for (candidate_idx, candidate) in scoped_candidates.iter().enumerate() {
-            if let Some(credential_id) =
+            let Some(credential_id) =
                 get_affinity_credential_id(candidate.scoped_key.as_str(), now_unix_ms)
-                && remaining_idx_by_credential.contains_key(&credential_id)
-            {
-                let score = score_by_credential.entry(credential_id).or_default();
-                *score = score.saturating_add(candidate.key_len);
+            else {
+                break;
+            };
 
-                representative_match
-                    .entry(credential_id)
-                    .and_modify(|(best_idx, best_len)| {
-                        if candidate.key_len > *best_len {
-                            *best_idx = candidate_idx;
-                            *best_len = candidate.key_len;
-                        }
-                    })
-                    .or_insert((candidate_idx, candidate.key_len));
+            if !remaining_idx_by_credential.contains_key(&credential_id) {
+                break;
             }
+
+            let score = score_by_credential.entry(credential_id).or_default();
+            *score = score.saturating_add(candidate.key_len);
+
+            representative_match
+                .entry(credential_id)
+                .and_modify(|(best_idx, best_len)| {
+                    if candidate.key_len > *best_len {
+                        *best_idx = candidate_idx;
+                        *best_len = candidate.key_len;
+                    }
+                })
+                .or_insert((candidate_idx, candidate.key_len));
         }
 
         let mut best: Option<(usize, usize, usize)> = None;
@@ -1476,6 +1481,60 @@ mod tests {
 
         clear_affinity(key_1);
         clear_affinity(key_2);
+        clear_affinity(key_3);
+    }
+
+    #[test]
+    fn round_robin_with_cache_stops_scanning_after_first_miss() {
+        let now_unix_ms = 2_000_000u64;
+        let key_1 = "test::ordered::key1";
+        let key_2 = "test::ordered::key2";
+        let key_3 = "test::ordered::key3";
+
+        // key_1 and key_3 exist, key_2 is intentionally missing.
+        bind_affinity(key_1, 101, now_unix_ms + 60_000);
+        bind_affinity(key_3, 202, now_unix_ms + 60_000);
+
+        let remaining = vec![
+            CredentialCandidate {
+                credential_id: 101,
+                material: (),
+            },
+            CredentialCandidate {
+                credential_id: 202,
+                material: (),
+            },
+        ];
+        let scoped_candidates = vec![
+            ScopedAffinityCandidate {
+                scoped_key: key_1.to_string(),
+                ttl_ms: 60_000,
+                key_len: 10,
+            },
+            ScopedAffinityCandidate {
+                scoped_key: key_2.to_string(),
+                ttl_ms: 60_000,
+                key_len: 10,
+            },
+            ScopedAffinityCandidate {
+                scoped_key: key_3.to_string(),
+                ttl_ms: 60_000,
+                key_len: 100,
+            },
+        ];
+
+        let (picked_idx, matched_idx) = pick_candidate_index(
+            &remaining,
+            &scoped_candidates,
+            now_unix_ms,
+            CredentialPickMode::RoundRobinWithCache,
+        );
+
+        // key_3 must be ignored because key_2 misses before it.
+        assert_eq!(picked_idx, 0);
+        assert_eq!(matched_idx, Some(0));
+
+        clear_affinity(key_1);
         clear_affinity(key_3);
     }
 }
