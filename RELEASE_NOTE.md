@@ -1,5 +1,42 @@
 # Release Notes
 
+## v0.3.17
+
+### Added
+
+- Added S3-compatible binary publish flow in `release-binary.yml` for both:
+  - `push` -> upload staging artifacts to `staging/*`
+  - `release` -> upload latest artifacts to root and versioned artifacts to `releases/<version>/*`.
+- Added manifest generation from bucket object listing:
+  - global `manifest.json` for downloads page
+  - channel manifests `release/manifest.json` and `staging/manifest.json` for updater compatibility.
+- Added cache-affinity trace logging controlled by `GPROXY_AFFINITY_TRACE` to inspect key hit/miss, credential pick, bind/clear, and retry flow.
+- Added reusable docs downloads component with EN/ZH pages and language switch.
+
+### Changed
+
+- Updated cache-affinity selection scoring:
+  - each affinity candidate now carries `key_len`
+  - `RoundRobinWithCache` picks credential by summed `key_len` over the contiguous hit prefix.
+- Updated affinity scan behavior to stop at first miss, or first hit mapped to an ineligible credential.
+- Updated Claude/ClaudeCode top-level `cache_control: {"type":"ephemeral"}` default affinity TTL from `5m` to `1h`.
+- Updated docs pipeline:
+  - docs deploy now runs on both default-branch `push` and `release` events
+  - downloads content now reads a bucket-generated manifest (replacing the docs-side sync script flow).
+- Updated China update-source default base URL to `https://download-gproxy.leenhawk.com`.
+
+### Fixed
+
+- Fixed affinity block hashing so changing a middle block does not cascade hash changes to later blocks.
+- Fixed retry cleanup behavior for cache affinity to clear only the matched key for the failed attempt.
+
+### Compatibility
+
+- Removed legacy cache-affinity compatibility paths:
+  - `cache_affinity_enabled` is no longer parsed as an effective mode override
+  - `credential_pick_mode = sticky_with_cache` is no longer accepted as a compatibility mode.
+- When legacy cache-affinity fields are present, effective behavior falls back to `RoundRobinWithCache`.
+
 ## v0.3.16
 
 ### Changed
