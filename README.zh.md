@@ -107,7 +107,13 @@ cp gproxy.example.toml gproxy.toml
 
 #### Docker
 
-构建：
+拉取预构建镜像（推荐）：
+
+```bash
+docker pull ghcr.io/leenhawk/gproxy:latest
+```
+
+本地源码构建（仅在你需要运行本地改动时）：
 
 ```bash
 docker build -t gproxy:local .
@@ -117,12 +123,12 @@ docker build -t gproxy:local .
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=127.0.0.1 \
+  -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
-  gproxy:local
+  ghcr.io/leenhawk/gproxy:latest
 ```
 
 ### 云端部署

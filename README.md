@@ -109,7 +109,13 @@ cp gproxy.example.toml gproxy.toml
 
 #### Docker
 
-Build:
+Pull prebuilt image (recommended):
+
+```bash
+docker pull ghcr.io/leenhawk/gproxy:latest
+```
+
+Build from local source (only if you need local code changes):
 
 ```bash
 docker build -t gproxy:local .
@@ -119,12 +125,12 @@ Run:
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=127.0.0.1 \
+  -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
-  gproxy:local
+  ghcr.io/leenhawk/gproxy:latest
 ```
 
 ### Cloud deployment
