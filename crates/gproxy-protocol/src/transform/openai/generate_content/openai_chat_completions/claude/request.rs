@@ -270,7 +270,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         });
         let thinking = extra_thinking
             .or_else(|| openai_reasoning_to_claude(response_reasoning, reasoning_max_tokens))
-            .or_else(|| Some(default_chat_thinking_for_model(model.as_str())));
+            .or_else(|| Some(default_chat_thinking()));
 
         let output_effort = response_text
             .as_ref()
@@ -498,21 +498,10 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
     }
 }
 
-fn default_chat_thinking_for_model(model: &str) -> ct::BetaThinkingConfigParam {
-    if is_claude_adaptive_default_model(model) {
-        ct::BetaThinkingConfigParam::Adaptive(ct::BetaThinkingConfigAdaptive {
-            type_: ct::BetaThinkingConfigAdaptiveType::Adaptive,
-        })
-    } else {
-        ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
-            type_: ct::BetaThinkingConfigDisabledType::Disabled,
-        })
-    }
-}
-
-fn is_claude_adaptive_default_model(model: &str) -> bool {
-    let lower = model.trim().to_ascii_lowercase();
-    lower == "claude-sonnet-4-6" || lower == "claude-opus-4-6"
+fn default_chat_thinking() -> ct::BetaThinkingConfigParam {
+    ct::BetaThinkingConfigParam::Disabled(ct::BetaThinkingConfigDisabled {
+        type_: ct::BetaThinkingConfigDisabledType::Disabled,
+    })
 }
 
 #[cfg(test)]
@@ -565,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_without_reasoning_effort_defaults_to_adaptive_thinking_for_sonnet_4_6() {
+    fn chat_without_reasoning_effort_defaults_to_disabled_thinking_for_sonnet_4_6() {
         let request = OpenAiChatCompletionsRequest {
             method: oct::HttpMethod::Post,
             path: oreq::PathParameters::default(),
@@ -589,7 +578,7 @@ mod tests {
         let converted = ClaudeCreateMessageRequest::try_from(request).unwrap();
         assert!(matches!(
             converted.body.thinking,
-            Some(ct::BetaThinkingConfigParam::Adaptive(_))
+            Some(ct::BetaThinkingConfigParam::Disabled(_))
         ));
     }
 

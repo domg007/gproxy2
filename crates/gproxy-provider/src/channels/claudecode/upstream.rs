@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use gproxy_middleware::TransformResponse;
 use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
@@ -30,7 +28,6 @@ use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 
-const CLAUDE_NOTHINKING_SUFFIX: &str = "-nothinking";
 const BETA_QUERY_KEY: &str = "beta";
 const BETA_QUERY_VALUE: &str = "true";
 
@@ -460,7 +457,6 @@ pub async fn execute_claudecode_with_retry(
                     if let Some(body_obj) = model_list_body.as_object_mut()
                         && let Some(data) = body_obj.get_mut("data").and_then(Value::as_array_mut)
                     {
-                        append_nothinking_model_variants(data);
                         let first_id = data
                             .first()
                             .and_then(|item| item.get("id"))
@@ -966,7 +962,7 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
                 ensure_oauth_beta(&mut request_headers, false);
-                let (model_id, _) = strip_claude_nothinking_suffix(value.path.model_id.as_str());
+                let model_id = value.path.model_id.trim().to_string();
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -987,15 +983,9 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model_raw = claude_model_to_string(&value.body.model)?;
-                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
+                let model = claude_model_to_string(&value.body.model)?;
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                normalize_claude_nothinking_request(
-                    &mut body_json,
-                    model.as_str(),
-                    disable_thinking,
-                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -1024,15 +1014,9 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model_raw = claude_model_to_string(&value.body.model)?;
-                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
+                let model = claude_model_to_string(&value.body.model)?;
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                normalize_claude_nothinking_request(
-                    &mut body_json,
-                    model.as_str(),
-                    disable_thinking,
-                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -1065,15 +1049,9 @@ impl ClaudeCodePreparedRequest {
                     value.headers.anthropic_beta.as_ref(),
                 )?;
 
-                let model_raw = claude_model_to_string(&value.body.model)?;
-                let (model, disable_thinking) = strip_claude_nothinking_suffix(model_raw.as_str());
+                let model = claude_model_to_string(&value.body.model)?;
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                normalize_claude_nothinking_request(
-                    &mut body_json,
-                    model.as_str(),
-                    disable_thinking,
-                );
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
@@ -1330,65 +1308,6 @@ fn should_expand_claudecode_model_list(
         && body.is_none()
         && (url.contains("/v1/models?") || url.ends_with("/v1/models"))
         && !url.contains("/v1/models/")
-}
-
-fn append_nothinking_model_variants(models: &mut Vec<Value>) {
-    let mut seen = models
-        .iter()
-        .filter_map(|model| model.get("id").and_then(Value::as_str))
-        .map(|model| model.to_ascii_lowercase())
-        .collect::<BTreeSet<_>>();
-    let extras = models
-        .iter()
-        .filter_map(|model| {
-            let model_obj = model.as_object()?;
-            let model_id = model_obj.get("id")?.as_str()?;
-            if !is_nothinking_supported_model(model_id) {
-                return None;
-            }
-            let suffix_id = format!("{model_id}{CLAUDE_NOTHINKING_SUFFIX}");
-            let lower = suffix_id.to_ascii_lowercase();
-            if seen.insert(lower) {
-                let mut cloned = model_obj.clone();
-                cloned.insert("id".to_string(), Value::String(suffix_id));
-                Some(Value::Object(cloned))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    models.extend(extras);
-}
-
-fn strip_claude_nothinking_suffix(model: &str) -> (String, bool) {
-    let trimmed = model.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.ends_with(CLAUDE_NOTHINKING_SUFFIX) {
-        let base_len = trimmed.len().saturating_sub(CLAUDE_NOTHINKING_SUFFIX.len());
-        let base = trimmed[..base_len].to_string();
-        if is_nothinking_supported_model(base.as_str()) {
-            (base, true)
-        } else {
-            (trimmed.to_string(), false)
-        }
-    } else {
-        (trimmed.to_string(), false)
-    }
-}
-
-fn is_nothinking_supported_model(model: &str) -> bool {
-    let lower = model.trim().to_ascii_lowercase();
-    lower == "claude-sonnet-4-6" || lower == "claude-opus-4-6"
-}
-
-fn normalize_claude_nothinking_request(body: &mut Value, model: &str, disable_thinking: bool) {
-    let Some(map) = body.as_object_mut() else {
-        return;
-    };
-    map.insert("model".to_string(), Value::String(model.to_string()));
-    if disable_thinking {
-        map.remove("thinking");
-    }
 }
 
 fn ensure_top_level_cache_control(body: &mut Value, mode: TopLevelCacheControlMode) {
