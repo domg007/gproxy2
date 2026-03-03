@@ -404,18 +404,14 @@ jobs:
             exit 1
           }
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
-
       - name: Upload binaries to S3
         shell: bash
         env:
           S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
           S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -451,6 +447,9 @@ jobs:
         env:
           S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
           S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -592,6 +591,9 @@ jobs:
         env:
           S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
           S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           aws s3 cp "dist/manifest.json" "s3://${S3_BUCKET}/manifest.json" \
