@@ -1184,21 +1184,14 @@ fn claude_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
     if value
         .get("ttl")
         .and_then(Value::as_str)
-        .is_some_and(|ttl| ttl == "1h")
+        .is_some_and(|ttl| ttl == "5m")
     {
-        return ONE_HOUR_CACHE_AFFINITY_TTL_MS;
+        return DEFAULT_CACHE_AFFINITY_TTL_MS;
     }
-    DEFAULT_CACHE_AFFINITY_TTL_MS
+    ONE_HOUR_CACHE_AFFINITY_TTL_MS
 }
 
 fn claude_auto_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
-    if value
-        .get("ttl")
-        .and_then(Value::as_str)
-        .is_some_and(|ttl| ttl == "1h")
-    {
-        return ONE_HOUR_CACHE_AFFINITY_TTL_MS;
-    }
     if value
         .get("ttl")
         .and_then(Value::as_str)
@@ -1337,6 +1330,22 @@ mod tests {
         let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
         assert!(!hint.candidates.is_empty());
         assert!(hint.bind.key.contains("bp=explicit"));
+        assert!(hint.bind.key.contains("ttl=1h"));
+    }
+
+    #[test]
+    fn claude_explicit_breakpoint_with_5m_ttl_stays_5m() {
+        let body = json!({
+            "model": "claude-sonnet-4-6",
+            "messages": [{
+                "role":"user",
+                "content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral","ttl":"5m"}}]
+            }]
+        });
+        let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
+        assert!(!hint.candidates.is_empty());
+        assert!(hint.bind.key.contains("bp=explicit"));
+        assert!(hint.bind.key.contains("ttl=5m"));
     }
 
     #[test]
