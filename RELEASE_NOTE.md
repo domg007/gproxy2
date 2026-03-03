@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.3.16
+
+### Changed
+
+- Updated Admin `Request Log` table columns:
+  - upstream view now shows `credential_id`
+  - downstream view keeps `credential_id` hidden (no extra column).
+- Updated Admin `Usage` detail rows table to show `credential_id` for each usage row.
+
+### Compatibility
+
+- No API/protocol behavior changes in this release; updates are frontend display-only.
+
 ## v0.3.15
 
 ### Added
