@@ -346,6 +346,183 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
 
+  publish-binaries-s3:
+    name: Publish binaries to S3-compatible storage
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-asset-*
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve publish metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            mode="release"
+            tag="${{ github.event.release.tag_name }}"
+            release_dir="${tag#v}"
+          else
+            mode="staging"
+            tag="staging"
+            release_dir=""
+          fi
+
+          public_base="${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download.gproxy.leenhawk.com' }}"
+          public_base="${public_base%/}"
+
+          echo "UPLOAD_MODE=$mode" >> "$GITHUB_ENV"
+          echo "UPLOAD_TAG=$tag" >> "$GITHUB_ENV"
+          echo "UPLOAD_RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
+          echo "DOWNLOAD_PUBLIC_BASE_URL=$public_base" >> "$GITHUB_ENV"
+
+      - name: Validate S3 publish settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.DOWNLOADS_S3_BUCKET }}" || {
+            echo "missing repo secret: DOWNLOADS_S3_BUCKET" >&2
+            exit 1
+          }
+          test -n "${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}" || {
+            echo "missing repo secret: DOWNLOADS_S3_ENDPOINT_URL" >&2
+            exit 1
+          }
+          test -n "${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}" || {
+            echo "missing repo secret: DOWNLOADS_S3_ACCESS_KEY_ID" >&2
+            exit 1
+          }
+          test -n "${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}" || {
+            echo "missing repo secret: DOWNLOADS_S3_SECRET_ACCESS_KEY" >&2
+            exit 1
+          }
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
+
+      - name: Generate download manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          dist_dir = Path("dist")
+          mode = os.environ["UPLOAD_MODE"]
+          tag = os.environ["UPLOAD_TAG"]
+          release_dir = os.environ.get("UPLOAD_RELEASE_DIR", "")
+          public_base = os.environ["DOWNLOAD_PUBLIC_BASE_URL"].rstrip("/")
+
+          def collect_assets(url_prefix: str):
+              assets = []
+              for zip_path in sorted(dist_dir.glob("*.zip")):
+                  sha_path = Path(f"{zip_path}.sha256")
+                  sha256 = None
+                  if sha_path.exists():
+                      raw = sha_path.read_text(encoding="utf-8").strip()
+                      if raw:
+                          sha256 = raw.split()[0]
+                  assets.append(
+                      {
+                          "name": zip_path.name,
+                          "url": f"{url_prefix}/{zip_path.name}",
+                          "sha256": sha256,
+                          "size": zip_path.stat().st_size,
+                      }
+                  )
+              return assets
+
+          def write_manifest(path: Path, channel: str, assets):
+              manifest = {
+                  "channel": channel,
+                  "tag": tag,
+                  "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+                  "assets": assets,
+              }
+              path.write_text(
+                  json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+
+          if mode == "staging":
+              staging_assets = collect_assets(f"{public_base}/staging")
+              write_manifest(dist_dir / "manifest.staging.json", "staging", staging_assets)
+              print(f"manifest generated: mode=staging assets={len(staging_assets)}")
+          else:
+              latest_assets = collect_assets(public_base)
+              write_manifest(dist_dir / "manifest.release.latest.json", "release", latest_assets)
+
+              archived_assets = collect_assets(f"{public_base}/releases/{release_dir}")
+              write_manifest(dist_dir / "manifest.release.archive.json", "release_archive", archived_assets)
+              print(
+                  f"manifest generated: mode=release latest_assets={len(latest_assets)} archive_dir={release_dir}"
+              )
+          PY
+
+      - name: Upload binaries and manifest to S3
+        shell: bash
+        env:
+          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/*.zip dist/*.zip.sha256)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no files found to upload" >&2
+            exit 1
+          fi
+
+          upload_one() {
+            local src="$1"
+            local key="$2"
+            echo "uploading $src -> s3://${S3_BUCKET}/${key}"
+            aws s3 cp "$src" "s3://${S3_BUCKET}/${key}" \
+              --endpoint-url "${S3_ENDPOINT_URL}" \
+              --no-progress
+          }
+
+          if [ "${UPLOAD_MODE}" = "staging" ]; then
+            for file in "${files[@]}"; do
+              upload_one "$file" "staging/$(basename "$file")"
+            done
+            upload_one "dist/manifest.staging.json" "staging/manifest.json"
+          else
+            for file in "${files[@]}"; do
+              base="$(basename "$file")"
+              upload_one "$file" "$base"
+              upload_one "$file" "releases/${UPLOAD_RELEASE_DIR}/${base}"
+            done
+            upload_one "dist/manifest.release.latest.json" "manifest.json"
+            upload_one "dist/manifest.release.archive.json" "releases/${UPLOAD_RELEASE_DIR}/manifest.json"
+          fi
+
+      - name: Upload summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Upload mode: ${UPLOAD_MODE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Uploaded tag: ${UPLOAD_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Public base URL: ${DOWNLOAD_PUBLIC_BASE_URL}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${UPLOAD_MODE}" = "staging" ]; then
+            echo "Manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/staging/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Latest manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+            echo "Archive manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/releases/${UPLOAD_RELEASE_DIR}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   deploy-docs-cloudflare:
     name: Build and Deploy Docs (Cloudflare Pages)
     if: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) || github.event_name == 'release' }}
@@ -371,6 +548,8 @@ jobs:
           cache-dependency-path: docs/pnpm-lock.yaml
 
       - name: Build docs
+        env:
+          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download.gproxy.leenhawk.com' }}
         run: |
           cd docs
           pnpm install --frozen-lockfile

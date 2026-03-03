@@ -3,8 +3,6 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "sync-downloads": "node scripts/sync-downloads.mjs",
-    "prebuild": "pnpm sync-downloads",
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
