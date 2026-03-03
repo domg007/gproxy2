@@ -11,6 +11,9 @@
   - `claudecode` without `ttl` defaults to `1h`
   - `claude` without `ttl` defaults to `5m`.
 - Documented Anthropic TTL ordering constraint for mixed `5m` and `1h` breakpoints (`tools -> system -> messages`).
+- Updated magic-trigger cache insertion to enforce the same 4-breakpoint global cap:
+  - `existing cache_control count + magic-trigger insertions <= 4`
+  - when budget is exhausted, trigger strings are still removed but no new cache_control is injected.
 - Updated system update channel selection:
   - `/admin/system/latest_release` and `/admin/system/self_update` now accept optional `update_channel` query (`releases` / `staging`)
   - Admin Global Settings adds a frontend-only `update_channel` selector and passes it via request query

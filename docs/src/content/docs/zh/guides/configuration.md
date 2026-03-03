@@ -158,6 +158,7 @@ secret = "sk-replace-me"
 
 - 请求里已有的 `cache_control` 会被保留，并计入 4 条上限
 - gproxy 只会填充剩余槽位，不会覆盖已有 top-level/block `cache_control`
+- magic trigger 触发的注入也共用这 4 条预算
 - 仅对 `claude` / `claudecode` 的消息生成请求生效
 - 管理端会先按 `top_level -> tools -> system -> messages` 排序，再由服务端截断前 4 条
 

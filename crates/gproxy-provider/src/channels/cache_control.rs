@@ -73,9 +73,11 @@ pub fn apply_magic_string_cache_control_triggers(body: &mut Value) {
     let Some(root) = body.as_object_mut() else {
         return;
     };
+    let existing_breakpoints = existing_cache_breakpoint_count(root);
+    let mut remaining_slots = 4usize.saturating_sub(existing_breakpoints);
 
     if let Some(system) = root.get_mut("system") {
-        apply_magic_trigger_to_content(system);
+        apply_magic_trigger_to_content(system, &mut remaining_slots);
     }
 
     if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
@@ -86,27 +88,30 @@ pub fn apply_magic_string_cache_control_triggers(body: &mut Value) {
             let Some(content) = message_map.get_mut("content") else {
                 continue;
             };
-            apply_magic_trigger_to_content(content);
+            apply_magic_trigger_to_content(content, &mut remaining_slots);
         }
     }
 }
 
-fn apply_magic_trigger_to_content(content: &mut Value) {
+fn apply_magic_trigger_to_content(content: &mut Value, remaining_slots: &mut usize) {
     match content {
         Value::Array(blocks) => {
             for block in blocks {
                 let Some(block_map) = block.as_object_mut() else {
                     continue;
                 };
-                apply_magic_trigger_to_block(block_map);
+                apply_magic_trigger_to_block(block_map, remaining_slots);
             }
         }
-        Value::Object(block_map) => apply_magic_trigger_to_block(block_map),
+        Value::Object(block_map) => apply_magic_trigger_to_block(block_map, remaining_slots),
         _ => {}
     }
 }
 
-fn apply_magic_trigger_to_block(block_map: &mut serde_json::Map<String, Value>) {
+fn apply_magic_trigger_to_block(
+    block_map: &mut serde_json::Map<String, Value>,
+    remaining_slots: &mut usize,
+) {
     let Some(Value::String(text)) = block_map.get_mut("text") else {
         return;
     };
@@ -116,8 +121,9 @@ fn apply_magic_trigger_to_block(block_map: &mut serde_json::Map<String, Value>) 
         return;
     };
 
-    if !block_map.contains_key("cache_control") {
+    if *remaining_slots > 0 && !block_map.contains_key("cache_control") {
         block_map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
+        *remaining_slots = remaining_slots.saturating_sub(1);
     }
 }
 
@@ -616,5 +622,67 @@ mod tests {
 
         assert_eq!(body["messages"][0]["content"][0]["cache_control"]["ttl"], json!("5m"));
         assert_eq!(body["messages"][0]["content"][0]["text"], json!(""));
+    }
+
+    #[test]
+    fn apply_magic_string_cache_control_triggers_respects_four_breakpoint_limit() {
+        let mut body = json!({
+            "cache_control": {"type":"ephemeral","ttl":"1h"},
+            "system": [
+                {
+                    "type":"text",
+                    "text":"s0",
+                    "cache_control":{"type":"ephemeral","ttl":"1h"}
+                },
+                {
+                    "type":"text",
+                    "text":"s1"
+                }
+            ],
+            "messages": [
+                {
+                    "role":"user",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"m0",
+                            "cache_control":{"type":"ephemeral","ttl":"5m"}
+                        }
+                    ]
+                },
+                {
+                    "role":"user",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m y"
+                        }
+                    ]
+                },
+                {
+                    "role":"assistant",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h w"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        apply_magic_string_cache_control_triggers(&mut body);
+
+        let message_5m_text = body["messages"][1]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        let message_1h_text = body["messages"][2]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+
+        assert!(!message_5m_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
+        assert!(!message_1h_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
+        assert_eq!(body["messages"][1]["content"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(body["messages"][2]["content"][0]["cache_control"], json!(null));
     }
 }

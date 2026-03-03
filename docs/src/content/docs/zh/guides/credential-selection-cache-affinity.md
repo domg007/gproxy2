@@ -189,6 +189,8 @@ Magic trigger 行为：
 - gproxy 在上游转发前会先删除触发串
 - 若目标块还没有 `cache_control`，则注入对应 `cache_control`
 - 若块上已存在 `cache_control`，则只做字符串删除，不覆盖原配置
+- magic trigger 新增断点与请求里已有断点合计最多 4 条
+- 当 4 条预算耗尽时，gproxy 仍会删除触发串，但不再新增 `cache_control`
 
 支持的触发串：
 

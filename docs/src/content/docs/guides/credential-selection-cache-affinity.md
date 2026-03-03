@@ -189,6 +189,8 @@ Magic trigger behavior:
 - gproxy removes the trigger token from text before forwarding upstream
 - if target block does not already have `cache_control`, gproxy injects one
 - if block already has `cache_control`, only token removal is applied
+- injected breakpoints from magic triggers plus existing request breakpoints are capped at 4 total
+- when the 4-breakpoint budget is exhausted, gproxy still removes trigger tokens but skips new `cache_control` injection
 
 Supported trigger tokens:
 

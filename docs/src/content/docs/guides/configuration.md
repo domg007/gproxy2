@@ -158,6 +158,7 @@ Rewrite behavior:
 
 - existing request-side `cache_control` is preserved and counts toward the 4-breakpoint budget
 - gproxy only fills remaining slots and never overwrites existing block/top-level `cache_control`
+- magic-string-triggered insertion shares the same 4-breakpoint budget
 - only `claude` / `claudecode` message-generation requests are rewritten
 - Admin UI sorts rules before submit (`top_level -> tools -> system -> messages`), then server keeps the first 4
 
