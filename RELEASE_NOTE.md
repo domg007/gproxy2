@@ -14,6 +14,10 @@
 - Updated magic-trigger cache insertion to enforce the same 4-breakpoint global cap:
   - `existing cache_control count + magic-trigger insertions <= 4`
   - when budget is exhausted, trigger strings are still removed but no new cache_control is injected.
+  - supported magic trigger strings:
+    - `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH auto`
+    - `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m`
+    - `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h`
 - Updated system update channel selection:
   - `/admin/system/latest_release` and `/admin/system/self_update` now accept optional `update_channel` query (`releases` / `staging`)
   - Admin Global Settings adds a frontend-only `update_channel` selector and passes it via request query
