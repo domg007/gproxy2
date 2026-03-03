@@ -351,6 +351,8 @@ jobs:
     if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     needs: build
     runs-on: ubuntu-latest
+    environment:
+      name: s3
     steps:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
@@ -498,29 +500,88 @@ jobs:
           by_key = {obj["Key"]: obj for obj in objects if "Key" in obj}
 
           assets = []
+          release_assets = []
+          staging_assets = []
+          release_versions = []
+
+          def parse_semver(version: str):
+              parts = version.strip().split(".")
+              if len(parts) != 3:
+                  return None
+              try:
+                  return tuple(int(p) for p in parts)
+              except ValueError:
+                  return None
+
           for key in sorted(k for k in by_key.keys() if k.endswith(".zip")):
               obj = by_key[key]
               sha_key = f"{key}.sha256"
               sha_url = f"{public_base}/{quote(sha_key, safe='/')}" if sha_key in by_key else None
+              encoded_key = quote(key, safe="/")
+              url = f"{public_base}/{encoded_key}"
+              name = key.rsplit("/", 1)[-1]
               assets.append(
                   {
-                      "name": key.rsplit("/", 1)[-1],
+                      "name": name,
                       "path": key,
-                      "url": f"{public_base}/{quote(key, safe='/')}",
+                      "url": url,
                       "sha256_url": sha_url,
                       "size": obj.get("Size"),
                       "last_modified": obj.get("LastModified"),
                   }
               )
 
+              if key.startswith("staging/"):
+                  staging_assets.append({"name": name, "url": url})
+                  continue
+
+              if key.startswith("releases/"):
+                  parts = key.split("/", 2)
+                  if len(parts) >= 3:
+                      version = parts[1]
+                      if parse_semver(version) is not None:
+                          release_versions.append(version)
+                  continue
+
+              if "/" not in key:
+                  release_assets.append({"name": name, "url": url})
+
           manifest = {
               "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
               "assets": assets,
           }
 
+          latest_release_version = None
+          for version in release_versions:
+              if latest_release_version is None:
+                  latest_release_version = version
+                  continue
+              if parse_semver(version) > parse_semver(latest_release_version):
+                  latest_release_version = version
+
+          release_tag = f"v{latest_release_version}" if latest_release_version else ""
+          release_channel_manifest = {
+              "tag": release_tag,
+              "channel": "release",
+              "assets": release_assets,
+          }
+          staging_channel_manifest = {
+              "tag": "staging",
+              "channel": "staging",
+              "assets": staging_assets,
+          }
+
           out_path = Path("dist/manifest.json")
           out_path.write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          Path("dist/release.manifest.json").write_text(
+              json.dumps(release_channel_manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          Path("dist/staging.manifest.json").write_text(
+              json.dumps(staging_channel_manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
           print(f"global manifest generated: assets={len(assets)}")
@@ -534,6 +595,12 @@ jobs:
         run: |
           set -euo pipefail
           aws s3 cp "dist/manifest.json" "s3://${S3_BUCKET}/manifest.json" \
+            --endpoint-url "${S3_ENDPOINT_URL}" \
+            --no-progress
+          aws s3 cp "dist/release.manifest.json" "s3://${S3_BUCKET}/release/manifest.json" \
+            --endpoint-url "${S3_ENDPOINT_URL}" \
+            --no-progress
+          aws s3 cp "dist/staging.manifest.json" "s3://${S3_BUCKET}/staging/manifest.json" \
             --endpoint-url "${S3_ENDPOINT_URL}" \
             --no-progress
 
