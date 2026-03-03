@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::LazyLock;
 
@@ -25,6 +25,10 @@ const CLAUDE_BREAKPOINT_LOOKBACK: usize = 20;
 pub struct CacheAffinityCandidate {
     pub key: String,
     pub ttl_ms: u64,
+    /// Lightweight specificity score for this affinity key.
+    /// For now it is `key.len()`. In the future we may swap this to a
+    /// channel-specific metric (for example cacheable token span count).
+    pub key_len: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +47,7 @@ struct CacheAffinityRecord {
 struct ScopedAffinityCandidate {
     scoped_key: String,
     ttl_ms: u64,
+    key_len: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +249,7 @@ where
             .map(|hint| ScopedAffinityCandidate {
                 scoped_key: scoped_affinity_key(provider, hint.bind.key.as_str()),
                 ttl_ms: hint.bind.ttl_ms,
+                key_len: hint.bind.key_len,
             })
     } else {
         None
@@ -450,6 +456,7 @@ fn scoped_affinity_candidates(
             candidates.push(ScopedAffinityCandidate {
                 scoped_key,
                 ttl_ms: candidate.ttl_ms,
+                key_len: candidate.key_len,
             });
         }
     }
@@ -463,16 +470,60 @@ fn pick_candidate_index<Material>(
     pick_mode: CredentialPickMode,
 ) -> (usize, Option<usize>) {
     if matches!(pick_mode, CredentialPickMode::RoundRobinWithCache) {
+        let remaining_idx_by_credential = remaining
+            .iter()
+            .enumerate()
+            .map(|(idx, item)| (item.credential_id, idx))
+            .collect::<HashMap<_, _>>();
+        let mut score_by_credential = HashMap::<i64, usize>::new();
+        let mut representative_match = HashMap::<i64, (usize, usize)>::new();
+
         for (candidate_idx, candidate) in scoped_candidates.iter().enumerate() {
             if let Some(credential_id) =
                 get_affinity_credential_id(candidate.scoped_key.as_str(), now_unix_ms)
-                && let Some(idx) = remaining
-                    .iter()
-                    .position(|item| item.credential_id == credential_id)
+                && remaining_idx_by_credential.contains_key(&credential_id)
             {
-                return (idx, Some(candidate_idx));
+                let score = score_by_credential.entry(credential_id).or_default();
+                *score = score.saturating_add(candidate.key_len);
+
+                representative_match
+                    .entry(credential_id)
+                    .and_modify(|(best_idx, best_len)| {
+                        if candidate.key_len > *best_len {
+                            *best_idx = candidate_idx;
+                            *best_len = candidate.key_len;
+                        }
+                    })
+                    .or_insert((candidate_idx, candidate.key_len));
             }
         }
+
+        let mut best: Option<(usize, usize, usize)> = None;
+        for (credential_id, score) in score_by_credential {
+            let Some(&remaining_idx) = remaining_idx_by_credential.get(&credential_id) else {
+                continue;
+            };
+            let matched_idx = representative_match
+                .get(&credential_id)
+                .map(|(idx, _)| *idx)
+                .unwrap_or_default();
+
+            match best {
+                None => best = Some((remaining_idx, score, matched_idx)),
+                Some((best_remaining_idx, best_score, _)) => {
+                    if score > best_score
+                        || (score == best_score && remaining_idx < best_remaining_idx)
+                    {
+                        best = Some((remaining_idx, score, matched_idx));
+                    }
+                }
+            }
+        }
+
+        if let Some((remaining_idx, _, matched_idx)) = best {
+            return (remaining_idx, Some(matched_idx));
+        }
+
         return (rand::rng().random_range(0..remaining.len()), None);
     }
 
@@ -630,9 +681,11 @@ fn cache_affinity_hint_for_claude(body_json: Value) -> Option<CacheAffinityHint>
                 breakpoint.kind
             );
             if seen.insert(key.clone()) {
+                let key_len = key.len();
                 candidates.push(CacheAffinityCandidate {
                     key,
                     ttl_ms: breakpoint.ttl_ms,
+                    key_len,
                 });
             }
         }
@@ -650,9 +703,11 @@ fn cache_affinity_hint_for_gemini(model: &str, body_json: Value) -> Option<Cache
         .filter(|value| !value.is_empty())
     {
         let key = format!("gemini.cachedContent:{}", hash_str_to_hex(cached_content));
+        let key_len = key.len();
         let candidate = CacheAffinityCandidate {
             key,
             ttl_ms: GEMINI_CACHED_CONTENT_TTL_MS,
+            key_len,
         };
         return Some(CacheAffinityHint {
             candidates: vec![candidate.clone()],
@@ -693,9 +748,12 @@ where
         let Some(prefix_hash) = prefix_hashes.get(idx) else {
             continue;
         };
+        let key = key_builder(prefix_hash);
+        let key_len = key.len();
         candidates.push(CacheAffinityCandidate {
-            key: key_builder(prefix_hash),
+            key,
             ttl_ms,
+            key_len,
         });
     }
 
@@ -703,8 +761,10 @@ where
         return None;
     }
 
+    let bind_key = key_builder(bind_hash);
     let bind = CacheAffinityCandidate {
-        key: key_builder(bind_hash),
+        key_len: bind_key.len(),
+        key: bind_key,
         ttl_ms,
     };
 
@@ -1141,7 +1201,7 @@ fn claude_auto_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
     {
         return DEFAULT_CACHE_AFFINITY_TTL_MS;
     }
-    DEFAULT_CACHE_AFFINITY_TTL_MS
+    ONE_HOUR_CACHE_AFFINITY_TTL_MS
 }
 
 fn openai_retention_tag(prompt_cache_retention: Option<&Value>) -> &'static str {
@@ -1174,10 +1234,11 @@ mod tests {
     use serde_json::json;
 
     use super::{
+        CredentialCandidate, CredentialPickMode, ScopedAffinityCandidate, bind_affinity,
         build_prefix_hashes, cache_affinity_hint_for_claude_effective_body,
         cache_affinity_hint_for_gemini, cache_affinity_hint_for_openai_chat,
-        cache_affinity_hint_for_openai_responses, hash_str_to_hex, non_claude_candidate_indices,
-        openai_chat_cache_blocks,
+        cache_affinity_hint_for_openai_responses, clear_affinity, hash_str_to_hex,
+        non_claude_candidate_indices, openai_chat_cache_blocks, pick_candidate_index,
     };
 
     #[test]
@@ -1248,7 +1309,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_top_level_cache_control_without_ttl_defaults_to_5m() {
+    fn claude_top_level_cache_control_without_ttl_defaults_to_1h() {
         let body = json!({
             "model": "claude-sonnet-4-6",
             "cache_control": {"type":"ephemeral"},
@@ -1256,7 +1317,7 @@ mod tests {
         });
         let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
         assert!(hint.bind.key.contains("bp=auto"));
-        assert!(hint.bind.key.contains("ttl=5m"));
+        assert!(hint.bind.key.contains("ttl=1h"));
     }
 
     #[test]
@@ -1362,5 +1423,59 @@ mod tests {
         assert_eq!(hashes_a[0], hashes_b[0]);
         assert_ne!(hashes_a[1], hashes_b[1]);
         assert_eq!(hashes_a[2], hashes_b[2]);
+    }
+
+    #[test]
+    fn round_robin_with_cache_uses_sum_of_hit_key_lengths() {
+        let now_unix_ms = 1_000_000u64;
+        let key_1 = "test::sum-hit::key1";
+        let key_2 = "test::sum-hit::key2";
+        let key_3 = "test::sum-hit::key3";
+
+        bind_affinity(key_1, 101, now_unix_ms + 60_000);
+        bind_affinity(key_2, 101, now_unix_ms + 60_000);
+        bind_affinity(key_3, 202, now_unix_ms + 60_000);
+
+        let remaining = vec![
+            CredentialCandidate {
+                credential_id: 101,
+                material: (),
+            },
+            CredentialCandidate {
+                credential_id: 202,
+                material: (),
+            },
+        ];
+        let scoped_candidates = vec![
+            ScopedAffinityCandidate {
+                scoped_key: key_1.to_string(),
+                ttl_ms: 60_000,
+                key_len: 9,
+            },
+            ScopedAffinityCandidate {
+                scoped_key: key_2.to_string(),
+                ttl_ms: 60_000,
+                key_len: 9,
+            },
+            ScopedAffinityCandidate {
+                scoped_key: key_3.to_string(),
+                ttl_ms: 60_000,
+                key_len: 12,
+            },
+        ];
+
+        let (picked_idx, matched_idx) = pick_candidate_index(
+            &remaining,
+            &scoped_candidates,
+            now_unix_ms,
+            CredentialPickMode::RoundRobinWithCache,
+        );
+
+        assert_eq!(picked_idx, 0);
+        assert_eq!(matched_idx, Some(0));
+
+        clear_affinity(key_1);
+        clear_affinity(key_2);
+        clear_affinity(key_3);
     }
 }
