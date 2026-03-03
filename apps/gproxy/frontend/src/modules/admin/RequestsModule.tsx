@@ -287,6 +287,47 @@ function toPositiveOrNull(value: number | null): number | null {
   return value;
 }
 
+function normalizeRequestQuery(query: string | null | undefined): string | null {
+  if (!query) {
+    return null;
+  }
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = trimmed.startsWith("?") ? trimmed.slice(1) : trimmed;
+  return normalized.trim() ? normalized.trim() : null;
+}
+
+function extractQueryFromRequestUrl(requestUrl: string | null | undefined): string | null {
+  if (!requestUrl) {
+    return null;
+  }
+  const trimmed = requestUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = trimmed.startsWith("http://") || trimmed.startsWith("https://")
+      ? new URL(trimmed)
+      : new URL(trimmed, "http://localhost");
+    return normalizeRequestQuery(parsed.search);
+  } catch {
+    const index = trimmed.indexOf("?");
+    if (index < 0) {
+      return null;
+    }
+    return normalizeRequestQuery(trimmed.slice(index));
+  }
+}
+
+function requestQueryFromRow(row: RequestRow): string | null {
+  if ("request_query" in row) {
+    return normalizeRequestQuery(row.request_query);
+  }
+  return extractQueryFromRequestUrl((row as UpstreamRequestQueryRow).request_url);
+}
+
 function PayloadCell({
   row,
   t,
@@ -308,8 +349,7 @@ function PayloadCell({
   const [showRespBody, setShowRespBody] = useState(false);
   const requestHeaders = jsonToPreview(row.request_headers_json);
   const responseHeaders = jsonToPreview(row.response_headers_json);
-  const requestQuery =
-    "request_query" in row ? textToPreview((row as DownstreamRequestQueryRow).request_query) : null;
+  const requestQuery = textToPreview(requestQueryFromRow(row));
   const requestBody = bytesToUtf8Preview(detail?.request_body ?? null);
   const responseBody = bytesToUtf8Preview(detail?.response_body ?? null);
   const reqBodySection =
@@ -389,16 +429,14 @@ function PayloadCell({
     <details>
       <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
       <div className="mt-2 space-y-2 text-xs">
-        {requestQuery ? (
-          requestQuery.preview ? (
-            <PayloadSection title="req query" section={requestQuery} />
-          ) : (
-            <div>
-              <div className="mb-1 font-semibold text-muted">req query</div>
-              <div className="text-xs text-muted">-</div>
-            </div>
-          )
-        ) : null}
+        {requestQuery.preview ? (
+          <PayloadSection title="req query" section={requestQuery} />
+        ) : (
+          <div>
+            <div className="mb-1 font-semibold text-muted">req query</div>
+            <div className="text-xs text-muted">-</div>
+          </div>
+        )}
         <PayloadSection
           title="req headers"
           section={requestHeaders}
