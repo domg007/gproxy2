@@ -373,7 +373,7 @@ jobs:
             release_dir=""
           fi
 
-          public_base="${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download.gproxy.leenhawk.com' }}"
+          public_base="${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}"
           public_base="${public_base%/}"
 
           echo "UPLOAD_MODE=$mode" >> "$GITHUB_ENV"
@@ -409,69 +409,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
 
-      - name: Generate download manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import datetime
-          import json
-          import os
-          from pathlib import Path
-
-          dist_dir = Path("dist")
-          mode = os.environ["UPLOAD_MODE"]
-          tag = os.environ["UPLOAD_TAG"]
-          release_dir = os.environ.get("UPLOAD_RELEASE_DIR", "")
-          public_base = os.environ["DOWNLOAD_PUBLIC_BASE_URL"].rstrip("/")
-
-          def collect_assets(url_prefix: str):
-              assets = []
-              for zip_path in sorted(dist_dir.glob("*.zip")):
-                  sha_path = Path(f"{zip_path}.sha256")
-                  sha256 = None
-                  if sha_path.exists():
-                      raw = sha_path.read_text(encoding="utf-8").strip()
-                      if raw:
-                          sha256 = raw.split()[0]
-                  assets.append(
-                      {
-                          "name": zip_path.name,
-                          "url": f"{url_prefix}/{zip_path.name}",
-                          "sha256": sha256,
-                          "size": zip_path.stat().st_size,
-                      }
-                  )
-              return assets
-
-          def write_manifest(path: Path, channel: str, assets):
-              manifest = {
-                  "channel": channel,
-                  "tag": tag,
-                  "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
-                  "assets": assets,
-              }
-              path.write_text(
-                  json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-                  encoding="utf-8",
-              )
-
-          if mode == "staging":
-              staging_assets = collect_assets(f"{public_base}/staging")
-              write_manifest(dist_dir / "manifest.staging.json", "staging", staging_assets)
-              print(f"manifest generated: mode=staging assets={len(staging_assets)}")
-          else:
-              latest_assets = collect_assets(public_base)
-              write_manifest(dist_dir / "manifest.release.latest.json", "release", latest_assets)
-
-              archived_assets = collect_assets(f"{public_base}/releases/{release_dir}")
-              write_manifest(dist_dir / "manifest.release.archive.json", "release_archive", archived_assets)
-              print(
-                  f"manifest generated: mode=release latest_assets={len(latest_assets)} archive_dir={release_dir}"
-              )
-          PY
-
-      - name: Upload binaries and manifest to S3
+      - name: Upload binaries to S3
         shell: bash
         env:
           S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
@@ -498,16 +436,106 @@ jobs:
             for file in "${files[@]}"; do
               upload_one "$file" "staging/$(basename "$file")"
             done
-            upload_one "dist/manifest.staging.json" "staging/manifest.json"
           else
             for file in "${files[@]}"; do
               base="$(basename "$file")"
               upload_one "$file" "$base"
               upload_one "$file" "releases/${UPLOAD_RELEASE_DIR}/${base}"
             done
-            upload_one "dist/manifest.release.latest.json" "manifest.json"
-            upload_one "dist/manifest.release.archive.json" "releases/${UPLOAD_RELEASE_DIR}/manifest.json"
           fi
+
+      - name: Generate global manifest from bucket
+        shell: bash
+        env:
+          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          from urllib.parse import quote
+
+          bucket = os.environ["S3_BUCKET"]
+          endpoint = os.environ["S3_ENDPOINT_URL"]
+          public_base = os.environ["DOWNLOAD_PUBLIC_BASE_URL"].rstrip("/")
+
+          def list_all_objects():
+              objects = []
+              token = None
+              while True:
+                  cmd = [
+                      "aws",
+                      "s3api",
+                      "list-objects-v2",
+                      "--bucket",
+                      bucket,
+                      "--endpoint-url",
+                      endpoint,
+                      "--max-keys",
+                      "1000",
+                      "--output",
+                      "json",
+                  ]
+                  if token:
+                      cmd.extend(["--continuation-token", token])
+
+                  out = subprocess.check_output(cmd, text=True)
+                  data = json.loads(out)
+                  objects.extend(data.get("Contents", []))
+
+                  if not data.get("IsTruncated"):
+                      break
+                  token = data.get("NextContinuationToken")
+                  if not token:
+                      break
+              return objects
+
+          objects = list_all_objects()
+          by_key = {obj["Key"]: obj for obj in objects if "Key" in obj}
+
+          assets = []
+          for key in sorted(k for k in by_key.keys() if k.endswith(".zip")):
+              obj = by_key[key]
+              sha_key = f"{key}.sha256"
+              sha_url = f"{public_base}/{quote(sha_key, safe='/')}" if sha_key in by_key else None
+              assets.append(
+                  {
+                      "name": key.rsplit("/", 1)[-1],
+                      "path": key,
+                      "url": f"{public_base}/{quote(key, safe='/')}",
+                      "sha256_url": sha_url,
+                      "size": obj.get("Size"),
+                      "last_modified": obj.get("LastModified"),
+                  }
+              )
+
+          manifest = {
+              "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+              "assets": assets,
+          }
+
+          out_path = Path("dist/manifest.json")
+          out_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"global manifest generated: assets={len(assets)}")
+          PY
+
+      - name: Upload global manifest
+        shell: bash
+        env:
+          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
+        run: |
+          set -euo pipefail
+          aws s3 cp "dist/manifest.json" "s3://${S3_BUCKET}/manifest.json" \
+            --endpoint-url "${S3_ENDPOINT_URL}" \
+            --no-progress
 
       - name: Upload summary
         shell: bash
@@ -516,12 +544,7 @@ jobs:
           echo "Upload mode: ${UPLOAD_MODE}" >> "$GITHUB_STEP_SUMMARY"
           echo "Uploaded tag: ${UPLOAD_TAG}" >> "$GITHUB_STEP_SUMMARY"
           echo "Public base URL: ${DOWNLOAD_PUBLIC_BASE_URL}" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${UPLOAD_MODE}" = "staging" ]; then
-            echo "Manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/staging/manifest.json" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Latest manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
-            echo "Archive manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/releases/${UPLOAD_RELEASE_DIR}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "Manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
 
   deploy-docs-cloudflare:
     name: Build and Deploy Docs (Cloudflare Pages)
@@ -549,7 +572,7 @@ jobs:
 
       - name: Build docs
         env:
-          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download.gproxy.leenhawk.com' }}
+          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}
         run: |
           cd docs
           pnpm install --frozen-lockfile

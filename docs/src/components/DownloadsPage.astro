@@ -11,51 +11,59 @@ const i18n =
   locale === "zh"
     ? {
         backToDocs: "返回文档",
+        switchLanguage: "English",
         pageTitle: "GPROXY 下载",
-        pageDescription: "下载 release 与 staging 二进制，并校验 SHA256。",
-        loadingManifests: "正在加载清单...",
+        pageDescription: "单页展示下载桶内全部二进制文件结构（latest / staging / releases）。",
+        loadingManifest: "正在加载 manifest.json ...",
         searchLabel: "搜索",
         searchPlaceholder: "gproxy-linux-x86_64.zip",
         platformLabel: "平台",
         allPlatforms: "全部平台",
         archLabel: "架构",
         allArch: "全部架构",
+        scopeLabel: "范围",
+        allScopes: "全部范围",
+        scopeLatest: "latest（根目录）",
+        scopeStaging: "staging",
+        scopeReleases: "releases",
         detectedOs: "检测到系统",
         detectedArch: "检测到架构",
         runtimeTip: "建议先校验 SHA256 后再运行二进制。",
         recommendationTitle: "推荐下载",
-        recommendationLoading: "正在根据设备环境匹配推荐包...",
+        recommendationLoading: "正在根据当前设备匹配推荐包...",
         recommendationNone: "未找到匹配当前设备的构建包，请手动选择。",
         recommendationHint: "当前设备推荐：{asset}",
-        recommendationRelease: "Release",
-        recommendationStaging: "Staging",
-        releaseTitle: "Release",
-        stagingTitle: "Staging",
-        tagLabel: "标签",
-        assetsLabel: "文件数",
-        assetHeader: "资产",
+        tableTitle: "全部文件",
+        generatedAt: "生成时间",
+        filesCount: "文件数",
+        pathHeader: "路径",
         downloadHeader: "下载",
         shaHeader: "SHA256",
         loadingRow: "加载中...",
-        noAssets: "当前筛选条件下没有可用资产。",
+        noAssets: "当前筛选条件下没有可用文件。",
         downloadBtn: "下载",
         shaBtn: "SHA256",
         recommendedBadge: "推荐",
-        loadedStatus: "已从 {base} 加载 release 与 staging 清单。",
-        partialStatus: "部分清单加载失败，请检查网络或发布状态。",
+        loadedStatus: "已从 {base} 加载全量文件清单。",
         failedStatus: "加载失败：{error}",
       }
     : {
         backToDocs: "Back to docs",
+        switchLanguage: "简体中文",
         pageTitle: "GPROXY Downloads",
-        pageDescription: "Download release and staging binaries with checksum verification.",
-        loadingManifests: "Loading manifests...",
+        pageDescription: "Single-page file tree from bucket manifest (latest / staging / releases).",
+        loadingManifest: "Loading manifest.json ...",
         searchLabel: "Search",
         searchPlaceholder: "gproxy-linux-x86_64.zip",
         platformLabel: "Platform",
         allPlatforms: "All platforms",
         archLabel: "Architecture",
         allArch: "All arch",
+        scopeLabel: "Scope",
+        allScopes: "All scopes",
+        scopeLatest: "latest (root)",
+        scopeStaging: "staging",
+        scopeReleases: "releases",
         detectedOs: "Detected OS",
         detectedArch: "Detected arch",
         runtimeTip: "Tip: verify SHA256 before running binaries.",
@@ -63,31 +71,28 @@ const i18n =
         recommendationLoading: "Matching recommended package for your device...",
         recommendationNone: "No package matched your device. Please choose manually.",
         recommendationHint: "Recommended for this device: {asset}",
-        recommendationRelease: "Release",
-        recommendationStaging: "Staging",
-        releaseTitle: "Release",
-        stagingTitle: "Staging",
-        tagLabel: "Tag",
-        assetsLabel: "Assets",
-        assetHeader: "Asset",
+        tableTitle: "All Files",
+        generatedAt: "Generated At",
+        filesCount: "Files",
+        pathHeader: "Path",
         downloadHeader: "Download",
         shaHeader: "SHA256",
         loadingRow: "Loading...",
-        noAssets: "No assets match current filters.",
+        noAssets: "No files match current filters.",
         downloadBtn: "Download",
         shaBtn: "SHA256",
         recommendedBadge: "Recommended",
-        loadedStatus: "Loaded release and staging manifests from {base}.",
-        partialStatus: "Some manifests failed to load. Check network or publish status.",
-        failedStatus: "Failed to load manifests: {error}",
+        loadedStatus: "Loaded full file manifest from {base}.",
+        failedStatus: "Failed to load manifest: {error}",
       };
 
 const pageTitle = i18n.pageTitle;
 const pageDescription = i18n.pageDescription;
-const downloadsBaseUrl = (import.meta.env.PUBLIC_DOWNLOADS_BASE_URL || "https://download.gproxy.leenhawk.com")
+const downloadsBaseUrl = (import.meta.env.PUBLIC_DOWNLOADS_BASE_URL || "https://download-gproxy.leenhawk.com")
   .trim()
   .replace(/\/+$/, "");
 const docsHomeHref = locale === "zh" ? "/zh/" : "/";
+const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
 ---
 
 <!doctype html>
@@ -153,10 +158,35 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
 
       .back {
         display: inline-flex;
-        margin-bottom: 1rem;
+        margin-bottom: 0;
         color: var(--accent);
         font-weight: 600;
         text-decoration: none;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 1rem;
+      }
+
+      .lang-switch {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        text-decoration: none;
+        color: var(--fg);
+        background: var(--panel);
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
+      .lang-switch:hover {
+        border-color: var(--accent);
       }
 
       .hero {
@@ -186,12 +216,12 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
 
       .toolbar {
         display: grid;
-        grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+        grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr);
         gap: 0.6rem;
         margin: 0 0 1rem;
       }
 
-      @media (max-width: 860px) {
+      @media (max-width: 980px) {
         .toolbar {
           grid-template-columns: 1fr;
         }
@@ -262,57 +292,11 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
         font-size: 0.88rem;
       }
 
-      .recommend-list {
+      .recommend-actions {
         margin-top: 0.65rem;
-        display: grid;
-        gap: 0.6rem;
-      }
-
-      .recommend-item {
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--panel-alt);
-        padding: 0.6rem 0.7rem;
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.6rem;
+        gap: 0.5rem;
         flex-wrap: wrap;
-      }
-
-      .channel-badge {
-        display: inline-flex;
-        align-items: center;
-        border: 1px solid rgba(6, 182, 212, 0.24);
-        background: var(--chip);
-        color: var(--chip-fg);
-        border-radius: 999px;
-        padding: 0.14rem 0.48rem;
-        font-size: 0.72rem;
-        font-weight: 700;
-      }
-
-      .recommend-meta {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.55rem;
-        min-width: 0;
-      }
-
-      .recommend-meta .asset-name {
-        overflow-wrap: anywhere;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 1rem;
-      }
-
-      @media (min-width: 1060px) {
-        .grid {
-          grid-template-columns: 1fr 1fr;
-        }
       }
 
       .panel {
@@ -373,17 +357,17 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
 
       th:nth-child(1),
       td:nth-child(1) {
-        width: 52%;
+        width: 56%;
       }
 
       th:nth-child(2),
       td:nth-child(2) {
-        width: 16%;
+        width: 18%;
       }
 
       th:nth-child(3),
       td:nth-child(3) {
-        width: 32%;
+        width: 26%;
       }
 
       tbody tr:last-child td {
@@ -492,12 +476,12 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
 
         th:nth-child(2),
         td:nth-child(2) {
-          width: 16%;
+          width: 18%;
         }
 
         th:nth-child(3),
         td:nth-child(3) {
-          width: 34%;
+          width: 32%;
         }
 
         .btn {
@@ -514,11 +498,14 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
   </head>
   <body>
     <main class="wrap">
-      <a class="back" href={docsHomeHref}>{i18n.backToDocs}</a>
+      <div class="topbar">
+        <a class="back" href={docsHomeHref}>{i18n.backToDocs}</a>
+        <a class="lang-switch" href={languageSwitchHref}>{i18n.switchLanguage}</a>
+      </div>
       <header class="hero">
         <h1>{pageTitle}</h1>
         <p class="muted">{pageDescription}</p>
-        <p class="status" id="page-status">{i18n.loadingManifests}</p>
+        <p class="status" id="page-status">{i18n.loadingManifest}</p>
       </header>
 
       <section class="toolbar">
@@ -544,6 +531,15 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
             <option value="aarch64">aarch64</option>
           </select>
         </div>
+        <div class="field">
+          <label for="scope-filter">{i18n.scopeLabel}</label>
+          <select id="scope-filter">
+            <option value="all">{i18n.allScopes}</option>
+            <option value="latest">{i18n.scopeLatest}</option>
+            <option value="staging">{i18n.scopeStaging}</option>
+            <option value="releases">{i18n.scopeReleases}</option>
+          </select>
+        </div>
       </section>
 
       <section class="runtime-info" id="runtime-info"></section>
@@ -551,71 +547,47 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
       <section class="recommend">
         <h2>{i18n.recommendationTitle}</h2>
         <p id="recommend-desc" class="recommend-desc">{i18n.recommendationLoading}</p>
-        <div id="recommend-list" class="recommend-list"></div>
+        <div id="recommend-actions" class="recommend-actions"></div>
       </section>
 
-      <section class="grid">
-        <article class="panel" data-channel="release">
-          <div class="panel-head">
-            <div>
-              <h2>{i18n.releaseTitle}</h2>
-              <div class="meta">
-                {i18n.tagLabel}: <strong data-tag>...</strong> · {i18n.assetsLabel}: <strong data-count>0</strong>
-              </div>
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>{i18n.tableTitle}</h2>
+            <div class="meta">
+              {i18n.generatedAt}: <strong id="generated-at">-</strong> · {i18n.filesCount}: <strong id="files-count">0</strong>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{i18n.assetHeader}</th>
-                  <th>{i18n.downloadHeader}</th>
-                  <th>{i18n.shaHeader}</th>
-                </tr>
-              </thead>
-              <tbody data-assets>
-                <tr><td class="empty" colspan="3">{i18n.loadingRow}</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="panel" data-channel="staging">
-          <div class="panel-head">
-            <div>
-              <h2>{i18n.stagingTitle}</h2>
-              <div class="meta">
-                {i18n.tagLabel}: <strong data-tag>...</strong> · {i18n.assetsLabel}: <strong data-count>0</strong>
-              </div>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{i18n.assetHeader}</th>
-                  <th>{i18n.downloadHeader}</th>
-                  <th>{i18n.shaHeader}</th>
-                </tr>
-              </thead>
-              <tbody data-assets>
-                <tr><td class="empty" colspan="3">{i18n.loadingRow}</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{i18n.pathHeader}</th>
+                <th>{i18n.downloadHeader}</th>
+                <th>{i18n.shaHeader}</th>
+              </tr>
+            </thead>
+            <tbody id="assets-body">
+              <tr><td class="empty" colspan="3">{i18n.loadingRow}</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
 
     <script type="module">
-      const CHANNELS = ["release", "staging"];
       const statusEl = document.getElementById("page-status");
       const searchEl = document.getElementById("asset-search");
       const platformFilterEl = document.getElementById("platform-filter");
       const archFilterEl = document.getElementById("arch-filter");
+      const scopeFilterEl = document.getElementById("scope-filter");
       const runtimeInfoEl = document.getElementById("runtime-info");
-      const recommendListEl = document.getElementById("recommend-list");
       const recommendDescEl = document.getElementById("recommend-desc");
+      const recommendActionsEl = document.getElementById("recommend-actions");
+      const generatedAtEl = document.getElementById("generated-at");
+      const filesCountEl = document.getElementById("files-count");
+      const assetsBodyEl = document.getElementById("assets-body");
 
       const DOWNLOADS_BASE_URL = {JSON.stringify(downloadsBaseUrl)};
       const I18N = {JSON.stringify(i18n)};
@@ -623,10 +595,13 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
       const filters = {
         q: "",
         platform: "all",
-        arch: "all"
+        arch: "all",
+        scope: "all"
       };
-      const manifests = {};
-      const recommendedByChannel = {};
+
+      let allAssets = [];
+      let recommendedAsset = null;
+      let generatedAt = null;
 
       function escapeHtml(input) {
         return String(input)
@@ -680,6 +655,34 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
 
       const runtime = detectRuntime();
 
+      function detectScope(path) {
+        if (path.startsWith("staging/")) return "staging";
+        if (path.startsWith("releases/")) return "releases";
+        return "latest";
+      }
+
+      function basename(path) {
+        const parts = String(path || "").split("/");
+        return parts[parts.length - 1] || "";
+      }
+
+      function normalizeAsset(raw) {
+        const path = String(raw?.path || "");
+        const url = String(raw?.url || "").trim();
+        const name = String(raw?.name || basename(path));
+        const resolvedPath = path || name;
+        const resolvedUrl = url || `${DOWNLOADS_BASE_URL}/${resolvedPath}`;
+        const shaUrl = raw?.sha256_url ? String(raw.sha256_url) : `${resolvedUrl}.sha256`;
+        return {
+          name,
+          path: resolvedPath,
+          url: resolvedUrl,
+          shaUrl,
+          meta: parseAssetName(name),
+          scope: detectScope(resolvedPath),
+        };
+      }
+
       function buildRuntimeChips() {
         if (!runtimeInfoEl) return;
         runtimeInfoEl.innerHTML = `
@@ -689,127 +692,87 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
         `;
       }
 
+      function candidateScore(asset) {
+        const scopeRank = asset.scope === "latest" ? 0 : asset.scope === "staging" ? 1 : 2;
+        const libcRank =
+          runtime.os === "linux" && asset.meta?.libc ? (asset.meta.libc === "gnu" ? 0 : 1) : 0;
+        return `${scopeRank}${libcRank}`;
+      }
+
+      function pickRecommendedAsset(assets) {
+        const candidates = assets.filter(
+          (asset) => asset.meta && asset.meta.platform === runtime.os && asset.meta.arch === runtime.arch
+        );
+        if (!candidates.length) return null;
+        candidates.sort((a, b) => candidateScore(a).localeCompare(candidateScore(b)));
+        return candidates[0];
+      }
+
+      function renderRecommendation() {
+        if (!recommendDescEl || !recommendActionsEl) return;
+        if (!recommendedAsset) {
+          recommendDescEl.textContent = I18N.recommendationNone;
+          recommendActionsEl.innerHTML = "";
+          return;
+        }
+
+        recommendDescEl.textContent = fillTemplate(I18N.recommendationHint, {
+          asset: `${recommendedAsset.path}`
+        });
+        recommendActionsEl.innerHTML = `
+          <a class="btn btn-primary" href="${escapeHtml(recommendedAsset.url)}">${escapeHtml(I18N.downloadBtn)}</a>
+          <a class="btn" href="${escapeHtml(recommendedAsset.shaUrl)}">${escapeHtml(I18N.shaBtn)}</a>
+        `;
+      }
+
       function matchesFilter(asset) {
-        const name = String(asset?.name || "").toLowerCase();
-        const meta = parseAssetName(name);
-        if (filters.q && !name.includes(filters.q)) {
+        const q = filters.q;
+        if (q) {
+          const haystack = `${asset.path} ${asset.name}`.toLowerCase();
+          if (!haystack.includes(q)) return false;
+        }
+        if (filters.scope !== "all" && asset.scope !== filters.scope) {
           return false;
         }
-        if (filters.platform !== "all" && meta?.platform !== filters.platform) {
+        if (filters.platform !== "all" && asset.meta?.platform !== filters.platform) {
           return false;
         }
-        if (filters.arch !== "all" && meta?.arch !== filters.arch) {
+        if (filters.arch !== "all" && asset.meta?.arch !== filters.arch) {
           return false;
         }
         return true;
       }
 
-      function pickRecommendedAsset(assets) {
-        const withMeta = (Array.isArray(assets) ? assets : [])
-          .map((asset) => ({ asset, meta: parseAssetName(asset?.name) }))
-          .filter((item) => item.meta);
+      function renderTable() {
+        if (!assetsBodyEl || !filesCountEl || !generatedAtEl) return;
+        const filtered = allAssets.filter(matchesFilter);
+        filesCountEl.textContent = String(filtered.length);
+        generatedAtEl.textContent = generatedAt || "-";
 
-        const candidates = withMeta.filter(
-          (item) => item.meta.platform === runtime.os && item.meta.arch === runtime.arch
-        );
-        if (!candidates.length) return null;
-
-        if (runtime.os === "linux") {
-          for (const libc of ["gnu", "musl"]) {
-            const match = candidates.find((item) => item.meta.libc === libc);
-            if (match) return match.asset;
-          }
-        }
-
-        return candidates[0].asset;
-      }
-
-      function computeRecommendations() {
-        CHANNELS.forEach((channel) => {
-          const assets = manifests[channel]?.assets || [];
-          recommendedByChannel[channel] = pickRecommendedAsset(assets);
-        });
-      }
-
-      function renderRecommendation() {
-        if (!recommendDescEl || !recommendListEl) return;
-        const lines = [];
-
-        CHANNELS.forEach((channel) => {
-          const asset = recommendedByChannel[channel];
-          if (!asset) return;
-          const channelLabel =
-            channel === "release" ? I18N.recommendationRelease : I18N.recommendationStaging;
-          const name = String(asset?.name || "unknown");
-          const url = String(asset?.url || "#");
-          lines.push(`
-            <div class="recommend-item">
-              <div class="recommend-meta">
-                <span class="channel-badge">${escapeHtml(channelLabel)}</span>
-                <span class="asset-name">${escapeHtml(name)}</span>
-              </div>
-              <div class="cell-actions">
-                <a class="btn btn-primary" href="${escapeHtml(url)}">${escapeHtml(I18N.downloadBtn)}</a>
-                <a class="btn" href="${escapeHtml(`${url}.sha256`)}">${escapeHtml(I18N.shaBtn)}</a>
-              </div>
-            </div>
-          `);
-        });
-
-        if (!lines.length) {
-          recommendDescEl.textContent = I18N.recommendationNone;
-          recommendListEl.innerHTML = "";
+        if (!filtered.length) {
+          assetsBodyEl.innerHTML = `<tr><td class="empty" colspan="3">${escapeHtml(I18N.noAssets)}</td></tr>`;
           return;
         }
 
-        const primary = recommendedByChannel.release || recommendedByChannel.staging;
-        recommendDescEl.textContent = fillTemplate(I18N.recommendationHint, {
-          asset: String(primary?.name || "")
-        });
-        recommendListEl.innerHTML = lines.join("");
-      }
-
-      function renderChannel(channel) {
-        const panel = document.querySelector(`[data-channel="${channel}"]`);
-        if (!panel) return;
-        const tagEl = panel.querySelector("[data-tag]");
-        const countEl = panel.querySelector("[data-count]");
-        const bodyEl = panel.querySelector("[data-assets]");
-        if (!tagEl || !countEl || !bodyEl) return;
-
-        const manifest = manifests[channel] || {};
-        const allAssets = Array.isArray(manifest.assets) ? manifest.assets : [];
-        const filteredAssets = allAssets.filter(matchesFilter);
-        const recommended = recommendedByChannel[channel];
-        tagEl.textContent = manifest.tag ? String(manifest.tag) : "n/a";
-        countEl.textContent = String(filteredAssets.length);
-
-        if (filteredAssets.length === 0) {
-          bodyEl.innerHTML = `<tr><td class="empty" colspan="3">${escapeHtml(I18N.noAssets)}</td></tr>`;
-          return;
-        }
-
-        bodyEl.innerHTML = filteredAssets
+        assetsBodyEl.innerHTML = filtered
           .map((asset) => {
-            const name = String(asset?.name || "unknown");
-            const url = String(asset?.url || "#");
-            const isRecommended = Boolean(recommended && String(recommended.name) === name);
+            const isRecommended = recommendedAsset && asset.path === recommendedAsset.path;
             return `
               <tr class="${isRecommended ? "is-recommended" : ""}">
                 <td>
                   <div class="asset-line">
-                    <span class="asset-name">${escapeHtml(name)}</span>
+                    <span class="asset-name">${escapeHtml(asset.path)}</span>
                     ${isRecommended ? `<span class="asset-badge">${escapeHtml(I18N.recommendedBadge)}</span>` : ""}
                   </div>
                 </td>
                 <td>
                   <div class="cell-actions">
-                    <a class="btn btn-primary" href="${escapeHtml(url)}">${escapeHtml(I18N.downloadBtn)}</a>
+                    <a class="btn btn-primary" href="${escapeHtml(asset.url)}">${escapeHtml(I18N.downloadBtn)}</a>
                   </div>
                 </td>
                 <td>
                   <div class="cell-actions">
-                    <a class="btn" href="${escapeHtml(`${url}.sha256`)}">${escapeHtml(I18N.shaBtn)}</a>
+                    <a class="btn" href="${escapeHtml(asset.shaUrl)}">${escapeHtml(I18N.shaBtn)}</a>
                   </div>
                 </td>
               </tr>
@@ -819,21 +782,15 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
       }
 
       function renderAll() {
-        CHANNELS.forEach((channel) => renderChannel(channel));
         renderRecommendation();
+        renderTable();
       }
 
-      const manifestPaths = {
-        release: "manifest.json",
-        staging: "staging/manifest.json"
-      };
-
-      async function fetchManifest(channel) {
-        const manifestPath = manifestPaths[channel];
-        const url = `${DOWNLOADS_BASE_URL}/${manifestPath}?t=${Date.now()}`;
+      async function fetchManifest() {
+        const url = `${DOWNLOADS_BASE_URL}/manifest.json?t=${Date.now()}`;
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error(`failed to fetch ${channel} manifest: ${response.status}`);
+          throw new Error(`failed to fetch manifest: ${response.status}`);
         }
         return response.json();
       }
@@ -857,33 +814,27 @@ const docsHomeHref = locale === "zh" ? "/zh/" : "/";
             renderAll();
           });
         }
+        if (scopeFilterEl) {
+          scopeFilterEl.addEventListener("change", () => {
+            filters.scope = String(scopeFilterEl.value || "all");
+            renderAll();
+          });
+        }
       }
 
       async function init() {
         buildRuntimeChips();
         bindFilters();
 
-        const results = await Promise.allSettled(CHANNELS.map((channel) => fetchManifest(channel)));
-        let okCount = 0;
-
-        results.forEach((result, index) => {
-          const channel = CHANNELS[index];
-          if (result.status === "fulfilled") {
-            okCount += 1;
-            manifests[channel] = result.value;
-          } else {
-            manifests[channel] = { tag: "error", assets: [] };
-          }
-        });
-
-        computeRecommendations();
+        const manifest = await fetchManifest();
+        const rawAssets = Array.isArray(manifest?.assets) ? manifest.assets : [];
+        allAssets = rawAssets.map(normalizeAsset).sort((a, b) => a.path.localeCompare(b.path));
+        generatedAt = String(manifest?.generated_at || "");
+        recommendedAsset = pickRecommendedAsset(allAssets);
         renderAll();
 
         if (statusEl) {
-          statusEl.textContent =
-            okCount === CHANNELS.length
-              ? fillTemplate(I18N.loadedStatus, { base: DOWNLOADS_BASE_URL })
-              : I18N.partialStatus;
+          statusEl.textContent = fillTemplate(I18N.loadedStatus, { base: DOWNLOADS_BASE_URL });
         }
       }
 
