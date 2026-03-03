@@ -21,11 +21,7 @@ const i18n =
         allPlatforms: "全部平台",
         archLabel: "架构",
         allArch: "全部架构",
-        scopeLabel: "范围",
-        allScopes: "全部范围",
-        scopeLatest: "latest（根目录）",
-        scopeStaging: "staging",
-        scopeReleases: "releases",
+        currentDir: "当前目录",
         detectedOs: "检测到系统",
         detectedArch: "检测到架构",
         runtimeTip: "建议先校验 SHA256 后再运行二进制。",
@@ -59,11 +55,7 @@ const i18n =
         allPlatforms: "All platforms",
         archLabel: "Architecture",
         allArch: "All arch",
-        scopeLabel: "Scope",
-        allScopes: "All scopes",
-        scopeLatest: "latest (root)",
-        scopeStaging: "staging",
-        scopeReleases: "releases",
+        currentDir: "Current dir",
         detectedOs: "Detected OS",
         detectedArch: "Detected arch",
         runtimeTip: "Tip: verify SHA256 before running binaries.",
@@ -328,14 +320,16 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
       }
 
       .table-wrap {
-        overflow-x: visible;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
       }
 
       table {
-        width: 100%;
+        width: max-content;
+        min-width: 100%;
         border-collapse: collapse;
-        min-width: 0;
-        table-layout: fixed;
+        table-layout: auto;
       }
 
       th,
@@ -353,21 +347,6 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         letter-spacing: 0.03em;
         text-transform: uppercase;
         font-size: 0.73rem;
-      }
-
-      th:nth-child(1),
-      td:nth-child(1) {
-        width: 56%;
-      }
-
-      th:nth-child(2),
-      td:nth-child(2) {
-        width: 18%;
-      }
-
-      th:nth-child(3),
-      td:nth-child(3) {
-        width: 26%;
       }
 
       tbody tr:last-child td {
@@ -390,6 +369,26 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         display: inline-flex;
         align-items: center;
         gap: 0.45rem;
+      }
+
+      .folder-btn,
+      .up-btn {
+        border: none;
+        background: transparent;
+        padding: 0;
+        margin: 0;
+        color: var(--fg);
+        font-size: 0.84rem;
+        font-weight: 600;
+        line-height: 1.35;
+        font-family: inherit;
+        cursor: pointer;
+        text-decoration: none;
+      }
+
+      .folder-btn:hover,
+      .up-btn:hover {
+        text-decoration: none;
       }
 
       .asset-name {
@@ -469,21 +468,6 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
           padding: 0.68rem 0.56rem;
         }
 
-        th:nth-child(1),
-        td:nth-child(1) {
-          width: 50%;
-        }
-
-        th:nth-child(2),
-        td:nth-child(2) {
-          width: 18%;
-        }
-
-        th:nth-child(3),
-        td:nth-child(3) {
-          width: 32%;
-        }
-
         .btn {
           padding: 0.3rem 0.48rem;
           font-size: 0.74rem;
@@ -531,15 +515,6 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
             <option value="aarch64">aarch64</option>
           </select>
         </div>
-        <div class="field">
-          <label for="scope-filter">{i18n.scopeLabel}</label>
-          <select id="scope-filter">
-            <option value="all">{i18n.allScopes}</option>
-            <option value="latest">{i18n.scopeLatest}</option>
-            <option value="staging">{i18n.scopeStaging}</option>
-            <option value="releases">{i18n.scopeReleases}</option>
-          </select>
-        </div>
       </section>
 
       <section class="runtime-info" id="runtime-info"></section>
@@ -555,7 +530,7 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
           <div>
             <h2>{i18n.tableTitle}</h2>
             <div class="meta">
-              {i18n.generatedAt}: <strong id="generated-at">-</strong> · {i18n.filesCount}: <strong id="files-count">0</strong>
+              {i18n.generatedAt}: <strong id="generated-at">-</strong> · {i18n.filesCount}: <strong id="files-count">0</strong> · {i18n.currentDir}: <strong id="current-dir">/</strong>
             </div>
           </div>
         </div>
@@ -576,32 +551,32 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
       </section>
     </main>
 
-    <script type="module">
+    <script type="module" define:vars={{ downloadsBaseUrl, i18n }}>
       const statusEl = document.getElementById("page-status");
       const searchEl = document.getElementById("asset-search");
       const platformFilterEl = document.getElementById("platform-filter");
       const archFilterEl = document.getElementById("arch-filter");
-      const scopeFilterEl = document.getElementById("scope-filter");
       const runtimeInfoEl = document.getElementById("runtime-info");
       const recommendDescEl = document.getElementById("recommend-desc");
       const recommendActionsEl = document.getElementById("recommend-actions");
       const generatedAtEl = document.getElementById("generated-at");
       const filesCountEl = document.getElementById("files-count");
+      const currentDirEl = document.getElementById("current-dir");
       const assetsBodyEl = document.getElementById("assets-body");
 
-      const DOWNLOADS_BASE_URL = {JSON.stringify(downloadsBaseUrl)};
-      const I18N = {JSON.stringify(i18n)};
+      const DOWNLOADS_BASE_URL = downloadsBaseUrl;
+      const I18N = i18n;
 
       const filters = {
         q: "",
         platform: "all",
-        arch: "all",
-        scope: "all"
+        arch: "all"
       };
 
       let allAssets = [];
       let recommendedAsset = null;
       let generatedAt = null;
+      let currentDir = "";
 
       function escapeHtml(input) {
         return String(input)
@@ -726,14 +701,6 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
       }
 
       function matchesFilter(asset) {
-        const q = filters.q;
-        if (q) {
-          const haystack = `${asset.path} ${asset.name}`.toLowerCase();
-          if (!haystack.includes(q)) return false;
-        }
-        if (filters.scope !== "all" && asset.scope !== filters.scope) {
-          return false;
-        }
         if (filters.platform !== "all" && asset.meta?.platform !== filters.platform) {
           return false;
         }
@@ -743,42 +710,148 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         return true;
       }
 
+      function parentDir(path) {
+        const parts = String(path || "").split("/").filter(Boolean);
+        if (!parts.length) return "";
+        parts.pop();
+        return parts.join("/");
+      }
+
+      function buildTree(assets) {
+        const root = { dirs: new Map(), files: [] };
+        for (const asset of assets) {
+          const parts = String(asset.path || "").split("/").filter(Boolean);
+          if (!parts.length) {
+            root.files.push(asset);
+            continue;
+          }
+          let node = root;
+          for (let i = 0; i < parts.length; i += 1) {
+            const part = parts[i];
+            const isLeaf = i === parts.length - 1;
+            if (isLeaf) {
+              node.files.push(asset);
+            } else {
+              if (!node.dirs.has(part)) {
+                node.dirs.set(part, { dirs: new Map(), files: [] });
+              }
+              node = node.dirs.get(part);
+            }
+          }
+        }
+        return root;
+      }
+
+      function getTreeNode(root, dirPath) {
+        const parts = String(dirPath || "").split("/").filter(Boolean);
+        let node = root;
+        for (const part of parts) {
+          if (!node.dirs.has(part)) return null;
+          node = node.dirs.get(part);
+        }
+        return node;
+      }
+
       function renderTable() {
-        if (!assetsBodyEl || !filesCountEl || !generatedAtEl) return;
+        if (!assetsBodyEl || !filesCountEl || !generatedAtEl || !currentDirEl) return;
+
         const filtered = allAssets.filter(matchesFilter);
-        filesCountEl.textContent = String(filtered.length);
+        const tree = buildTree(filtered);
+        let node = getTreeNode(tree, currentDir);
+        if (!node) {
+          currentDir = "";
+          node = tree;
+        }
+
+        currentDirEl.textContent = currentDir ? `/${currentDir}` : "/";
         generatedAtEl.textContent = generatedAt || "-";
 
-        if (!filtered.length) {
+        const dirEntries = Array.from(node.dirs.keys())
+          .filter((name) => {
+            const q = filters.q;
+            return !q || name.toLowerCase().includes(q);
+          })
+          .sort((a, b) => a.localeCompare(b));
+
+        const fileEntries = [...node.files]
+          .filter((asset) => {
+            const q = filters.q;
+            return !q || basename(asset.path).toLowerCase().includes(q);
+          })
+          .sort((a, b) => basename(a.path).localeCompare(basename(b.path)));
+
+        const visibleCount = dirEntries.length + fileEntries.length;
+        filesCountEl.textContent = String(visibleCount);
+
+        if (!visibleCount && !currentDir) {
           assetsBodyEl.innerHTML = `<tr><td class="empty" colspan="3">${escapeHtml(I18N.noAssets)}</td></tr>`;
           return;
         }
 
-        assetsBodyEl.innerHTML = filtered
-          .map((asset) => {
-            const isRecommended = recommendedAsset && asset.path === recommendedAsset.path;
-            return `
-              <tr class="${isRecommended ? "is-recommended" : ""}">
-                <td>
-                  <div class="asset-line">
-                    <span class="asset-name">${escapeHtml(asset.path)}</span>
-                    ${isRecommended ? `<span class="asset-badge">${escapeHtml(I18N.recommendedBadge)}</span>` : ""}
-                  </div>
-                </td>
-                <td>
-                  <div class="cell-actions">
-                    <a class="btn btn-primary" href="${escapeHtml(asset.url)}">${escapeHtml(I18N.downloadBtn)}</a>
-                  </div>
-                </td>
-                <td>
-                  <div class="cell-actions">
-                    <a class="btn" href="${escapeHtml(asset.shaUrl)}">${escapeHtml(I18N.shaBtn)}</a>
-                  </div>
-                </td>
-              </tr>
-            `;
-          })
-          .join("");
+        const rows = [];
+
+        if (currentDir) {
+          rows.push(`
+            <tr class="dir-row">
+              <td colspan="3">
+                <button type="button" class="up-btn" data-nav-up="1">..</button>
+              </td>
+            </tr>
+          `);
+        }
+
+        for (const dirName of dirEntries) {
+          const nextDir = currentDir ? `${currentDir}/${dirName}` : dirName;
+          rows.push(`
+            <tr class="dir-row">
+              <td colspan="3">
+                <button type="button" class="folder-btn" data-nav-dir="${escapeHtml(encodeURIComponent(nextDir))}">${escapeHtml(dirName)}/</button>
+              </td>
+            </tr>
+          `);
+        }
+
+        for (const asset of fileEntries) {
+          const isRecommended = recommendedAsset && asset.path === recommendedAsset.path;
+          rows.push(`
+            <tr class="${isRecommended ? "is-recommended" : ""}">
+              <td>
+                <div class="asset-line">
+                  <span class="asset-name">${escapeHtml(basename(asset.path))}</span>
+                  ${isRecommended ? `<span class="asset-badge">${escapeHtml(I18N.recommendedBadge)}</span>` : ""}
+                </div>
+              </td>
+              <td>
+                <div class="cell-actions">
+                  <a class="btn btn-primary" href="${escapeHtml(asset.url)}">${escapeHtml(I18N.downloadBtn)}</a>
+                </div>
+              </td>
+              <td>
+                <div class="cell-actions">
+                  <a class="btn" href="${escapeHtml(asset.shaUrl)}">${escapeHtml(I18N.shaBtn)}</a>
+                </div>
+              </td>
+            </tr>
+          `);
+        }
+
+        assetsBodyEl.innerHTML = rows.join("");
+
+        assetsBodyEl.querySelectorAll("[data-nav-dir]").forEach((el) => {
+          el.addEventListener("click", () => {
+            const encoded = String(el.getAttribute("data-nav-dir") || "");
+            currentDir = decodeURIComponent(encoded);
+            renderAll();
+          });
+        });
+
+        const upEl = assetsBodyEl.querySelector("[data-nav-up]");
+        if (upEl) {
+          upEl.addEventListener("click", () => {
+            currentDir = parentDir(currentDir);
+            renderAll();
+          });
+        }
       }
 
       function renderAll() {
@@ -819,24 +892,21 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         if (searchEl) {
           searchEl.addEventListener("input", () => {
             filters.q = String(searchEl.value || "").trim().toLowerCase();
+            currentDir = "";
             renderAll();
           });
         }
         if (platformFilterEl) {
           platformFilterEl.addEventListener("change", () => {
             filters.platform = String(platformFilterEl.value || "all");
+            currentDir = "";
             renderAll();
           });
         }
         if (archFilterEl) {
           archFilterEl.addEventListener("change", () => {
             filters.arch = String(archFilterEl.value || "all");
-            renderAll();
-          });
-        }
-        if (scopeFilterEl) {
-          scopeFilterEl.addEventListener("change", () => {
-            filters.scope = String(scopeFilterEl.value || "all");
+            currentDir = "";
             renderAll();
           });
         }
