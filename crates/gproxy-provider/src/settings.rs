@@ -3,6 +3,7 @@ use crate::channels::{
     BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
     openai, retry::CredentialPickMode, vertexexpress,
 };
+use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
 pub const CREDENTIAL_ROUND_ROBIN_ENABLED_KEY: &str = "credential_round_robin_enabled";
@@ -175,11 +176,8 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
 
     match settings {
         ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
-            if let Some(mode) = value
-                .top_level_cache_control_mode
-                .as_provider_settings_value()
-            {
-                root.insert("enable_top_level_cache_control".to_string(), mode);
+            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints) {
+                root.insert("cache_breakpoints".to_string(), rules);
             }
         }
         ChannelSettings::Builtin(BuiltinChannelSettings::Codex(value)) => {
@@ -254,11 +252,8 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
-            if let Some(mode) = value
-                .top_level_cache_control_mode
-                .as_provider_settings_value()
-            {
-                root.insert("enable_top_level_cache_control".to_string(), mode);
+            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints) {
+                root.insert("cache_breakpoints".to_string(), rules);
             }
         }
         ChannelSettings::Custom(value) => {
@@ -360,8 +355,12 @@ mod tests {
         parse_credential_pick_mode_from_provider_settings_value,
         provider_settings_to_json_value_with_credential_pick_mode,
     };
+    use crate::channels::cache_control::{
+        CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
+    };
     use crate::channels::retry::CredentialPickMode;
-    use crate::channels::settings::ChannelSettings;
+    use crate::channels::settings::{BuiltinChannelSettings, ChannelSettings};
+    use crate::channels::{claude, claudecode};
 
     #[test]
     fn credential_pick_mode_defaults_round_robin_with_cache() {
@@ -439,6 +438,68 @@ mod tests {
                 .get(CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY)
                 .and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn serialize_claude_settings_includes_cache_breakpoints() {
+        let settings = ChannelSettings::Builtin(BuiltinChannelSettings::Claude(
+            claude::ClaudeSettings {
+                cache_breakpoints: vec![
+                    CacheBreakpointRule {
+                        target: CacheBreakpointTarget::TopLevel,
+                        position: CacheBreakpointPositionKind::Nth,
+                        index: 1,
+                        ttl: CacheBreakpointTtl::Auto,
+                    },
+                    CacheBreakpointRule {
+                        target: CacheBreakpointTarget::Messages,
+                        position: CacheBreakpointPositionKind::LastNth,
+                        index: 1,
+                        ttl: CacheBreakpointTtl::Ttl1h,
+                    },
+                ],
+                ..Default::default()
+            },
+        ));
+
+        let value = provider_settings_to_json_value_with_credential_pick_mode(
+            &settings,
+            CredentialPickMode::RoundRobinWithCache,
+        );
+        assert_eq!(
+            value
+                .get("cache_breakpoints")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| items.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn serialize_claudecode_settings_includes_cache_breakpoints() {
+        let settings = ChannelSettings::Builtin(BuiltinChannelSettings::ClaudeCode(
+            claudecode::ClaudeCodeSettings {
+                cache_breakpoints: vec![CacheBreakpointRule {
+                    target: CacheBreakpointTarget::System,
+                    position: CacheBreakpointPositionKind::Nth,
+                    index: 2,
+                    ttl: CacheBreakpointTtl::Ttl5m,
+                }],
+                ..Default::default()
+            },
+        ));
+
+        let value = provider_settings_to_json_value_with_credential_pick_mode(
+            &settings,
+            CredentialPickMode::RoundRobinWithCache,
+        );
+        assert_eq!(
+            value
+                .get("cache_breakpoints")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| items.len()),
+            Some(1)
         );
     }
 }

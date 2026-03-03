@@ -1,7 +1,8 @@
 import type { ChannelSettingsDraft } from "../../types";
 import {
-  normalizeTopLevelCacheControlModeDraft,
-  topLevelCacheControlModeDraftToSettingsValue,
+  cacheBreakpointRulesDraftToSettingsValue,
+  cacheBreakpointRulesDraftToStoredString,
+  normalizeCacheBreakpointRulesDraft,
 } from "../shared";
 
 const DEFAULTS = {
@@ -10,7 +11,7 @@ const DEFAULTS = {
   claudecode_ai_base_url: "https://claude.ai",
   claudecode_platform_base_url: "https://platform.claude.com",
   claudecode_prelude_text: "",
-  enable_top_level_cache_control: "off"
+  cache_breakpoints: "[]"
 } as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -42,9 +43,9 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.claudecode_prelude_text === "string") {
     out.claudecode_prelude_text = value.claudecode_prelude_text;
   }
-  if ("enable_top_level_cache_control" in value) {
-    out.enable_top_level_cache_control = normalizeTopLevelCacheControlModeDraft(
-      value.enable_top_level_cache_control
+  if ("cache_breakpoints" in value) {
+    out.cache_breakpoints = cacheBreakpointRulesDraftToStoredString(
+      normalizeCacheBreakpointRulesDraft(value.cache_breakpoints)
     );
   }
   return out;
@@ -78,12 +79,11 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
     payload.claudecode_prelude_text = preludeText;
   }
 
-  const cacheControlMode = normalizeTopLevelCacheControlModeDraft(
-    settings.enable_top_level_cache_control ?? DEFAULTS.enable_top_level_cache_control
+  const cacheBreakpointRules = cacheBreakpointRulesDraftToSettingsValue(
+    settings.cache_breakpoints ?? DEFAULTS.cache_breakpoints
   );
-  const cacheControlModeValue = topLevelCacheControlModeDraftToSettingsValue(cacheControlMode);
-  if (cacheControlModeValue) {
-    payload.enable_top_level_cache_control = cacheControlModeValue;
+  if (cacheBreakpointRules.length > 0) {
+    payload.cache_breakpoints = cacheBreakpointRules;
   }
 
   return payload;

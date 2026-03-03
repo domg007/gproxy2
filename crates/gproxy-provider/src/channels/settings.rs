@@ -2,8 +2,10 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, cache_control::TopLevelCacheControlMode, claude, claudecode, codex,
-    custom, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
+    aistudio, antigravity,
+    cache_control::CacheBreakpointRule,
+    claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia, openai, vertex,
+    vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,15 +171,11 @@ impl ChannelSettings {
         }
     }
 
-    pub fn top_level_cache_control_mode(&self) -> TopLevelCacheControlMode {
+    pub fn cache_breakpoints(&self) -> &[CacheBreakpointRule] {
         match self {
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => {
-                value.top_level_cache_control_mode
-            }
-            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
-                value.top_level_cache_control_mode
-            }
-            _ => TopLevelCacheControlMode::Disabled,
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => &value.cache_breakpoints,
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => &value.cache_breakpoints,
+            _ => &[],
         }
     }
 

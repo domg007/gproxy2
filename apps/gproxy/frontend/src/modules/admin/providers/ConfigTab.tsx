@@ -1,11 +1,13 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
 
 import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import {
   BUILD_UA_ARCH,
   BUILD_UA_OS,
   DEFAULT_GPROXY_USER_AGENT_DRAFT,
-  normalizeTopLevelCacheControlModeDraft,
+  cacheBreakpointRulesDraftToStoredString,
+  normalizeCacheBreakpointRulesDraft,
+  type CacheBreakpointRuleDraft,
 } from "./channels/shared";
 import {
   CLAUDE_AGENT_SDK_PRELUDE_TEXT,
@@ -57,6 +59,7 @@ export function ConfigTab({
   t: TranslateFn;
 }) {
   const [dispatchExpanded, setDispatchExpanded] = useState(false);
+  const [cacheBreakpointsExpanded, setCacheBreakpointsExpanded] = useState(false);
   const maxDispatchRowsWhenCollapsed = 3;
   const hasMoreDispatchRules =
     providerForm.dispatchRules.length > maxDispatchRowsWhenCollapsed;
@@ -113,6 +116,184 @@ export function ConfigTab({
       label: t("providers.uaTemplate.bot.bingbot")
     }
   ];
+  const cacheBreakpointRules = normalizeCacheBreakpointRulesDraft(
+    providerForm.settings.cache_breakpoints ?? "[]"
+  );
+  const cacheBreakpointSlots: Array<CacheBreakpointRuleDraft | null> = Array.from(
+    { length: 4 },
+    (_, idx) => cacheBreakpointRules[idx] ?? null
+  );
+  const cacheRuleDragMime = "application/x-gproxy-cache-rule";
+
+  const setCacheBreakpointRules = (nextRules: CacheBreakpointRuleDraft[]) => {
+    setProviderForm((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        cache_breakpoints: cacheBreakpointRulesDraftToStoredString(nextRules)
+      }
+    }));
+  };
+
+  const normalizeRule = (rule: CacheBreakpointRuleDraft): CacheBreakpointRuleDraft => {
+    const next: CacheBreakpointRuleDraft = {
+      target: rule.target,
+      position: rule.position,
+      index: Number.isFinite(rule.index) ? Math.max(1, Math.trunc(rule.index)) : 1,
+      ttl: rule.ttl
+    };
+    if (next.target === "top_level") {
+      next.position = "nth";
+      next.index = 1;
+    }
+    return next;
+  };
+
+  const setCacheBreakpointSlots = (nextSlots: Array<CacheBreakpointRuleDraft | null>) => {
+    const nextRules = nextSlots
+      .filter((rule): rule is CacheBreakpointRuleDraft => rule !== null)
+      .map(normalizeRule);
+    setCacheBreakpointRules(nextRules);
+  };
+
+  const defaultSlotRule = (): CacheBreakpointRuleDraft => ({
+    target: "messages",
+    position: "nth",
+    index: 1,
+    ttl: "auto"
+  });
+
+  const replaceCacheBreakpointSlot = (idx: number, nextRule: CacheBreakpointRuleDraft | null) => {
+    if (idx < 0 || idx >= cacheBreakpointSlots.length) {
+      return;
+    }
+    const nextSlots = [...cacheBreakpointSlots];
+    nextSlots[idx] = nextRule ? normalizeRule(nextRule) : null;
+    setCacheBreakpointSlots(nextSlots);
+  };
+
+  const updateCacheBreakpointSlot = (
+    idx: number,
+    patch: Partial<CacheBreakpointRuleDraft>
+  ) => {
+    if (idx < 0 || idx >= cacheBreakpointSlots.length) {
+      return;
+    }
+    const current = cacheBreakpointSlots[idx] ?? defaultSlotRule();
+    replaceCacheBreakpointSlot(idx, { ...current, ...patch });
+  };
+
+  const applyRecommendedTemplate = () => {
+    setCacheBreakpointSlots([
+      { target: "system", position: "last_nth", index: 1, ttl: "auto" },
+      { target: "messages", position: "last_nth", index: 11, ttl: "auto" },
+      { target: "messages", position: "last_nth", index: 2, ttl: "auto" },
+      { target: "messages", position: "last_nth", index: 1, ttl: "auto" }
+    ]);
+  };
+
+  const cardExamples: Array<{ id: string; label: string; rule: CacheBreakpointRuleDraft }> = [
+    {
+      id: "example-top-level",
+      label: t("providers.cacheBreakpoints.card.top_level"),
+      rule: { target: "top_level", position: "nth", index: 1, ttl: "auto" }
+    },
+    {
+      id: "example-tools",
+      label: t("providers.cacheBreakpoints.card.tools"),
+      rule: { target: "tools", position: "nth", index: 1, ttl: "auto" }
+    },
+    {
+      id: "example-system",
+      label: t("providers.cacheBreakpoints.card.system"),
+      rule: { target: "system", position: "nth", index: 1, ttl: "auto" }
+    },
+    {
+      id: "example-messages",
+      label: t("providers.cacheBreakpoints.card.messages"),
+      rule: { target: "messages", position: "nth", index: 1, ttl: "auto" }
+    }
+  ];
+
+  const onRuleCardDragStart = (
+    event: DragEvent<HTMLDivElement>,
+    rule: CacheBreakpointRuleDraft
+  ) => {
+    event.dataTransfer.effectAllowed = "copy";
+    const payload = JSON.stringify(rule);
+    event.dataTransfer.setData(cacheRuleDragMime, payload);
+    event.dataTransfer.setData("text/plain", payload);
+  };
+
+  const onRuleSlotDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const parseDroppedRule = (raw: string): CacheBreakpointRuleDraft | null => {
+    try {
+      const value = JSON.parse(raw) as Partial<CacheBreakpointRuleDraft>;
+      const target = value.target;
+      const position = value.position;
+      const ttl = value.ttl;
+      const index = value.index;
+      if (
+        target !== "top_level" &&
+        target !== "tools" &&
+        target !== "system" &&
+        target !== "messages"
+      ) {
+        return null;
+      }
+      if (position !== "nth" && position !== "last_nth") {
+        return null;
+      }
+      if (ttl !== "auto" && ttl !== "5m" && ttl !== "1h") {
+        return null;
+      }
+      if (typeof index !== "number") {
+        return null;
+      }
+      return normalizeRule({
+        target,
+        position,
+        ttl,
+        index
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const onRuleSlotDrop = (slotIdx: number, event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const raw =
+      event.dataTransfer.getData(cacheRuleDragMime) || event.dataTransfer.getData("text/plain");
+    if (!raw) {
+      return;
+    }
+    const droppedRule = parseDroppedRule(raw);
+    if (!droppedRule) {
+      return;
+    }
+    replaceCacheBreakpointSlot(slotIdx, droppedRule);
+  };
+
+  const renderEyeIcon = (shown: boolean) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+      <circle cx="12" cy="12" r="2.8" />
+      {shown ? null : <path d="M4 20L20 4" />}
+    </svg>
+  );
 
   return (
     <div className="space-y-4">
@@ -145,27 +326,144 @@ export function ConfigTab({
         </div>
         {showClaudeTopLevelCacheControl ? (
           <div>
-            <Label>{t("field.enable_top_level_cache_control")}</Label>
-            <Select
-              value={normalizeTopLevelCacheControlModeDraft(
-                providerForm.settings.enable_top_level_cache_control ?? "off"
-              )}
-              onChange={(value) =>
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: {
-                    ...prev.settings,
-                    enable_top_level_cache_control: normalizeTopLevelCacheControlModeDraft(value)
-                  }
-                }))
-              }
-              options={[
-                { value: "off", label: t("providers.cacheControl.mode.off") },
-                { value: "auto", label: t("providers.cacheControl.mode.auto") },
-                { value: "5m", label: t("providers.cacheControl.mode.5m") },
-                { value: "1h", label: t("providers.cacheControl.mode.1h") }
-              ]}
-            />
+            <Label>{t("field.cache_breakpoints")}</Label>
+            {!cacheBreakpointsExpanded ? (
+              <button
+                type="button"
+                className="input flex w-full items-center justify-center gap-2 text-center"
+                onClick={() => setCacheBreakpointsExpanded(true)}
+                title={t("providers.cacheBreakpoints.eye.open")}
+                aria-label={t("providers.cacheBreakpoints.eye.open")}
+              >
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-panel-muted text-muted">
+                  {renderEyeIcon(false)}
+                </span>
+                <span className="text-sm text-gray-400">
+                  {t("providers.cacheBreakpoints.compact", { count: cacheBreakpointRules.length })}
+                </span>
+              </button>
+            ) : (
+              <div className="rounded border border-gray-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-gray-500">{t("providers.cacheBreakpoints.hint")}</div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="neutral" onClick={applyRecommendedTemplate}>
+                      {t("providers.cacheBreakpoints.template")}
+                    </Button>
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text"
+                      onClick={() => setCacheBreakpointsExpanded(false)}
+                      title={t("providers.cacheBreakpoints.eye.close")}
+                      aria-label={t("providers.cacheBreakpoints.eye.close")}
+                    >
+                      {renderEyeIcon(true)}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="mb-2 text-xs text-gray-500">
+                    {t("providers.cacheBreakpoints.examples")}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+                    {cardExamples.map((item) => (
+                      <div
+                        key={item.id}
+                        draggable
+                        onDragStart={(event) => onRuleCardDragStart(event, item.rule)}
+                        className="flex min-h-[40px] cursor-grab items-center justify-center rounded border border-gray-200 bg-gray-50 px-2 py-2 text-center text-sm hover:bg-gray-100 active:cursor-grabbing"
+                      >
+                        {item.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="mb-2 text-xs text-gray-500">{t("providers.cacheBreakpoints.slots")}</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {cacheBreakpointSlots.map((rule, idx) => (
+                      <div
+                        key={`cache-slot-${idx + 1}`}
+                        onDragOver={onRuleSlotDragOver}
+                        onDrop={(event) => onRuleSlotDrop(idx, event)}
+                        className="rounded border border-gray-200 p-2"
+                      >
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="text-xs text-gray-500">
+                            {t("providers.cacheBreakpoints.slot.title", { index: idx + 1 })}
+                          </div>
+                          <Button variant="neutral" onClick={() => replaceCacheBreakpointSlot(idx, null)}>
+                            {t("providers.cacheBreakpoints.clear")}
+                          </Button>
+                        </div>
+                        {rule ? (
+                          <div className="space-y-2">
+                            <Select
+                              value={rule.target}
+                              onChange={(value) =>
+                                updateCacheBreakpointSlot(idx, {
+                                  target: value as CacheBreakpointRuleDraft["target"]
+                                })
+                              }
+                              options={[
+                                { value: "top_level", label: t("providers.cacheBreakpoints.target.top_level") },
+                                { value: "tools", label: t("providers.cacheBreakpoints.target.tools") },
+                                { value: "system", label: t("providers.cacheBreakpoints.target.system") },
+                                { value: "messages", label: t("providers.cacheBreakpoints.target.messages") }
+                              ]}
+                            />
+                            {rule.target === "top_level" ? null : (
+                              <div className="grid grid-cols-2 gap-2">
+                                <Select
+                                  value={rule.position}
+                                  onChange={(value) =>
+                                    updateCacheBreakpointSlot(idx, {
+                                      position: value as CacheBreakpointRuleDraft["position"]
+                                    })
+                                  }
+                                  options={[
+                                    { value: "nth", label: t("providers.cacheBreakpoints.position.nth") },
+                                    {
+                                      value: "last_nth",
+                                      label: t("providers.cacheBreakpoints.position.last_nth")
+                                    }
+                                  ]}
+                                />
+                                <Input
+                                  value={String(rule.index)}
+                                  onChange={(value) =>
+                                    updateCacheBreakpointSlot(idx, {
+                                      index: Math.max(1, Number.parseInt(value, 10) || 1)
+                                    })
+                                  }
+                                />
+                              </div>
+                            )}
+                            <Select
+                              value={rule.ttl}
+                              onChange={(value) =>
+                                updateCacheBreakpointSlot(idx, {
+                                  ttl: value as CacheBreakpointRuleDraft["ttl"]
+                                })
+                              }
+                              options={[
+                                { value: "auto", label: t("providers.cacheBreakpoints.ttl.auto") },
+                                { value: "5m", label: t("providers.cacheBreakpoints.ttl.5m") },
+                                { value: "1h", label: t("providers.cacheBreakpoints.ttl.1h") }
+                              ]}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex min-h-[124px] items-center justify-center rounded border border-dashed border-gray-300 px-2 text-center text-sm text-gray-500">
+                            {t("providers.cacheBreakpoints.slot.empty")}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : null}
         <div>

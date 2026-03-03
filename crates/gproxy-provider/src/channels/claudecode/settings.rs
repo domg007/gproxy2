@@ -4,7 +4,9 @@ pub use super::constants::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::channels::cache_control::TopLevelCacheControlMode;
+use crate::channels::cache_control::{
+    CacheBreakpointRule, parse_cache_breakpoint_rules,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeCodeSettings {
@@ -15,7 +17,7 @@ pub struct ClaudeCodeSettings {
     pub platform_base_url: String,
     pub prelude_text: Option<String>,
     #[serde(default)]
-    pub top_level_cache_control_mode: TopLevelCacheControlMode,
+    pub cache_breakpoints: Vec<CacheBreakpointRule>,
 }
 
 impl Default for ClaudeCodeSettings {
@@ -26,7 +28,7 @@ impl Default for ClaudeCodeSettings {
             claude_ai_base_url: DEFAULT_CLAUDE_AI_BASE_URL.to_string(),
             platform_base_url: DEFAULT_PLATFORM_BASE_URL.to_string(),
             prelude_text: None,
-            top_level_cache_control_mode: TopLevelCacheControlMode::Disabled,
+            cache_breakpoints: Vec::new(),
         }
     }
 }
@@ -59,9 +61,7 @@ impl ClaudeCodeSettings {
         }
         settings.prelude_text =
             clean_opt(patch.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
-        settings.top_level_cache_control_mode = TopLevelCacheControlMode::from_settings_value(
-            value.get("enable_top_level_cache_control"),
-        );
+        settings.cache_breakpoints = parse_cache_breakpoint_rules(value.get("cache_breakpoints"));
         Ok(settings)
     }
 }

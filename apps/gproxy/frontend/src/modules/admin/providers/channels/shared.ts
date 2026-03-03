@@ -3,7 +3,15 @@ import type { ChannelSettingsDraft } from "../types";
 export const BUILD_UA_OS = __APP_OS__;
 export const BUILD_UA_ARCH = __APP_ARCH__;
 export const DEFAULT_GPROXY_USER_AGENT_DRAFT = `gproxy/${__APP_VERSION__}(${BUILD_UA_OS},${BUILD_UA_ARCH})`;
-export type TopLevelCacheControlModeDraft = "off" | "auto" | "5m" | "1h";
+export type CacheBreakpointTargetDraft = "top_level" | "tools" | "system" | "messages";
+export type CacheBreakpointPositionDraft = "nth" | "last_nth";
+export type CacheBreakpointTtlDraft = "auto" | "5m" | "1h";
+export type CacheBreakpointRuleDraft = {
+  target: CacheBreakpointTargetDraft;
+  position: CacheBreakpointPositionDraft;
+  index: number;
+  ttl: CacheBreakpointTtlDraft;
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -24,36 +32,136 @@ function toJsonObject(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
-export function normalizeTopLevelCacheControlModeDraft(
-  value: unknown
-): TopLevelCacheControlModeDraft {
+const CACHE_BREAKPOINT_TARGET_ORDER: Record<CacheBreakpointTargetDraft, number> = {
+  top_level: 0,
+  tools: 1,
+  system: 2,
+  messages: 3
+};
+
+function normalizeCacheBreakpointTarget(value: unknown): CacheBreakpointTargetDraft {
   if (typeof value !== "string") {
-    return "off";
+    return "messages";
   }
   switch (value.trim().toLowerCase()) {
-    case "auto":
-      return "auto";
-    case "5m":
-      return "5m";
-    case "1h":
-      return "1h";
-    case "off":
-      return "off";
+    case "global":
+    case "top_level":
+      return "top_level";
+    case "tools":
+      return "tools";
+    case "system":
+      return "system";
+    case "messages":
+      return "messages";
     default:
-      return "off";
+      return "messages";
   }
 }
 
-export function topLevelCacheControlModeDraftToSettingsValue(
-  value: TopLevelCacheControlModeDraft
-): string | null {
-  if (value === "off") {
-    return null;
+function normalizeCacheBreakpointPosition(value: unknown): CacheBreakpointPositionDraft {
+  if (typeof value !== "string") {
+    return "nth";
   }
-  if (value === "auto") {
+  switch (value.trim().toLowerCase()) {
+    case "last":
+    case "last_nth":
+    case "from_end":
+      return "last_nth";
+    case "nth":
+    default:
+      return "nth";
+  }
+}
+
+function normalizeCacheBreakpointTtl(value: unknown): CacheBreakpointTtlDraft {
+  if (typeof value !== "string") {
     return "auto";
   }
-  return value;
+  switch (value.trim().toLowerCase()) {
+    case "5m":
+    case "ttl5m":
+      return "5m";
+    case "1h":
+    case "ttl1h":
+      return "1h";
+    case "auto":
+    default:
+      return "auto";
+  }
+}
+
+function normalizeCacheBreakpointIndex(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(1, Math.trunc(value));
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return Math.max(1, Math.trunc(parsed));
+    }
+  }
+  return 1;
+}
+
+function sortCacheBreakpointRules(rules: CacheBreakpointRuleDraft[]): CacheBreakpointRuleDraft[] {
+  return [...rules].sort((a, b) => {
+    const targetCmp = CACHE_BREAKPOINT_TARGET_ORDER[a.target] - CACHE_BREAKPOINT_TARGET_ORDER[b.target];
+    if (targetCmp !== 0) {
+      return targetCmp;
+    }
+    const posA = a.position === "nth" ? 0 : 1;
+    const posB = b.position === "nth" ? 0 : 1;
+    if (posA !== posB) {
+      return posA - posB;
+    }
+    if (a.position === "nth") {
+      return a.index - b.index;
+    }
+    return b.index - a.index;
+  });
+}
+
+export function normalizeCacheBreakpointRulesDraft(value: unknown): CacheBreakpointRuleDraft[] {
+  let source: unknown = value;
+  if (typeof value === "string") {
+    try {
+      source = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(source)) {
+    return [];
+  }
+  const normalized = source
+    .filter((item): item is Record<string, unknown> => isObject(item))
+    .map((item) => {
+      const target = normalizeCacheBreakpointTarget(item.target);
+      const position = normalizeCacheBreakpointPosition(item.position);
+      const index = normalizeCacheBreakpointIndex(item.index);
+      const ttl = normalizeCacheBreakpointTtl(item.ttl);
+      return { target, position, index, ttl } satisfies CacheBreakpointRuleDraft;
+    });
+  return sortCacheBreakpointRules(normalized).slice(0, 4);
+}
+
+export function cacheBreakpointRulesDraftToStoredString(value: unknown): string {
+  return JSON.stringify(normalizeCacheBreakpointRulesDraft(value));
+}
+
+export function cacheBreakpointRulesDraftToSettingsValue(value: unknown): Array<Record<string, unknown>> {
+  const rules = normalizeCacheBreakpointRulesDraft(value);
+  return rules.map((rule) => {
+    const base: Record<string, unknown> = {
+      target: rule.target,
+      ttl: rule.ttl
+    };
+    if (rule.target !== "top_level") {
+      base.position = rule.position;
+      base.index = rule.index;
+    }
+    return base;
+  });
 }
 
 export function createSettingsCodec(defaults: Record<string, string>, optionalKeys: string[]) {

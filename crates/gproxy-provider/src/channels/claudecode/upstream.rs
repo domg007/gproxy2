@@ -9,7 +9,9 @@ use super::oauth::{
     ClaudeCodeRefreshedToken, claudecode_access_token_from_credential,
     resolve_claudecode_access_token,
 };
-use crate::channels::cache_control::TopLevelCacheControlMode;
+use crate::channels::cache_control::{
+    CacheBreakpointRule, ensure_cache_breakpoint_rules,
+};
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
     configured_pick_mode_uses_cache, credential_pick_mode, retry_with_eligible_credentials,
@@ -47,7 +49,7 @@ pub async fn execute_claudecode_with_retry(
     let prepared = ClaudeCodePreparedRequest::from_transform_request(
         request,
         prelude_text,
-        provider.settings.top_level_cache_control_mode(),
+        provider.settings.cache_breakpoints(),
     )?;
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
@@ -925,7 +927,7 @@ impl ClaudeCodePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
         prelude_text: Option<&str>,
-        top_level_cache_control_mode: TopLevelCacheControlMode,
+        cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
         match request {
             gproxy_middleware::TransformRequest::ModelListClaude(value) => {
@@ -1021,8 +1023,8 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
-                if top_level_cache_control_mode.is_enabled() {
-                    ensure_top_level_cache_control(&mut body_json, top_level_cache_control_mode);
+                if !cache_breakpoints.is_empty() {
+                    ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
@@ -1056,8 +1058,8 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
-                if top_level_cache_control_mode.is_enabled() {
-                    ensure_top_level_cache_control(&mut body_json, top_level_cache_control_mode);
+                if !cache_breakpoints.is_empty() {
+                    ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
@@ -1310,21 +1312,6 @@ fn should_expand_claudecode_model_list(
         && !url.contains("/v1/models/")
 }
 
-fn ensure_top_level_cache_control(body: &mut Value, mode: TopLevelCacheControlMode) {
-    let Some(map) = body.as_object_mut() else {
-        return;
-    };
-    if map.contains_key("cache_control") {
-        return;
-    }
-    let mut cache_control = serde_json::json!({
-        "type": "ephemeral",
-    });
-    if let Some(ttl) = mode.ttl() {
-        cache_control["ttl"] = serde_json::json!(ttl);
-    }
-    map.insert("cache_control".to_string(), cache_control);
-}
 
 fn requires_claudecode_sampling_guard(model: &str) -> bool {
     let lower = model.to_ascii_lowercase();

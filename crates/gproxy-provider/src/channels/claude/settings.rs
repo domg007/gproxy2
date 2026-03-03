@@ -2,7 +2,9 @@ pub use super::constants::DEFAULT_BASE_URL;
 
 use serde::{Deserialize, Serialize};
 
-use crate::channels::cache_control::TopLevelCacheControlMode;
+use crate::channels::cache_control::{
+    CacheBreakpointRule, parse_cache_breakpoint_rules,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeSettings {
@@ -10,7 +12,7 @@ pub struct ClaudeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     #[serde(default)]
-    pub top_level_cache_control_mode: TopLevelCacheControlMode,
+    pub cache_breakpoints: Vec<CacheBreakpointRule>,
 }
 
 impl Default for ClaudeSettings {
@@ -18,7 +20,7 @@ impl Default for ClaudeSettings {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             user_agent: None,
-            top_level_cache_control_mode: TopLevelCacheControlMode::Disabled,
+            cache_breakpoints: Vec::new(),
         }
     }
 }
@@ -40,9 +42,7 @@ impl ClaudeSettings {
             settings.base_url = patch.base_url;
         }
         settings.user_agent = patch.user_agent.map(|value| value.trim().to_string());
-        settings.top_level_cache_control_mode = TopLevelCacheControlMode::from_settings_value(
-            value.get("enable_top_level_cache_control"),
-        );
+        settings.cache_breakpoints = parse_cache_breakpoint_rules(value.get("cache_breakpoints"));
         Ok(settings)
     }
 }
