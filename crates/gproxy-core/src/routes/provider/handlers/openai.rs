@@ -63,14 +63,15 @@ pub(in crate::routes::provider) async fn oauth_start(
     let response = match response_result {
         Ok(response) => response,
         Err(err) => {
+            let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
                 provider_id,
                 None,
                 tracked_http_events.as_slice(),
+                err_request_meta.as_ref(),
             )
             .await;
-            let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
@@ -100,6 +101,7 @@ pub(in crate::routes::provider) async fn oauth_start(
         provider_id,
         None,
         tracked_http_events.as_slice(),
+        response.request_meta.as_ref(),
     )
     .await;
     Ok(oauth_response_to_axum(response))
@@ -132,14 +134,15 @@ pub(in crate::routes::provider) async fn oauth_callback(
     let result = match callback_result {
         Ok(result) => result,
         Err(err) => {
+            let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
                 provider_id,
                 None,
                 tracked_http_events.as_slice(),
+                err_request_meta.as_ref(),
             )
             .await;
-            let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
@@ -194,6 +197,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
         provider_id,
         resolved_credential_id,
         tracked_http_events.as_slice(),
+        result.response.request_meta.as_ref(),
     )
     .await;
 
@@ -232,14 +236,15 @@ pub(in crate::routes::provider) async fn upstream_usage(
     let upstream = match upstream_result {
         Ok(upstream) => upstream,
         Err(err) => {
+            let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
                 provider_id,
                 credential_id,
                 tracked_http_events.as_slice(),
+                err_request_meta.as_ref(),
             )
             .await;
-            let err_request_meta = upstream_error_request_meta(&err);
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
@@ -286,6 +291,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
         provider_id,
         upstream_credential_id.or(credential_id),
         tracked_http_events.as_slice(),
+        upstream_request_meta.as_ref(),
     )
     .await;
     Ok(oauth_response_to_axum(payload))

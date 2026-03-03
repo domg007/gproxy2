@@ -693,13 +693,6 @@ pub(super) async fn execute_transform_request(
     if !dispatch_local {
         enqueue_credential_status_updates_for_request(state.as_ref(), &channel, &provider, now)
             .await;
-        enqueue_internal_tracked_http_events(
-            state.as_ref(),
-            provider_id,
-            None,
-            tracked_http_events.as_slice(),
-        )
-        .await;
     }
     let upstream = match upstream_result {
         Ok(value) => value,
@@ -707,6 +700,16 @@ pub(super) async fn execute_transform_request(
             let err_request_meta = upstream_error_request_meta(&err);
             let err_credential_id = upstream_error_credential_id(&err);
             let err_status = upstream_error_status(&err);
+            if !dispatch_local {
+                enqueue_internal_tracked_http_events(
+                    state.as_ref(),
+                    provider_id,
+                    err_credential_id,
+                    tracked_http_events.as_slice(),
+                    err_request_meta.as_ref(),
+                )
+                .await;
+            }
             enqueue_upstream_and_usage_event(
                 state.as_ref(),
                 UpstreamAndUsageEventInput {
@@ -728,6 +731,16 @@ pub(super) async fn execute_transform_request(
     };
     let upstream_credential_id = upstream.credential_id;
     let upstream_request_meta = upstream.request_meta.clone();
+    if !dispatch_local {
+        enqueue_internal_tracked_http_events(
+            state.as_ref(),
+            provider_id,
+            upstream_credential_id,
+            tracked_http_events.as_slice(),
+            upstream_request_meta.as_ref(),
+        )
+        .await;
+    }
 
     if let Some(update) = upstream.credential_update.clone() {
         apply_credential_update_and_persist(

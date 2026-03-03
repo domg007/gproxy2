@@ -951,12 +951,18 @@ pub(super) async fn enqueue_internal_tracked_http_events(
     provider_id: Option<i64>,
     credential_id: Option<i64>,
     events: &[TrackedHttpEvent],
+    primary_request_meta: Option<&UpstreamRequestMeta>,
 ) {
     if events.is_empty() {
         return;
     }
     let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
     for event in events {
+        if let Some(primary_meta) = primary_request_meta
+            && tracked_http_event_matches_primary_request(event, primary_meta)
+        {
+            continue;
+        }
         let upstream_event = UpstreamRequestWrite {
             at_unix_ms: now_unix_ms_i64(),
             internal: true,
@@ -985,4 +991,14 @@ pub(super) async fn enqueue_internal_tracked_http_events(
             eprintln!("provider: tracked http event enqueue failed: {err}");
         }
     }
+}
+
+fn tracked_http_event_matches_primary_request(
+    event: &TrackedHttpEvent,
+    primary_meta: &UpstreamRequestMeta,
+) -> bool {
+    event.request_meta.method == primary_meta.method
+        && event.request_meta.url == primary_meta.url
+        && event.request_meta.headers == primary_meta.headers
+        && event.request_meta.body == primary_meta.body
 }
