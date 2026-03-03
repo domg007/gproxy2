@@ -1691,6 +1691,7 @@ dependencies = [
  "tiktoken-rs",
  "tokenizers",
  "tokio",
+ "tracing",
  "url",
  "wreq",
 ]

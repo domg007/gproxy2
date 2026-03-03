@@ -60,6 +60,17 @@ struct ClaudeBreakpoint {
 }
 
 static CACHE_AFFINITY: LazyLock<DashMap<String, CacheAffinityRecord>> = LazyLock::new(DashMap::new);
+static CACHE_AFFINITY_TRACE_ENABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("GPROXY_AFFINITY_TRACE")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+});
 
 pub enum CredentialRetryDecision<T> {
     Return(T),
@@ -68,6 +79,11 @@ pub enum CredentialRetryDecision<T> {
         last_error: Option<String>,
         last_request_meta: Option<UpstreamRequestMeta>,
     },
+}
+
+#[inline]
+fn affinity_trace_enabled() -> bool {
+    *CACHE_AFFINITY_TRACE_ENABLED
 }
 
 pub struct CredentialAttempt<Material> {
@@ -233,6 +249,27 @@ where
         None
     };
 
+    if affinity_trace_enabled() {
+        let model_for_log = normalized_model.as_deref().unwrap_or("-");
+        let candidate_preview = scoped_candidates
+            .iter()
+            .take(3)
+            .map(|item| item.scoped_key.as_str())
+            .collect::<Vec<_>>();
+        tracing::info!(
+            channel=%provider.channel.as_str(),
+            model=%model_for_log,
+            configured_pick_mode=?provider.credential_pick_mode,
+            effective_pick_mode=?pick_mode,
+            hint_present=cache_affinity_hint.is_some(),
+            use_cache_affinity,
+            hint_candidate_count=scoped_candidates.len(),
+            hint_candidate_preview=?candidate_preview,
+            eligible_credential_count=remaining.len(),
+            "cache affinity selection start"
+        );
+    }
+
     let mut attempts = 0usize;
     let mut last_credential_id = None;
     let mut last_status = None;
@@ -240,10 +277,27 @@ where
     let mut last_request_meta = None;
 
     while !remaining.is_empty() {
+        let remaining_before_pick = remaining.len();
         let (idx, matched_affinity_idx) =
             pick_candidate_index(&remaining, &scoped_candidates, now_unix_ms, pick_mode);
         let candidate = remaining.swap_remove(idx);
         attempts += 1;
+        if affinity_trace_enabled() {
+            let matched_key = matched_affinity_idx
+                .and_then(|i| scoped_candidates.get(i))
+                .map(|item| item.scoped_key.as_str())
+                .unwrap_or("-");
+            tracing::info!(
+                channel=%provider.channel.as_str(),
+                model=%normalized_model.as_deref().unwrap_or("-"),
+                attempt=attempts,
+                remaining_before_pick,
+                picked_credential_id=candidate.credential_id,
+                matched_affinity=matched_affinity_idx.is_some(),
+                matched_affinity_key=%matched_key,
+                "cache affinity picked credential"
+            );
+        }
         match attempt(CredentialAttempt {
             credential_id: candidate.credential_id,
             material: candidate.material,
@@ -270,6 +324,25 @@ where
                         );
                     }
                 }
+                if affinity_trace_enabled() {
+                    let bind_key = scoped_bind
+                        .as_ref()
+                        .map(|item| item.scoped_key.as_str())
+                        .unwrap_or("-");
+                    let matched_key = matched_affinity_idx
+                        .and_then(|i| scoped_candidates.get(i))
+                        .map(|item| item.scoped_key.as_str())
+                        .unwrap_or("-");
+                    tracing::info!(
+                        channel=%provider.channel.as_str(),
+                        model=%normalized_model.as_deref().unwrap_or("-"),
+                        attempt=attempts,
+                        credential_id=candidate.credential_id,
+                        bind_key=%bind_key,
+                        matched_key=%matched_key,
+                        "cache affinity credential succeeded"
+                    );
+                }
                 return Ok(value);
             }
             CredentialRetryDecision::Retry {
@@ -282,6 +355,28 @@ where
                     && let Some(hit) = scoped_candidates.get(matched_idx)
                 {
                     clear_affinity(hit.scoped_key.as_str());
+                    if affinity_trace_enabled() {
+                        tracing::info!(
+                            channel=%provider.channel.as_str(),
+                            model=%normalized_model.as_deref().unwrap_or("-"),
+                            attempt=attempts,
+                            credential_id=candidate.credential_id,
+                            matched_key=%hit.scoped_key,
+                            status=?status,
+                            error=?error,
+                            "cache affinity cleared matched key on retry"
+                        );
+                    }
+                } else if affinity_trace_enabled() {
+                    tracing::info!(
+                        channel=%provider.channel.as_str(),
+                        model=%normalized_model.as_deref().unwrap_or("-"),
+                        attempt=attempts,
+                        credential_id=candidate.credential_id,
+                        status=?status,
+                        error=?error,
+                        "cache affinity retry without matched key clear"
+                    );
                 }
                 last_credential_id = Some(candidate.credential_id);
                 last_status = status;
@@ -289,6 +384,18 @@ where
                 last_request_meta = request_meta;
             }
         }
+    }
+
+    if affinity_trace_enabled() {
+        tracing::info!(
+            channel=%provider.channel.as_str(),
+            model=%normalized_model.as_deref().unwrap_or("-"),
+            attempts,
+            last_credential_id=?last_credential_id,
+            last_status=?last_status,
+            last_error=?last_error,
+            "cache affinity exhausted all credentials"
+        );
     }
 
     Err(UpstreamError::AllCredentialsExhausted {
@@ -385,14 +492,40 @@ fn pick_candidate_index<Material>(
 fn get_affinity_credential_id(scoped_key: &str, now_unix_ms: u64) -> Option<i64> {
     let record = CACHE_AFFINITY.get(scoped_key)?;
     if record.expires_at_unix_ms <= now_unix_ms {
+        if affinity_trace_enabled() {
+            tracing::info!(
+                scoped_key=%scoped_key,
+                credential_id=record.credential_id,
+                expires_at_unix_ms=record.expires_at_unix_ms,
+                now_unix_ms,
+                "cache affinity key expired"
+            );
+        }
         drop(record);
         CACHE_AFFINITY.remove(scoped_key);
         return None;
+    }
+    if affinity_trace_enabled() {
+        tracing::info!(
+            scoped_key=%scoped_key,
+            credential_id=record.credential_id,
+            expires_at_unix_ms=record.expires_at_unix_ms,
+            now_unix_ms,
+            "cache affinity key hit"
+        );
     }
     Some(record.credential_id)
 }
 
 fn bind_affinity(scoped_key: &str, credential_id: i64, expires_at_unix_ms: u64) {
+    if affinity_trace_enabled() {
+        tracing::info!(
+            scoped_key=%scoped_key,
+            credential_id,
+            expires_at_unix_ms,
+            "cache affinity bind"
+        );
+    }
     CACHE_AFFINITY.insert(
         scoped_key.to_string(),
         CacheAffinityRecord {
@@ -403,6 +536,9 @@ fn bind_affinity(scoped_key: &str, credential_id: i64, expires_at_unix_ms: u64) 
 }
 
 fn clear_affinity(scoped_key: &str) {
+    if affinity_trace_enabled() {
+        tracing::info!(scoped_key=%scoped_key, "cache affinity clear");
+    }
     CACHE_AFFINITY.remove(scoped_key);
 }
 
@@ -920,16 +1056,15 @@ fn push_content_blocks(
 }
 
 fn build_prefix_hashes(seed: &str, blocks: &[Value]) -> Option<Vec<String>> {
-    let mut hasher = Sha256::new();
-    hasher.update(seed.as_bytes());
-
     let mut output = Vec::with_capacity(blocks.len());
     for block in blocks {
         let canonical = canonicalize_value(block);
         let bytes = serde_json::to_vec(&canonical).ok()?;
+        let mut hasher = Sha256::new();
+        hasher.update(seed.as_bytes());
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
-        output.push(format!("{:x}", hasher.clone().finalize()));
+        output.push(format!("{:x}", hasher.finalize()));
     }
     Some(output)
 }
@@ -1204,5 +1339,28 @@ mod tests {
         assert_eq!(hint.candidates[55].key, key_for_index(24));
         assert_eq!(hint.candidates[56].key, key_for_index(7));
         assert_eq!(hint.candidates[63].key, key_for_index(0));
+    }
+
+    #[test]
+    fn block_hashes_do_not_cascade_when_middle_block_changes() {
+        let blocks_a = vec![
+            json!({ "kind": "msg", "value": "a" }),
+            json!({ "kind": "msg", "value": "b" }),
+            json!({ "kind": "msg", "value": "c" }),
+        ];
+        let blocks_b = vec![
+            json!({ "kind": "msg", "value": "a" }),
+            json!({ "kind": "msg", "value": "x" }),
+            json!({ "kind": "msg", "value": "c" }),
+        ];
+
+        let hashes_a = build_prefix_hashes("seed", &blocks_a).expect("hashes a");
+        let hashes_b = build_prefix_hashes("seed", &blocks_b).expect("hashes b");
+
+        assert_eq!(hashes_a.len(), 3);
+        assert_eq!(hashes_b.len(), 3);
+        assert_eq!(hashes_a[0], hashes_b[0]);
+        assert_ne!(hashes_a[1], hashes_b[1]);
+        assert_eq!(hashes_a[2], hashes_b[2]);
     }
 }
