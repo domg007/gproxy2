@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io::Read};
@@ -664,7 +664,7 @@ fn temp_update_path(parent: &std::path::Path) -> PathBuf {
 }
 
 fn schedule_self_restart(staged_binary_path: Option<PathBuf>) -> Result<(), String> {
-    let exe = env::current_exe().map_err(|err| format!("current_exe_for_restart:{err}"))?;
+    let exe = resolve_restart_exe_path()?;
     let args: Vec<std::ffi::OsString> = env::args_os().skip(1).collect();
 
     std::thread::spawn(move || {
@@ -690,6 +690,32 @@ fn schedule_self_restart(staged_binary_path: Option<PathBuf>) -> Result<(), Stri
     });
 
     Ok(())
+}
+
+fn resolve_restart_exe_path() -> Result<PathBuf, String> {
+    let exe = env::current_exe().map_err(|err| format!("current_exe_for_restart:{err}"))?;
+    Ok(maybe_fix_deleted_exe_path(exe))
+}
+
+fn maybe_fix_deleted_exe_path(exe: PathBuf) -> PathBuf {
+    if exe.exists() {
+        return exe;
+    }
+
+    let Some(exe_str) = exe.to_str() else {
+        return exe;
+    };
+
+    let Some(stripped) = exe_str.strip_suffix(" (deleted)") else {
+        return exe;
+    };
+
+    let candidate = Path::new(stripped);
+    if candidate.exists() {
+        return candidate.to_path_buf();
+    }
+
+    exe
 }
 
 #[cfg(windows)]
@@ -800,6 +826,44 @@ fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
     let err = cmd.exec();
     eprintln!("self_update exec failed for {}: {err}", exe.display());
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::maybe_fix_deleted_exe_path;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn maybe_fix_deleted_exe_path_strips_deleted_suffix_when_file_exists() {
+        let base = unique_temp_path("gproxy-test-bin");
+        fs::write(&base, b"bin").expect("write temp binary");
+        let deleted = PathBuf::from(format!("{} (deleted)", base.display()));
+        assert_eq!(maybe_fix_deleted_exe_path(deleted), base);
+        let _ = fs::remove_file(base);
+    }
+
+    #[test]
+    fn maybe_fix_deleted_exe_path_keeps_original_when_candidate_missing() {
+        let missing = unique_temp_path("gproxy-test-bin-missing");
+        let deleted = PathBuf::from(format!("{} (deleted)", missing.display()));
+        assert_eq!(maybe_fix_deleted_exe_path(deleted.clone()), deleted);
+    }
+
+    #[test]
+    fn maybe_fix_deleted_exe_path_keeps_original_for_non_deleted_name() {
+        let regular = unique_temp_path("gproxy-test-bin-regular");
+        assert_eq!(maybe_fix_deleted_exe_path(regular.clone()), regular);
+    }
+
+    fn unique_temp_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
+    }
 }
 
 #[cfg(not(unix))]
