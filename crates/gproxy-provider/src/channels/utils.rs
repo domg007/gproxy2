@@ -196,6 +196,30 @@ pub fn parse_query_value(query: Option<&str>, key: &str) -> Option<String> {
     None
 }
 
+pub fn append_query_param_if_missing(path: &str, key: &str, value: &str) -> String {
+    let mut parts = path.splitn(2, '?');
+    let base = parts.next().unwrap_or_default();
+    let query = parts.next();
+
+    let encoded_pair = form_urlencoded::Serializer::new(String::new())
+        .append_pair(key, value)
+        .finish();
+
+    match query {
+        Some(raw_query) => {
+            let has_key = form_urlencoded::parse(raw_query.as_bytes()).any(|(name, _)| name == key);
+            if has_key {
+                path.to_string()
+            } else if raw_query.is_empty() {
+                format!("{base}?{encoded_pair}")
+            } else {
+                format!("{base}?{raw_query}&{encoded_pair}")
+            }
+        }
+        None => format!("{base}?{encoded_pair}"),
+    }
+}
+
 pub fn try_local_gemini_model_response(
     request: &TransformRequest,
     models_doc: &Value,
@@ -285,5 +309,28 @@ pub fn try_local_gemini_model_response(
             Ok(Some(TransformResponse::ModelGetGemini(response)))
         }
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_query_param_if_missing;
+
+    #[test]
+    fn append_query_param_when_missing_query() {
+        let path = append_query_param_if_missing("/v1/messages", "beta", "true");
+        assert_eq!(path, "/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn append_query_param_when_existing_query() {
+        let path = append_query_param_if_missing("/v1/models?limit=20", "beta", "true");
+        assert_eq!(path, "/v1/models?limit=20&beta=true");
+    }
+
+    #[test]
+    fn does_not_duplicate_existing_query_key() {
+        let path = append_query_param_if_missing("/v1/models?beta=true&limit=20", "beta", "true");
+        assert_eq!(path, "/v1/models?beta=true&limit=20");
     }
 }

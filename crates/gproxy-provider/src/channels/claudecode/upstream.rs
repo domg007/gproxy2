@@ -21,9 +21,9 @@ use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
 };
 use crate::channels::utils::{
-    anthropic_header_pairs, claude_model_list_query_string, claude_model_to_string,
-    is_auth_failure, is_transient_server_failure, join_base_url_and_path, retry_after_to_millis,
-    to_wreq_method,
+    anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
+    claude_model_to_string, is_auth_failure, is_transient_server_failure, join_base_url_and_path,
+    retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -31,6 +31,8 @@ use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 
 const CLAUDE_NOTHINKING_SUFFIX: &str = "-nothinking";
+const BETA_QUERY_KEY: &str = "beta";
+const BETA_QUERY_VALUE: &str = "true";
 
 pub async fn execute_claudecode_with_retry(
     client: &WreqClient,
@@ -941,6 +943,7 @@ impl ClaudeCodePreparedRequest {
                     path.push('?');
                     path.push_str(&query);
                 }
+                path = append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
 
                 let mut request_headers = anthropic_header_pairs(
                     &value.headers.anthropic_version,
@@ -967,7 +970,11 @@ impl ClaudeCodePreparedRequest {
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: format!("/v1/models/{model_id}"),
+                    path: append_query_param_if_missing(
+                        format!("/v1/models/{model_id}").as_str(),
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: None,
                     model: Some(model_id),
                     request_headers,
@@ -997,7 +1004,11 @@ impl ClaudeCodePreparedRequest {
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/messages/count_tokens".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/messages/count_tokens",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -1034,7 +1045,11 @@ impl ClaudeCodePreparedRequest {
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/messages".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -1071,7 +1086,11 @@ impl ClaudeCodePreparedRequest {
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/messages".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,

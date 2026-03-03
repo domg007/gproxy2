@@ -9,7 +9,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
-    anthropic_header_pairs, claude_model_list_query_string, claude_model_to_string,
+    anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
+    claude_model_to_string,
     default_gproxy_user_agent, is_auth_failure, is_transient_server_failure,
     join_base_url_and_path, resolve_user_agent_or_else, retry_after_to_millis, to_wreq_method,
 };
@@ -19,6 +20,8 @@ use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 
 const ANTHROPIC_DEFAULT_VERSION: &str = "2023-06-01";
+const BETA_QUERY_KEY: &str = "beta";
+const BETA_QUERY_VALUE: &str = "true";
 
 pub async fn execute_claude_with_retry(
     client: &WreqClient,
@@ -230,6 +233,7 @@ impl ClaudePreparedRequest {
                     path.push('?');
                     path.push_str(&query);
                 }
+                path = append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path,
@@ -243,7 +247,11 @@ impl ClaudePreparedRequest {
             }
             gproxy_middleware::TransformRequest::ModelGetClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: format!("/v1/models/{}", value.path.model_id),
+                path: append_query_param_if_missing(
+                    format!("/v1/models/{}", value.path.model_id).as_str(),
+                    BETA_QUERY_KEY,
+                    BETA_QUERY_VALUE,
+                ),
                 body: None,
                 model: Some(value.path.model_id.clone()),
                 request_headers: anthropic_header_pairs(
@@ -253,7 +261,11 @@ impl ClaudePreparedRequest {
             }),
             gproxy_middleware::TransformRequest::CountTokenClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: "/v1/messages/count_tokens".to_string(),
+                path: append_query_param_if_missing(
+                    "/v1/messages/count_tokens",
+                    BETA_QUERY_KEY,
+                    BETA_QUERY_VALUE,
+                ),
                 body: Some(
                     serde_json::to_vec(&value.body)
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -272,7 +284,11 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/messages".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -292,7 +308,11 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/messages".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -306,7 +326,7 @@ impl ClaudePreparedRequest {
             }
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: "/v1/models".to_string(),
+                path: append_query_param_if_missing("/v1/models", BETA_QUERY_KEY, BETA_QUERY_VALUE),
                 body: None,
                 model: None,
                 request_headers: anthropic_header_pairs(
@@ -316,7 +336,11 @@ impl ClaudePreparedRequest {
             }),
             gproxy_middleware::TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: format!("/v1/models/{}", value.path.model),
+                path: append_query_param_if_missing(
+                    format!("/v1/models/{}", value.path.model).as_str(),
+                    BETA_QUERY_KEY,
+                    BETA_QUERY_VALUE,
+                ),
                 body: None,
                 model: Some(value.path.model.clone()),
                 request_headers: anthropic_header_pairs(
@@ -327,7 +351,11 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: "/v1/chat/completions".to_string(),
+                    path: append_query_param_if_missing(
+                        "/v1/chat/completions",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
                     body: Some(
                         serde_json::to_vec(&value.body)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -343,7 +371,11 @@ impl ClaudePreparedRequest {
                 value,
             ) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: "/v1/chat/completions".to_string(),
+                path: append_query_param_if_missing(
+                    "/v1/chat/completions",
+                    BETA_QUERY_KEY,
+                    BETA_QUERY_VALUE,
+                ),
                 body: Some(
                     serde_json::to_vec(&value.body)
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
