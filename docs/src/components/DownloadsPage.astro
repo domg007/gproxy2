@@ -786,13 +786,33 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         renderTable();
       }
 
+      function resolveManifestUrl() {
+        const stamp = Date.now();
+        const base = String(DOWNLOADS_BASE_URL || "").replace(/\/+$/, "");
+        try {
+          const parsed = new URL(base);
+          const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+          if (normalizedPath.endsWith("/downloads")) {
+            const rootPath = normalizedPath.slice(0, -"/downloads".length) || "/";
+            const rootManifest = new URL(parsed.origin);
+            rootManifest.pathname = `${rootPath.replace(/\/+$/, "")}/manifest.json`;
+            rootManifest.search = `t=${stamp}`;
+            return rootManifest.toString();
+          }
+        } catch (_) {
+          // ignore invalid DOWNLOADS_BASE_URL and use default resolution
+        }
+        return `${base}/manifest.json?t=${stamp}`;
+      }
+
       async function fetchManifest() {
-        const url = `${DOWNLOADS_BASE_URL}/manifest.json?t=${Date.now()}`;
+        const url = resolveManifestUrl();
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error(`failed to fetch manifest: ${response.status}`);
+          throw new Error(`failed to fetch manifest: ${response.status} (${url})`);
         }
-        return response.json();
+        const manifest = await response.json();
+        return { manifest, url };
       }
 
       function bindFilters() {
@@ -826,7 +846,7 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         buildRuntimeChips();
         bindFilters();
 
-        const manifest = await fetchManifest();
+        const { manifest, url: manifestUrl } = await fetchManifest();
         const rawAssets = Array.isArray(manifest?.assets) ? manifest.assets : [];
         allAssets = rawAssets.map(normalizeAsset).sort((a, b) => a.path.localeCompare(b.path));
         generatedAt = String(manifest?.generated_at || "");
@@ -834,7 +854,7 @@ const languageSwitchHref = locale === "zh" ? "/downloads/" : "/zh/downloads/";
         renderAll();
 
         if (statusEl) {
-          statusEl.textContent = fillTemplate(I18N.loadedStatus, { base: DOWNLOADS_BASE_URL });
+          statusEl.textContent = fillTemplate(I18N.loadedStatus, { base: manifestUrl || DOWNLOADS_BASE_URL });
         }
       }
 

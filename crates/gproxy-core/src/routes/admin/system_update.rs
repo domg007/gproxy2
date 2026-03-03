@@ -397,7 +397,7 @@ fn build_update_channel() -> String {
         .to_ascii_lowercase();
     match channel.as_str() {
         "staging" => "staging".to_string(),
-        _ => "release".to_string(),
+        _ => "releases".to_string(),
     }
 }
 

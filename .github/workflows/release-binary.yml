@@ -561,7 +561,7 @@ jobs:
           release_tag = f"v{latest_release_version}" if latest_release_version else ""
           release_channel_manifest = {
               "tag": release_tag,
-              "channel": "release",
+              "channel": "releases",
               "assets": release_assets,
           }
           staging_channel_manifest = {
@@ -575,7 +575,7 @@ jobs:
               json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
-          Path("dist/release.manifest.json").write_text(
+          Path("dist/releases.manifest.json").write_text(
               json.dumps(release_channel_manifest, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
@@ -599,7 +599,7 @@ jobs:
           aws s3 cp "dist/manifest.json" "s3://${S3_BUCKET}/manifest.json" \
             --endpoint-url "${S3_ENDPOINT_URL}" \
             --no-progress
-          aws s3 cp "dist/release.manifest.json" "s3://${S3_BUCKET}/release/manifest.json" \
+          aws s3 cp "dist/releases.manifest.json" "s3://${S3_BUCKET}/releases/manifest.json" \
             --endpoint-url "${S3_ENDPOINT_URL}" \
             --no-progress
           aws s3 cp "dist/staging.manifest.json" "s3://${S3_BUCKET}/staging/manifest.json" \
