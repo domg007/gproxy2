@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
@@ -89,6 +90,40 @@ function BodyEyeButton({
       disabled={loading}
     >
       <EyeToggleIcon open={open} />
+    </button>
+  );
+}
+
+function BodyCopyButton({
+  ariaLabel,
+  loading,
+  onClick
+}: {
+  ariaLabel: string;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="relative z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-panel-muted text-muted transition hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      disabled={loading}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        className="h-4 w-4"
+        aria-hidden="true"
+      >
+        <rect x="9" y="9" width="11" height="11" rx="2" />
+        <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+      </svg>
     </button>
   );
 }
@@ -255,6 +290,7 @@ function toPositiveOrNull(value: number | null): number | null {
 function PayloadCell({
   row,
   t,
+  notify,
   detail,
   loadingBody,
   bodyError,
@@ -262,10 +298,11 @@ function PayloadCell({
 }: {
   row: RequestRow;
   t: (key: string, params?: Record<string, string | number>) => string;
+  notify: (kind: "success" | "error" | "info", message: string) => void;
   detail: RequestBodyPayload | undefined;
   loadingBody: boolean;
   bodyError: string | undefined;
-  ensureBodyLoaded: (row: RequestRow) => Promise<void>;
+  ensureBodyLoaded: (row: RequestRow) => Promise<RequestBodyPayload | undefined>;
 }) {
   const [showReqBody, setShowReqBody] = useState(false);
   const [showRespBody, setShowRespBody] = useState(false);
@@ -298,6 +335,42 @@ function PayloadCell({
     setShowRespBody((value) => !value);
   };
 
+  const copyReqBody = async () => {
+    let loadedDetail = detail;
+    if (!loadedDetail && !loadingBody) {
+      loadedDetail = await ensureBodyLoaded(row);
+    }
+    const payload = bytesToUtf8Preview(loadedDetail?.request_body ?? null).full;
+    if (!payload) {
+      notify("info", t("common.none"));
+      return;
+    }
+    try {
+      await copyTextToClipboard(payload);
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
+  const copyRespBody = async () => {
+    let loadedDetail = detail;
+    if (!loadedDetail && !loadingBody) {
+      loadedDetail = await ensureBodyLoaded(row);
+    }
+    const payload = bytesToUtf8Preview(loadedDetail?.response_body ?? null).full;
+    if (!payload) {
+      notify("info", t("common.none"));
+      return;
+    }
+    try {
+      await copyTextToClipboard(payload);
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
   return (
     <details>
       <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
@@ -317,12 +390,19 @@ function PayloadCell({
           title="req body"
           section={reqBodySection}
           action={
-            <BodyEyeButton
-              ariaLabel="toggle req body"
-              open={showReqBody}
-              loading={loadingBody}
-              onClick={toggleReqBody}
-            />
+            <div className="inline-flex items-center gap-1">
+              <BodyEyeButton
+                ariaLabel="toggle req body"
+                open={showReqBody}
+                loading={loadingBody}
+                onClick={toggleReqBody}
+              />
+              <BodyCopyButton
+                ariaLabel={t("common.copy")}
+                loading={loadingBody}
+                onClick={() => void copyReqBody()}
+              />
+            </div>
           }
         />
         <PayloadSection title="resp headers" section={responseHeaders} />
@@ -330,12 +410,19 @@ function PayloadCell({
           title="resp body"
           section={respBodySection}
           action={
-            <BodyEyeButton
-              ariaLabel="toggle resp body"
-              open={showRespBody}
-              loading={loadingBody}
-              onClick={toggleRespBody}
-            />
+            <div className="inline-flex items-center gap-1">
+              <BodyEyeButton
+                ariaLabel="toggle resp body"
+                open={showRespBody}
+                loading={loadingBody}
+                onClick={toggleRespBody}
+              />
+              <BodyCopyButton
+                ariaLabel={t("common.copy")}
+                loading={loadingBody}
+                onClick={() => void copyRespBody()}
+              />
+            </div>
           }
         />
         {loadingBody ? <div className="text-xs text-muted">{t("common.loading")}</div> : null}
@@ -618,13 +705,13 @@ export function RequestsModule({
     void fetchRows();
   }, [activeQuery, apiKey, notify, page, pageSize]);
 
-  const ensureBodyLoaded = async (row: RequestRow) => {
+  const ensureBodyLoaded = async (row: RequestRow): Promise<RequestBodyPayload | undefined> => {
     if (!activeQuery) {
-      return;
+      return undefined;
     }
     const traceId = row.trace_id;
     if (bodyByTraceId[traceId] || bodyLoadingByTraceId[traceId]) {
-      return;
+      return bodyByTraceId[traceId];
     }
     setBodyLoadingByTraceId((prev) => ({ ...prev, [traceId]: true }));
     setBodyErrorByTraceId((prev) => {
@@ -644,18 +731,21 @@ export function RequestsModule({
         })
       });
       const detail = data[0];
+      const nextDetail = {
+        request_body: detail?.request_body ?? null,
+        response_body: detail?.response_body ?? null
+      };
       setBodyByTraceId((prev) => ({
         ...prev,
-        [traceId]: {
-          request_body: detail?.request_body ?? null,
-          response_body: detail?.response_body ?? null
-        }
+        [traceId]: nextDetail
       }));
+      return nextDetail;
     } catch (error) {
       setBodyErrorByTraceId((prev) => ({
         ...prev,
         [traceId]: formatError(error)
       }));
+      return undefined;
     } finally {
       setBodyLoadingByTraceId((prev) => ({ ...prev, [traceId]: false }));
     }
@@ -777,6 +867,7 @@ export function RequestsModule({
                 <PayloadCell
                   row={row}
                   t={t}
+                  notify={notify}
                   detail={bodyByTraceId[row.trace_id]}
                   loadingBody={Boolean(bodyLoadingByTraceId[row.trace_id])}
                   bodyError={bodyErrorByTraceId[row.trace_id]}
