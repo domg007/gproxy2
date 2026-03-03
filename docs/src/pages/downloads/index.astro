@@ -1,7 +1,6 @@
 ---
 const pageTitle = "GPROXY Downloads";
-const pageDescription =
-  "Download release and staging artifacts.";
+const pageDescription = "Download release and staging binaries with checksum verification.";
 ---
 
 <!doctype html>
@@ -11,27 +10,37 @@ const pageDescription =
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{pageTitle}</title>
     <meta name="description" content={pageDescription} />
-    <style>
+    <style is:global>
       :root {
         color-scheme: light dark;
-        --bg: #ffffff;
+        --bg: #f6f8fb;
         --fg: #111827;
         --muted: #6b7280;
-        --panel: #f8fafc;
-        --border: #e5e7eb;
+        --panel: #ffffff;
+        --panel-alt: #f8fafc;
+        --border: #dbe3ef;
         --accent: #0f766e;
         --accent-2: #115e59;
+        --chip: #ecfeff;
+        --chip-fg: #155e75;
+        --row-alt: rgba(17, 24, 39, 0.02);
+        --row-hover: rgba(20, 184, 166, 0.1);
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #0b1220;
+          --bg: #0b1324;
           --fg: #e5e7eb;
-          --muted: #9ca3af;
+          --muted: #94a3b8;
           --panel: #111827;
-          --border: #1f2937;
+          --panel-alt: #0f172a;
+          --border: #233146;
           --accent: #2dd4bf;
           --accent-2: #14b8a6;
+          --chip: #0f2b33;
+          --chip-fg: #67e8f9;
+          --row-alt: rgba(255, 255, 255, 0.02);
+          --row-hover: rgba(45, 212, 191, 0.12);
         }
       }
 
@@ -41,24 +50,40 @@ const pageDescription =
 
       body {
         margin: 0;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-        background: radial-gradient(circle at top right, rgba(45, 212, 191, 0.16), transparent 34%), var(--bg);
+        font-family: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
         color: var(--fg);
+        background:
+          radial-gradient(circle at 18% -10%, rgba(20, 184, 166, 0.18), transparent 28%),
+          radial-gradient(circle at 86% 0%, rgba(14, 165, 233, 0.14), transparent 30%),
+          var(--bg);
       }
 
       .wrap {
-        max-width: 1080px;
+        max-width: 1240px;
         margin: 0 auto;
         padding: 2rem 1rem 3rem;
       }
 
-      .header {
-        margin-bottom: 1.25rem;
+      .back {
+        display: inline-flex;
+        margin-bottom: 1rem;
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: none;
       }
 
-      h1 {
-        margin: 0 0 0.5rem;
+      .hero {
+        background: linear-gradient(140deg, rgba(15, 118, 110, 0.1), rgba(14, 165, 233, 0.08));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 1.2rem 1.2rem 1.1rem;
+        margin-bottom: 1rem;
+      }
+
+      .hero h1 {
+        margin: 0 0 0.45rem;
         font-size: clamp(1.8rem, 4vw, 2.4rem);
+        letter-spacing: 0.02em;
       }
 
       .muted {
@@ -67,17 +92,68 @@ const pageDescription =
       }
 
       .status {
-        margin-top: 0.6rem;
+        margin-top: 0.7rem;
+        font-size: 0.92rem;
         color: var(--muted);
-        font-size: 0.95rem;
       }
 
-      .back {
+      .toolbar {
+        display: grid;
+        grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr);
+        gap: 0.6rem;
+        margin: 0 0 1rem;
+      }
+
+      @media (max-width: 860px) {
+        .toolbar {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .field {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.55rem 0.65rem;
+      }
+
+      .field label {
+        display: block;
+        color: var(--muted);
+        margin-bottom: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .field input,
+      .field select {
+        width: 100%;
+        border: 0;
+        outline: none;
+        background: transparent;
+        color: var(--fg);
+        font-size: 0.94rem;
+      }
+
+      .runtime-info {
+        margin: 0 0 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .chip {
         display: inline-flex;
-        margin-bottom: 1.1rem;
-        color: var(--accent);
-        text-decoration: none;
-        font-weight: 600;
+        align-items: center;
+        gap: 0.35rem;
+        border: 1px solid rgba(6, 182, 212, 0.24);
+        border-radius: 999px;
+        padding: 0.28rem 0.62rem;
+        font-size: 0.8rem;
+        color: var(--chip-fg);
+        background: var(--chip);
       }
 
       .grid {
@@ -86,7 +162,7 @@ const pageDescription =
         gap: 1rem;
       }
 
-      @media (min-width: 900px) {
+      @media (min-width: 1060px) {
         .grid {
           grid-template-columns: 1fr 1fr;
         }
@@ -100,130 +176,252 @@ const pageDescription =
       }
 
       .panel-head {
-        padding: 0.9rem 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.8rem;
+        padding: 0.86rem 0.95rem;
         border-bottom: 1px solid var(--border);
+        background: var(--panel-alt);
       }
 
       .panel h2 {
         margin: 0;
-        font-size: 1.1rem;
+        font-size: 1.08rem;
       }
 
       .meta {
-        display: flex;
-        gap: 0.8rem;
-        align-items: center;
+        margin-top: 0.3rem;
         color: var(--muted);
-        margin-top: 0.35rem;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
+      }
+
+      .table-wrap {
+        overflow-x: visible;
       }
 
       table {
         width: 100%;
         border-collapse: collapse;
+        min-width: 0;
+        table-layout: fixed;
       }
 
       th,
       td {
         text-align: left;
-        padding: 0.62rem 0.82rem;
         border-bottom: 1px solid var(--border);
+        padding: 0.82rem 0.9rem;
+        font-size: 0.88rem;
         vertical-align: top;
-        font-size: 0.92rem;
       }
 
       th {
         color: var(--muted);
-        font-weight: 600;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        font-size: 0.73rem;
+      }
+
+      th:nth-child(1),
+      td:nth-child(1) {
+        width: 52%;
+      }
+
+      th:nth-child(2),
+      td:nth-child(2) {
+        width: 16%;
+      }
+
+      th:nth-child(3),
+      td:nth-child(3) {
+        width: 32%;
       }
 
       tbody tr:last-child td {
         border-bottom: none;
       }
 
+      tbody tr:nth-child(even) td {
+        background: var(--row-alt);
+      }
+
+      tbody tr:hover td {
+        background: var(--row-hover);
+      }
+
       .asset-name {
-        word-break: break-word;
+        font-weight: 600;
+        font-size: 0.84rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
 
-      .asset-actions {
-        white-space: nowrap;
+      .cell-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
       }
 
-      .asset-actions a {
-        color: var(--accent);
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 7px;
+        border: 1px solid var(--border);
         text-decoration: none;
         font-weight: 600;
-        margin-right: 0.45rem;
+        font-size: 0.78rem;
+        padding: 0.34rem 0.62rem;
+        color: var(--fg);
+        background: var(--panel-alt);
       }
 
-      code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-        font-size: 0.8rem;
+      a.btn,
+      a.btn:visited,
+      a.btn:hover,
+      a.btn:active {
+        color: var(--fg);
+        text-decoration: none;
+      }
+
+      .btn-primary {
+        color: #ffffff;
+        border-color: var(--accent);
+        background: linear-gradient(140deg, var(--accent), var(--accent-2));
+      }
+
+      a.btn-primary,
+      a.btn-primary:visited,
+      a.btn-primary:hover,
+      a.btn-primary:active {
+        color: #ffffff;
+      }
+
+      .btn:hover {
+        filter: brightness(1.06);
+      }
+
+      @media (max-width: 980px) {
+        th,
+        td {
+          padding: 0.68rem 0.56rem;
+        }
+
+        th:nth-child(1),
+        td:nth-child(1) {
+          width: 50%;
+        }
+
+        th:nth-child(2),
+        td:nth-child(2) {
+          width: 16%;
+        }
+
+        th:nth-child(3),
+        td:nth-child(3) {
+          width: 34%;
+        }
+
+        .btn {
+          padding: 0.3rem 0.48rem;
+          font-size: 0.74rem;
+        }
       }
 
       .empty {
         color: var(--muted);
-        padding: 0.8rem;
+        padding: 0.85rem;
       }
-
     </style>
   </head>
   <body>
     <main class="wrap">
       <a class="back" href="/">Back to docs</a>
-      <header class="header">
+      <header class="hero">
         <h1>{pageTitle}</h1>
         <p class="muted">{pageDescription}</p>
         <p class="status" id="page-status">Loading manifests...</p>
       </header>
 
+      <section class="toolbar">
+        <div class="field">
+          <label for="asset-search">Search</label>
+          <input id="asset-search" type="search" placeholder="gproxy-linux-x86_64.zip" />
+        </div>
+        <div class="field">
+          <label for="platform-filter">Platform</label>
+          <select id="platform-filter">
+            <option value="all">All platforms</option>
+            <option value="linux">Linux</option>
+            <option value="macos">macOS</option>
+            <option value="windows">Windows</option>
+            <option value="android">Android</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="arch-filter">Architecture</label>
+          <select id="arch-filter">
+            <option value="all">All arch</option>
+            <option value="x86_64">x86_64</option>
+            <option value="aarch64">aarch64</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="runtime-info" id="runtime-info"></section>
+
       <section class="grid">
         <article class="panel" data-channel="release">
           <div class="panel-head">
-            <h2>Release</h2>
-            <div class="meta">
-              <span>Tag: <strong data-tag>...</strong></span>
-              <span>Assets: <strong data-count>0</strong></span>
+            <div>
+              <h2>Release</h2>
+              <div class="meta">
+                Tag: <strong data-tag>...</strong> · Assets: <strong data-count>0</strong>
+              </div>
             </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Asset</th>
-                <th>SHA256</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody data-assets>
-              <tr>
-                <td class="empty" colspan="3">Loading...</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Download</th>
+                  <th>SHA256</th>
+                </tr>
+              </thead>
+              <tbody data-assets>
+                <tr><td class="empty" colspan="3">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </article>
 
         <article class="panel" data-channel="staging">
           <div class="panel-head">
-            <h2>Staging</h2>
-            <div class="meta">
-              <span>Tag: <strong data-tag>...</strong></span>
-              <span>Assets: <strong data-count>0</strong></span>
+            <div>
+              <h2>Staging</h2>
+              <div class="meta">
+                Tag: <strong data-tag>...</strong> · Assets: <strong data-count>0</strong>
+              </div>
             </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Asset</th>
-                <th>SHA256</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody data-assets>
-              <tr>
-                <td class="empty" colspan="3">Loading...</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Download</th>
+                  <th>SHA256</th>
+                </tr>
+              </thead>
+              <tbody data-assets>
+                <tr><td class="empty" colspan="3">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </article>
       </section>
     </main>
@@ -231,6 +429,17 @@ const pageDescription =
     <script type="module">
       const CHANNELS = ["release", "staging"];
       const statusEl = document.getElementById("page-status");
+      const searchEl = document.getElementById("asset-search");
+      const platformFilterEl = document.getElementById("platform-filter");
+      const archFilterEl = document.getElementById("arch-filter");
+      const runtimeInfoEl = document.getElementById("runtime-info");
+
+      const filters = {
+        q: "",
+        platform: "all",
+        arch: "all"
+      };
+      const manifests = {};
 
       function escapeHtml(input) {
         return String(input)
@@ -241,52 +450,111 @@ const pageDescription =
           .replaceAll("'", "&#39;");
       }
 
-      function toShaShort(sha) {
-        if (!sha) return "-";
-        if (sha.length <= 12) return sha;
-        return `${sha.slice(0, 12)}...`;
+      function parseAssetName(name) {
+        const match = /^gproxy-(android|linux|macos|windows)-([a-z0-9_]+?)(-musl)?\.zip$/i.exec(
+          String(name || "")
+        );
+        if (!match) {
+          return null;
+        }
+        return {
+          platform: match[1].toLowerCase(),
+          arch: match[2].toLowerCase(),
+          libc: match[3] ? "musl" : "gnu"
+        };
       }
 
-      function renderAssets(channel, manifest) {
-        const panel = document.querySelector(`[data-channel="${channel}"]`);
-        if (!panel) {
-          return;
+      function detectRuntime() {
+        const ua = navigator.userAgent.toLowerCase();
+        const platform = navigator.platform.toLowerCase();
+        let os = "linux";
+        if (ua.includes("android")) {
+          os = "android";
+        } else if (platform.includes("mac")) {
+          os = "macos";
+        } else if (platform.includes("win")) {
+          os = "windows";
+        } else if (platform.includes("linux")) {
+          os = "linux";
         }
 
+        const source = `${ua} ${platform}`;
+        const arch = /aarch64|arm64|armv8/.test(source) ? "aarch64" : "x86_64";
+        return { os, arch };
+      }
+
+      const runtime = detectRuntime();
+
+      function buildRuntimeChips() {
+        if (!runtimeInfoEl) return;
+        runtimeInfoEl.innerHTML = `
+          <span class="chip">Detected OS: <strong>${escapeHtml(runtime.os)}</strong></span>
+          <span class="chip">Detected arch: <strong>${escapeHtml(runtime.arch)}</strong></span>
+          <span class="chip">Tip: verify SHA256 before running binaries.</span>
+        `;
+      }
+
+      function matchesFilter(asset) {
+        const name = String(asset?.name || "").toLowerCase();
+        const meta = parseAssetName(name);
+        if (filters.q && !name.includes(filters.q)) {
+          return false;
+        }
+        if (filters.platform !== "all" && meta?.platform !== filters.platform) {
+          return false;
+        }
+        if (filters.arch !== "all" && meta?.arch !== filters.arch) {
+          return false;
+        }
+        return true;
+      }
+
+      function renderChannel(channel) {
+        const panel = document.querySelector(`[data-channel="${channel}"]`);
+        if (!panel) return;
         const tagEl = panel.querySelector("[data-tag]");
         const countEl = panel.querySelector("[data-count]");
-        const body = panel.querySelector("[data-assets]");
-        if (!tagEl || !countEl || !body) {
+        const bodyEl = panel.querySelector("[data-assets]");
+        if (!tagEl || !countEl || !bodyEl) return;
+
+        const manifest = manifests[channel] || {};
+        const allAssets = Array.isArray(manifest.assets) ? manifest.assets : [];
+        const filteredAssets = allAssets.filter(matchesFilter);
+        tagEl.textContent = manifest.tag ? String(manifest.tag) : "n/a";
+        countEl.textContent = String(filteredAssets.length);
+
+        if (filteredAssets.length === 0) {
+          bodyEl.innerHTML = '<tr><td class="empty" colspan="3">No assets match current filters.</td></tr>';
           return;
         }
 
-        const assets = Array.isArray(manifest?.assets) ? manifest.assets : [];
-        tagEl.textContent = manifest?.tag ? String(manifest.tag) : "n/a";
-        countEl.textContent = String(assets.length);
-
-        if (assets.length === 0) {
-          body.innerHTML = '<tr><td class="empty" colspan="3">No assets found.</td></tr>';
-          return;
-        }
-
-        body.innerHTML = assets
+        bodyEl.innerHTML = filteredAssets
           .map((asset) => {
-            const name = escapeHtml(asset?.name ?? "unknown");
-            const url = escapeHtml(asset?.url ?? "#");
-            const sha256 = String(asset?.sha256 ?? "");
-            const shaShort = escapeHtml(toShaShort(sha256));
-            const shaFull = escapeHtml(sha256);
-            const shaLink = sha256
-              ? `<a href="${url}.sha256">.sha256</a>`
-              : "";
-            const shaCell = sha256 ? `<code title="${shaFull}">${shaShort}</code>` : "-";
-            return `<tr>
-              <td class="asset-name">${name}</td>
-              <td>${shaCell}</td>
-              <td class="asset-actions"><a href="${url}">download</a>${shaLink}</td>
-            </tr>`;
+            const name = String(asset?.name || "unknown");
+            const url = String(asset?.url || "#");
+            return `
+              <tr>
+                <td>
+                  <div class="asset-name">${escapeHtml(name)}</div>
+                </td>
+                <td>
+                  <div class="cell-actions">
+                    <a class="btn btn-primary" href="${escapeHtml(url)}">Download</a>
+                  </div>
+                </td>
+                <td>
+                  <div class="cell-actions">
+                    <a class="btn" href="${escapeHtml(`${url}.sha256`)}">Download</a>
+                  </div>
+                </td>
+              </tr>
+            `;
           })
           .join("");
+      }
+
+      function renderAll() {
+        CHANNELS.forEach((channel) => renderChannel(channel));
       }
 
       async function fetchManifest(channel) {
@@ -298,7 +566,31 @@ const pageDescription =
         return response.json();
       }
 
+      function bindFilters() {
+        if (searchEl) {
+          searchEl.addEventListener("input", () => {
+            filters.q = String(searchEl.value || "").trim().toLowerCase();
+            renderAll();
+          });
+        }
+        if (platformFilterEl) {
+          platformFilterEl.addEventListener("change", () => {
+            filters.platform = String(platformFilterEl.value || "all");
+            renderAll();
+          });
+        }
+        if (archFilterEl) {
+          archFilterEl.addEventListener("change", () => {
+            filters.arch = String(archFilterEl.value || "all");
+            renderAll();
+          });
+        }
+      }
+
       async function init() {
+        buildRuntimeChips();
+        bindFilters();
+
         const results = await Promise.allSettled(CHANNELS.map((channel) => fetchManifest(channel)));
         let okCount = 0;
 
@@ -306,11 +598,13 @@ const pageDescription =
           const channel = CHANNELS[index];
           if (result.status === "fulfilled") {
             okCount += 1;
-            renderAssets(channel, result.value);
+            manifests[channel] = result.value;
           } else {
-            renderAssets(channel, { tag: "error", assets: [] });
+            manifests[channel] = { tag: "error", assets: [] };
           }
         });
+
+        renderAll();
 
         if (statusEl) {
           statusEl.textContent =
