@@ -217,6 +217,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/global-settings", get(get_global_settings))
         .route("/global-settings/upsert", post(upsert_global_settings))
         .route("/system/self_update", post(system_self_update))
+        .route("/system/latest_release", get(system_latest_release))
         .route("/config/export-toml", get(export_config_toml))
         .route("/config/import-toml", post(import_config_toml))
         .route("/providers/query", post(query_providers))

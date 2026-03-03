@@ -1,0 +1,330 @@
+---
+const pageTitle = "GPROXY Downloads";
+const pageDescription =
+  "Download release and staging artifacts.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #111827;
+        --muted: #6b7280;
+        --panel: #f8fafc;
+        --border: #e5e7eb;
+        --accent: #0f766e;
+        --accent-2: #115e59;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b1220;
+          --fg: #e5e7eb;
+          --muted: #9ca3af;
+          --panel: #111827;
+          --border: #1f2937;
+          --accent: #2dd4bf;
+          --accent-2: #14b8a6;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top right, rgba(45, 212, 191, 0.16), transparent 34%), var(--bg);
+        color: var(--fg);
+      }
+
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 2rem 1rem 3rem;
+      }
+
+      .header {
+        margin-bottom: 1.25rem;
+      }
+
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(1.8rem, 4vw, 2.4rem);
+      }
+
+      .muted {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .status {
+        margin-top: 0.6rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .back {
+        display: inline-flex;
+        margin-bottom: 1.1rem;
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+
+      @media (min-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      .panel-head {
+        padding: 0.9rem 1rem;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .panel h2 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .meta {
+        display: flex;
+        gap: 0.8rem;
+        align-items: center;
+        color: var(--muted);
+        margin-top: 0.35rem;
+        font-size: 0.9rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 0.62rem 0.82rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+        font-size: 0.92rem;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .asset-name {
+        word-break: break-word;
+      }
+
+      .asset-actions {
+        white-space: nowrap;
+      }
+
+      .asset-actions a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+        margin-right: 0.45rem;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 0.8rem;
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 0.8rem;
+      }
+
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="back" href="/">Back to docs</a>
+      <header class="header">
+        <h1>{pageTitle}</h1>
+        <p class="muted">{pageDescription}</p>
+        <p class="status" id="page-status">Loading manifests...</p>
+      </header>
+
+      <section class="grid">
+        <article class="panel" data-channel="release">
+          <div class="panel-head">
+            <h2>Release</h2>
+            <div class="meta">
+              <span>Tag: <strong data-tag>...</strong></span>
+              <span>Assets: <strong data-count>0</strong></span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>SHA256</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody data-assets>
+              <tr>
+                <td class="empty" colspan="3">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel" data-channel="staging">
+          <div class="panel-head">
+            <h2>Staging</h2>
+            <div class="meta">
+              <span>Tag: <strong data-tag>...</strong></span>
+              <span>Assets: <strong data-count>0</strong></span>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>SHA256</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody data-assets>
+              <tr>
+                <td class="empty" colspan="3">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+    </main>
+
+    <script type="module">
+      const CHANNELS = ["release", "staging"];
+      const statusEl = document.getElementById("page-status");
+
+      function escapeHtml(input) {
+        return String(input)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function toShaShort(sha) {
+        if (!sha) return "-";
+        if (sha.length <= 12) return sha;
+        return `${sha.slice(0, 12)}...`;
+      }
+
+      function renderAssets(channel, manifest) {
+        const panel = document.querySelector(`[data-channel="${channel}"]`);
+        if (!panel) {
+          return;
+        }
+
+        const tagEl = panel.querySelector("[data-tag]");
+        const countEl = panel.querySelector("[data-count]");
+        const body = panel.querySelector("[data-assets]");
+        if (!tagEl || !countEl || !body) {
+          return;
+        }
+
+        const assets = Array.isArray(manifest?.assets) ? manifest.assets : [];
+        tagEl.textContent = manifest?.tag ? String(manifest.tag) : "n/a";
+        countEl.textContent = String(assets.length);
+
+        if (assets.length === 0) {
+          body.innerHTML = '<tr><td class="empty" colspan="3">No assets found.</td></tr>';
+          return;
+        }
+
+        body.innerHTML = assets
+          .map((asset) => {
+            const name = escapeHtml(asset?.name ?? "unknown");
+            const url = escapeHtml(asset?.url ?? "#");
+            const sha256 = String(asset?.sha256 ?? "");
+            const shaShort = escapeHtml(toShaShort(sha256));
+            const shaFull = escapeHtml(sha256);
+            const shaLink = sha256
+              ? `<a href="${url}.sha256">.sha256</a>`
+              : "";
+            const shaCell = sha256 ? `<code title="${shaFull}">${shaShort}</code>` : "-";
+            return `<tr>
+              <td class="asset-name">${name}</td>
+              <td>${shaCell}</td>
+              <td class="asset-actions"><a href="${url}">download</a>${shaLink}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      async function fetchManifest(channel) {
+        const url = `/downloads/${channel}/manifest.json?t=${Date.now()}`;
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`failed to fetch ${channel} manifest: ${response.status}`);
+        }
+        return response.json();
+      }
+
+      async function init() {
+        const results = await Promise.allSettled(CHANNELS.map((channel) => fetchManifest(channel)));
+        let okCount = 0;
+
+        results.forEach((result, index) => {
+          const channel = CHANNELS[index];
+          if (result.status === "fulfilled") {
+            okCount += 1;
+            renderAssets(channel, result.value);
+          } else {
+            renderAssets(channel, { tag: "error", assets: [] });
+          }
+        });
+
+        if (statusEl) {
+          statusEl.textContent =
+            okCount === CHANNELS.length
+              ? "Loaded release and staging manifests."
+              : "Some manifests failed to load. Check network or publish status.";
+        }
+      }
+
+      init().catch((error) => {
+        if (statusEl) {
+          statusEl.textContent = `Failed to load manifests: ${String(error?.message || error)}`;
+        }
+      });
+    </script>
+  </body>
+</html>

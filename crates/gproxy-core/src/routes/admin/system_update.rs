@@ -100,6 +100,40 @@ pub(super) async fn system_self_update(
     })))
 }
 
+pub(super) async fn system_latest_release(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let snapshot = state.config.load();
+    let proxy = snapshot.global.proxy.clone();
+    let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
+    drop(snapshot);
+    let update_channel = build_update_channel();
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+
+    let latest_release_tag =
+        fetch_latest_release_tag(proxy, update_source.as_str(), update_channel.as_str())
+            .await
+            .map_err(|err| {
+                HttpError::new(
+                    StatusCode::BAD_GATEWAY,
+                    format!("fetch_latest_release_failed: {err}"),
+                )
+            })?;
+
+    let has_update = is_semver_update_available(&current_version, &latest_release_tag);
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "current_version": current_version,
+        "latest_release_tag": latest_release_tag,
+        "has_update": has_update,
+        "update_source": update_source,
+        "update_channel": update_channel
+    })))
+}
+
 async fn self_update_to_latest_release(
     proxy: Option<String>,
     update_source: &str,
@@ -150,6 +184,82 @@ async fn self_update_to_latest_release(
             staged_binary_path: None,
         })
     }
+}
+
+async fn fetch_latest_release_tag(
+    proxy: Option<String>,
+    update_source: &str,
+    update_channel: &str,
+) -> Result<String, String> {
+    let client = build_self_update_client(proxy)?;
+    match update_source {
+        "china" => fetch_china_release_tag(&client, update_channel).await,
+        _ => fetch_github_release_tag(&client, update_channel).await,
+    }
+}
+
+async fn fetch_github_release_tag(
+    client: &wreq::Client,
+    update_channel: &str,
+) -> Result<String, String> {
+    let release_url = github_release_api_url_for_channel(update_channel);
+    let release_resp = client
+        .get(release_url)
+        .header("accept", "application/vnd.github+json")
+        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+        .send()
+        .await
+        .map_err(|err| format!("fetch_release_metadata:{release_url}:{err}"))?;
+
+    if !release_resp.status().is_success() {
+        let status = release_resp.status();
+        let body = release_resp
+            .bytes()
+            .await
+            .map(|body| String::from_utf8_lossy(&body).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("fetch_latest_release_status_{status}: {body}"));
+    }
+
+    let release_body = release_resp
+        .bytes()
+        .await
+        .map_err(|err| format!("read_latest_release_body: {err}"))?;
+    let release: GithubReleaseInfo = serde_json::from_slice(&release_body)
+        .map_err(|err| format!("parse_latest_release_json: {err}"))?;
+    Ok(release.tag_name)
+}
+
+async fn fetch_china_release_tag(
+    client: &wreq::Client,
+    update_channel: &str,
+) -> Result<String, String> {
+    let manifest_url = china_manifest_url_for_channel(update_channel);
+    let response = client
+        .get(&manifest_url)
+        .header("accept", "application/json")
+        .header("user-agent", concat!("gproxy/", env!("CARGO_PKG_VERSION")))
+        .send()
+        .await
+        .map_err(|err| format!("fetch_china_manifest:{manifest_url}:{err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map(|body| String::from_utf8_lossy(&body).to_string())
+            .unwrap_or_else(|_| String::new());
+        return Err(format!("fetch_china_manifest_status_{status}: {body}"));
+    }
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|err| format!("read_china_manifest_body: {err}"))?;
+    let manifest: ChinaReleaseManifest =
+        serde_json::from_slice(&body).map_err(|err| format!("parse_china_manifest_json: {err}"))?;
+    Ok(manifest.tag)
 }
 
 async fn fetch_release_asset(
@@ -288,6 +398,26 @@ fn build_update_channel() -> String {
     match channel.as_str() {
         "staging" => "staging".to_string(),
         _ => "release".to_string(),
+    }
+}
+
+fn parse_semver_triplet(input: &str) -> Option<(u64, u64, u64)> {
+    let trimmed = input.trim();
+    let no_v = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let core = no_v.split('-').next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?.parse::<u64>().ok()?;
+    Some((major, minor, patch))
+}
+
+fn is_semver_update_available(current_version: &str, latest_release_tag: &str) -> bool {
+    let current = parse_semver_triplet(current_version);
+    let latest = parse_semver_triplet(latest_release_tag);
+    match (current, latest) {
+        (Some(cur), Some(lat)) => lat > cur,
+        _ => false,
     }
 }
 

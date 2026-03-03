@@ -49,6 +49,13 @@ type LoginResponse = {
   api_key: string;
 };
 
+type LatestReleaseResponse = {
+  latest_release_tag?: string;
+  current_version?: string;
+  has_update?: boolean;
+  update_channel?: string;
+};
+
 type ThemeFabPosition = {
   x: number;
   y: number;
@@ -168,6 +175,7 @@ export function App() {
   );
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const latestReleaseCheckKeyRef = useRef<string | null>(null);
   const themeFabDragRef = useRef<ThemeFabDragState | null>(null);
 
   const adminNavItems = useMemo<NavItem[]>(
@@ -341,6 +349,7 @@ export function App() {
   const onLogout = useCallback(() => {
     localStorage.removeItem(API_KEY_STORAGE_KEY);
     localStorage.removeItem(ROLE_STORAGE_KEY);
+    latestReleaseCheckKeyRef.current = null;
     setApiKey(null);
     setRole(null);
     setActiveModule("");
@@ -349,6 +358,47 @@ export function App() {
     }
     notify("info", t("app.loggedOut"));
   }, [notify, t]);
+
+  useEffect(() => {
+    if (!apiKey || role !== "admin") {
+      return;
+    }
+    const checkKey = `${role}:${apiKey}`;
+    if (latestReleaseCheckKeyRef.current === checkKey) {
+      return;
+    }
+    latestReleaseCheckKeyRef.current = checkKey;
+
+    let active = true;
+    const run = async () => {
+      try {
+        const result = await apiRequest<LatestReleaseResponse>("/admin/system/latest_release", {
+          apiKey,
+          method: "GET"
+        });
+        if (!active) {
+          return;
+        }
+        if (result.has_update && result.latest_release_tag) {
+          notify(
+            "info",
+            t("app.updateAvailable", {
+              tag: result.latest_release_tag,
+              current: result.current_version ?? appVersion,
+              channel: result.update_channel ?? "release"
+            })
+          );
+        }
+      } catch {
+        // Keep startup quiet if release check endpoint/network is unavailable.
+      }
+    };
+
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [apiKey, appVersion, notify, role, t]);
 
   const content = useMemo(() => {
     if (!apiKey || !role) {

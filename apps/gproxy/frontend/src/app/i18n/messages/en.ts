@@ -30,6 +30,7 @@ export const enMessages = {
     "app.logout": "Logout",
     "app.loginAs": "Logged in as {role}",
     "app.loggedOut": "Logged out",
+    "app.updateAvailable": "New release available: {tag} (current: {current}, channel: {channel})",
     "app.theme.system": "System",
     "app.theme.light": "Light",
     "app.theme.dark": "Dark",

@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.3.15
+
+### Added
+
+- Added docs `/downloads` index page that renders `release` and `staging` asset lists from manifests.
+- Added admin console startup release check (`/admin/system/latest_release`) with auto-dismiss toast notification when a newer release is available.
+
 ## v0.3.14
 
 ### Added

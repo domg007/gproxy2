@@ -30,6 +30,7 @@ export const zhMessages = {
     "app.logout": "退出登录",
     "app.loginAs": "已登录为 {role}",
     "app.loggedOut": "已退出登录",
+    "app.updateAvailable": "发现新版本：{tag}（当前：{current}，通道：{channel}）",
     "app.theme.system": "跟随系统",
     "app.theme.light": "浅色",
     "app.theme.dark": "深色",
