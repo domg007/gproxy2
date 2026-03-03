@@ -1,5 +1,33 @@
 # Release Notes
 
+## v0.3.18
+
+### Changed
+
+- Updated binary release workflow S3 auth handling:
+  - removed `aws-actions/configure-aws-credentials`
+  - upload/manifest steps now use explicit AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`) for better S3-compatible endpoint behavior.
+- Updated release-channel naming from `release` to `releases` across binary publish/update flow:
+  - workflow now generates/uploads `releases/manifest.json`
+  - system update default channel now resolves to `releases`.
+- Updated docs downloads manifest URL resolution:
+  - when base URL ends with `/downloads`, frontend now resolves manifest from site root (`/manifest.json`)
+  - load status/error now includes the concrete manifest URL for easier troubleshooting.
+- Updated docs downloads page interaction and layout:
+  - `releases/` and `staging/` are presented as navigable directory entries.
+  - mobile now keeps the same tabular layout as desktop with horizontal scrolling.
+  - folder rows use the same plain text style as file rows (no extra visual effect).
+
+### Fixed
+
+- Fixed duplicate upstream request records for tracked internal HTTP events:
+  - internal tracked events now receive primary upstream request metadata and skip writing duplicated primary-request entries
+  - applied for both success and error paths in provider execution/OAuth/usage handlers.
+
+### Compatibility
+
+- If you previously consumed `release/manifest.json`, switch to `releases/manifest.json`.
+
 ## v0.3.17
 
 ### Added
