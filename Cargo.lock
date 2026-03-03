@@ -1590,7 +1590,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "http",
  "serde",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "base64 0.22.1",
  "dashmap",
@@ -1697,7 +1697,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "sea-orm",
  "serde",
@@ -2125,9 +2125,9 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.11.0"
+version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
+checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "is_terminal_polyfill"

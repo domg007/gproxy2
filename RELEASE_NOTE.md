@@ -6,6 +6,7 @@
 
 - Added docs `/downloads` index page that renders `release` and `staging` asset lists from manifests.
 - Added admin console startup release check (`/admin/system/latest_release`) with auto-dismiss toast notification when a newer release is available.
+- Added copy-to-clipboard buttons in Admin `Request Log` payload view: `req body` / `resp body` now have a clipboard icon next to the eye toggle.
 
 ## v0.3.14
 
