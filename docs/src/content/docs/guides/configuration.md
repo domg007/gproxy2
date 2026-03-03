@@ -73,7 +73,7 @@ dsn = "postgres://user:password@127.0.0.1:5432/gproxy"
 
 | Field | Description |
 |---|---|
-| `host` | Listen address, default `0.0.0.0` |
+| `host` | Listen address, default `127.0.0.1` |
 | `port` | Listen port, default `8787` |
 | `proxy` | Upstream proxy; empty string means disabled |
 | `hf_token` | Optional HuggingFace token |

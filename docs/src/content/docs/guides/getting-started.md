@@ -17,7 +17,7 @@ Minimal working example:
 
 ```toml
 [global]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8787
 proxy = ""
 admin_key = "replace-with-strong-admin-key"
@@ -52,7 +52,7 @@ gproxy.exe
 
 After startup, logs should show:
 
-- Listen address (default `http://0.0.0.0:8787`)
+- Listen address (default `http://127.0.0.1:8787`)
 - Current admin key (`password:`)
 
 If `gproxy.toml` is missing, the service starts with in-memory defaults and auto-generates a 16-char admin key.

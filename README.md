@@ -65,7 +65,7 @@ cargo run -p gproxy
 
 On startup, gproxy prints:
 
-- listening address (default `http://0.0.0.0:8787`)
+- listening address (default `http://127.0.0.1:8787`)
 - current admin key (`password:`)
 
 > If `./gproxy.toml` does not exist, gproxy starts with in-memory defaults and auto-generates a 16-digit admin key (printed to stdout).
@@ -119,7 +119,7 @@ Run:
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=0.0.0.0 \
+  -e GPROXY_HOST=127.0.0.1 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
@@ -164,7 +164,7 @@ Reference files:
 
 | Field | Description |
 |---|---|
-| `host` | Bind host, default `0.0.0.0` |
+| `host` | Bind host, default `127.0.0.1` |
 | `port` | Bind port, default `8787` |
 | `proxy` | Upstream proxy (empty string means disabled) |
 | `hf_token` | HuggingFace token (optional for tokenizer download) |

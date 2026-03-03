@@ -17,7 +17,7 @@ description: 从零启动 GPROXY 并完成首个请求验证。
 
 ```toml
 [global]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8787
 proxy = ""
 admin_key = "replace-with-strong-admin-key"
@@ -52,7 +52,7 @@ gproxy.exe
 
 启动后可在日志中看到：
 
-- 监听地址（默认 `http://0.0.0.0:8787`）
+- 监听地址（默认 `http://127.0.0.1:8787`）
 - 当前 admin key（`password:`）
 
 如果 `gproxy.toml` 不存在，服务会以内存默认配置启动并自动生成 16 位 admin key。

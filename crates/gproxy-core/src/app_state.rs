@@ -19,7 +19,7 @@ use wreq::Client as WreqClient;
 use crate::http_clients::UpstreamHttpClients;
 use crate::upstream_http::DEFAULT_SPOOF_EMULATION;
 
-pub const DEFAULT_HOST: &str = "0.0.0.0";
+pub const DEFAULT_HOST: &str = "127.0.0.1";
 pub const DEFAULT_PORT: u16 = 8787;
 pub const DEFAULT_DATA_DIR: &str = "./data";
 pub const DEFAULT_DSN: &str = "sqlite://./data/gproxy.db?mode=rwc";

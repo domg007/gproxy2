@@ -7,7 +7,7 @@
 # - If input already starts with current user's prefix (for example u12_), it is kept as-is.
 
 [global]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8787
 # Empty string means no proxy.
 proxy = ""

@@ -63,7 +63,7 @@ cargo run -p gproxy
 
 启动后会打印：
 
-- 监听地址（默认 `http://0.0.0.0:8787`）
+- 监听地址（默认 `http://127.0.0.1:8787`）
 - 当前 admin key（`password:`）
 
 > 如果 `./gproxy.toml` 不存在，服务会使用内存默认配置启动，并自动生成一个 16 位 admin key（打印在控制台）。
@@ -117,7 +117,7 @@ docker build -t gproxy:local .
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=0.0.0.0 \
+  -e GPROXY_HOST=127.0.0.1 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
@@ -162,7 +162,7 @@ cargo run -p gproxy
 
 | 字段 | 说明 |
 |---|---|
-| `host` | 监听地址，默认 `0.0.0.0` |
+| `host` | 监听地址，默认 `127.0.0.1` |
 | `port` | 监听端口，默认 `8787` |
 | `proxy` | 上游代理（空字符串表示不使用） |
 | `hf_token` | HuggingFace token（本地 tokenizer 下载时可用） |

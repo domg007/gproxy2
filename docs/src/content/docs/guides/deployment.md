@@ -36,7 +36,7 @@ Run container:
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=0.0.0.0 \
+  -e GPROXY_HOST=127.0.0.1 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
@@ -56,7 +56,7 @@ Current cloud template support is Zeabur.
 Recommended settings:
 
 - `GPROXY_ADMIN_KEY`: required
-- `GPROXY_HOST`: `0.0.0.0`
+- `GPROXY_HOST`: `127.0.0.1`
 - `GPROXY_PORT`: `8787`
 - `GPROXY_DATA_DIR`: `/app/data`
 - Persist volume at `/app/data`

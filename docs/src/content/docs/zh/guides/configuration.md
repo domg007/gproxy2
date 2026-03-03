@@ -73,7 +73,7 @@ dsn = "postgres://user:password@127.0.0.1:5432/gproxy"
 
 | 字段 | 说明 |
 |---|---|
-| `host` | 监听地址，默认 `0.0.0.0` |
+| `host` | 监听地址，默认 `127.0.0.1` |
 | `port` | 监听端口，默认 `8787` |
 | `proxy` | 上游代理；空字符串表示禁用 |
 | `hf_token` | 可选，HuggingFace token |
