@@ -1,7 +1,8 @@
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::cache_control::{
-    CacheBreakpointRule, ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers,
+    ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
@@ -280,6 +281,7 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
@@ -304,6 +306,7 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }

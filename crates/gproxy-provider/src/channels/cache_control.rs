@@ -62,6 +62,89 @@ fn default_cache_breakpoint_index() -> usize {
     1
 }
 
+const MAGIC_TRIGGER_AUTO_ID: &str =
+    "GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH";
+const MAGIC_TRIGGER_5M_ID: &str =
+    "GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF";
+const MAGIC_TRIGGER_1H_ID: &str =
+    "GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY";
+
+pub fn apply_magic_string_cache_control_triggers(body: &mut Value) {
+    let Some(root) = body.as_object_mut() else {
+        return;
+    };
+
+    if let Some(system) = root.get_mut("system") {
+        apply_magic_trigger_to_content(system);
+    }
+
+    if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages {
+            let Some(message_map) = message.as_object_mut() else {
+                continue;
+            };
+            let Some(content) = message_map.get_mut("content") else {
+                continue;
+            };
+            apply_magic_trigger_to_content(content);
+        }
+    }
+}
+
+fn apply_magic_trigger_to_content(content: &mut Value) {
+    match content {
+        Value::Array(blocks) => {
+            for block in blocks {
+                let Some(block_map) = block.as_object_mut() else {
+                    continue;
+                };
+                apply_magic_trigger_to_block(block_map);
+            }
+        }
+        Value::Object(block_map) => apply_magic_trigger_to_block(block_map),
+        _ => {}
+    }
+}
+
+fn apply_magic_trigger_to_block(block_map: &mut serde_json::Map<String, Value>) {
+    let Some(Value::String(text)) = block_map.get_mut("text") else {
+        return;
+    };
+
+    let ttl = remove_magic_trigger_tokens(text);
+    let Some(ttl) = ttl else {
+        return;
+    };
+
+    if !block_map.contains_key("cache_control") {
+        block_map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
+    }
+}
+
+fn remove_magic_trigger_tokens(text: &mut String) -> Option<CacheBreakpointTtl> {
+    let specs = [
+        (MAGIC_TRIGGER_AUTO_ID, "auto", CacheBreakpointTtl::Auto),
+        (MAGIC_TRIGGER_5M_ID, "5m", CacheBreakpointTtl::Ttl5m),
+        (MAGIC_TRIGGER_1H_ID, "1h", CacheBreakpointTtl::Ttl1h),
+    ];
+
+    let mut matched_ttl = None;
+    for (id, ttl_suffix, ttl) in specs {
+        let with_suffix = format!("{id} {ttl_suffix}");
+        if text.contains(&with_suffix) {
+            *text = text.replace(&with_suffix, "");
+            if matched_ttl.is_none() {
+                matched_ttl = Some(ttl);
+            }
+        }
+        if text.contains(id) {
+            *text = text.replace(id, "");
+        }
+    }
+
+    matched_ttl
+}
+
 pub fn parse_cache_breakpoint_rules(value: Option<&Value>) -> Vec<CacheBreakpointRule> {
     let Some(Value::Array(items)) = value else {
         return Vec::new();
@@ -363,8 +446,9 @@ fn existing_cache_breakpoint_count(root: &serde_json::Map<String, Value>) -> usi
 #[cfg(test)]
 mod tests {
     use super::{
-        CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget,
-        CacheBreakpointTtl, ensure_cache_breakpoint_rules, parse_cache_breakpoint_rules,
+        CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
+        apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
+        parse_cache_breakpoint_rules,
     };
     use serde_json::json;
 
@@ -459,5 +543,78 @@ mod tests {
         assert_eq!(body["system"][1]["cache_control"]["ttl"], json!("5m"));
         assert_eq!(body["messages"][1]["content"][0]["cache_control"], json!(null));
         assert_eq!(body["messages"][2]["content"][0]["cache_control"], json!(null));
+    }
+
+    #[test]
+    fn apply_magic_string_cache_control_triggers_removes_markers_and_adds_cache_control() {
+        let mut body = json!({
+            "system": [
+                {
+                    "type":"text",
+                    "text":"prefix GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH auto suffix"
+                }
+            ],
+            "messages": [
+                {
+                    "role":"user",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m y"
+                        }
+                    ]
+                },
+                {
+                    "role":"assistant",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h w"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        apply_magic_string_cache_control_triggers(&mut body);
+
+        let system_text = body["system"][0]["text"].as_str().unwrap_or_default();
+        let message_5m_text = body["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        let message_1h_text = body["messages"][1]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+
+        assert!(!system_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
+        assert!(!message_5m_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
+        assert!(!message_1h_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
+        assert_eq!(body["system"][0]["cache_control"]["type"], json!("ephemeral"));
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], json!(null));
+        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(body["messages"][1]["content"][0]["cache_control"]["ttl"], json!("1h"));
+    }
+
+    #[test]
+    fn apply_magic_string_cache_control_triggers_keeps_existing_cache_control() {
+        let mut body = json!({
+            "messages": [
+                {
+                    "role":"user",
+                    "content":[
+                        {
+                            "type":"text",
+                            "text":"GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h",
+                            "cache_control":{"type":"ephemeral","ttl":"5m"}
+                        }
+                    ]
+                }
+            ]
+        });
+
+        apply_magic_string_cache_control_triggers(&mut body);
+
+        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!(""));
     }
 }

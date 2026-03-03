@@ -10,7 +10,8 @@ use super::oauth::{
     resolve_claudecode_access_token,
 };
 use crate::channels::cache_control::{
-    CacheBreakpointRule, ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers,
+    ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
@@ -1023,6 +1024,7 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
@@ -1058,6 +1060,7 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
