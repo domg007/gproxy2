@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.3.19
+
+### Added
+
+- Added `append_query_param_if_missing` utility in provider channel helpers, with unit tests to:
+  - append a query key/value when missing
+  - keep existing query intact when key already exists
+  - avoid duplicated query keys.
+
+### Changed
+
+- Updated Admin `Request Log` payload query handling:
+  - `req query` now normalizes leading `?` and empty values
+  - upstream rows now derive `req query` from `request_url` when downstream-style `request_query` is unavailable
+  - payload view now consistently shows `req query` (or `-` when empty).
+- Updated Claude and ClaudeCode upstream request path building:
+  - requests now default to include `beta=true` in query string (without duplicating an existing `beta` key).
+
+### Compatibility
+
+- No breaking API shape changes.
+- If an upstream request path already includes `beta=...`, GProxy preserves existing `beta` and does not append another one.
+
 ## v0.3.18
 
 ### Changed

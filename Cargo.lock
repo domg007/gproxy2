@@ -1590,7 +1590,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "http",
  "serde",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "base64 0.22.1",
  "dashmap",
@@ -1698,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.18"
+version = "0.3.19"
 dependencies = [
  "sea-orm",
  "serde",
@@ -4126,9 +4126,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.49.0"
+version = "1.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
+checksum = "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d"
 dependencies = [
  "bytes",
  "libc",
