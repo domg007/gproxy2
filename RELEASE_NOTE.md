@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.3.20
+
+### Changed
+
+- Updated Claude / ClaudeCode cache-control guidance to the current `cache_breakpoints` model:
+  - removed old docs/examples based on `enable_top_level_cache_control`
+  - documented rule shape (`target`, `position`, `index`, `ttl`) and 4-slot limit semantics.
+- Clarified no-ttl default behavior for Claude-family channels:
+  - `claudecode` without `ttl` defaults to `1h`
+  - `claude` without `ttl` defaults to `5m`.
+- Documented Anthropic TTL ordering constraint for mixed `5m` and `1h` breakpoints (`tools -> system -> messages`).
+- Updated system update channel selection:
+  - `/admin/system/latest_release` and `/admin/system/self_update` now accept optional `update_channel` query (`releases` / `staging`)
+  - Admin Global Settings adds a frontend-only `update_channel` selector and passes it via request query
+  - no new backend global-settings field is introduced for update channel persistence.
+
+### Docs
+
+- Reworked EN/ZH docs pages:
+  - `guides/configuration`
+  - `guides/credential-selection-cache-affinity`
+  to reflect cache breakpoint rewrite, magic-trigger behavior, and channel-specific no-ttl defaults.
+- Updated `README.md` / `README.zh.md` cache sections and quick-check instructions to use `cache_breakpoints`.
+- Updated `gproxy.example.full.toml` Claude / ClaudeCode examples from legacy top-level flag to `cache_breakpoints`.
+
 ## v0.3.19
 
 ### Added

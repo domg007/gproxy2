@@ -28,6 +28,8 @@ import { useI18n } from "./i18n";
 const API_KEY_STORAGE_KEY = "gproxy_api_key";
 const ROLE_STORAGE_KEY = "gproxy_role";
 const THEME_FAB_POSITION_STORAGE_KEY = "gproxy_theme_fab_position";
+const UPDATE_CHANNEL_STORAGE_KEY = "gproxy_update_channel";
+const DEFAULT_UPDATE_CHANNEL = "releases";
 const THEME_FAB_SIZE_PX = 48;
 const THEME_FAB_MARGIN_PX = 12;
 
@@ -82,6 +84,18 @@ function defaultThemeFabPosition(): ThemeFabPosition {
     x: window.innerWidth - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX,
     y: window.innerHeight - THEME_FAB_SIZE_PX - THEME_FAB_MARGIN_PX
   };
+}
+
+function normalizeUpdateChannel(value: string | null | undefined): string {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "staging" ? "staging" : DEFAULT_UPDATE_CHANNEL;
+}
+
+function readStoredUpdateChannel(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_UPDATE_CHANNEL;
+  }
+  return normalizeUpdateChannel(window.localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY));
 }
 
 function clampThemeFabPosition(position: ThemeFabPosition): ThemeFabPosition {
@@ -372,7 +386,10 @@ export function App() {
     let active = true;
     const run = async () => {
       try {
-        const result = await apiRequest<LatestReleaseResponse>("/admin/system/latest_release", {
+        const updateChannel = readStoredUpdateChannel();
+        const result = await apiRequest<LatestReleaseResponse>(
+          `/admin/system/latest_release?update_channel=${encodeURIComponent(updateChannel)}`,
+          {
           apiKey,
           method: "GET"
         });

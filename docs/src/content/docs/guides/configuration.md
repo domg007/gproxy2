@@ -134,16 +134,38 @@ secret = "sk-replace-me"
 | Deepseek | `deepseek` | No | No | Yes |
 | Groq | `groq` | No | No | Yes |
 
-## Claude / ClaudeCode top-level cache control
+## Claude / ClaudeCode cache rewrite (`cache_breakpoints`)
 
-`claude` and `claudecode` support this settings flag:
+`claude` and `claudecode` use `channels.settings.cache_breakpoints` for cache-control rewrite.
 
-- key: `channels.settings.enable_top_level_cache_control`
-- default: `false`
-- effect:
-  - `true`: auto inject top-level `"cache_control":{"type":"ephemeral"}` for Claude message generation requests
-  - `false`: do nothing
-- if request already has top-level `cache_control`, gproxy preserves the original value
+Rule model:
+
+- key: `channels.settings.cache_breakpoints`
+- value: array, max `4` rules
+- supported `target`:
+  - `top_level` (alias: `global`)
+  - `tools`
+  - `system`
+  - `messages`
+- for non-`top_level` targets:
+  - `position`: `nth` or `last_nth`
+  - `index`: 1-based
+- for `top_level` target, `position` / `index` are ignored
+- `ttl`: `auto` | `5m` | `1h`
+  - `auto` injects `{"type":"ephemeral"}` without `ttl`
+
+Rewrite behavior:
+
+- existing request-side `cache_control` is preserved and counts toward the 4-breakpoint budget
+- gproxy only fills remaining slots and never overwrites existing block/top-level `cache_control`
+- only `claude` / `claudecode` message-generation requests are rewritten
+- Admin UI sorts rules before submit (`top_level -> tools -> system -> messages`), then server keeps the first 4
+
+Default TTL note when `ttl` is omitted (`auto`):
+
+- `claudecode`: upstream default is `1h`
+- `claude`: upstream default is `5m`
+- if you need deterministic behavior, set `ttl` explicitly to `5m` or `1h`
 
 Example:
 
@@ -154,7 +176,12 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "system", position = "last_nth", index = 1, ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 11, ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 2, ttl = "1h" }
+]
 
 [[channels]]
 id = "claudecode"
@@ -162,7 +189,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+]
 ```
 
 ## Custom channel example (key)

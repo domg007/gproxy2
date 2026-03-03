@@ -134,16 +134,38 @@ secret = "sk-replace-me"
 | Deepseek | `deepseek` | 否 | 否 | 是 |
 | Groq | `groq` | 否 | 否 | 是 |
 
-## Claude / ClaudeCode 顶层 cache_control 开关
+## Claude / ClaudeCode 缓存改写（`cache_breakpoints`）
 
-`claude` 与 `claudecode` 支持该配置项：
+`claude` 与 `claudecode` 通过 `channels.settings.cache_breakpoints` 控制 cache-control 改写。
 
-- 配置键：`channels.settings.enable_top_level_cache_control`
-- 默认值：`false`
-- 行为：
-  - `true`：对 Claude 消息生成请求自动注入顶层 `"cache_control":{"type":"ephemeral"}`
-  - `false`：不做任何改写
-- 如果请求体已包含顶层 `cache_control`，gproxy 会保留原值
+规则模型：
+
+- 配置键：`channels.settings.cache_breakpoints`
+- 值类型：数组，最多 `4` 条规则
+- `target` 支持：
+  - `top_level`（别名：`global`）
+  - `tools`
+  - `system`
+  - `messages`
+- 对非 `top_level` 目标：
+  - `position`：`nth` 或 `last_nth`
+  - `index`：从 1 开始
+- `top_level` 目标会忽略 `position` / `index`
+- `ttl`：`auto` | `5m` | `1h`
+  - `auto` 会注入 `{"type":"ephemeral"}`（不带 `ttl`）
+
+改写行为：
+
+- 请求里已有的 `cache_control` 会被保留，并计入 4 条上限
+- gproxy 只会填充剩余槽位，不会覆盖已有 top-level/block `cache_control`
+- 仅对 `claude` / `claudecode` 的消息生成请求生效
+- 管理端会先按 `top_level -> tools -> system -> messages` 排序，再由服务端截断前 4 条
+
+`ttl` 省略（`auto`）时的默认 TTL 说明：
+
+- `claudecode`：上游默认按 `1h`
+- `claude`：上游默认按 `5m`
+- 若要行为可预测，建议显式写 `ttl = "5m"` 或 `ttl = "1h"`
 
 示例：
 
@@ -154,7 +176,12 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "system", position = "last_nth", index = 1, ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 11, ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 2, ttl = "1h" }
+]
 
 [[channels]]
 id = "claudecode"
@@ -162,7 +189,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+]
 ```
 
 ## 自定义渠道配置示例（重点）

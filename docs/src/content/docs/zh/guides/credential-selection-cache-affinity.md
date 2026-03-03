@@ -142,11 +142,19 @@ TTL：
 
 TTL：
 
-- 断点 `ttl == "1h"` -> 1h
-- 顶层自动 `cache_control: {"type":"ephemeral"}`（无 ttl）-> 1h
-- 否则 -> 5m
+- 显式断点 `ttl == "1h"` -> 1h
+- 显式断点 `ttl == "5m"`（或缺省/其他值）-> 5m
+- 当存在 `cache_control` 但未写 `ttl`（`{"type":"ephemeral"}`）时，默认值按渠道区分：
+  - `claudecode`：默认 1h
+  - `claude`：默认 5m
 
 若既无显式断点也无顶层 `cache_control`，则不生成 Claude 亲和 hint。
+
+顺序约束（重要）：
+
+- Anthropic 会按 `tools -> system -> messages` 校验 TTL 顺序。
+- `ttl="1h"` 不能出现在 `ttl="5m"` 之后。
+- 混用 `1h` 与 `5m` 时，请把所有 `1h` 断点放在更靠前层级。
 
 ### Gemini GenerateContent / StreamGenerateContent
 
@@ -166,15 +174,30 @@ TTL：
 - `generationConfig`
 - `safetySettings`
 
-## Claude 与 ClaudeCode 顶层缓存注入
+## Claude / ClaudeCode 缓存改写与 Magic Trigger
 
-当开启 `enable_top_level_cache_control` 且请求本身没有顶层 `cache_control` 时，GPROXY 会注入：
+当前配置文档中，`enable_top_level_cache_control` 已不再作为推荐方案，统一改为 `cache_breakpoints`。
 
-```json
-{"type":"ephemeral"}
-```
+`claude` / `claudecode` 的改写来源：
 
-该行为适用于 Claude 与 ClaudeCode 的消息生成请求。自动模式下的实际 TTL 由 Anthropic 服务端决定。
+- provider 侧 `channels.settings.cache_breakpoints`
+- 请求体已有的 `cache_control`（原样保留）
+- `system[].text` 与 `messages[].content[].text` 里的 magic trigger 字符串
+
+Magic trigger 行为：
+
+- gproxy 在上游转发前会先删除触发串
+- 若目标块还没有 `cache_control`，则注入对应 `cache_control`
+- 若块上已存在 `cache_control`，则只做字符串删除，不覆盖原配置
+
+支持的触发串：
+
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH auto`
+  - 注入 `{"type":"ephemeral"}`
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m`
+  - 注入 `{"type":"ephemeral","ttl":"5m"}`
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h`
+  - 注入 `{"type":"ephemeral","ttl":"1h"}`
 
 ## 上游缓存机制（与 GPROXY 内部实现解耦）
 
@@ -205,7 +228,7 @@ TTL：
 2. 缓存敏感业务用 `RoundRobinWithCache`。
 3. 短缓存窗口内避免凭证频繁抖动。
 4. Prompt 差异很大的流量拆分到不同 provider/channel。
-5. 仅在需要自动缓存时开启顶层 cache control。
+5. 需要可预测行为时，优先在 `cache_breakpoints` 里显式写 TTL（`5m` / `1h`）。
 6. Gemini 场景尽量复用 `cachedContent`。
 
 ## 配置示例

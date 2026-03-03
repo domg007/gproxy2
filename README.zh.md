@@ -190,15 +190,21 @@ cargo run -p gproxy
 - `dispatch`: 可选；不填则用该通道默认 dispatch
 - `credentials`: 凭证列表（支持多凭证轮询/回退）
 
-### Claude/ClaudeCode 顶层 Cache Control 开关
+### Claude/ClaudeCode 缓存改写（`cache_breakpoints`）
 
-`claude` 与 `claudecode` 支持自动注入顶层缓存控制：
+`claude` 与 `claudecode` 通过以下配置控制 cache-control 改写：
 
-- 配置键：`channels.settings.enable_top_level_cache_control`
-- 默认值：`false`
-- `true`：gproxy 会为 Claude `messages` 请求注入顶层 `"cache_control":{"type":"ephemeral"}`
-- `false`：gproxy 不做任何改写
-- 如果请求体本身已包含顶层 `cache_control`，gproxy 会保留原值
+- 配置键：`channels.settings.cache_breakpoints`
+- 最多 4 条规则
+- 目标：`top_level`（别名 `global`）、`tools`、`system`、`messages`
+- `ttl`：`auto` / `5m` / `1h`（`auto` 表示注入时不写 ttl 字段）
+- 请求体已有 `cache_control` 会始终保留，并计入 4 条上限
+
+无 ttl 的默认值说明：
+
+- `claudecode`：上游默认 `1h`
+- `claude`：上游默认 `5m`
+- 需要确定性行为时请显式设置 ttl
 
 示例：
 
@@ -209,7 +215,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "5m" }
+]
 
 [[channels]]
 id = "claudecode"
@@ -217,7 +226,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+]
 ```
 
 ### `channels.credentials`
@@ -419,7 +431,7 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
 
 ### Claude/ClaudeCode Prompt Cache 快速验证（4 条 curl）
 
-先确认这两个 provider 都已设置 `enable_top_level_cache_control = true`。
+先确认这两个 provider 至少配置了一条 `cache_breakpoints`（例如 `{ target = "top_level", ttl = "auto" }`）。
 
 ```bash
 BASE="http://127.0.0.1:8787"

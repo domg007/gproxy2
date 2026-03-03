@@ -8,6 +8,8 @@ import { Button, Card, Input, Label, Select } from "../../components/ui";
 const DEFAULT_HF_URL = "https://huggingface.co";
 const DEFAULT_SPOOF_EMULATION = "chrome_136";
 const DEFAULT_UPDATE_SOURCE = "international";
+const DEFAULT_UPDATE_CHANNEL = "releases";
+const UPDATE_CHANNEL_STORAGE_KEY = "gproxy_update_channel";
 const SPOOF_EMULATION_OPTIONS = [
   { value: "chrome_136", label: "Chrome 136" },
   { value: "chrome_137", label: "Chrome 137" },
@@ -22,6 +24,29 @@ const UPDATE_SOURCE_OPTIONS = [
   { value: "international", labelKey: "global.updateSource.international" },
   { value: "china", labelKey: "global.updateSource.china" }
 ] as const;
+const UPDATE_CHANNEL_OPTIONS = [
+  { value: "releases", labelKey: "global.updateChannel.releases" },
+  { value: "staging", labelKey: "global.updateChannel.staging" }
+] as const;
+
+function normalizeUpdateChannel(value: string | null | undefined): string {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "staging" ? "staging" : DEFAULT_UPDATE_CHANNEL;
+}
+
+function readStoredUpdateChannel(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_UPDATE_CHANNEL;
+  }
+  return normalizeUpdateChannel(window.localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY));
+}
+
+function persistUpdateChannel(value: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(UPDATE_CHANNEL_STORAGE_KEY, normalizeUpdateChannel(value));
+}
 
 export function GlobalSettingsModule({
   apiKey,
@@ -44,6 +69,7 @@ export function GlobalSettingsModule({
     proxy: "",
     spoofEmulation: DEFAULT_SPOOF_EMULATION,
     updateSource: DEFAULT_UPDATE_SOURCE,
+    updateChannel: readStoredUpdateChannel(),
     adminKey: "",
     dsn: "",
     dataDir: "",
@@ -66,6 +92,7 @@ export function GlobalSettingsModule({
           proxy: row.proxy ?? "",
           spoofEmulation: row.spoof_emulation ?? DEFAULT_SPOOF_EMULATION,
           updateSource: row.update_source ?? DEFAULT_UPDATE_SOURCE,
+          updateChannel: readStoredUpdateChannel(),
           adminKey: row.admin_key,
           dsn: row.dsn,
           dataDir: row.data_dir,
@@ -85,6 +112,7 @@ export function GlobalSettingsModule({
 
   const save = async () => {
     try {
+      persistUpdateChannel(form.updateChannel);
       await apiRequest("/admin/global-settings/upsert", {
         apiKey,
         method: "POST",
@@ -189,7 +217,11 @@ export function GlobalSettingsModule({
     }
     setSelfUpdating(true);
     try {
-      const result = await apiRequest<{ release_tag?: string; tag?: string }>("/admin/system/self_update", {
+      const updateChannel = normalizeUpdateChannel(form.updateChannel);
+      persistUpdateChannel(updateChannel);
+      const result = await apiRequest<{ release_tag?: string; tag?: string }>(
+        `/admin/system/self_update?update_channel=${encodeURIComponent(updateChannel)}`,
+        {
         apiKey,
         method: "POST"
       });
@@ -268,6 +300,21 @@ export function GlobalSettingsModule({
             value={form.updateSource}
             onChange={(v) => setForm((p) => ({ ...p, updateSource: v }))}
             options={UPDATE_SOURCE_OPTIONS.map((item) => ({
+              value: item.value,
+              label: t(item.labelKey)
+            }))}
+          />
+        </div>
+        <div>
+          <Label>{t("field.update_channel")}</Label>
+          <Select
+            value={form.updateChannel}
+            onChange={(v) => {
+              const next = normalizeUpdateChannel(v);
+              setForm((p) => ({ ...p, updateChannel: next }));
+              persistUpdateChannel(next);
+            }}
+            options={UPDATE_CHANNEL_OPTIONS.map((item) => ({
               value: item.value,
               label: t(item.labelKey)
             }))}

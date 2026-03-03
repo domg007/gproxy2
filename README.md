@@ -192,15 +192,21 @@ Each channel is declared with `[[channels]]`:
 - `dispatch`: optional; defaults to channel-specific dispatch table when omitted
 - `credentials`: credential list (supports multi-credential retry/fallback)
 
-### Claude/ClaudeCode Top-Level Cache Control
+### Claude/ClaudeCode Cache Rewrite (`cache_breakpoints`)
 
-For `claude` and `claudecode`, you can enable automatic top-level prompt caching injection:
+For `claude` and `claudecode`, configure cache-control rewrite with:
 
-- setting key: `channels.settings.enable_top_level_cache_control`
-- default: `false`
-- when `true`: gproxy injects top-level `"cache_control":{"type":"ephemeral"}` for Claude `messages` requests
-- when `false`: gproxy does nothing
-- if request body already has top-level `cache_control`, gproxy keeps the original value
+- setting key: `channels.settings.cache_breakpoints`
+- max 4 rules
+- targets: `top_level` (`global` alias), `tools`, `system`, `messages`
+- `ttl`: `auto` / `5m` / `1h` (`auto` means no ttl field is injected)
+- existing request-side `cache_control` is always preserved and counts toward the 4-rule limit
+
+No-ttl default note:
+
+- `claudecode`: upstream default is `1h`
+- `claude`: upstream default is `5m`
+- use explicit ttl when you need deterministic behavior
 
 Example:
 
@@ -211,7 +217,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "5m" }
+]
 
 [[channels]]
 id = "claudecode"
@@ -219,7 +228,10 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-enable_top_level_cache_control = true
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+]
 ```
 
 ### `channels.credentials`
@@ -421,7 +433,7 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
 
 ### Claude/ClaudeCode Prompt Cache Quick Check (4 curls)
 
-Make sure `enable_top_level_cache_control = true` is set on both providers first.
+Make sure both providers have at least one `cache_breakpoints` rule (for example `{ target = "top_level", ttl = "auto" }`).
 
 ```bash
 BASE="http://127.0.0.1:8787"

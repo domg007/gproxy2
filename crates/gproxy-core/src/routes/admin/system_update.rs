@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, io::Read};
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
 
@@ -18,6 +18,14 @@ const GPROXY_REPO_API_LATEST: &str = "https://api.github.com/repos/LeenHawk/gpro
 const GPROXY_REPO_API_STAGING: &str =
     "https://api.github.com/repos/LeenHawk/gproxy/releases/tags/staging";
 const GPROXY_CHINA_DOWNLOADS_BASE_DEFAULT: &str = "https://download-gproxy.leenhawk.com";
+const UPDATE_CHANNEL_RELEASES: &str = "releases";
+const UPDATE_CHANNEL_STAGING: &str = "staging";
+
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct UpdateChannelQuery {
+    #[serde(default)]
+    update_channel: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 struct GithubReleaseAsset {
@@ -61,13 +69,14 @@ struct SelfUpdateResult {
 pub(super) async fn system_self_update(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<UpdateChannelQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
     let snapshot = state.config.load();
     let proxy = snapshot.global.proxy.clone();
     let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
     drop(snapshot);
-    let update_channel = build_update_channel();
+    let update_channel = normalize_update_channel(query.update_channel.as_deref());
 
     let result =
         self_update_to_latest_release(proxy, update_source.as_str(), update_channel.as_str())
@@ -103,13 +112,14 @@ pub(super) async fn system_self_update(
 pub(super) async fn system_latest_release(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<UpdateChannelQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
     let snapshot = state.config.load();
     let proxy = snapshot.global.proxy.clone();
     let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
     drop(snapshot);
-    let update_channel = build_update_channel();
+    let update_channel = normalize_update_channel(query.update_channel.as_deref());
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
     let latest_release_tag =
@@ -396,8 +406,22 @@ fn build_update_channel() -> String {
         .trim()
         .to_ascii_lowercase();
     match channel.as_str() {
-        "staging" => "staging".to_string(),
-        _ => "releases".to_string(),
+        UPDATE_CHANNEL_STAGING => UPDATE_CHANNEL_STAGING.to_string(),
+        _ => UPDATE_CHANNEL_RELEASES.to_string(),
+    }
+}
+
+fn normalize_update_channel(value: Option<&str>) -> String {
+    let normalized = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    match normalized.as_deref() {
+        Some(UPDATE_CHANNEL_STAGING) => UPDATE_CHANNEL_STAGING.to_string(),
+        Some("release") | Some(UPDATE_CHANNEL_RELEASES) | Some("stable") => {
+            UPDATE_CHANNEL_RELEASES.to_string()
+        }
+        _ => build_update_channel(),
     }
 }
 

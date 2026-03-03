@@ -58,8 +58,15 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-# Auto-inject top-level {"cache_control":{"type":"ephemeral"}} for /v1/messages requests.
-enable_top_level_cache_control = false
+# Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
+# Note: no-ttl upstream default differs by channel:
+# - claude: 5m
+# - claudecode: 1h
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "system", position = "last_nth", index = 1, ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "5m" },
+]
 
 [[channels.credentials]]
 id = "claude-main"
@@ -174,8 +181,13 @@ enabled = true
 base_url = "https://api.anthropic.com"
 claudecode_ai_base_url = "https://claude.ai"
 claudecode_platform_base_url = "https://platform.claude.com"
-# Auto-inject top-level {"cache_control":{"type":"ephemeral"}} for /v1/messages requests.
-enable_top_level_cache_control = false
+# Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
+cache_breakpoints = [
+  { target = "top_level", ttl = "auto" },
+  { target = "messages", position = "last_nth", index = 11, ttl = "1h" },
+  { target = "messages", position = "last_nth", index = 2, ttl = "1h" },
+  { target = "messages", position = "last_nth", index = 1, ttl = "1h" },
+]
 # Optional: set empty string to disable prelude injection.
 claudecode_prelude_text = ""
 

@@ -142,11 +142,19 @@ Key format:
 
 TTL:
 
-- breakpoint `ttl == "1h"` -> 1h
-- auto top-level `cache_control: {"type":"ephemeral"}` (no ttl) -> 1h
-- otherwise -> 5m
+- explicit breakpoint `ttl == "1h"` -> 1h
+- explicit breakpoint `ttl == "5m"` (or missing/other values) -> 5m
+- when `cache_control` is present but `ttl` is omitted (`{"type":"ephemeral"}`), upstream defaults differ by channel:
+  - `claudecode`: default 1h
+  - `claude`: default 5m
 
 If request has no explicit breakpoint and no top-level `cache_control`, affinity hint is not generated.
+
+Important ordering constraint:
+
+- Anthropic validates breakpoint TTL order in processing hierarchy (`tools -> system -> messages`).
+- a `ttl="1h"` breakpoint must not appear after a `ttl="5m"` breakpoint in that order.
+- if you mix 1h and 5m, place all 1h breakpoints earlier in the hierarchy.
 
 ### Gemini GenerateContent / StreamGenerateContent
 
@@ -166,15 +174,30 @@ Not included by default:
 - `generationConfig`
 - `safetySettings`
 
-## Claude and ClaudeCode top-level cache control
+## Claude / ClaudeCode cache rewrite and magic triggers
 
-When `enable_top_level_cache_control` is enabled and request has no top-level `cache_control`, GPROXY injects:
+`enable_top_level_cache_control` is deprecated in current config docs. Use `cache_breakpoints` instead.
 
-```json
-{"type":"ephemeral"}
-```
+Rewrite sources for `claude` / `claudecode`:
 
-This applies to Claude and ClaudeCode message generation requests. Anthropic side decides the effective TTL for this automatic mode.
+- provider-level `channels.settings.cache_breakpoints`
+- request payload existing `cache_control` (kept as-is)
+- magic trigger strings in `system[].text` and `messages[].content[].text`
+
+Magic trigger behavior:
+
+- gproxy removes the trigger token from text before forwarding upstream
+- if target block does not already have `cache_control`, gproxy injects one
+- if block already has `cache_control`, only token removal is applied
+
+Supported trigger tokens:
+
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH auto`
+  - inject `{"type":"ephemeral"}`
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m`
+  - inject `{"type":"ephemeral","ttl":"5m"}`
+- `GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h`
+  - inject `{"type":"ephemeral","ttl":"1h"}`
 
 ## Upstream cache mechanisms (provider-side)
 
@@ -207,7 +230,7 @@ These are provider behaviors, independent from GPROXY affinity internals.
 2. Use `RoundRobinWithCache` for cache-sensitive traffic.
 3. Avoid unnecessary credential churn inside short cache windows.
 4. Split very different prompt workloads into different channels/providers.
-5. Enable top-level cache control only when you want automatic Claude/ClaudeCode cache behavior.
+5. Prefer explicit `cache_breakpoints` TTL (`5m` / `1h`) when you need deterministic Claude/ClaudeCode behavior.
 6. Prefer explicit `cachedContent` reuse in Gemini workflows when available.
 
 ## Usage examples
