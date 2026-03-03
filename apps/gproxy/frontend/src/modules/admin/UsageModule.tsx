@@ -355,6 +355,7 @@ export function UsageModule({
   const tableColumns = [
     t("table.trace_id"),
     t("table.provider"),
+    t("field.credential_id"),
     t("table.model"),
     t("table.input"),
     t("table.output"),
@@ -454,14 +455,15 @@ export function UsageModule({
             rows={rows.map((row) => ({
               [tableColumns[0]]: row.trace_id,
               [tableColumns[1]]: row.provider_channel ?? "",
-              [tableColumns[2]]: row.model ?? "",
-              [tableColumns[3]]: row.input_tokens ?? "",
-              [tableColumns[4]]: row.output_tokens ?? "",
-              [tableColumns[5]]: row.cache_read_input_tokens ?? "",
-              [tableColumns[6]]: row.cache_creation_input_tokens ?? "",
-              [tableColumns[7]]: row.cache_creation_input_tokens_5min ?? "",
-              [tableColumns[8]]: row.cache_creation_input_tokens_1h ?? "",
-              [tableColumns[9]]: formatAtForViewer(row.at)
+              [tableColumns[2]]: row.credential_id ?? "",
+              [tableColumns[3]]: row.model ?? "",
+              [tableColumns[4]]: row.input_tokens ?? "",
+              [tableColumns[5]]: row.output_tokens ?? "",
+              [tableColumns[6]]: row.cache_read_input_tokens ?? "",
+              [tableColumns[7]]: row.cache_creation_input_tokens ?? "",
+              [tableColumns[8]]: row.cache_creation_input_tokens_5min ?? "",
+              [tableColumns[9]]: row.cache_creation_input_tokens_1h ?? "",
+              [tableColumns[10]]: formatAtForViewer(row.at)
             }))}
           />
         </div>

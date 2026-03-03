@@ -775,14 +775,18 @@ export function RequestsModule({
     }
   };
 
-  const tableColumns = [
-    t("table.trace_id"),
-    t("table.at"),
-    t("table.status"),
-    kind === "upstream" ? t("table.url") : t("table.path"),
-    t("table.method"),
-    t("table.payload")
-  ];
+  const traceIdColumn = t("table.trace_id");
+  const atColumn = t("table.at");
+  const statusColumn = t("table.status");
+  const requestPathColumn = kind === "upstream" ? t("table.url") : t("table.path");
+  const credentialIdColumn = t("field.credential_id");
+  const methodColumn = t("table.method");
+  const payloadColumn = t("table.payload");
+
+  const tableColumns =
+    kind === "upstream"
+      ? [traceIdColumn, atColumn, statusColumn, requestPathColumn, credentialIdColumn, methodColumn, payloadColumn]
+      : [traceIdColumn, atColumn, statusColumn, requestPathColumn, methodColumn, payloadColumn];
 
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
@@ -878,16 +882,8 @@ export function RequestsModule({
         <div className="query-result-table-wrap">
           <Table
             columns={tableColumns}
-            rows={rows.map((row) => ({
-              [tableColumns[0]]: row.trace_id,
-              [tableColumns[1]]: formatAtForViewer(row.at),
-              [tableColumns[2]]: row.response_status ?? "",
-              [tableColumns[3]]:
-                kind === "upstream"
-                  ? ((row as UpstreamRequestQueryRow).request_url ?? "")
-                  : (row as DownstreamRequestQueryRow).request_path,
-              [tableColumns[4]]: row.request_method,
-              [tableColumns[5]]: (
+            rows={rows.map((row) => {
+              const payloadCell = (
                 <PayloadCell
                   row={row}
                   t={t}
@@ -897,8 +893,31 @@ export function RequestsModule({
                   bodyError={bodyErrorByTraceId[row.trace_id]}
                   ensureBodyLoaded={ensureBodyLoaded}
                 />
-              )
-            }))}
+              );
+
+              if (kind === "upstream") {
+                const upstreamRow = row as UpstreamRequestQueryRow;
+                return {
+                  [traceIdColumn]: row.trace_id,
+                  [atColumn]: formatAtForViewer(row.at),
+                  [statusColumn]: row.response_status ?? "",
+                  [requestPathColumn]: upstreamRow.request_url ?? "",
+                  [credentialIdColumn]: upstreamRow.credential_id ?? "",
+                  [methodColumn]: row.request_method,
+                  [payloadColumn]: payloadCell
+                };
+              }
+
+              const downstreamRow = row as DownstreamRequestQueryRow;
+              return {
+                [traceIdColumn]: row.trace_id,
+                [atColumn]: formatAtForViewer(row.at),
+                [statusColumn]: row.response_status ?? "",
+                [requestPathColumn]: downstreamRow.request_path,
+                [methodColumn]: row.request_method,
+                [payloadColumn]: payloadCell
+              };
+            })}
           />
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
