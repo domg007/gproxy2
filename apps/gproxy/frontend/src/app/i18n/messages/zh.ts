@@ -249,6 +249,7 @@ export const zhMessages = {
     "requests.title": "请求日志",
     "requests.subtitle": "查询上游/下游请求日志",
     "requests.path.placeholder": "输入或选择路径/URL",
+    "requests.bodyHint": "要记录请求/响应 body，请到全局配置中关闭“遮蔽敏感信息”。",
     "usage.title": "用量",
     "usage.subtitle": "查询用量明细与汇总",
     "usage.rows": "用量明细",

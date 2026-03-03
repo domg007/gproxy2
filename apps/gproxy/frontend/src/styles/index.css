@@ -371,6 +371,14 @@ body {
   background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
 }
 
+.request-body-hint {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 0.78rem;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-surface));
+  color: var(--muted);
+  padding: 0.55rem 0.7rem;
+}
+
 .workspace-tab {
   border-radius: 0.78rem;
   border: 1px solid var(--border);

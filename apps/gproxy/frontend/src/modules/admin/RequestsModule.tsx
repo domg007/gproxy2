@@ -828,6 +828,9 @@ export function RequestsModule({
 
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
+      <div className="request-body-hint mb-3 text-xs">
+        {t("requests.bodyHint")}
+      </div>
       <div className="grid gap-3 md:grid-cols-3">
         <div>
           <Label>{t("field.kind")}</Label>

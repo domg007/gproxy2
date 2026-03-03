@@ -251,6 +251,8 @@ export const enMessages = {
     "requests.title": "Request Log",
     "requests.subtitle": "Query upstream/downstream request logs",
     "requests.path.placeholder": "Type or select path/url",
+    "requests.bodyHint":
+      "To record request/response bodies, disable mask_sensitive_info in Global Settings.",
     "usage.title": "Usage",
     "usage.subtitle": "Query usage rows and summaries",
     "usage.rows": "Usage Rows",

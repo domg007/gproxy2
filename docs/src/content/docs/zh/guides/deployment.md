@@ -26,22 +26,22 @@ cp gproxy.example.toml gproxy.toml
 
 ### Docker
 
-构建镜像：
+拉取预构建镜像（推荐）：
 
 ```bash
-docker build -t gproxy:local .
+docker pull ghcr.io/leenhawk/gproxy:latest
 ```
 
 运行容器：
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e GPROXY_HOST=127.0.0.1 \
+  -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
-  gproxy:local
+  ghcr.io/leenhawk/gproxy:latest
 ```
 
 ## 云端部署
@@ -56,7 +56,7 @@ docker run --rm -p 8787:8787 \
 推荐配置：
 
 - `GPROXY_ADMIN_KEY`：必填
-- `GPROXY_HOST`：`127.0.0.1`
+- `GPROXY_HOST`：`0.0.0.0`
 - `GPROXY_PORT`：`8787`
 - `GPROXY_DATA_DIR`：`/app/data`
 - 将 `/app/data` 挂载为持久化卷
