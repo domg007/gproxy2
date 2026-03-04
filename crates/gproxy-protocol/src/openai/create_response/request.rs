@@ -108,3 +108,76 @@ pub struct RequestBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::RequestBody;
+    use crate::openai::count_tokens::types::{ResponseInput, ResponseInputItem};
+
+    #[test]
+    fn request_body_accepts_reasoning_item_without_id() {
+        let value = json!({
+            "model": "gpt-5.3-codex",
+            "stream": true,
+            "input": [
+                {
+                    "type": "message",
+                    "role": "developer",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "developer prompt"
+                        }
+                    ]
+                },
+                {
+                    "type": "reasoning",
+                    "summary": [
+                        {
+                            "type": "summary_text",
+                            "text": "plan"
+                        }
+                    ],
+                    "content": null,
+                    "encrypted_content": "abc"
+                },
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "arguments": "{\"cmd\":\"ls\"}",
+                    "call_id": "call_1"
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "ok"
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "phase": "commentary",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "working"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let body: RequestBody = serde_json::from_value(value).expect("request body should parse");
+        let Some(ResponseInput::Items(ref items)) = body.input else {
+            panic!("expected input items");
+        };
+        let Some(ResponseInputItem::ReasoningItem(reasoning)) = items.get(1) else {
+            panic!("expected reasoning item");
+        };
+        assert!(reasoning.id.is_none());
+
+        let encoded = serde_json::to_value(body).expect("request body should serialize");
+        assert!(encoded["input"][1].get("id").is_none());
+    }
+}

@@ -87,11 +87,13 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
                 }
                 ot::ResponseInputItem::ReasoningItem(reasoning) => {
                     let thinking = openai_reasoning_summary_to_text(&reasoning.summary);
-                    if !thinking.is_empty() {
+                    if !thinking.is_empty()
+                        && let Some(signature) = reasoning.id.filter(|id| !id.is_empty())
+                    {
                         messages.push(ct::BetaMessageParam {
                             content: ct::BetaMessageContent::Blocks(vec![
                                 ct::BetaContentBlockParam::Thinking(ct::BetaThinkingBlockParam {
-                                    signature: reasoning.id,
+                                    signature,
                                     thinking,
                                     type_: ct::BetaThinkingBlockType::Thinking,
                                 }),

@@ -186,9 +186,11 @@ impl UpstreamStreamRecordGuard {
                     context.provider_id,
                     context.credential_id,
                     context.request_meta.as_ref(),
-                    context.response_status,
-                    context.response_headers.as_slice(),
-                    response_body,
+                    UpstreamResponseMeta {
+                        status: context.response_status,
+                        headers: context.response_headers.as_slice(),
+                        body: response_body,
+                    },
                 )
                 .await;
             }
@@ -225,9 +227,11 @@ impl Drop for UpstreamStreamRecordGuard {
                     context.provider_id,
                     context.credential_id,
                     context.request_meta.as_ref(),
-                    context.response_status,
-                    context.response_headers.as_slice(),
-                    response_body,
+                    UpstreamResponseMeta {
+                        status: context.response_status,
+                        headers: context.response_headers.as_slice(),
+                        body: response_body,
+                    },
                 )
                 .await;
             }

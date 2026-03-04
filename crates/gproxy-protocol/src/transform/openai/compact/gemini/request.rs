@@ -101,7 +101,7 @@ impl TryFrom<OpenAiCompactRequest> for GeminiGenerateContentRequest {
                     contents.push(gt::GeminiContent {
                         parts: vec![gt::GeminiPart {
                             thought: Some(true),
-                            thought_signature: Some(reasoning.id),
+                            thought_signature: reasoning.id.filter(|id| !id.is_empty()),
                             text: Some(text),
                             ..gt::GeminiPart::default()
                         }],

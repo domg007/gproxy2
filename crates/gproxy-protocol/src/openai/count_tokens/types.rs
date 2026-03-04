@@ -612,7 +612,9 @@ pub enum ResponseFunctionCallOutputType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseReasoningItem {
-    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub summary: Vec<ResponseSummaryTextContent>,
     #[serde(rename = "type")]
     pub type_: ResponseReasoningItemType,

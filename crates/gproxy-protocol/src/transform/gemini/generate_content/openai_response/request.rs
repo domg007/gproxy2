@@ -82,7 +82,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                             id
                         });
                         input_items.push(ResponseInputItem::ReasoningItem(ResponseReasoningItem {
-                            id,
+                            id: Some(id),
                             summary: vec![ResponseSummaryTextContent {
                                 text,
                                 type_: ResponseSummaryTextContentType::SummaryText,

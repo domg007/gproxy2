@@ -24,7 +24,7 @@ use serde_json::json;
 use crate::AppState;
 
 use super::super::{
-    HttpError, ModelProtocolPreference, anthropic_headers_from_request,
+    HttpError, ModelProtocolPreference, UpstreamResponseMeta, anthropic_headers_from_request,
     apply_credential_update_and_persist, authorize_provider_access, bad_request,
     capture_tracked_http_events, collect_headers, collect_unscoped_model_ids,
     deserialize_json_scalar, enqueue_internal_tracked_http_events,
@@ -80,9 +80,11 @@ pub(in crate::routes::provider) async fn oauth_start(
                 provider_id,
                 None,
                 err_request_meta.as_ref(),
-                err_status,
-                &[],
-                None,
+                UpstreamResponseMeta {
+                    status: err_status,
+                    headers: &[],
+                    body: None,
+                },
             )
             .await;
             return Err(HttpError::from(err));
@@ -94,9 +96,11 @@ pub(in crate::routes::provider) async fn oauth_start(
         provider_id,
         None,
         response.request_meta.as_ref(),
-        Some(response.status_code),
-        response.headers.as_slice(),
-        Some(response.body.clone()),
+        UpstreamResponseMeta {
+            status: Some(response.status_code),
+            headers: response.headers.as_slice(),
+            body: Some(response.body.clone()),
+        },
     )
     .await;
     enqueue_internal_tracked_http_events(
@@ -155,9 +159,11 @@ pub(in crate::routes::provider) async fn oauth_callback(
                 provider_id,
                 None,
                 err_request_meta.as_ref(),
-                err_status,
-                &[],
-                None,
+                UpstreamResponseMeta {
+                    status: err_status,
+                    headers: &[],
+                    body: None,
+                },
             )
             .await;
             return Err(HttpError::from(err));
@@ -194,9 +200,11 @@ pub(in crate::routes::provider) async fn oauth_callback(
         provider_id,
         resolved_credential_id,
         result.response.request_meta.as_ref(),
-        Some(result.response.status_code),
-        result.response.headers.as_slice(),
-        Some(result.response.body.clone()),
+        UpstreamResponseMeta {
+            status: Some(result.response.status_code),
+            headers: result.response.headers.as_slice(),
+            body: Some(result.response.body.clone()),
+        },
     )
     .await;
     enqueue_internal_tracked_http_events(
@@ -261,9 +269,11 @@ pub(in crate::routes::provider) async fn upstream_usage(
                 provider_id,
                 credential_id,
                 err_request_meta.as_ref(),
-                err_status,
-                &[],
-                None,
+                UpstreamResponseMeta {
+                    status: err_status,
+                    headers: &[],
+                    body: None,
+                },
             )
             .await;
             return Err(HttpError::from(err));
@@ -292,9 +302,11 @@ pub(in crate::routes::provider) async fn upstream_usage(
         provider_id,
         upstream_credential_id,
         upstream_request_meta.as_ref(),
-        Some(payload.status_code),
-        payload.headers.as_slice(),
-        Some(payload.body.clone()),
+        UpstreamResponseMeta {
+            status: Some(payload.status_code),
+            headers: payload.headers.as_slice(),
+            body: Some(payload.body.clone()),
+        },
     )
     .await;
     enqueue_internal_tracked_http_events(

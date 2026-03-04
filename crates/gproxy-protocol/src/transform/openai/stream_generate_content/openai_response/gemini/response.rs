@@ -1108,7 +1108,7 @@ fn reasoning_item(
     };
 
     rt::ResponseOutputItem::ReasoningItem(ot::ResponseReasoningItem {
-        id: item_id,
+        id: Some(item_id),
         summary,
         type_: ot::ResponseReasoningItemType::Reasoning,
         content,

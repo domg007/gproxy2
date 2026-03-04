@@ -174,7 +174,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for OpenAiCreateResponseRequest {
                     {
                         input_items.push(ot::ResponseInputItem::ReasoningItem(
                             ot::ResponseReasoningItem {
-                                id: pseudo_reasoning_signature(index, 0),
+                                id: Some(pseudo_reasoning_signature(index, 0)),
                                 summary: vec![ot::ResponseSummaryTextContent {
                                     text: reasoning_content.clone(),
                                     type_: ot::ResponseSummaryTextContentType::SummaryText,
@@ -371,7 +371,7 @@ mod tests {
             })
             .expect("reasoning item");
 
-        assert_eq!(reasoning.id, "gproxy_reasoning_0_0");
+        assert_eq!(reasoning.id.as_deref(), Some("gproxy_reasoning_0_0"));
         assert_eq!(reasoning.summary.len(), 1);
         assert_eq!(reasoning.summary[0].text, "reasoning text");
         assert_eq!(reasoning.content.as_ref().map(|parts| parts.len()), Some(1));

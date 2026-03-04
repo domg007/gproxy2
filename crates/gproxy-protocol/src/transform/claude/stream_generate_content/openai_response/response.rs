@@ -416,18 +416,20 @@ impl OpenAiResponseToClaudeStream {
                 }
             }
             ResponseOutputItem::ReasoningItem(item) => {
-                for summary in item.summary {
-                    self.emit_thinking_block(out, item.id.clone(), summary.text);
-                }
-                if let Some(content) = item.content {
-                    for entry in content {
-                        self.emit_thinking_block(out, item.id.clone(), entry.text);
+                if let Some(signature) = item.id.filter(|id| !id.is_empty()) {
+                    for summary in item.summary {
+                        self.emit_thinking_block(out, signature.clone(), summary.text);
                     }
-                }
-                if let Some(encrypted_content) = item.encrypted_content
-                    && !encrypted_content.is_empty()
-                {
-                    self.emit_thinking_block(out, item.id, encrypted_content);
+                    if let Some(content) = item.content {
+                        for entry in content {
+                            self.emit_thinking_block(out, signature.clone(), entry.text);
+                        }
+                    }
+                    if let Some(encrypted_content) = item.encrypted_content
+                        && !encrypted_content.is_empty()
+                    {
+                        self.emit_thinking_block(out, signature, encrypted_content);
+                    }
                 }
             }
             ResponseOutputItem::CompactionItem(item) => {

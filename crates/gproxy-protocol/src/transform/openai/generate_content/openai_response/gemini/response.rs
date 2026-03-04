@@ -101,7 +101,7 @@ impl TryFrom<GeminiGenerateContentResponse> for OpenAiCreateResponseResponse {
                                         });
                                     output.push(rt::ResponseOutputItem::ReasoningItem(
                                             ot::ResponseReasoningItem {
-                                                id: reasoning_id,
+                                                id: Some(reasoning_id),
                                                 summary: vec![ot::ResponseSummaryTextContent {
                                                     text: thinking.clone(),
                                                     type_: ot::ResponseSummaryTextContentType::SummaryText,

@@ -132,7 +132,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                             id
                         });
                         input_items.push(ResponseInputItem::ReasoningItem(ResponseReasoningItem {
-                            id: reasoning_id,
+                            id: Some(reasoning_id),
                             summary: vec![ResponseSummaryTextContent {
                                 text,
                                 type_: ResponseSummaryTextContentType::SummaryText,

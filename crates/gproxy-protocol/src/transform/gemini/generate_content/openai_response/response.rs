@@ -109,11 +109,12 @@ impl TryFrom<OpenAiCreateResponseResponse> for GeminiGenerateContentResponse {
                             });
                         }
                         ResponseOutputItem::ReasoningItem(item) => {
+                            let thought_signature = item.id.clone().filter(|id| !id.is_empty());
                             for summary in item.summary {
                                 if !summary.text.is_empty() {
                                     parts.push(GeminiPart {
                                         thought: Some(true),
-                                        thought_signature: Some(item.id.clone()),
+                                        thought_signature: thought_signature.clone(),
                                         text: Some(summary.text),
                                         ..GeminiPart::default()
                                     });
@@ -124,7 +125,7 @@ impl TryFrom<OpenAiCreateResponseResponse> for GeminiGenerateContentResponse {
                                     if !reasoning_text.text.is_empty() {
                                         parts.push(GeminiPart {
                                             thought: Some(true),
-                                            thought_signature: Some(item.id.clone()),
+                                            thought_signature: thought_signature.clone(),
                                             text: Some(reasoning_text.text),
                                             ..GeminiPart::default()
                                         });
@@ -136,7 +137,7 @@ impl TryFrom<OpenAiCreateResponseResponse> for GeminiGenerateContentResponse {
                             {
                                 parts.push(GeminiPart {
                                     thought: Some(true),
-                                    thought_signature: Some(item.id),
+                                    thought_signature,
                                     text: Some(encrypted_content),
                                     ..GeminiPart::default()
                                 });

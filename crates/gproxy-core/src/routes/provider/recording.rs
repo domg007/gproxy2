@@ -907,15 +907,19 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     }
 }
 
+pub(super) struct UpstreamResponseMeta<'a> {
+    pub status: Option<u16>,
+    pub headers: &'a [(String, String)],
+    pub body: Option<Vec<u8>>,
+}
+
 pub(super) async fn enqueue_upstream_request_event_from_meta(
     state: &AppState,
     downstream_trace_id: Option<i64>,
     provider_id: Option<i64>,
     credential_id: Option<i64>,
     request_meta: Option<&UpstreamRequestMeta>,
-    response_status: Option<u16>,
-    response_headers: &[(String, String)],
-    response_body: Option<Vec<u8>>,
+    response_meta: UpstreamResponseMeta<'_>,
 ) {
     let Some(meta) = request_meta else {
         return;
@@ -935,12 +939,12 @@ pub(super) async fn enqueue_upstream_request_event_from_meta(
         } else {
             meta.body.clone()
         },
-        response_status: response_status.map(i32::from),
-        response_headers_json: headers_pairs_to_json(response_headers),
+        response_status: response_meta.status.map(i32::from),
+        response_headers_json: headers_pairs_to_json(response_meta.headers),
         response_body: if mask_sensitive_info {
             None
         } else {
-            response_body
+            response_meta.body
         },
     };
     if let Err(err) = state

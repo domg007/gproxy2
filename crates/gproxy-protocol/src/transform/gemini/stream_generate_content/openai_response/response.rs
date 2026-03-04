@@ -208,22 +208,26 @@ impl OpenAiResponseToGeminiStream {
                 ));
             }
             ResponseOutputItem::ReasoningItem(item) => {
-                for summary in item.summary {
-                    if let Some(chunk) = self.thinking_chunk(item.id.clone(), summary.text) {
-                        out.push(chunk);
-                    }
-                }
-                if let Some(content) = item.content {
-                    for reasoning in content {
-                        if let Some(chunk) = self.thinking_chunk(item.id.clone(), reasoning.text) {
+                if let Some(signature) = item.id.filter(|id| !id.is_empty()) {
+                    for summary in item.summary {
+                        if let Some(chunk) = self.thinking_chunk(signature.clone(), summary.text) {
                             out.push(chunk);
                         }
                     }
-                }
-                if let Some(encrypted_content) = item.encrypted_content
-                    && let Some(chunk) = self.thinking_chunk(item.id, encrypted_content)
-                {
-                    out.push(chunk);
+                    if let Some(content) = item.content {
+                        for reasoning in content {
+                            if let Some(chunk) =
+                                self.thinking_chunk(signature.clone(), reasoning.text)
+                            {
+                                out.push(chunk);
+                            }
+                        }
+                    }
+                    if let Some(encrypted_content) = item.encrypted_content
+                        && let Some(chunk) = self.thinking_chunk(signature, encrypted_content)
+                    {
+                        out.push(chunk);
+                    }
                 }
             }
             ResponseOutputItem::FunctionCallOutput(call) => {

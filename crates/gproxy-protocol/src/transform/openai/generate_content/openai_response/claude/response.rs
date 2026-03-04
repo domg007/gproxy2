@@ -45,7 +45,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                         crate::claude::create_message::types::BetaContentBlock::Thinking(block) => {
                             output.push(rt::ResponseOutputItem::ReasoningItem(
                                 ot::ResponseReasoningItem {
-                                    id: format!("reasoning_{index}"),
+                                    id: Some(format!("reasoning_{index}")),
                                     summary: vec![ot::ResponseSummaryTextContent {
                                         text: block.thinking.clone(),
                                         type_: ot::ResponseSummaryTextContentType::SummaryText,
@@ -65,7 +65,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                         ) => {
                             output.push(rt::ResponseOutputItem::ReasoningItem(
                                 ot::ResponseReasoningItem {
-                                    id: format!("redacted_reasoning_{index}"),
+                                    id: Some(format!("redacted_reasoning_{index}")),
                                     summary: Vec::new(),
                                     type_: ot::ResponseReasoningItemType::Reasoning,
                                     content: None,

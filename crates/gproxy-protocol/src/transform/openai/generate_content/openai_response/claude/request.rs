@@ -97,11 +97,13 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         thinking = encrypted;
                     }
 
-                    if !thinking.is_empty() {
+                    if !thinking.is_empty()
+                        && let Some(signature) = reasoning.id.filter(|id| !id.is_empty())
+                    {
                         messages.push(ct::BetaMessageParam {
                             content: ct::BetaMessageContent::Blocks(vec![
                                 ct::BetaContentBlockParam::Thinking(ct::BetaThinkingBlockParam {
-                                    signature: reasoning.id,
+                                    signature,
                                     thinking,
                                     type_: ct::BetaThinkingBlockType::Thinking,
                                 }),

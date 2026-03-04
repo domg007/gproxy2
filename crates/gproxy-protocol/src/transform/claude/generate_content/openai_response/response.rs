@@ -284,6 +284,7 @@ impl TryFrom<OpenAiCreateResponseResponse> for ClaudeCreateMessageResponse {
                             }));
                         }
                         ResponseOutputItem::ReasoningItem(reasoning) => {
+                            let signature = reasoning.id.filter(|id| !id.is_empty());
                             let mut thinking = reasoning
                                 .summary
                                 .into_iter()
@@ -296,10 +297,12 @@ impl TryFrom<OpenAiCreateResponseResponse> for ClaudeCreateMessageResponse {
                                     .extend(reasoning_content.into_iter().map(|item| item.text));
                             }
                             let thinking = thinking.join("\n");
-                            if !thinking.is_empty() {
+                            if !thinking.is_empty()
+                                && let Some(signature) = signature
+                            {
                                 content.push(BetaContentBlock::Thinking(
                                     crate::claude::create_message::types::BetaThinkingBlock {
-                                        signature: reasoning.id,
+                                        signature,
                                         thinking,
                                         type_: BetaThinkingBlockType::Thinking,
                                     },
