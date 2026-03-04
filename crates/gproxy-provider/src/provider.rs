@@ -1,41 +1,47 @@
 use crate::UpstreamCredentialUpdate;
 use crate::channel::ChannelId;
 use crate::channels::ChannelSettings;
-use crate::channels::aistudio::execute_aistudio_with_retry;
+use crate::channels::aistudio::{execute_aistudio_payload_with_retry, execute_aistudio_with_retry};
 use crate::channels::antigravity::{
     execute_antigravity_oauth_callback, execute_antigravity_oauth_start,
-    execute_antigravity_upstream_usage_with_retry, execute_antigravity_with_retry,
+    execute_antigravity_payload_with_retry, execute_antigravity_upstream_usage_with_retry,
+    execute_antigravity_with_retry,
 };
-use crate::channels::claude::execute_claude_with_retry;
+use crate::channels::claude::{execute_claude_payload_with_retry, execute_claude_with_retry};
 use crate::channels::claudecode::credential::ClaudeCodeTokenRefresh;
 use crate::channels::claudecode::{
     execute_claudecode_oauth_callback, execute_claudecode_oauth_start,
-    execute_claudecode_upstream_usage_with_retry, execute_claudecode_with_retry,
+    execute_claudecode_payload_with_retry, execute_claudecode_upstream_usage_with_retry,
+    execute_claudecode_with_retry,
 };
 use crate::channels::codex::{
-    execute_codex_oauth_callback, execute_codex_oauth_start,
+    execute_codex_oauth_callback, execute_codex_oauth_start, execute_codex_payload_with_retry,
     execute_codex_upstream_usage_with_retry, execute_codex_with_retry,
 };
 use crate::channels::custom::execute_custom_with_retry;
-use crate::channels::deepseek::execute_deepseek_with_retry;
+use crate::channels::deepseek::{execute_deepseek_payload_with_retry, execute_deepseek_with_retry};
 use crate::channels::geminicli::{
     execute_geminicli_oauth_callback, execute_geminicli_oauth_start,
-    execute_geminicli_upstream_usage_with_retry, execute_geminicli_with_retry,
+    execute_geminicli_payload_with_retry, execute_geminicli_upstream_usage_with_retry,
+    execute_geminicli_with_retry,
 };
-use crate::channels::groq::execute_groq_with_retry;
-use crate::channels::nvidia::execute_nvidia_with_retry;
-use crate::channels::openai::execute_openai_with_retry;
+use crate::channels::groq::{execute_groq_payload_with_retry, execute_groq_with_retry};
+use crate::channels::nvidia::{execute_nvidia_payload_with_retry, execute_nvidia_with_retry};
+use crate::channels::openai::{execute_openai_payload_with_retry, execute_openai_with_retry};
 use crate::channels::retry::CredentialPickMode;
 use crate::channels::upstream::{
     UpstreamError, UpstreamOAuthCallbackResult, UpstreamOAuthRequest, UpstreamOAuthResponse,
     UpstreamResponse,
 };
-use crate::channels::vertex::execute_vertex_with_retry;
-use crate::channels::vertexexpress::execute_vertexexpress_with_retry;
+use crate::channels::vertex::{execute_vertex_payload_with_retry, execute_vertex_with_retry};
+use crate::channels::vertexexpress::{
+    execute_vertexexpress_payload_with_retry, execute_vertexexpress_with_retry,
+};
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::{CredentialRef, ProviderCredentialState};
 use crate::dispatch::ProviderDispatchTable;
 use crate::tokenizers::LocalTokenizerStore;
+use gproxy_middleware::{OperationFamily, ProtocolKind};
 use wreq::Client as WreqClient;
 
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +49,15 @@ pub struct TokenizerResolutionContext<'a> {
     pub tokenizer_store: &'a LocalTokenizerStore,
     pub hf_token: Option<&'a str>,
     pub hf_url: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RetryWithPayloadRequest<'a> {
+    pub operation: OperationFamily,
+    pub protocol: ProtocolKind,
+    pub body: &'a [u8],
+    pub now_unix_ms: u64,
+    pub token_resolution: TokenizerResolutionContext<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -511,6 +526,124 @@ impl ProviderDefinition {
                 execute_custom_with_retry(client, self, credential_states, request, now_unix_ms)
                     .await
             }
+        }
+    }
+
+    pub async fn execute_payload_with_retry_with_spoof(
+        &self,
+        client: &WreqClient,
+        spoof_client: Option<&WreqClient>,
+        credential_states: &crate::credential::ChannelCredentialStateStore,
+        payload: RetryWithPayloadRequest<'_>,
+    ) -> Result<UpstreamResponse, UpstreamError> {
+        match &self.channel {
+            ChannelId::Builtin(crate::channel::BuiltinChannel::OpenAi) => {
+                execute_openai_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Claude) => {
+                execute_claude_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::ClaudeCode) => {
+                execute_claudecode_payload_with_retry(
+                    client,
+                    spoof_client.unwrap_or(client),
+                    self,
+                    credential_states,
+                    payload,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::AiStudio) => {
+                execute_aistudio_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::GeminiCli) => {
+                execute_geminicli_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Codex) => {
+                execute_codex_payload_with_retry(client, self, credential_states, payload).await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::VertexExpress) => {
+                execute_vertexexpress_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Vertex) => {
+                execute_vertex_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Antigravity) => {
+                execute_antigravity_payload_with_retry(
+                    client,
+                    self,
+                    credential_states,
+                    payload.operation,
+                    payload.protocol,
+                    payload.body,
+                    payload.now_unix_ms,
+                )
+                .await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Nvidia) => {
+                execute_nvidia_payload_with_retry(client, self, credential_states, payload).await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Deepseek) => {
+                execute_deepseek_payload_with_retry(client, self, credential_states, payload).await
+            }
+            ChannelId::Builtin(crate::channel::BuiltinChannel::Groq) => {
+                execute_groq_payload_with_retry(client, self, credential_states, payload).await
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
 }

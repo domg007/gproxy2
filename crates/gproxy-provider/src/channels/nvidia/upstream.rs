@@ -1,4 +1,4 @@
-use gproxy_middleware::{TransformRequest, TransformResponse};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::retry::{
@@ -15,7 +15,7 @@ use crate::channels::utils::{
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
-use crate::provider::{ProviderDefinition, TokenizerResolutionContext};
+use crate::provider::{ProviderDefinition, RetryWithPayloadRequest, TokenizerResolutionContext};
 
 pub async fn try_local_nvidia_response(
     _provider: &ProviderDefinition,
@@ -65,18 +65,6 @@ pub async fn execute_nvidia_with_retry(
     }
 
     let prepared = NvidiaPreparedRequest::from_transform_request(request)?;
-    let base_url = provider.settings.base_url().trim();
-    if base_url.is_empty() {
-        return Err(UpstreamError::InvalidBaseUrl);
-    }
-    let url = join_base_url_and_path(base_url, &prepared.path);
-    let state_manager = CredentialStateManager::new(now_unix_ms);
-    let method_template = prepared.method.clone();
-    let body_template = prepared.body.clone();
-    let model_template = prepared.model.clone();
-    let url_template = url.clone();
-    let user_agent_template =
-        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
         crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
             |protocol| {
@@ -90,6 +78,88 @@ pub async fn execute_nvidia_with_retry(
     } else {
         None
     };
+    execute_nvidia_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        cache_affinity_hint,
+    )
+    .await
+}
+
+pub async fn execute_nvidia_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    payload: RetryWithPayloadRequest<'_>,
+) -> Result<UpstreamResponse, UpstreamError> {
+    if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
+    {
+        let body_json = serde_json::from_slice::<serde_json::Value>(payload.body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let model = body_json
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned);
+        let input_tokens = count_openai_input_tokens_with_resolution(
+            payload.token_resolution.tokenizer_store,
+            client,
+            payload.token_resolution.hf_token,
+            payload.token_resolution.hf_url,
+            model.as_deref(),
+            &body_json,
+        )
+        .await?;
+        let response_json = serde_json::json!({
+            "stats_code": 200,
+            "headers": { "extra": {} },
+            "body": {
+                "input_tokens": input_tokens,
+                "object": "response.input_tokens",
+            }
+        });
+        let response = serde_json::from_value(response_json)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        return Ok(UpstreamResponse::from_local(
+            TransformResponse::CountTokenOpenAi(response),
+        ));
+    }
+
+    let prepared =
+        NvidiaPreparedRequest::from_payload(payload.operation, payload.protocol, payload.body)?;
+    execute_nvidia_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        payload.now_unix_ms,
+        None,
+    )
+    .await
+}
+
+async fn execute_nvidia_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: NvidiaPreparedRequest,
+    now_unix_ms: u64,
+    cache_affinity_hint: Option<crate::channels::retry::CacheAffinityHint>,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let base_url = provider.settings.base_url().trim();
+    if base_url.is_empty() {
+        return Err(UpstreamError::InvalidBaseUrl);
+    }
+    let url = join_base_url_and_path(base_url, &prepared.path);
+    let state_manager = CredentialStateManager::new(now_unix_ms);
+    let method_template = prepared.method.clone();
+    let body_template = prepared.body.clone();
+    let model_template = prepared.model.clone();
+    let url_template = url.clone();
+    let user_agent_template =
+        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let pick_mode =
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
@@ -285,6 +355,61 @@ impl NvidiaPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: Some(nvidia_embedding_model_to_string(&value.body.model)?),
+            }),
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(body: &[u8], pointer: &str) -> Option<String> {
+            serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer(pointer)
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToOwned::to_owned)
+                })
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::GET,
+                path: "/v1/models".to_string(),
+                body: None,
+                model: None,
+            }),
+            (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+                let Some(model) = json_pointer_string(body, "/path/model") else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in nvidia model_get payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path: format!("/v1/models/{model}"),
+                    body: None,
+                    model: Some(model),
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1/chat/completions".to_string(),
+                    body: Some(body.to_vec()),
+                    model: json_pointer_string(body, "/model"),
+                })
+            }
+            (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/embeddings".to_string(),
+                body: Some(body.to_vec()),
+                model: json_pointer_string(body, "/model"),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }

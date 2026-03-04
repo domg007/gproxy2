@@ -1,4 +1,4 @@
-use gproxy_middleware::TransformResponse;
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformResponse};
 use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
@@ -28,7 +28,7 @@ use crate::channels::utils::{
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
-use crate::provider::ProviderDefinition;
+use crate::provider::{ProviderDefinition, RetryWithPayloadRequest};
 
 const BETA_QUERY_KEY: &str = "beta";
 const BETA_QUERY_VALUE: &str = "true";
@@ -51,6 +51,71 @@ pub async fn execute_claudecode_with_retry(
         prelude_text,
         provider.settings.cache_breakpoints(),
     )?;
+    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared.body.as_deref(),
+                )
+            },
+        )
+    } else {
+        None
+    };
+    execute_claudecode_with_prepared(
+        client,
+        spoof_client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        cache_affinity_hint,
+    )
+    .await
+}
+
+pub async fn execute_claudecode_payload_with_retry(
+    client: &WreqClient,
+    spoof_client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    payload: RetryWithPayloadRequest<'_>,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let prelude_text = provider
+        .settings
+        .claudecode_prelude_text()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        payload.operation,
+        payload.protocol,
+        payload.body,
+        prelude_text,
+        provider.settings.cache_breakpoints(),
+    )?;
+    execute_claudecode_with_prepared(
+        client,
+        spoof_client,
+        provider,
+        credential_states,
+        prepared,
+        payload.now_unix_ms,
+        None,
+    )
+    .await
+}
+
+async fn execute_claudecode_with_prepared(
+    client: &WreqClient,
+    spoof_client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: ClaudeCodePreparedRequest,
+    now_unix_ms: u64,
+    cache_affinity_hint: Option<crate::channels::retry::CacheAffinityHint>,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -79,19 +144,6 @@ pub async fn execute_claudecode_with_retry(
         .map(str::trim)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| CLAUDE_CODE_UA.to_string());
-    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
-    } else {
-        None
-    };
     let pick_mode =
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
@@ -1069,6 +1121,193 @@ impl ClaudeCodePreparedRequest {
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    request_headers,
+                    context_1m_target,
+                })
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+        prelude_text: Option<&str>,
+        cache_breakpoints: &[CacheBreakpointRule],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        }
+
+        fn parse_claude_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
+            const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
+
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            if let Some(body_value) = value.get("body").cloned() {
+                let version = value
+                    .pointer("/headers/anthropic_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or(DEFAULT_ANTHROPIC_VERSION)
+                    .to_string();
+                let beta = value
+                    .pointer("/headers/anthropic_beta")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|items| !items.is_empty());
+                return Ok((body_value, version, beta));
+            }
+            Ok((value, DEFAULT_ANTHROPIC_VERSION.to_string(), None))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::Claude) => {
+                let payload = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let version = payload
+                    .pointer("/headers/anthropic_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or("2023-06-01")
+                    .to_string();
+                let beta = payload
+                    .pointer("/headers/anthropic_beta")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    });
+                let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
+                ensure_oauth_beta(&mut request_headers, false);
+                let path =
+                    append_query_param_if_missing("/v1/models", BETA_QUERY_KEY, BETA_QUERY_VALUE);
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path,
+                    body: None,
+                    model: None,
+                    request_headers,
+                    context_1m_target: None,
+                })
+            }
+            (OperationFamily::ModelGet, ProtocolKind::Claude) => {
+                let payload = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let Some(model_id) = payload
+                    .pointer("/path/model_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model_id in claudecode model_get payload".to_string(),
+                    ));
+                };
+                let version = payload
+                    .pointer("/headers/anthropic_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or("2023-06-01")
+                    .to_string();
+                let beta = payload
+                    .pointer("/headers/anthropic_beta")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    });
+                let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
+                ensure_oauth_beta(&mut request_headers, false);
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path: append_query_param_if_missing(
+                        format!("/v1/models/{model_id}").as_str(),
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    body: None,
+                    model: Some(model_id),
+                    request_headers,
+                    context_1m_target: None,
+                })
+            }
+            (OperationFamily::CountToken, ProtocolKind::Claude) => {
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                if let Some(prelude) = prelude_text {
+                    apply_claudecode_system(&mut body_json, prelude);
+                }
+                let model = json_pointer_string(&body_json, "/model").ok_or_else(|| {
+                    UpstreamError::SerializeRequest(
+                        "missing model in claudecode count_tokens payload".to_string(),
+                    )
+                })?;
+                let context_1m_target = claude_1m_target_for_model(model.as_str());
+                let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
+                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: append_query_param_if_missing(
+                        "/v1/messages/count_tokens",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    request_headers,
+                    context_1m_target,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Claude)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                if let Some(prelude) = prelude_text {
+                    apply_claudecode_system(&mut body_json, prelude);
+                }
+                let model = json_pointer_string(&body_json, "/model").ok_or_else(|| {
+                    UpstreamError::SerializeRequest(
+                        "missing model in claudecode message payload".to_string(),
+                    )
+                })?;
+                normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                apply_magic_string_cache_control_triggers(&mut body_json);
+                if !cache_breakpoints.is_empty() {
+                    ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
+                }
+                let context_1m_target = claude_1m_target_for_model(model.as_str());
+                let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
+                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                Ok(Self {
+                    method: WreqMethod::POST,
                     path: append_query_param_if_missing(
                         "/v1/messages",
                         BETA_QUERY_KEY,

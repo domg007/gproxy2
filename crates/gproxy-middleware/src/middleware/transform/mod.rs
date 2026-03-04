@@ -6,7 +6,8 @@ pub mod request;
 pub mod response;
 
 pub use engine::{
-    decode_response_payload, transform_request, transform_request_payload, transform_response,
+    TransformLane, decode_request_payload, decode_response_payload, select_request_lane,
+    select_response_lane, transform_request, transform_request_payload, transform_response,
     transform_response_payload,
 };
 pub use error::MiddlewareTransformError;

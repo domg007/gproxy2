@@ -11,7 +11,7 @@ use axum::routing::{get, post};
 use futures_util::Stream;
 use gproxy_middleware::{
     MiddlewareTransformError, OperationFamily, ProtocolKind, TransformRequest,
-    TransformResponsePayload, UsageSnapshot, attach_usage_extractor,
+    TransformRequestPayload, TransformResponsePayload, UsageSnapshot, attach_usage_extractor,
 };
 use gproxy_protocol::claude::count_tokens::request as claude_count_tokens_request;
 use gproxy_protocol::claude::count_tokens::response as claude_count_tokens_response;
@@ -41,10 +41,11 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use gproxy_provider::{
-    BuiltinChannel, ChannelId, CredentialRef, ProviderDefinition, RouteImplementation, RouteKey,
-    TokenizerResolutionContext, TrackedHttpEvent, UpstreamCredentialUpdate, UpstreamError,
-    UpstreamOAuthResponse, UpstreamRequestMeta, UpstreamResponse, capture_tracked_http_events,
-    credential_kind_for_storage, parse_query_value, try_local_response_for_channel,
+    BuiltinChannel, ChannelId, CredentialRef, ProviderDefinition, RetryWithPayloadRequest,
+    RouteImplementation, RouteKey, TokenizerResolutionContext, TrackedHttpEvent,
+    UpstreamCredentialUpdate, UpstreamError, UpstreamOAuthResponse, UpstreamRequestMeta,
+    UpstreamResponse, capture_tracked_http_events, credential_kind_for_storage, parse_query_value,
+    try_local_response_for_channel,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialStatusWrite, CredentialWrite, ProviderQuery, ProviderWrite, Scope,
@@ -109,13 +110,31 @@ struct RequestAuthContext {
     downstream_trace_id: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+struct UsageRequestContext {
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    model: Option<String>,
+    body_for_estimate: Option<Vec<u8>>,
+}
+
+impl UsageRequestContext {
+    const fn operation(&self) -> OperationFamily {
+        self.operation
+    }
+
+    const fn protocol(&self) -> ProtocolKind {
+        self.protocol
+    }
+}
+
 #[derive(Clone)]
 struct UpstreamStreamRecordContext {
     state: Arc<AppState>,
     channel: ChannelId,
     provider: ProviderDefinition,
     auth: RequestAuthContext,
-    request: TransformRequest,
+    request: UsageRequestContext,
     provider_id: Option<i64>,
     credential_id: Option<i64>,
     request_meta: Option<UpstreamRequestMeta>,

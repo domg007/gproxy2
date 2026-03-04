@@ -4,24 +4,47 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use gproxy_middleware::TransformRequest;
-use gproxy_protocol::gemini::count_tokens::request as gemini_count_tokens_request;
-use gproxy_protocol::gemini::embeddings::request as gemini_embeddings_request;
-use gproxy_protocol::gemini::generate_content::request as gemini_generate_content_request;
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformRequestPayload};
 use gproxy_protocol::gemini::model_get::request as gemini_model_get_request;
 use gproxy_protocol::gemini::model_list::request as gemini_model_list_request;
-use gproxy_protocol::gemini::stream_generate_content::request as gemini_stream_generate_content_request;
 use gproxy_provider::parse_query_value;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::AppState;
 
 use super::super::{
     HttpError, authorize_provider_access, bad_request, collect_unscoped_model_ids,
-    execute_transform_request, internal_error, normalize_gemini_model_path, parse_json_body,
-    parse_optional_query_value, resolve_provider, response_from_status_headers_and_bytes,
-    split_provider_prefixed_gemini_target, split_provider_prefixed_model_path,
+    execute_transform_request, execute_transform_request_payload, internal_error,
+    normalize_gemini_model_path, parse_optional_query_value, resolve_provider,
+    response_from_status_headers_and_bytes, split_provider_prefixed_gemini_target,
+    split_provider_prefixed_model_path,
 };
+
+fn encode_json_value(value: &Value, context: &str) -> Result<Bytes, HttpError> {
+    serde_json::to_vec(value)
+        .map(Bytes::from)
+        .map_err(|err| bad_request(format!("{context}: {err}")))
+}
+
+fn build_gemini_payload(
+    model: String,
+    body: Value,
+    alt: Option<&str>,
+    context: &str,
+) -> Result<Bytes, HttpError> {
+    let mut payload = json!({
+        "path": {
+            "model": model,
+        },
+        "body": body,
+    });
+    if let Some(alt) = alt
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("query".to_string(), json!({ "alt": alt }));
+    }
+    encode_json_value(&payload, context)
+}
 
 pub(in crate::routes::provider) async fn v1beta_model_list(
     State(state): State<Arc<AppState>>,
@@ -168,93 +191,103 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
 
     if let Some(model) = target.strip_suffix(":generateContent") {
         let normalized_model = normalize_gemini_model_path(model)?;
-        let request_body = parse_json_body::<gemini_generate_content_request::RequestBody>(
-            &body,
+        let body = serde_json::from_slice::<Value>(&body).map_err(|err| {
+            bad_request(format!(
+                "invalid gemini generateContent request body: {err}"
+            ))
+        })?;
+        let payload_body = build_gemini_payload(
+            normalized_model,
+            body,
+            None,
             "invalid gemini generateContent request body",
         )?;
-        let mut request = gemini_generate_content_request::GeminiGenerateContentRequest::default();
-        request.path.model = normalized_model;
-        request.body = request_body;
-        return execute_transform_request(
-            state,
-            channel,
-            provider,
-            auth,
-            TransformRequest::GenerateContentGemini(request),
-        )
-        .await
-        .map_err(HttpError::from);
+        let payload = TransformRequestPayload::from_bytes(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Gemini,
+            payload_body,
+        );
+        return execute_transform_request_payload(state, channel, provider, auth, payload)
+            .await
+            .map_err(HttpError::from);
     }
 
     if let Some(model) = target.strip_suffix(":streamGenerateContent") {
         let normalized_model = normalize_gemini_model_path(model)?;
-        let request_body = parse_json_body::<gemini_stream_generate_content_request::RequestBody>(
-            &body,
-            "invalid gemini streamGenerateContent request body",
-        )?;
-        let mut request =
-            gemini_stream_generate_content_request::GeminiStreamGenerateContentRequest::default();
-        request.path.model = normalized_model;
-        request.body = request_body;
+        let body = serde_json::from_slice::<Value>(&body).map_err(|err| {
+            bad_request(format!(
+                "invalid gemini streamGenerateContent request body: {err}"
+            ))
+        })?;
 
         let alt = parse_query_value(query.as_deref(), "alt");
-        let envelope = match alt.as_deref() {
-            Some("sse") | Some("SSE") => {
-                request.query.alt =
-                    Some(gemini_stream_generate_content_request::AltQueryParameter::Sse);
-                TransformRequest::StreamGenerateContentGeminiSse(request)
-            }
+        let (protocol, payload_alt) = match alt.as_deref() {
+            Some("sse") | Some("SSE") => (ProtocolKind::Gemini, Some("sse")),
             Some(other) => {
                 return Err(bad_request(format!(
                     "unsupported gemini stream `alt` query parameter: {other}"
                 )));
             }
-            None => TransformRequest::StreamGenerateContentGeminiNdjson(request),
+            None => (ProtocolKind::GeminiNDJson, None),
         };
 
-        return execute_transform_request(state, channel, provider, auth, envelope)
+        let payload_body = build_gemini_payload(
+            normalized_model,
+            body,
+            payload_alt,
+            "invalid gemini streamGenerateContent request body",
+        )?;
+        let payload = TransformRequestPayload::from_bytes(
+            OperationFamily::StreamGenerateContent,
+            protocol,
+            payload_body,
+        );
+
+        return execute_transform_request_payload(state, channel, provider, auth, payload)
             .await
             .map_err(HttpError::from);
     }
 
     if let Some(model) = target.strip_suffix(":countTokens") {
         let normalized_model = normalize_gemini_model_path(model)?;
-        let request_body = parse_json_body::<gemini_count_tokens_request::RequestBody>(
-            &body,
+        let body = serde_json::from_slice::<Value>(&body).map_err(|err| {
+            bad_request(format!("invalid gemini countTokens request body: {err}"))
+        })?;
+        let payload_body = build_gemini_payload(
+            normalized_model,
+            body,
+            None,
             "invalid gemini countTokens request body",
         )?;
-        let mut request = gemini_count_tokens_request::GeminiCountTokensRequest::default();
-        request.path.model = normalized_model;
-        request.body = request_body;
-        return execute_transform_request(
-            state,
-            channel,
-            provider,
-            auth,
-            TransformRequest::CountTokenGemini(request),
-        )
-        .await
-        .map_err(HttpError::from);
+        let payload = TransformRequestPayload::from_bytes(
+            OperationFamily::CountToken,
+            ProtocolKind::Gemini,
+            payload_body,
+        );
+        return execute_transform_request_payload(state, channel, provider, auth, payload)
+            .await
+            .map_err(HttpError::from);
     }
 
     if let Some(model) = target.strip_suffix(":embedContent") {
         let normalized_model = normalize_gemini_model_path(model)?;
-        let request_body = parse_json_body::<gemini_embeddings_request::RequestBody>(
-            &body,
+        let body = serde_json::from_slice::<Value>(&body).map_err(|err| {
+            bad_request(format!("invalid gemini embedContent request body: {err}"))
+        })?;
+        let payload_body = build_gemini_payload(
+            normalized_model,
+            body,
+            None,
             "invalid gemini embedContent request body",
         )?;
-        let mut request = gemini_embeddings_request::GeminiEmbedContentRequest::default();
-        request.path.model = normalized_model;
-        request.body = request_body;
-        return execute_transform_request(
-            state,
-            channel,
-            provider,
-            auth,
-            TransformRequest::EmbeddingGemini(request),
-        )
-        .await
-        .map_err(HttpError::from);
+        let payload = TransformRequestPayload::from_bytes(
+            OperationFamily::Embedding,
+            ProtocolKind::Gemini,
+            payload_body,
+        );
+        return execute_transform_request_payload(state, channel, provider, auth, payload)
+            .await
+            .map_err(HttpError::from);
     }
 
     Err(HttpError::new(

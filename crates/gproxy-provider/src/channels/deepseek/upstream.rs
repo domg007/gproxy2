@@ -1,4 +1,4 @@
-use gproxy_middleware::{TransformRequest, TransformResponse};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
 use serde_json::{Map, Value};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
@@ -16,7 +16,7 @@ use crate::channels::utils::{
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
-use crate::provider::{ProviderDefinition, TokenizerResolutionContext};
+use crate::provider::{ProviderDefinition, RetryWithPayloadRequest, TokenizerResolutionContext};
 
 const DEEPSEEK_UNSUPPORTED_CHAT_FIELDS: &[&str] = &[
     "audio",
@@ -89,6 +89,89 @@ pub async fn execute_deepseek_with_retry(
     }
 
     let prepared = DeepseekPreparedRequest::from_transform_request(request)?;
+    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared.body.as_deref(),
+                )
+            },
+        )
+    } else {
+        None
+    };
+    execute_deepseek_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        cache_affinity_hint,
+    )
+    .await
+}
+
+pub async fn execute_deepseek_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    payload: RetryWithPayloadRequest<'_>,
+) -> Result<UpstreamResponse, UpstreamError> {
+    if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
+    {
+        let body_json = serde_json::from_slice::<Value>(payload.body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let model = body_json
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let input_tokens = count_openai_input_tokens_with_resolution(
+            payload.token_resolution.tokenizer_store,
+            client,
+            payload.token_resolution.hf_token,
+            payload.token_resolution.hf_url,
+            model.as_deref(),
+            &body_json,
+        )
+        .await?;
+        let response_json = serde_json::json!({
+            "stats_code": 200,
+            "headers": {},
+            "body": {
+                "input_tokens": input_tokens,
+                "object": "response.input_tokens",
+            }
+        });
+        let response = serde_json::from_value(response_json)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        return Ok(UpstreamResponse::from_local(
+            TransformResponse::CountTokenOpenAi(response),
+        ));
+    }
+
+    let prepared =
+        DeepseekPreparedRequest::from_payload(payload.operation, payload.protocol, payload.body)?;
+    execute_deepseek_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        payload.now_unix_ms,
+        None,
+    )
+    .await
+}
+
+async fn execute_deepseek_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: DeepseekPreparedRequest,
+    now_unix_ms: u64,
+    cache_affinity_hint: Option<crate::channels::retry::CacheAffinityHint>,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -103,19 +186,6 @@ pub async fn execute_deepseek_with_retry(
     let request_headers_template = prepared.request_headers.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
-    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
-    } else {
-        None
-    };
     let pick_mode =
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
@@ -406,6 +476,128 @@ impl DeepseekPreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                })
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        }
+
+        fn parse_claude_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
+            const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
+
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            if let Some(body_value) = value.get("body").cloned() {
+                let version = value
+                    .pointer("/headers/anthropic_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or(DEFAULT_ANTHROPIC_VERSION)
+                    .to_string();
+                let beta = value
+                    .pointer("/headers/anthropic_beta")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|items| !items.is_empty());
+                return Ok((body_value, version, beta));
+            }
+            Ok((value, DEFAULT_ANTHROPIC_VERSION.to_string(), None))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::GET,
+                path: "/v1/models".to_string(),
+                body: None,
+                model: None,
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+            }),
+            (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+                let value = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let Some(model) = json_pointer_string(&value, "/path/model") else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in deepseek model_get payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path: format!("/v1/models/{model}"),
+                    body: None,
+                    model: Some(model),
+                    auth_scheme: AuthScheme::Bearer,
+                    request_headers: Vec::new(),
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                let mut body_json = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if let Some(map) = body_json.as_object_mut() {
+                    if let Some(max_tokens) = map.get("max_tokens").and_then(Value::as_u64) {
+                        map.insert("max_tokens".to_string(), Value::from(max_tokens.min(8192)));
+                    }
+                    if let Some(max_completion_tokens) =
+                        map.get("max_completion_tokens").and_then(Value::as_u64)
+                    {
+                        map.insert(
+                            "max_completion_tokens".to_string(),
+                            Value::from(max_completion_tokens.min(8192)),
+                        );
+                    }
+                }
+                normalize_deepseek_chat_request_body(&mut body_json);
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1/chat/completions".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: json_pointer_string(&body_json, "/model"),
+                    auth_scheme: AuthScheme::Bearer,
+                    request_headers: Vec::new(),
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Claude)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let model = json_pointer_string(&body_json, "/model");
+                if let Some(model_value) = model.clone()
+                    && let Some(map) = body_json.as_object_mut()
+                {
+                    map.insert("model".to_string(), Value::String(model_value));
+                }
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/anthropic/v1/messages".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model,
+                    auth_scheme: AuthScheme::XApiKey,
+                    request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

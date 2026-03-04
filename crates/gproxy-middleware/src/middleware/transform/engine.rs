@@ -93,6 +93,28 @@ use super::message::{
     TransformResponsePayload, TransformRoute,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformLane {
+    Raw,
+    Typed,
+}
+
+pub fn select_request_lane(route: TransformRoute) -> TransformLane {
+    if route.is_passthrough() {
+        TransformLane::Raw
+    } else {
+        TransformLane::Typed
+    }
+}
+
+pub fn select_response_lane(route: TransformRoute) -> TransformLane {
+    if route.is_passthrough() {
+        TransformLane::Raw
+    } else {
+        TransformLane::Typed
+    }
+}
+
 fn decode_json<T: DeserializeOwned>(
     kind: &'static str,
     operation: OperationFamily,
@@ -135,7 +157,7 @@ fn bytes_to_body_stream(bytes: Vec<u8>) -> TransformBodyStream {
     Box::pin(stream::once(async move { Ok(Bytes::from(bytes)) }))
 }
 
-pub(crate) fn decode_request_payload(
+pub fn decode_request_payload(
     operation: OperationFamily,
     protocol: ProtocolKind,
     body: &[u8],
@@ -1645,7 +1667,7 @@ pub async fn transform_request_payload(
         });
     }
 
-    if route.is_passthrough() {
+    if select_request_lane(route) == TransformLane::Raw {
         return Ok(input);
     }
 
@@ -1677,7 +1699,7 @@ pub async fn transform_response_payload(
         });
     }
 
-    if route.is_passthrough() {
+    if select_response_lane(route) == TransformLane::Raw {
         return Ok(input);
     }
 

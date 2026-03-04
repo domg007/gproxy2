@@ -12,6 +12,7 @@ pub use oauth::{
 };
 pub use settings::GeminiCliSettings;
 pub use upstream::{
-    execute_geminicli_upstream_usage_with_retry, execute_geminicli_with_retry,
-    normalize_geminicli_upstream_response_body, normalize_geminicli_upstream_stream_ndjson_chunk,
+    execute_geminicli_payload_with_retry, execute_geminicli_upstream_usage_with_retry,
+    execute_geminicli_with_retry, normalize_geminicli_upstream_response_body,
+    normalize_geminicli_upstream_stream_ndjson_chunk,
 };

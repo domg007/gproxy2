@@ -13,7 +13,7 @@ pub use oauth::{
 };
 pub use settings::AntigravitySettings;
 pub use upstream::{
-    execute_antigravity_upstream_usage_with_retry, execute_antigravity_with_retry,
-    normalize_antigravity_upstream_response_body,
+    execute_antigravity_payload_with_retry, execute_antigravity_upstream_usage_with_retry,
+    execute_antigravity_with_retry, normalize_antigravity_upstream_response_body,
     normalize_antigravity_upstream_stream_ndjson_chunk,
 };

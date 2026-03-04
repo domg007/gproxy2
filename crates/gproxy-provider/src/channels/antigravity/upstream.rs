@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gproxy_middleware::{TransformRequest, TransformResponse};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
 use serde_json::{Map, Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod, Response as WreqResponse};
 
@@ -25,6 +25,8 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
+
+type ParsedGeminiPayload = (Option<String>, Option<Value>, Option<String>);
 
 fn is_antigravity_auth_failure(status_code: u16) -> bool {
     status_code == 401
@@ -67,6 +69,83 @@ pub async fn execute_antigravity_with_retry(
     }
 
     let prepared = AntigravityPreparedRequest::from_transform_request(request)?;
+    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared
+                        .body
+                        .as_ref()
+                        .and_then(|value| serde_json::to_vec(value).ok())
+                        .as_deref(),
+                )
+            },
+        )
+    } else {
+        None
+    };
+    execute_antigravity_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        cache_affinity_hint,
+    )
+    .await
+}
+
+pub async fn execute_antigravity_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    if (operation, protocol) == (OperationFamily::CountToken, ProtocolKind::Gemini) {
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let payload = payload_value.get("body").cloned().unwrap_or(payload_value);
+        let text = collect_count_text(&payload);
+        let total_tokens = (text.chars().count() as u64).div_ceil(4);
+        let response_json = json!({
+            "stats_code": 200,
+            "headers": {},
+            "body": {
+                "totalTokens": total_tokens,
+            }
+        });
+        let response = serde_json::from_value(response_json)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        return Ok(UpstreamResponse::from_local(
+            TransformResponse::CountTokenGemini(response),
+        ));
+    }
+
+    let prepared = AntigravityPreparedRequest::from_payload(operation, protocol, body)?;
+    execute_antigravity_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        None,
+    )
+    .await
+}
+
+async fn execute_antigravity_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: AntigravityPreparedRequest,
+    now_unix_ms: u64,
+    cache_affinity_hint: Option<crate::channels::retry::CacheAffinityHint>,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -82,23 +161,6 @@ pub async fn execute_antigravity_with_retry(
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), ANTIGRAVITY_USER_AGENT);
-    let affinity_body_template = prepared
-        .body
-        .as_ref()
-        .and_then(|body| serde_json::to_vec(body).ok());
-    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    affinity_body_template.as_deref(),
-                )
-            },
-        )
-    } else {
-        None
-    };
     let pick_mode =
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
@@ -866,6 +928,155 @@ impl AntigravityPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(normalize_model_id(value.path.model.as_str())),
+                    kind: AntigravityRequestKind::Forward {
+                        requires_project: false,
+                        request_type: None,
+                    },
+                })
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn parse_gemini_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<ParsedGeminiPayload, UpstreamError> {
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            let model = value
+                .pointer("/path/model")
+                .or_else(|| value.pointer("/path/name"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            let body_value = value.get("body").cloned();
+            let alt = value
+                .pointer("/query/alt")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            Ok((model, body_value, alt))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::Gemini) => {
+                let payload = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let page_size = payload
+                    .pointer("/query/page_size")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as u32);
+                let page_token = payload
+                    .pointer("/query/page_token")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned);
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1internal:fetchAvailableModels".to_string(),
+                    query: gemini_model_list_query_string(page_size, page_token.as_deref()),
+                    body: Some(json!({})),
+                    model: None,
+                    kind: AntigravityRequestKind::ModelList {
+                        page_size,
+                        page_token,
+                    },
+                })
+            }
+            (OperationFamily::ModelGet, ProtocolKind::Gemini) => {
+                let payload = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let Some(target) = payload
+                    .pointer("/path/name")
+                    .or_else(|| payload.pointer("/path/model"))
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+                else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.name in antigravity model_get payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1internal:fetchAvailableModels".to_string(),
+                    query: None,
+                    body: Some(json!({})),
+                    model: Some(normalize_model_id(target.as_str())),
+                    kind: AntigravityRequestKind::ModelGet {
+                        target: normalize_model_name(target.as_str()),
+                    },
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let Some(model) = model else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in antigravity generate payload".to_string(),
+                    ));
+                };
+                let Some(body_value) = body_value else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing body in antigravity generate payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1internal:generateContent".to_string(),
+                    query: None,
+                    body: Some(body_value),
+                    model: Some(normalize_model_id(model.as_str())),
+                    kind: AntigravityRequestKind::Forward {
+                        requires_project: true,
+                        request_type: None,
+                    },
+                })
+            }
+            (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let Some(model) = model else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in antigravity stream payload".to_string(),
+                    ));
+                };
+                let Some(body_value) = body_value else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing body in antigravity stream payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1internal:streamGenerateContent".to_string(),
+                    query: Some(format!("alt={}", alt.unwrap_or_else(|| "sse".to_string()))),
+                    body: Some(body_value),
+                    model: Some(normalize_model_id(model.as_str())),
+                    kind: AntigravityRequestKind::Forward {
+                        requires_project: true,
+                        request_type: None,
+                    },
+                })
+            }
+            (OperationFamily::Embedding, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let Some(model) = model else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in antigravity embedding payload".to_string(),
+                    ));
+                };
+                let Some(body_value) = body_value else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing body in antigravity embedding payload".to_string(),
+                    ));
+                };
+                let model_name = normalize_model_name(model.as_str());
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: format!("/v1beta/{model_name}:embedContent"),
+                    query: None,
+                    body: Some(body_value),
+                    model: Some(normalize_model_id(model.as_str())),
                     kind: AntigravityRequestKind::Forward {
                         requires_project: false,
                         request_type: None,

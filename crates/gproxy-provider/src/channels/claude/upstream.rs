@@ -1,12 +1,13 @@
+use serde_json::Value;
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::cache_control::{
     CacheBreakpointRule, apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
-    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
-    configured_pick_mode_uses_cache, credential_pick_mode,
-    retry_with_eligible_credentials_with_affinity,
+    CacheAffinityProtocol, CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
+    credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
@@ -19,6 +20,7 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
+use gproxy_middleware::{OperationFamily, ProtocolKind};
 
 const ANTHROPIC_DEFAULT_VERSION: &str = "2023-06-01";
 const BETA_QUERY_KEY: &str = "beta";
@@ -31,10 +33,57 @@ pub async fn execute_claude_with_retry(
     request: &gproxy_middleware::TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
+    let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = ClaudePreparedRequest::from_transform_request(
         request,
         provider.settings.cache_breakpoints(),
     )?;
+    execute_claude_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+pub async fn execute_claude_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let prepared = ClaudePreparedRequest::from_payload(
+        operation,
+        protocol,
+        body,
+        provider.settings.cache_breakpoints(),
+    )?;
+    let cache_protocol = cache_affinity_protocol_from_operation_protocol(operation, protocol);
+    execute_claude_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+async fn execute_claude_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: ClaudePreparedRequest,
+    cache_protocol: Option<CacheAffinityProtocol>,
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -50,15 +99,13 @@ pub async fn execute_claude_with_retry(
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
+        cache_protocol.and_then(|protocol| {
+            cache_affinity_hint_from_transform_request(
+                protocol,
+                prepared.model.as_deref(),
+                prepared.body.as_deref(),
+            )
+        })
     } else {
         None
     };
@@ -207,6 +254,19 @@ pub async fn execute_claude_with_retry(
         },
     )
     .await
+}
+
+fn cache_affinity_protocol_from_operation_protocol(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> Option<CacheAffinityProtocol> {
+    match (operation, protocol) {
+        (OperationFamily::GenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+            Some(CacheAffinityProtocol::ClaudeMessages)
+        }
+        _ => None,
+    }
 }
 
 struct ClaudePreparedRequest {
@@ -390,6 +450,110 @@ impl ClaudePreparedRequest {
                     Option::<&Vec<String>>::None,
                 )?,
             }),
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+        cache_breakpoints: &[CacheBreakpointRule],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        }
+
+        fn parse_claude_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            if let Some(body_value) = value.get("body").cloned() {
+                let version = value
+                    .pointer("/headers/anthropic_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or(ANTHROPIC_DEFAULT_VERSION)
+                    .to_string();
+                let beta = value
+                    .pointer("/headers/anthropic_beta")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|items| !items.is_empty());
+                return Ok((body_value, version, beta));
+            }
+            Ok((value, ANTHROPIC_DEFAULT_VERSION.to_string(), None))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::CountToken, ProtocolKind::Claude) => {
+                let (body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: append_query_param_if_missing(
+                        "/v1/messages/count_tokens",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    model: json_pointer_string(&body_json, "/model"),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Claude)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                apply_magic_string_cache_control_triggers(&mut body_json);
+                if !cache_breakpoints.is_empty() {
+                    ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
+                }
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: append_query_param_if_missing(
+                        "/v1/messages",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    model: json_pointer_string(&body_json, "/model"),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                let model = serde_json::from_slice::<Value>(body)
+                    .ok()
+                    .and_then(|value| json_pointer_string(&value, "/model"));
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: append_query_param_if_missing(
+                        "/v1/chat/completions",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    body: Some(body.to_vec()),
+                    model,
+                    request_headers: anthropic_header_pairs(
+                        &ANTHROPIC_DEFAULT_VERSION,
+                        Option::<&Vec<String>>::None,
+                    )?,
+                })
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
