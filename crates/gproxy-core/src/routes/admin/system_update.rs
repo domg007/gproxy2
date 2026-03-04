@@ -8,6 +8,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::AppState;
 use crate::normalize_update_source;
@@ -51,12 +52,18 @@ struct ChinaReleaseManifest {
 struct ChinaReleaseAsset {
     name: String,
     url: String,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    sha256_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct ResolvedReleaseAsset {
     name: String,
     download_url: String,
+    expected_sha256: Option<String>,
+    sha256_url: Option<String>,
 }
 
 struct SelfUpdateResult {
@@ -157,6 +164,8 @@ async fn self_update_to_latest_release(
             fetch_release_asset(&client, &target_asset, update_source, update_channel).await?;
 
         let zip_bytes = download_bytes_with_redirects(&client, &asset.download_url, 8).await?;
+        let expected_sha256 = resolve_release_asset_sha256(&client, &asset).await?;
+        verify_downloaded_asset_sha256(&zip_bytes, &asset.name, expected_sha256.as_str())?;
         let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
         let staged_binary_path = stage_windows_binary_bytes(binary_bytes)?;
 
@@ -180,6 +189,8 @@ async fn self_update_to_latest_release(
             fetch_release_asset(&client, &target_asset, update_source, update_channel).await?;
 
         let zip_bytes = download_bytes_with_redirects(&client, &asset.download_url, 8).await?;
+        let expected_sha256 = resolve_release_asset_sha256(&client, &asset).await?;
+        verify_downloaded_asset_sha256(&zip_bytes, &asset.name, expected_sha256.as_str())?;
         let binary_bytes = extract_binary_from_zip(&zip_bytes)?;
         install_binary_bytes(binary_bytes)?;
 
@@ -328,12 +339,31 @@ async fn fetch_github_release_asset(
                 .join(", ");
             format!("asset_not_found_for_target:{target_asset}; available=[{names}]")
         })?;
+    let checksum_asset_name = format!("{target_asset}.sha256");
+    let checksum_asset = release
+        .assets
+        .iter()
+        .find(|item| item.name == checksum_asset_name)
+        .cloned()
+        .ok_or_else(|| {
+            let names = release
+                .assets
+                .iter()
+                .map(|item| item.name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "checksum_asset_not_found_for_target:{checksum_asset_name}; available=[{names}]"
+            )
+        })?;
 
     Ok((
         release.tag_name,
         ResolvedReleaseAsset {
             name: asset.name,
             download_url: asset.browser_download_url,
+            expected_sha256: None,
+            sha256_url: Some(checksum_asset.browser_download_url),
         },
     ))
 }
@@ -391,13 +421,132 @@ async fn fetch_china_release_asset(
             format!("china_asset_not_found_for_target:{target_asset}; available=[{names}]")
         })?;
 
-    Ok((
-        manifest.tag,
+    Ok((manifest.tag, {
+        let download_url = resolve_china_asset_url(&manifest_url, asset.url.as_str());
+        let expected_sha256 = if let Some(raw) = asset.sha256.as_deref() {
+            Some(normalize_sha256_hex(raw).ok_or_else(|| {
+                format!("china_manifest_invalid_sha256:asset={target_asset}:value={raw}")
+            })?)
+        } else {
+            None
+        };
+        let sha256_url = asset
+            .sha256_url
+            .as_deref()
+            .map(|value| resolve_china_asset_url(&manifest_url, value))
+            .or_else(|| {
+                if expected_sha256.is_some() {
+                    None
+                } else {
+                    Some(format!("{download_url}.sha256"))
+                }
+            });
         ResolvedReleaseAsset {
             name: asset.name,
-            download_url: resolve_china_asset_url(&manifest_url, asset.url.as_str()),
-        },
-    ))
+            download_url,
+            expected_sha256,
+            sha256_url,
+        }
+    }))
+}
+
+async fn resolve_release_asset_sha256(
+    client: &wreq::Client,
+    asset: &ResolvedReleaseAsset,
+) -> Result<String, String> {
+    if let Some(sha256) = asset.expected_sha256.as_deref() {
+        return Ok(sha256.to_string());
+    }
+
+    let checksum_url = asset
+        .sha256_url
+        .as_deref()
+        .ok_or_else(|| format!("sha256_source_missing:asset={}", asset.name))?;
+    let checksum_bytes = download_bytes_with_redirects(client, checksum_url, 8).await?;
+    let checksum_text = String::from_utf8(checksum_bytes)
+        .map_err(|err| format!("sha256_file_not_utf8:url={checksum_url}:{err}"))?;
+    parse_sha256_from_checksum_text(checksum_text.as_str(), asset.name.as_str())
+        .map_err(|err| format!("parse_sha256_from_file:url={checksum_url}:{err}"))
+}
+
+fn normalize_sha256_hex(raw: &str) -> Option<String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized.len() != 64 || !normalized.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(normalized)
+}
+
+fn parse_sha256_from_checksum_text(
+    checksum_text: &str,
+    target_asset: &str,
+) -> Result<String, String> {
+    let mut single_hash: Option<String> = None;
+    let mut single_hash_count = 0_u32;
+
+    for line in checksum_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let Some(first) = parts.next() else {
+            continue;
+        };
+        let Some(hash) = normalize_sha256_hex(first) else {
+            continue;
+        };
+
+        let second = parts.next();
+        if second.is_none() {
+            single_hash_count = single_hash_count.saturating_add(1);
+            single_hash = Some(hash.clone());
+            continue;
+        }
+
+        let filename = second
+            .map(|value| value.trim_start_matches('*').trim_matches('"'))
+            .filter(|value| !value.is_empty());
+        if let Some(filename) = filename
+            && (filename == target_asset
+                || filename.ends_with(&format!("/{target_asset}"))
+                || filename.ends_with(&format!("\\{target_asset}")))
+        {
+            return Ok(hash);
+        }
+    }
+
+    if single_hash_count == 1
+        && let Some(hash) = single_hash
+    {
+        return Ok(hash);
+    }
+
+    Err(format!("sha256_not_found_for_target:{target_asset}"))
+}
+
+fn verify_downloaded_asset_sha256(
+    bytes: &[u8],
+    asset_name: &str,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    let expected = normalize_sha256_hex(expected_sha256).ok_or_else(|| {
+        format!("invalid_expected_sha256:asset={asset_name}:value={expected_sha256}")
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let actual = digest
+        .iter()
+        .map(|value| format!("{value:02x}"))
+        .collect::<String>();
+    if actual != expected {
+        return Err(format!(
+            "sha256_mismatch:asset={asset_name}:expected={expected}:actual={actual}"
+        ));
+    }
+    Ok(())
 }
 
 fn build_update_channel() -> String {
@@ -830,7 +979,9 @@ fn restart_current_process(exe: PathBuf, args: Vec<std::ffi::OsString>) {
 
 #[cfg(test)]
 mod tests {
-    use super::maybe_fix_deleted_exe_path;
+    use super::{
+        maybe_fix_deleted_exe_path, parse_sha256_from_checksum_text, verify_downloaded_asset_sha256,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -855,6 +1006,32 @@ mod tests {
     fn maybe_fix_deleted_exe_path_keeps_original_for_non_deleted_name() {
         let regular = unique_temp_path("gproxy-test-bin-regular");
         assert_eq!(maybe_fix_deleted_exe_path(regular.clone()), regular);
+    }
+
+    #[test]
+    fn parse_sha256_from_file_supports_sha256sum_format() {
+        let hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let text = format!("{hash}  gproxy-linux-x86_64.zip\n");
+        let parsed = parse_sha256_from_checksum_text(&text, "gproxy-linux-x86_64.zip")
+            .expect("hash should be parsed");
+        assert_eq!(parsed, hash);
+    }
+
+    #[test]
+    fn parse_sha256_from_file_supports_single_hash_format() {
+        let hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        let text = format!("{hash}\n");
+        let parsed = parse_sha256_from_checksum_text(&text, "gproxy-linux-x86_64.zip")
+            .expect("hash should be parsed");
+        assert_eq!(parsed, hash);
+    }
+
+    #[test]
+    fn verify_downloaded_asset_sha256_rejects_mismatch() {
+        let wrong = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let err =
+            verify_downloaded_asset_sha256(b"hello", "gproxy-linux-x86_64.zip", wrong).unwrap_err();
+        assert!(err.contains("sha256_mismatch"));
     }
 
     fn unique_temp_path(prefix: &str) -> PathBuf {
