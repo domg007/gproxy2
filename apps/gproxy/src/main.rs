@@ -42,6 +42,36 @@ fn parse_author_and_email(authors: &str) -> (String, String) {
     (first.to_string(), "unknown".to_string())
 }
 
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::warn!("failed to listen for Ctrl+C signal: {err}");
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                let _ = stream.recv().await;
+            }
+            Err(err) => {
+                tracing::warn!("failed to listen for SIGTERM: {err}");
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+
+    tracing::info!("shutdown signal received, starting graceful shutdown");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -93,7 +123,9 @@ async fn main() -> Result<()> {
         ))
         .layer(DefaultBodyLimit::max(MAX_AXUM_BODY_BYTES));
     let listener = TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
 }
