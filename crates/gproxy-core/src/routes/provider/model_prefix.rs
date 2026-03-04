@@ -11,26 +11,6 @@ pub(super) fn parse_json_body<T: DeserializeOwned>(
     serde_json::from_slice(body).map_err(|err| bad_request(format!("{context}: {err}")))
 }
 
-pub(super) fn serialize_json_scalar<T: serde::Serialize>(
-    value: &T,
-    context: &str,
-) -> Result<String, HttpError> {
-    let value = serde_json::to_value(value)
-        .map_err(|err| bad_request(format!("invalid {context}: {err}")))?;
-    value
-        .as_str()
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| bad_request(format!("{context} must be a string")))
-}
-
-pub(super) fn deserialize_json_scalar<T: DeserializeOwned>(
-    value: &str,
-    context: &str,
-) -> Result<T, HttpError> {
-    serde_json::from_value(serde_json::Value::String(value.to_string()))
-        .map_err(|err| bad_request(format!("invalid {context}: {err}")))
-}
-
 pub(super) fn split_provider_prefixed_plain_model(
     raw: &str,
 ) -> Result<(String, String), HttpError> {

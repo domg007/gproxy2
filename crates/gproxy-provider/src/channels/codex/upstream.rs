@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gproxy_middleware::{TransformRequest, TransformResponse};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
 use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
@@ -26,7 +26,7 @@ use crate::channels::utils::{
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
-use crate::provider::{ProviderDefinition, TokenizerResolutionContext};
+use crate::provider::{ProviderDefinition, RetryWithPayloadRequest, TokenizerResolutionContext};
 
 #[derive(Debug, Clone)]
 enum CodexRequestKind {
@@ -59,6 +59,89 @@ pub async fn execute_codex_with_retry(
     }
 
     let prepared = CodexPreparedRequest::from_transform_request(request)?;
+    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
+            |protocol| {
+                cache_affinity_hint_from_transform_request(
+                    protocol,
+                    prepared.model.as_deref(),
+                    prepared.body.as_deref(),
+                )
+            },
+        )
+    } else {
+        None
+    };
+    execute_codex_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        now_unix_ms,
+        cache_affinity_hint,
+    )
+    .await
+}
+
+pub async fn execute_codex_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    payload: RetryWithPayloadRequest<'_>,
+) -> Result<UpstreamResponse, UpstreamError> {
+    if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
+    {
+        let body_json = serde_json::from_slice::<Value>(payload.body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let model = body_json
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        let input_tokens = count_openai_input_tokens_with_resolution(
+            payload.token_resolution.tokenizer_store,
+            client,
+            payload.token_resolution.hf_token,
+            payload.token_resolution.hf_url,
+            model.as_deref(),
+            &body_json,
+        )
+        .await?;
+        let response_json = json!({
+            "stats_code": 200,
+            "headers": {},
+            "body": {
+                "input_tokens": input_tokens,
+                "object": "response.input_tokens",
+            }
+        });
+        let response = serde_json::from_value(response_json)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        return Ok(UpstreamResponse::from_local(
+            TransformResponse::CountTokenOpenAi(response),
+        ));
+    }
+
+    let prepared =
+        CodexPreparedRequest::from_payload(payload.operation, payload.protocol, payload.body)?;
+    execute_codex_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        payload.now_unix_ms,
+        None,
+    )
+    .await
+}
+
+async fn execute_codex_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: CodexPreparedRequest,
+    now_unix_ms: u64,
+    cache_affinity_hint: Option<crate::channels::retry::CacheAffinityHint>,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -73,19 +156,6 @@ pub async fn execute_codex_with_retry(
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), USER_AGENT_VALUE);
-    let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
-    } else {
-        None
-    };
     let pick_mode =
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
@@ -793,6 +863,91 @@ impl CodexPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(normalize_model_id(value.body.model.as_str())),
+                    kind: CodexRequestKind::Forward,
+                })
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(body: &[u8], pointer: &str) -> Option<String> {
+            serde_json::from_slice::<Value>(body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer(pointer)
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                })
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::GET,
+                path: codex_models_path(),
+                body: None,
+                model: None,
+                kind: CodexRequestKind::ModelList,
+            }),
+            (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+                let Some(target_raw) = json_pointer_string(body, "/path/model") else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in codex model_get payload".to_string(),
+                    ));
+                };
+                let target = normalize_model_id(target_raw.as_str());
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path: codex_models_path(),
+                    body: None,
+                    model: Some(target.clone()),
+                    kind: CodexRequestKind::ModelGet { target },
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
+                let mut body_json = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                normalize_codex_response_request_body(
+                    &mut body_json,
+                    operation == OperationFamily::StreamGenerateContent,
+                );
+                let model = body_json
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(normalize_model_id);
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/responses".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model,
+                    kind: CodexRequestKind::Forward,
+                })
+            }
+            (OperationFamily::Compact, ProtocolKind::OpenAi) => {
+                let mut body_json = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                normalize_codex_compact_request_body(&mut body_json);
+                let model = body_json
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(normalize_model_id);
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/responses/compact".to_string(),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model,
                     kind: CodexRequestKind::Forward,
                 })
             }

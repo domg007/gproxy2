@@ -11,18 +11,13 @@ use gproxy_protocol::claude::create_message::stream::ClaudeCreateMessageStreamEv
 use gproxy_protocol::claude::create_message::types::Model as ClaudeModel;
 use gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk;
 use gproxy_protocol::openai::create_response::stream::ResponseStreamEvent;
-use gproxy_protocol::openai::embeddings::types::OpenAiEmbeddingModel;
 use tower::{Layer, Service};
 
-use crate::middleware::transform::engine::{
-    decode_request_payload, decode_response_payload, encode_request_payload,
-    encode_response_payload,
-};
+use crate::middleware::transform::engine::{decode_response_payload, encode_response_payload};
 use crate::middleware::transform::error::MiddlewareTransformError;
 use crate::middleware::transform::kinds::{OperationFamily, ProtocolKind};
 use crate::middleware::transform::message::{
-    TransformBodyStream, TransformRequest, TransformRequestPayload, TransformResponse,
-    TransformResponsePayload,
+    TransformBodyStream, TransformRequestPayload, TransformResponse, TransformResponsePayload,
 };
 
 pub struct ProviderScopedRequest {
@@ -41,10 +36,8 @@ pub async fn extract_provider_from_request_payload(
     }
 
     let body = collect_body_bytes(input.body).await?;
-    let mut request = decode_request_payload(input.operation, input.protocol, body.as_slice())?;
-    let provider =
-        strip_provider_prefix_from_request(&mut request, input.operation, input.protocol)?;
-    let body = encode_request_payload(request)?;
+    let (provider, body) =
+        strip_provider_prefix_from_request_json(input.operation, input.protocol, body.as_slice())?;
 
     Ok(ProviderScopedRequest {
         request: TransformRequestPayload::from_bytes(
@@ -329,145 +322,220 @@ fn add_provider_prefix(value: &str, provider: &str) -> String {
     }
 }
 
-fn strip_provider_prefix_from_request(
-    request: &mut TransformRequest,
+fn strip_provider_prefix_from_request_json(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> Result<(String, Vec<u8>), MiddlewareTransformError> {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|err| MiddlewareTransformError::JsonDecode {
+            kind: "request",
+            operation,
+            protocol,
+            message: err.to_string(),
+        })?;
+    let provider = strip_provider_prefix_from_request_value(&mut value, operation, protocol)?;
+    let encoded =
+        serde_json::to_vec(&value).map_err(|err| MiddlewareTransformError::JsonEncode {
+            kind: "request",
+            operation,
+            protocol,
+            message: err.to_string(),
+        })?;
+    Ok((provider, encoded))
+}
+
+fn strip_provider_prefix_from_request_value(
+    request: &mut serde_json::Value,
     operation: OperationFamily,
     protocol: ProtocolKind,
 ) -> Result<String, MiddlewareTransformError> {
     let mut capture = ProviderCapture::new();
 
-    match request {
-        TransformRequest::ModelListOpenAi(_)
-        | TransformRequest::ModelListClaude(_)
-        | TransformRequest::ModelListGemini(_) => {}
-        TransformRequest::ModelGetOpenAi(value) => {
-            value.path.model =
-                capture.strip(operation, protocol, "path.model", &value.path.model)?;
+    match (operation, protocol) {
+        (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "path.model",
+                "/path/model",
+                None,
+            )?;
         }
-        TransformRequest::ModelGetClaude(value) => {
-            value.path.model_id =
-                capture.strip(operation, protocol, "path.model_id", &value.path.model_id)?;
+        (OperationFamily::ModelGet, ProtocolKind::Claude) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "path.model_id",
+                "/path/model_id",
+                None,
+            )?;
         }
-        TransformRequest::ModelGetGemini(value) => {
-            value.path.name = capture.strip(operation, protocol, "path.name", &value.path.name)?;
+        (OperationFamily::ModelGet, ProtocolKind::Gemini)
+        | (OperationFamily::ModelGet, ProtocolKind::GeminiNDJson) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "path.name",
+                "/path/name",
+                None,
+            )?;
         }
-        TransformRequest::CountTokenOpenAi(value) => {
-            let Some(model) = value.body.model.as_ref() else {
-                return Err(MiddlewareTransformError::ProviderPrefix {
-                    message: "missing body.model for OpenAI count-tokens".to_string(),
-                });
-            };
-            value.body.model = Some(capture.strip(operation, protocol, "body.model", model)?);
-        }
-        TransformRequest::CountTokenClaude(value) => {
-            strip_provider_from_claude_model(
-                &mut value.body.model,
+        (OperationFamily::CountToken, ProtocolKind::OpenAi) => {
+            strip_required_string_field(
+                request,
                 &mut capture,
                 operation,
                 protocol,
                 "body.model",
+                "/body/model",
+                Some("missing body.model for OpenAI count-tokens"),
             )?;
         }
-        TransformRequest::CountTokenGemini(value) => {
-            value.path.model =
-                capture.strip(operation, protocol, "path.model", &value.path.model)?;
-            if let Some(generate_request) = value.body.generate_content_request.as_mut() {
-                generate_request.model = capture.strip(
-                    operation,
-                    protocol,
-                    "body.generate_content_request.model",
-                    &generate_request.model,
-                )?;
-            }
-        }
-        TransformRequest::GenerateContentOpenAiResponse(value)
-        | TransformRequest::StreamGenerateContentOpenAiResponse(value) => {
-            let Some(model) = value.body.model.as_ref() else {
-                return Err(MiddlewareTransformError::ProviderPrefix {
-                    message: "missing body.model for OpenAI responses".to_string(),
-                });
-            };
-            value.body.model = Some(capture.strip(operation, protocol, "body.model", model)?);
-        }
-        TransformRequest::GenerateContentOpenAiChatCompletions(value)
-        | TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
-            value.body.model =
-                capture.strip(operation, protocol, "body.model", &value.body.model)?;
-        }
-        TransformRequest::GenerateContentClaude(value)
-        | TransformRequest::StreamGenerateContentClaude(value) => {
-            strip_provider_from_claude_model(
-                &mut value.body.model,
+        (OperationFamily::CountToken, ProtocolKind::Claude) => {
+            strip_required_string_field(
+                request,
                 &mut capture,
                 operation,
                 protocol,
                 "body.model",
+                "/body/model",
+                None,
             )?;
         }
-        TransformRequest::GenerateContentGemini(value) => {
-            value.path.model =
-                capture.strip(operation, protocol, "path.model", &value.path.model)?;
+        (OperationFamily::CountToken, ProtocolKind::Gemini)
+        | (OperationFamily::CountToken, ProtocolKind::GeminiNDJson) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "path.model",
+                "/path/model",
+                None,
+            )?;
+            strip_optional_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "body.generate_content_request.model",
+                "/body/generate_content_request/model",
+            )?;
         }
-        TransformRequest::StreamGenerateContentGeminiSse(value)
-        | TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
-            value.path.model =
-                capture.strip(operation, protocol, "path.model", &value.path.model)?;
-        }
-        TransformRequest::EmbeddingOpenAi(value) => {
-            strip_provider_from_openai_embedding_model(
-                &mut value.body.model,
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
+            strip_required_string_field(
+                request,
                 &mut capture,
                 operation,
                 protocol,
                 "body.model",
+                "/body/model",
+                Some("missing body.model for OpenAI responses"),
             )?;
         }
-        TransformRequest::EmbeddingGemini(value) => {
-            value.path.model =
-                capture.strip(operation, protocol, "path.model", &value.path.model)?;
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::GenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "body.model",
+                "/body/model",
+                None,
+            )?;
         }
-        TransformRequest::CompactOpenAi(value) => {
-            value.body.model =
-                capture.strip(operation, protocol, "body.model", &value.body.model)?;
+        (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::GenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::Embedding, ProtocolKind::Gemini)
+        | (OperationFamily::Embedding, ProtocolKind::GeminiNDJson) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "path.model",
+                "/path/model",
+                None,
+            )?;
+        }
+        (OperationFamily::Embedding, ProtocolKind::OpenAi)
+        | (OperationFamily::Compact, ProtocolKind::OpenAi) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "body.model",
+                "/body/model",
+                None,
+            )?;
+        }
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "provider prefix stripping is not implemented for this operation/protocol",
+            ));
         }
     }
 
     capture.finish(operation, protocol)
 }
 
-fn strip_provider_from_claude_model(
-    model: &mut ClaudeModel,
+fn strip_required_string_field(
+    value: &mut serde_json::Value,
     capture: &mut ProviderCapture,
     operation: OperationFamily,
     protocol: ProtocolKind,
     field: &'static str,
+    pointer: &'static str,
+    missing_message: Option<&'static str>,
 ) -> Result<(), MiddlewareTransformError> {
-    let ClaudeModel::Custom(value) = model else {
+    let Some(slot) = value.pointer_mut(pointer) else {
+        let message = missing_message
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("missing {field} for ({operation:?}, {protocol:?})"));
+        return Err(MiddlewareTransformError::ProviderPrefix { message });
+    };
+    let Some(raw) = slot.as_str() else {
         return Err(MiddlewareTransformError::ProviderPrefix {
-            message: format!(
-                "missing provider prefix in {field} for ({operation:?}, {protocol:?}): Claude known model has no provider segment",
-            ),
+            message: format!("invalid {field} for ({operation:?}, {protocol:?}): expected string",),
         });
     };
-    *value = capture.strip(operation, protocol, field, value)?;
+    let stripped = capture.strip(operation, protocol, field, raw)?;
+    *slot = serde_json::Value::String(stripped);
     Ok(())
 }
 
-fn strip_provider_from_openai_embedding_model(
-    model: &mut OpenAiEmbeddingModel,
+fn strip_optional_string_field(
+    value: &mut serde_json::Value,
     capture: &mut ProviderCapture,
     operation: OperationFamily,
     protocol: ProtocolKind,
     field: &'static str,
+    pointer: &'static str,
 ) -> Result<(), MiddlewareTransformError> {
-    let OpenAiEmbeddingModel::Custom(value) = model else {
+    let Some(slot) = value.pointer_mut(pointer) else {
+        return Ok(());
+    };
+    let Some(raw) = slot.as_str() else {
         return Err(MiddlewareTransformError::ProviderPrefix {
-            message: format!(
-                "missing provider prefix in {field} for ({operation:?}, {protocol:?}): known embedding model has no provider segment",
-            ),
+            message: format!("invalid {field} for ({operation:?}, {protocol:?}): expected string",),
         });
     };
-    *value = capture.strip(operation, protocol, field, value)?;
+    let stripped = capture.strip(operation, protocol, field, raw)?;
+    *slot = serde_json::Value::String(stripped);
     Ok(())
 }
 

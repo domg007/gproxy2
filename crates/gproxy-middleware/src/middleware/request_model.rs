@@ -6,16 +6,12 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures_util::StreamExt;
-use gproxy_protocol::claude::create_message::types::Model as ClaudeModel;
-use gproxy_protocol::openai::embeddings::types::OpenAiEmbeddingModel;
+use serde_json::Value;
 use tower::{Layer, Service};
 
-use crate::middleware::transform::engine::decode_request_payload;
 use crate::middleware::transform::error::MiddlewareTransformError;
-use crate::middleware::transform::kinds::OperationFamily;
-use crate::middleware::transform::message::{
-    TransformBodyStream, TransformRequest, TransformRequestPayload,
-};
+use crate::middleware::transform::kinds::{OperationFamily, ProtocolKind};
+use crate::middleware::transform::message::{TransformBodyStream, TransformRequestPayload};
 
 pub struct ModelScopedRequest {
     pub request: TransformRequestPayload,
@@ -33,8 +29,7 @@ pub async fn extract_model_from_request_payload(
     }
 
     let body = collect_body_bytes(input.body).await?;
-    let request = decode_request_payload(input.operation, input.protocol, body.as_slice())?;
-    let model = extract_model_from_request(&request);
+    let model = extract_model_from_json_payload(input.operation, input.protocol, body.as_slice())?;
 
     Ok(ModelScopedRequest {
         request: TransformRequestPayload::from_bytes(
@@ -117,64 +112,85 @@ where
     }
 }
 
-fn extract_model_from_request(request: &TransformRequest) -> Option<String> {
-    match request {
-        TransformRequest::ModelListOpenAi(_)
-        | TransformRequest::ModelListClaude(_)
-        | TransformRequest::ModelListGemini(_) => None,
+fn extract_model_from_json_payload(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> Result<Option<String>, MiddlewareTransformError> {
+    let value: Value =
+        serde_json::from_slice(body).map_err(|err| MiddlewareTransformError::JsonDecode {
+            kind: "request",
+            operation,
+            protocol,
+            message: err.to_string(),
+        })?;
 
-        TransformRequest::ModelGetOpenAi(value) => Some(value.path.model.clone()),
-        TransformRequest::ModelGetClaude(value) => Some(value.path.model_id.clone()),
-        TransformRequest::ModelGetGemini(value) => Some(value.path.name.clone()),
+    Ok(match (operation, protocol) {
+        (OperationFamily::ModelList, _) => None,
 
-        TransformRequest::CountTokenOpenAi(value) => value.body.model.clone(),
-        TransformRequest::CountTokenClaude(value) => serialize_claude_model(&value.body.model),
-        TransformRequest::CountTokenGemini(value) => {
-            if let Some(generate_request) = value.body.generate_content_request.as_ref() {
-                Some(generate_request.model.clone())
-            } else {
-                Some(value.path.model.clone())
-            }
+        (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/path/model")
+        }
+        (OperationFamily::ModelGet, ProtocolKind::Claude) => {
+            json_pointer_string(&value, "/path/model_id")
+        }
+        (OperationFamily::ModelGet, ProtocolKind::Gemini)
+        | (OperationFamily::ModelGet, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/path/name")
         }
 
-        TransformRequest::GenerateContentOpenAiResponse(value)
-        | TransformRequest::StreamGenerateContentOpenAiResponse(value) => value.body.model.clone(),
-
-        TransformRequest::GenerateContentOpenAiChatCompletions(value)
-        | TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
-            Some(value.body.model.clone())
+        (OperationFamily::CountToken, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::CountToken, ProtocolKind::Claude) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::CountToken, ProtocolKind::Gemini)
+        | (OperationFamily::CountToken, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/body/generate_content_request/model")
+                .or_else(|| json_pointer_string(&value, "/path/model"))
         }
 
-        TransformRequest::GenerateContentClaude(value)
-        | TransformRequest::StreamGenerateContentClaude(value) => {
-            serialize_claude_model(&value.body.model)
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::GenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/path/model")
         }
 
-        TransformRequest::GenerateContentGemini(value) => Some(value.path.model.clone()),
-        TransformRequest::StreamGenerateContentGeminiSse(value)
-        | TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
-            Some(value.path.model.clone())
+        (OperationFamily::Embedding, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/body/model")
+        }
+        (OperationFamily::Embedding, ProtocolKind::Gemini)
+        | (OperationFamily::Embedding, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/path/model")
         }
 
-        TransformRequest::EmbeddingOpenAi(value) => {
-            serialize_openai_embedding_model(&value.body.model)
+        (OperationFamily::Compact, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/body/model")
         }
-        TransformRequest::EmbeddingGemini(value) => Some(value.path.model.clone()),
 
-        TransformRequest::CompactOpenAi(value) => Some(value.body.model.clone()),
-    }
+        _ => None,
+    })
 }
 
-fn serialize_claude_model(model: &ClaudeModel) -> Option<String> {
-    serde_json::to_value(model)
-        .ok()
-        .and_then(|value| value.as_str().map(ToOwned::to_owned))
-}
-
-fn serialize_openai_embedding_model(model: &OpenAiEmbeddingModel) -> Option<String> {
-    serde_json::to_value(model)
-        .ok()
-        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 async fn collect_body_bytes(

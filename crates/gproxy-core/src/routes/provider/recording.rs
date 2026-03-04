@@ -4,8 +4,8 @@ use super::{
     OpenAiEmbeddingUsage, OperationFamily, ProtocolKind, ProviderDefinition, RequestAuthContext,
     ResponseInput, ResponseUsage, RouteImplementation, RouteKey, StorageWriteEvent, SystemTime,
     TokenizerResolutionContext, TrackedHttpEvent, TransformRequest, UNIX_EPOCH, UpstreamError,
-    UpstreamRequestMeta, UpstreamRequestWrite, UpstreamStreamRecordContext, UsageSnapshot,
-    UsageWrite, claude_count_tokens_request, claude_count_tokens_response,
+    UpstreamRequestMeta, UpstreamRequestWrite, UpstreamStreamRecordContext, UsageRequestContext,
+    UsageSnapshot, UsageWrite, claude_count_tokens_request, claude_count_tokens_response,
     claude_create_message_response, execute_local_count_token_request, gemini_count_tokens_request,
     gemini_count_tokens_response, gemini_generate_content_response,
     openai_chat_completions_response, openai_compact_response_response,
@@ -434,18 +434,19 @@ pub(super) fn strip_model_fields(value: &mut serde_json::Value) {
     }
 }
 
-pub(super) async fn estimate_embedding_input_tokens_from_request(
+pub(super) async fn estimate_embedding_input_tokens_from_usage_request(
     state: &AppState,
-    request: &TransformRequest,
+    request: &UsageRequestContext,
 ) -> Option<i64> {
     if request.operation() != OperationFamily::Embedding {
         return None;
     }
-    let model = extract_model_from_request(request)?.trim().to_string();
+    let model = request.model.as_ref()?.trim().to_string();
     if model.is_empty() {
         return None;
     }
-    let mut value = serde_json::to_value(request).ok()?;
+    let body = request.body_for_estimate.as_ref()?;
+    let mut value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
     strip_model_fields(&mut value);
     let text = serde_json::to_string(&value).ok()?;
     let count = state
@@ -630,7 +631,7 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
         return;
     }
 
-    let request_model = normalize_usage_model(extract_model_from_request(&context.request));
+    let request_model = normalize_usage_model(context.request.model.clone());
     let model = request_model
         .as_deref()
         .map(str::trim)
@@ -673,7 +674,17 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
         && cache_creation_input_tokens_5min.is_none()
         && cache_creation_input_tokens_1h.is_none()
     {
-        let request_text = serde_json::to_string(&context.request).unwrap_or_default();
+        let request_text = context
+            .request
+            .body_for_estimate
+            .as_deref()
+            .map(|body| {
+                serde_json::from_slice::<serde_json::Value>(body)
+                    .ok()
+                    .and_then(|value| serde_json::to_string(&value).ok())
+                    .unwrap_or_else(|| String::from_utf8_lossy(body).to_string())
+            })
+            .unwrap_or_default();
         let response_text = String::from_utf8_lossy(stream_response_body).to_string();
 
         input_tokens =
@@ -718,6 +729,90 @@ pub(super) fn serialize_openai_embedding_model(model: &OpenAiEmbeddingModel) -> 
     serde_json::to_value(model)
         .ok()
         .and_then(|value| value.as_str().map(ToOwned::to_owned))
+}
+
+fn json_pointer_string(value: &serde_json::Value, pointer: &str) -> Option<String> {
+    value
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+pub(super) fn extract_model_from_payload(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> Option<String> {
+    let value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    match (operation, protocol) {
+        (OperationFamily::ModelList, _) => None,
+
+        (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/path/model")
+        }
+        (OperationFamily::ModelGet, ProtocolKind::Claude) => {
+            json_pointer_string(&value, "/path/model_id")
+        }
+        (OperationFamily::ModelGet, ProtocolKind::Gemini)
+        | (OperationFamily::ModelGet, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/path/name")
+                .or_else(|| json_pointer_string(&value, "/path/model"))
+        }
+
+        (OperationFamily::CountToken, ProtocolKind::OpenAi)
+        | (OperationFamily::CountToken, ProtocolKind::Claude) => {
+            json_pointer_string(&value, "/model")
+                .or_else(|| json_pointer_string(&value, "/body/model"))
+        }
+        (OperationFamily::CountToken, ProtocolKind::Gemini)
+        | (OperationFamily::CountToken, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/body/generate_content_request/model")
+                .or_else(|| json_pointer_string(&value, "/path/model"))
+        }
+
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::GenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::Embedding, ProtocolKind::OpenAi)
+        | (OperationFamily::Compact, ProtocolKind::OpenAi) => json_pointer_string(&value, "/model")
+            .or_else(|| json_pointer_string(&value, "/body/model")),
+        (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::GenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::Embedding, ProtocolKind::Gemini)
+        | (OperationFamily::Embedding, ProtocolKind::GeminiNDJson) => {
+            json_pointer_string(&value, "/path/model")
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn usage_request_context_from_transform_request(
+    request: &TransformRequest,
+) -> UsageRequestContext {
+    UsageRequestContext {
+        operation: request.operation(),
+        protocol: request.protocol(),
+        model: extract_model_from_request(request),
+        body_for_estimate: serde_json::to_vec(request).ok(),
+    }
+}
+
+pub(super) fn usage_request_context_from_payload(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> UsageRequestContext {
+    UsageRequestContext {
+        operation,
+        protocol,
+        model: extract_model_from_payload(operation, protocol, body),
+        body_for_estimate: Some(body.to_vec()),
+    }
 }
 
 pub(super) fn extract_model_from_request(request: &TransformRequest) -> Option<String> {
@@ -789,7 +884,7 @@ pub(super) fn normalize_usage_model(model: Option<String>) -> Option<String> {
 
 pub(super) struct UpstreamAndUsageEventInput<'a> {
     pub(super) auth: RequestAuthContext,
-    pub(super) request: &'a TransformRequest,
+    pub(super) request: &'a UsageRequestContext,
     pub(super) provider_id: Option<i64>,
     pub(super) credential_id: Option<i64>,
     pub(super) request_meta: Option<&'a UpstreamRequestMeta>,
@@ -818,7 +913,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     } = input;
     let operation = format!("{:?}", request.operation());
     let protocol = format!("{:?}", request.protocol());
-    let request_model = normalize_usage_model(extract_model_from_request(request));
+    let request_model = normalize_usage_model(request.model.clone());
     let now_unix_ms = now_unix_ms_i64();
     let extracted_usage = local_response.and_then(extract_usage_from_local_response);
     let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
@@ -875,7 +970,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
         extracted_usage.and_then(|value| value.cache_creation_input_tokens_1h);
 
     if request.operation() == OperationFamily::Embedding && input_tokens.is_none() {
-        input_tokens = estimate_embedding_input_tokens_from_request(state, request).await;
+        input_tokens = estimate_embedding_input_tokens_from_usage_request(state, request).await;
         output_tokens = output_tokens.or(Some(0));
     }
     if request.operation() == OperationFamily::CountToken && input_tokens.is_some() {

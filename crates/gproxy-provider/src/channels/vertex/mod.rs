@@ -8,4 +8,7 @@ pub mod upstream;
 pub use credential::VertexServiceAccountCredential;
 pub use dispatch::default_dispatch_table;
 pub use settings::VertexSettings;
-pub use upstream::{execute_vertex_with_retry, normalize_vertex_upstream_response_body};
+pub use upstream::{
+    execute_vertex_payload_with_retry, execute_vertex_with_retry,
+    normalize_vertex_upstream_response_body,
+};

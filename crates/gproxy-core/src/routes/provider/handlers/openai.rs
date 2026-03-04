@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
-use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use gproxy_middleware::TransformRequest;
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformRequestPayload};
 use gproxy_protocol::claude::model_get::request as claude_model_get_request;
 use gproxy_protocol::claude::model_list::request as claude_model_list_request;
 use gproxy_protocol::gemini::model_get::request as gemini_model_get_request;
 use gproxy_protocol::gemini::model_list::request as gemini_model_list_request;
 use gproxy_protocol::openai::compact_response::request as openai_compact_request;
 use gproxy_protocol::openai::count_tokens::request as openai_count_tokens_request;
-use gproxy_protocol::openai::create_chat_completions::request as openai_chat_completions_request;
-use gproxy_protocol::openai::create_response::request as openai_create_response_request;
 use gproxy_protocol::openai::embeddings::request as openai_embeddings_request;
 use gproxy_protocol::openai::model_get::request as openai_model_get_request;
 use gproxy_protocol::openai::model_list::request as openai_model_list_request;
@@ -27,13 +25,12 @@ use super::super::{
     HttpError, ModelProtocolPreference, UpstreamResponseMeta, anthropic_headers_from_request,
     apply_credential_update_and_persist, authorize_provider_access, bad_request,
     capture_tracked_http_events, collect_headers, collect_unscoped_model_ids,
-    deserialize_json_scalar, enqueue_internal_tracked_http_events,
-    enqueue_upstream_request_event_from_meta, execute_transform_candidates,
-    execute_transform_request, internal_error, model_protocol_preference,
-    normalize_gemini_model_path, now_unix_ms, oauth_callback_response_to_axum,
-    oauth_response_to_axum, parse_optional_query_value, persist_provider_and_credential,
-    resolve_credential_id, resolve_provider, resolve_provider_id,
-    response_from_status_headers_and_bytes, serialize_json_scalar,
+    enqueue_internal_tracked_http_events, enqueue_upstream_request_event_from_meta,
+    execute_transform_candidates, execute_transform_request_payload, internal_error,
+    model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
+    oauth_callback_response_to_axum, oauth_response_to_axum, parse_json_body,
+    parse_optional_query_value, persist_provider_and_credential, resolve_credential_id,
+    resolve_provider, resolve_provider_id, response_from_status_headers_and_bytes,
     split_provider_prefixed_plain_model, upstream_error_request_meta, upstream_error_status,
     websocket_upgrade_required_response,
 };
@@ -364,24 +361,64 @@ pub(in crate::routes::provider) async fn handle_openai_realtime_upgrade(
     ))
 }
 
+fn required_string_field<'a>(
+    value: &'a serde_json::Value,
+    pointer: &str,
+    missing_message: &str,
+    invalid_message: &str,
+) -> Result<&'a str, HttpError> {
+    let Some(raw) = value.pointer(pointer) else {
+        return Err(bad_request(missing_message));
+    };
+    raw.as_str().ok_or_else(|| bad_request(invalid_message))
+}
+
+fn set_string_field(
+    value: &mut serde_json::Value,
+    pointer: &str,
+    new_value: String,
+    missing_message: &str,
+) -> Result<(), HttpError> {
+    let Some(slot) = value.pointer_mut(pointer) else {
+        return Err(bad_request(missing_message));
+    };
+    *slot = serde_json::Value::String(new_value);
+    Ok(())
+}
+
+fn stream_enabled(value: &serde_json::Value) -> bool {
+    value
+        .pointer("/stream")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn encode_json_value(value: &serde_json::Value, context: &str) -> Result<Bytes, HttpError> {
+    serde_json::to_vec(value)
+        .map(Bytes::from)
+        .map_err(|err| bad_request(format!("{context}: {err}")))
+}
+
 pub(in crate::routes::provider) async fn openai_chat_completions(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<openai_chat_completions_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_chat_completions_request::OpenAiChatCompletionsRequest {
-        body,
-        ..Default::default()
-    };
-    let envelope = if request.body.stream.unwrap_or(false) {
-        TransformRequest::StreamGenerateContentOpenAiChatCompletions(request)
+    let value = parse_json_body::<serde_json::Value>(
+        &body,
+        "invalid openai chat completions request body",
+    )?;
+    let operation = if stream_enabled(&value) {
+        OperationFamily::StreamGenerateContent
     } else {
-        TransformRequest::GenerateContentOpenAiChatCompletions(request)
+        OperationFamily::GenerateContent
     };
-    execute_transform_request(state, channel, provider, auth, envelope)
+    let payload =
+        TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAiChatCompletion, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
         .map_err(HttpError::from)
 }
@@ -389,22 +426,36 @@ pub(in crate::routes::provider) async fn openai_chat_completions(
 pub(in crate::routes::provider) async fn openai_chat_completions_unscoped(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(mut body): Json<openai_chat_completions_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
-    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(body.model.as_str())?;
-    body.model = stripped_model;
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_chat_completions_request::OpenAiChatCompletionsRequest {
-        body,
-        ..Default::default()
-    };
-    let envelope = if request.body.stream.unwrap_or(false) {
-        TransformRequest::StreamGenerateContentOpenAiChatCompletions(request)
+    let mut body = parse_json_body::<serde_json::Value>(
+        &body,
+        "invalid openai chat completions request body",
+    )?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI chat completions request body",
+        "`model` in OpenAI chat completions request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI chat completions request body",
+    )?;
+    let operation = if stream_enabled(&body) {
+        OperationFamily::StreamGenerateContent
     } else {
-        TransformRequest::GenerateContentOpenAiChatCompletions(request)
+        OperationFamily::GenerateContent
     };
-    execute_transform_request(state, channel, provider, auth, envelope)
+    let body = encode_json_value(&body, "invalid openai chat completions request body")?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let payload =
+        TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAiChatCompletion, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
         .map_err(HttpError::from)
 }
@@ -413,20 +464,19 @@ pub(in crate::routes::provider) async fn openai_responses(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<openai_create_response_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_create_response_request::OpenAiCreateResponseRequest {
-        body,
-        ..Default::default()
-    };
-    let envelope = if request.body.stream.unwrap_or(false) {
-        TransformRequest::StreamGenerateContentOpenAiResponse(request)
+    let value =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai responses request body")?;
+    let operation = if stream_enabled(&value) {
+        OperationFamily::StreamGenerateContent
     } else {
-        TransformRequest::GenerateContentOpenAiResponse(request)
+        OperationFamily::GenerateContent
     };
-    execute_transform_request(state, channel, provider, auth, envelope)
+    let payload = TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
         .map_err(HttpError::from)
 }
@@ -434,26 +484,33 @@ pub(in crate::routes::provider) async fn openai_responses(
 pub(in crate::routes::provider) async fn openai_responses_unscoped(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(mut body): Json<openai_create_response_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
-    let model = body
-        .model
-        .clone()
-        .ok_or_else(|| bad_request("missing `model` in OpenAI responses request body"))?;
-    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model.as_str())?;
-    body.model = Some(stripped_model);
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_create_response_request::OpenAiCreateResponseRequest {
-        body,
-        ..Default::default()
-    };
-    let envelope = if request.body.stream.unwrap_or(false) {
-        TransformRequest::StreamGenerateContentOpenAiResponse(request)
+    let mut body =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai responses request body")?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI responses request body",
+        "`model` in OpenAI responses request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI responses request body",
+    )?;
+    let operation = if stream_enabled(&body) {
+        OperationFamily::StreamGenerateContent
     } else {
-        TransformRequest::GenerateContentOpenAiResponse(request)
+        OperationFamily::GenerateContent
     };
-    execute_transform_request(state, channel, provider, auth, envelope)
+    let body = encode_json_value(&body, "invalid openai responses request body")?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let payload = TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
         .map_err(HttpError::from)
 }
@@ -462,146 +519,153 @@ pub(in crate::routes::provider) async fn openai_input_tokens(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<openai_count_tokens_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
+    let _ = parse_json_body::<openai_count_tokens_request::RequestBody>(
+        &body,
+        "invalid openai input_tokens request body",
+    )?;
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_count_tokens_request::OpenAiCountTokensRequest {
+    let payload = TransformRequestPayload::from_bytes(
+        OperationFamily::CountToken,
+        ProtocolKind::OpenAi,
         body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::CountTokenOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    );
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn openai_input_tokens_unscoped(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(mut body): Json<openai_count_tokens_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
-    let model = body
-        .model
-        .clone()
-        .ok_or_else(|| bad_request("missing `model` in OpenAI input_tokens request body"))?;
-    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model.as_str())?;
-    body.model = Some(stripped_model);
+    let mut body =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai input_tokens request body")?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI input_tokens request body",
+        "`model` in OpenAI input_tokens request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI input_tokens request body",
+    )?;
+    let body = encode_json_value(&body, "invalid openai input_tokens request body")?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_count_tokens_request::OpenAiCountTokensRequest {
+    let payload = TransformRequestPayload::from_bytes(
+        OperationFamily::CountToken,
+        ProtocolKind::OpenAi,
         body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::CountTokenOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    );
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn openai_embeddings(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<openai_embeddings_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
+    let _ = parse_json_body::<openai_embeddings_request::RequestBody>(
+        &body,
+        "invalid openai embeddings request body",
+    )?;
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_embeddings_request::OpenAiEmbeddingsRequest {
-        body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::EmbeddingOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    let payload =
+        TransformRequestPayload::from_bytes(OperationFamily::Embedding, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn openai_embeddings_unscoped(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(mut body): Json<openai_embeddings_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
-    let model = serialize_json_scalar(&body.model, "openai embeddings model")?;
-    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model.as_str())?;
-    body.model = deserialize_json_scalar(stripped_model.as_str(), "openai embeddings model")?;
+    let mut body =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai embeddings request body")?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI embeddings request body",
+        "`model` in OpenAI embeddings request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI embeddings request body",
+    )?;
+    let body = encode_json_value(&body, "invalid openai embeddings request body")?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_embeddings_request::OpenAiEmbeddingsRequest {
-        body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::EmbeddingOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    let payload =
+        TransformRequestPayload::from_bytes(OperationFamily::Embedding, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn openai_compact(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<openai_compact_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
+    let _ = parse_json_body::<openai_compact_request::RequestBody>(
+        &body,
+        "invalid openai compact request body",
+    )?;
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_compact_request::OpenAiCompactRequest {
-        body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::CompactOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    let payload =
+        TransformRequestPayload::from_bytes(OperationFamily::Compact, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn openai_compact_unscoped(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(mut body): Json<openai_compact_request::RequestBody>,
+    body: Bytes,
 ) -> Result<Response, HttpError> {
     let auth = authorize_provider_access(&headers, &state)?;
-    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(body.model.as_str())?;
-    body.model = stripped_model;
+    let mut body =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai compact request body")?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI compact request body",
+        "`model` in OpenAI compact request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI compact request body",
+    )?;
+    let body = encode_json_value(&body, "invalid openai compact request body")?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
-    let request = openai_compact_request::OpenAiCompactRequest {
-        body,
-        ..Default::default()
-    };
-    execute_transform_request(
-        state,
-        channel,
-        provider,
-        auth,
-        TransformRequest::CompactOpenAi(request),
-    )
-    .await
-    .map_err(HttpError::from)
+    let payload =
+        TransformRequestPayload::from_bytes(OperationFamily::Compact, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
 }
 
 pub(in crate::routes::provider) async fn v1_model_list(

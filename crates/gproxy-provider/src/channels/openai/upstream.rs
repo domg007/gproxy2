@@ -1,7 +1,7 @@
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::retry::{
-    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    CacheAffinityProtocol, CredentialRetryDecision, cache_affinity_hint_from_transform_request,
     configured_pick_mode_uses_cache, credential_pick_mode,
     retry_with_eligible_credentials_with_affinity,
 };
@@ -14,6 +14,7 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
+use gproxy_middleware::{OperationFamily, ProtocolKind};
 
 pub async fn execute_openai_with_retry(
     client: &WreqClient,
@@ -22,8 +23,52 @@ pub async fn execute_openai_with_retry(
     request: &gproxy_middleware::TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
+    let cache_protocol =
+        crate::channels::retry::cache_affinity_protocol_from_transform_request(request);
     let prepared =
         OpenAiPreparedRequest::from_transform_request(request)?.with_gpt5_sampling_guard();
+    execute_openai_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+pub async fn execute_openai_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let prepared =
+        OpenAiPreparedRequest::from_payload(operation, protocol, body)?.with_gpt5_sampling_guard();
+    let cache_protocol = cache_affinity_protocol_from_operation_protocol(operation, protocol);
+    execute_openai_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+async fn execute_openai_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: OpenAiPreparedRequest,
+    cache_protocol: Option<CacheAffinityProtocol>,
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -38,15 +83,13 @@ pub async fn execute_openai_with_retry(
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
+        cache_protocol.and_then(|protocol| {
+            cache_affinity_hint_from_transform_request(
+                protocol,
+                prepared.model.as_deref(),
+                prepared.body.as_deref(),
+            )
+        })
     } else {
         None
     };
@@ -196,6 +239,23 @@ pub async fn execute_openai_with_retry(
     .await
 }
 
+fn cache_affinity_protocol_from_operation_protocol(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> Option<CacheAffinityProtocol> {
+    match (operation, protocol) {
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
+            Some(CacheAffinityProtocol::OpenAiResponses)
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+            Some(CacheAffinityProtocol::OpenAiChatCompletions)
+        }
+        _ => None,
+    }
+}
+
 struct OpenAiPreparedRequest {
     method: WreqMethod,
     path: String,
@@ -300,6 +360,80 @@ impl OpenAiPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: Some(value.body.model.clone()),
+            }),
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(body: &[u8], pointer: &str) -> Option<String> {
+            serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .pointer(pointer)
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToOwned::to_owned)
+                })
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::GET,
+                path: "/v1/models".to_string(),
+                body: None,
+                model: None,
+            }),
+            (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
+                let Some(model) = json_pointer_string(body, "/path/model") else {
+                    return Err(UpstreamError::SerializeRequest(
+                        "missing path.model in OpenAI model get payload".to_string(),
+                    ));
+                };
+                Ok(Self {
+                    method: WreqMethod::GET,
+                    path: format!("/v1/models/{model}"),
+                    body: None,
+                    model: Some(model),
+                })
+            }
+            (OperationFamily::CountToken, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/responses/input_tokens".to_string(),
+                body: Some(body.to_vec()),
+                model: json_pointer_string(body, "/model"),
+            }),
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/responses".to_string(),
+                body: Some(body.to_vec()),
+                model: json_pointer_string(body, "/model"),
+            }),
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1/chat/completions".to_string(),
+                    body: Some(body.to_vec()),
+                    model: json_pointer_string(body, "/model"),
+                })
+            }
+            (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/embeddings".to_string(),
+                body: Some(body.to_vec()),
+                model: json_pointer_string(body, "/model"),
+            }),
+            (OperationFamily::Compact, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/responses/compact".to_string(),
+                body: Some(body.to_vec()),
+                model: json_pointer_string(body, "/model"),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }

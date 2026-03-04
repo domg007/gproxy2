@@ -7,4 +7,4 @@ pub mod upstream;
 pub use credential::AiStudioCredential;
 pub use dispatch::default_dispatch_table;
 pub use settings::AiStudioSettings;
-pub use upstream::execute_aistudio_with_retry;
+pub use upstream::{execute_aistudio_payload_with_retry, execute_aistudio_with_retry};

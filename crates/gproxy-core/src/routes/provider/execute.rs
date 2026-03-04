@@ -1,18 +1,21 @@
 use super::{
     AppState, Arc, Body, BuiltinChannel, Bytes, ChannelId, HttpError, MiddlewareTransformError,
     OperationFamily, ProtocolKind, ProviderDefinition, RequestAuthContext, Response,
-    RouteImplementation, RouteKey, SseToNdjsonRewriter, StatusCode, Stream,
-    TokenizerResolutionContext, TransformRequest, TransformResponsePayload,
-    UpstreamAndUsageEventInput, UpstreamError, UpstreamResponse, UpstreamStreamRecordContext,
-    UpstreamStreamRecordGuard, apply_credential_update_and_persist, attach_usage_extractor,
-    capture_tracked_http_events, claude_count_tokens_response, decode_response_for_usage,
-    enqueue_credential_status_updates_for_request, enqueue_internal_tracked_http_events,
-    enqueue_upstream_and_usage_event, gemini_count_tokens_response, is_wrapped_stream_channel,
-    json, mpsc, ndjson_chunk_to_sse_chunk, normalize_upstream_response_body_for_channel,
+    RetryWithPayloadRequest, RouteImplementation, RouteKey, SseToNdjsonRewriter, StatusCode,
+    Stream, TokenizerResolutionContext, TransformRequest, TransformRequestPayload,
+    TransformResponsePayload, UpstreamAndUsageEventInput, UpstreamError, UpstreamResponse,
+    UpstreamStreamRecordContext, UpstreamStreamRecordGuard, apply_credential_update_and_persist,
+    attach_usage_extractor, capture_tracked_http_events, claude_count_tokens_response,
+    decode_response_for_usage, enqueue_credential_status_updates_for_request,
+    enqueue_internal_tracked_http_events, enqueue_upstream_and_usage_event,
+    enqueue_upstream_request_event_from_meta, gemini_count_tokens_response,
+    is_wrapped_stream_channel, json, mpsc, ndjson_chunk_to_sse_chunk,
+    normalize_upstream_response_body_for_channel,
     normalize_upstream_stream_ndjson_chunk_for_channel, now_unix_ms, openai_count_tokens_request,
     openai_count_tokens_response, resolve_provider_id, response_headers_to_pairs,
     try_local_response_for_channel, upstream_error_credential_id, upstream_error_request_meta,
-    upstream_error_status,
+    upstream_error_status, usage_request_context_from_payload,
+    usage_request_context_from_transform_request,
 };
 use futures_util::StreamExt;
 
@@ -569,6 +572,8 @@ pub(super) async fn execute_transform_request(
 ) -> Result<Response, UpstreamError> {
     let downstream_request = request;
     let mut upstream_request = downstream_request.clone();
+    let downstream_request_context =
+        usage_request_context_from_transform_request(&downstream_request);
     let mut dispatch_route = None;
     let mut dispatch_local = false;
     let provider_id = resolve_provider_id(state.as_ref(), &channel).await.ok();
@@ -581,7 +586,7 @@ pub(super) async fn execute_transform_request(
             state.as_ref(),
             UpstreamAndUsageEventInput {
                 auth,
-                request: &downstream_request,
+                request: &downstream_request_context,
                 provider_id,
                 credential_id: None,
                 request_meta: None,
@@ -605,7 +610,9 @@ pub(super) async fn execute_transform_request(
                 dst_operation: destination.operation,
                 dst_protocol: destination.protocol,
             };
-            if !route.is_passthrough() {
+            if gproxy_middleware::select_request_lane(route)
+                == gproxy_middleware::TransformLane::Typed
+            {
                 match gproxy_middleware::transform_request(downstream_request.clone(), route) {
                     Ok(transformed) => {
                         upstream_request = transformed;
@@ -616,7 +623,7 @@ pub(super) async fn execute_transform_request(
                             state.as_ref(),
                             UpstreamAndUsageEventInput {
                                 auth,
-                                request: &downstream_request,
+                                request: &downstream_request_context,
                                 provider_id,
                                 credential_id: None,
                                 request_meta: None,
@@ -642,7 +649,7 @@ pub(super) async fn execute_transform_request(
                 state.as_ref(),
                 UpstreamAndUsageEventInput {
                     auth,
-                    request: &downstream_request,
+                    request: &downstream_request_context,
                     provider_id,
                     credential_id: None,
                     request_meta: None,
@@ -660,6 +667,7 @@ pub(super) async fn execute_transform_request(
 
     let now = now_unix_ms();
     ensure_stream_usage_option_on_native_chat(&mut upstream_request);
+    let upstream_request_context = usage_request_context_from_transform_request(&upstream_request);
     let (upstream_result, tracked_http_events) = if dispatch_local {
         (
             execute_local_request(state.as_ref(), &channel, &downstream_request).await,
@@ -715,7 +723,7 @@ pub(super) async fn execute_transform_request(
                 state.as_ref(),
                 UpstreamAndUsageEventInput {
                     auth,
-                    request: &downstream_request,
+                    request: &downstream_request_context,
                     provider_id,
                     credential_id: err_credential_id,
                     request_meta: err_request_meta.as_ref(),
@@ -756,7 +764,10 @@ pub(super) async fn execute_transform_request(
 
     if let Some(mut local) = upstream.local_response {
         let usage_source_response = local.clone();
-        if let Some(route) = dispatch_route.filter(|item| !item.is_passthrough()) {
+        if let Some(route) = dispatch_route.filter(|item| {
+            gproxy_middleware::select_response_lane(*item)
+                == gproxy_middleware::TransformLane::Typed
+        }) {
             local = gproxy_middleware::transform_response(local, route)
                 .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
         }
@@ -764,7 +775,7 @@ pub(super) async fn execute_transform_request(
             state.as_ref(),
             UpstreamAndUsageEventInput {
                 auth,
-                request: &upstream_request,
+                request: &upstream_request_context,
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.as_ref(),
@@ -788,14 +799,17 @@ pub(super) async fn execute_transform_request(
     if let Some(response) = upstream.response {
         let response_status = response.status().as_u16();
         let response_headers = response_headers_to_pairs(&response);
-        if let Some(route) = dispatch_route.filter(|item| !item.is_passthrough()) {
+        if let Some(route) = dispatch_route.filter(|item| {
+            gproxy_middleware::select_response_lane(*item)
+                == gproxy_middleware::TransformLane::Typed
+        }) {
             if !response.status().is_success() {
                 let stream_record_context = UpstreamStreamRecordContext {
                     state: state.clone(),
                     channel: channel.clone(),
                     provider: provider.clone(),
                     auth,
-                    request: upstream_request.clone(),
+                    request: upstream_request_context.clone(),
                     provider_id,
                     credential_id: upstream_credential_id,
                     request_meta: upstream_request_meta.clone(),
@@ -897,7 +911,7 @@ pub(super) async fn execute_transform_request(
                     channel: channel.clone(),
                     provider: provider.clone(),
                     auth,
-                    request: upstream_request.clone(),
+                    request: upstream_request_context.clone(),
                     provider_id,
                     credential_id: upstream_credential_id,
                     request_meta: upstream_request_meta.clone(),
@@ -942,7 +956,7 @@ pub(super) async fn execute_transform_request(
                     state.as_ref(),
                     UpstreamAndUsageEventInput {
                         auth,
-                        request: &upstream_request,
+                        request: &upstream_request_context,
                         provider_id,
                         credential_id: upstream_credential_id,
                         request_meta: upstream_request_meta.as_ref(),
@@ -983,7 +997,7 @@ pub(super) async fn execute_transform_request(
                 channel: channel.clone(),
                 provider: provider.clone(),
                 auth,
-                request: upstream_request.clone(),
+                request: upstream_request_context.clone(),
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.clone(),
@@ -1034,7 +1048,7 @@ pub(super) async fn execute_transform_request(
             state.as_ref(),
             UpstreamAndUsageEventInput {
                 auth,
-                request: &upstream_request,
+                request: &upstream_request_context,
                 provider_id,
                 credential_id: upstream_credential_id,
                 request_meta: upstream_request_meta.as_ref(),
@@ -1061,7 +1075,7 @@ pub(super) async fn execute_transform_request(
         state.as_ref(),
         UpstreamAndUsageEventInput {
             auth,
-            request: &upstream_request,
+            request: &upstream_request_context,
             provider_id,
             credential_id: upstream_credential_id,
             request_meta: upstream_request_meta.as_ref(),
@@ -1076,6 +1090,319 @@ pub(super) async fn execute_transform_request(
     Err(UpstreamError::UpstreamRequest(
         "upstream returned empty response".to_string(),
     ))
+}
+
+async fn collect_request_payload_body_bytes(
+    request: TransformRequestPayload,
+) -> Result<(OperationFamily, ProtocolKind, Vec<u8>), UpstreamError> {
+    let mut out = Vec::new();
+    let mut body = request.body;
+    while let Some(item) = body.next().await {
+        let chunk = item.map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        out.extend_from_slice(chunk.as_ref());
+    }
+    Ok((request.operation, request.protocol, out))
+}
+
+pub(super) fn shape_passthrough_request(
+    _channel: &ChannelId,
+    _operation: OperationFamily,
+    _protocol: ProtocolKind,
+    body_bytes: Vec<u8>,
+) -> Vec<u8> {
+    body_bytes
+}
+
+pub(super) fn shape_passthrough_response(
+    channel: &ChannelId,
+    _operation: OperationFamily,
+    _protocol: ProtocolKind,
+    _status: StatusCode,
+    headers: &[(String, String)],
+    body_bytes: Vec<u8>,
+) -> (Vec<(String, String)>, Vec<u8>) {
+    let normalized_body =
+        normalize_upstream_response_body_for_channel(channel, body_bytes.as_ref())
+            .unwrap_or_else(|| body_bytes.clone());
+    let mut normalized_headers = headers.to_vec();
+    if normalized_body != body_bytes {
+        remove_header_ignore_case(&mut normalized_headers, "content-length");
+    }
+    (normalized_headers, normalized_body)
+}
+
+async fn execute_passthrough_payload_request(
+    state: Arc<AppState>,
+    channel: ChannelId,
+    provider: ProviderDefinition,
+    auth: RequestAuthContext,
+    request: TransformRequestPayload,
+) -> Result<Response, UpstreamError> {
+    let (operation, protocol, request_bytes) = collect_request_payload_body_bytes(request).await?;
+    let request_bytes = shape_passthrough_request(&channel, operation, protocol, request_bytes);
+    let request_context =
+        usage_request_context_from_payload(operation, protocol, request_bytes.as_slice());
+    let provider_id = resolve_provider_id(state.as_ref(), &channel).await.ok();
+    let now = now_unix_ms();
+    let http = state.load_http();
+    let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
+        .then(|| state.load_spoof_http());
+    let tokenizers = state.tokenizers();
+    let global = state.config.load().global.clone();
+
+    let (upstream_result, tracked_http_events) = capture_tracked_http_events(async {
+        provider
+            .execute_payload_with_retry_with_spoof(
+                http.as_ref(),
+                spoof_http.as_deref(),
+                &state.credential_states,
+                RetryWithPayloadRequest {
+                    operation,
+                    protocol,
+                    body: request_bytes.as_slice(),
+                    now_unix_ms: now,
+                    token_resolution: TokenizerResolutionContext {
+                        tokenizer_store: tokenizers.as_ref(),
+                        hf_token: global.hf_token.as_deref(),
+                        hf_url: global.hf_url.as_deref(),
+                    },
+                },
+            )
+            .await
+    })
+    .await;
+
+    enqueue_credential_status_updates_for_request(state.as_ref(), &channel, &provider, now).await;
+
+    let upstream = match upstream_result {
+        Ok(value) => value,
+        Err(err) => {
+            let err_request_meta = upstream_error_request_meta(&err);
+            let err_credential_id = upstream_error_credential_id(&err);
+            let err_status = upstream_error_status(&err);
+            enqueue_internal_tracked_http_events(
+                state.as_ref(),
+                auth.downstream_trace_id,
+                provider_id,
+                err_credential_id,
+                tracked_http_events.as_slice(),
+                err_request_meta.as_ref(),
+            )
+            .await;
+            enqueue_upstream_request_event_from_meta(
+                state.as_ref(),
+                auth.downstream_trace_id,
+                provider_id,
+                err_credential_id,
+                err_request_meta.as_ref(),
+                super::UpstreamResponseMeta {
+                    status: err_status,
+                    headers: &[],
+                    body: None,
+                },
+            )
+            .await;
+            return Err(err);
+        }
+    };
+
+    let upstream_credential_id = upstream.credential_id;
+    let upstream_request_meta = upstream.request_meta.clone();
+    enqueue_internal_tracked_http_events(
+        state.as_ref(),
+        auth.downstream_trace_id,
+        provider_id,
+        upstream_credential_id,
+        tracked_http_events.as_slice(),
+        upstream_request_meta.as_ref(),
+    )
+    .await;
+
+    if let Some(update) = upstream.credential_update.clone() {
+        apply_credential_update_and_persist(
+            state.clone(),
+            channel.clone(),
+            provider.clone(),
+            update,
+        )
+        .await;
+    }
+
+    if let Some(local) = upstream.local_response {
+        let body = serialize_local_response_body(&local)?;
+        enqueue_upstream_and_usage_event(
+            state.as_ref(),
+            UpstreamAndUsageEventInput {
+                auth,
+                request: &request_context,
+                provider_id,
+                credential_id: upstream_credential_id,
+                request_meta: upstream_request_meta.as_ref(),
+                error_status: None,
+                response_status: Some(200),
+                response_headers: &[("content-type".to_string(), "application/json".to_string())],
+                response_body: None,
+                local_response: Some(&local),
+            },
+        )
+        .await;
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        return Ok(response);
+    }
+
+    if let Some(response) = upstream.response {
+        let response_status = response.status().as_u16();
+        let response_headers = response_headers_to_pairs(&response);
+        if operation == OperationFamily::StreamGenerateContent
+            || is_streaming_content_type(response_headers.as_slice())
+        {
+            let rewrite_gemini_stream_to_ndjson = operation
+                == OperationFamily::StreamGenerateContent
+                && protocol == ProtocolKind::GeminiNDJson;
+            let stream_record_context = UpstreamStreamRecordContext {
+                state: state.clone(),
+                channel: channel.clone(),
+                provider: provider.clone(),
+                auth,
+                request: request_context.clone(),
+                provider_id,
+                credential_id: upstream_credential_id,
+                request_meta: upstream_request_meta.clone(),
+                response_status: Some(response_status),
+                response_headers: response_headers.clone(),
+                stream_usage: None,
+                record_upstream_event: true,
+                record_stream_usage_event: true,
+            };
+            return upstream_response_to_axum_stream(
+                response,
+                rewrite_gemini_stream_to_ndjson,
+                Some(stream_record_context),
+            );
+        }
+
+        let status =
+            StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        let headers = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.as_str().to_string(), value.to_string()))
+            })
+            .collect::<Vec<_>>();
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|err| UpstreamError::UpstreamRequest(err.to_string()))?;
+        let raw_body = body_bytes.to_vec();
+        let (headers_for_client, normalized_body) = shape_passthrough_response(
+            &channel,
+            operation,
+            protocol,
+            status,
+            headers.as_slice(),
+            raw_body.clone(),
+        );
+        let encoded_for_usage = encode_http_response_for_transform(
+            status,
+            headers_for_client.as_slice(),
+            normalized_body.as_ref(),
+        )?;
+        let usage_source_response =
+            decode_response_for_usage(operation, protocol, encoded_for_usage.as_ref());
+        enqueue_upstream_and_usage_event(
+            state.as_ref(),
+            UpstreamAndUsageEventInput {
+                auth,
+                request: &request_context,
+                provider_id,
+                credential_id: upstream_credential_id,
+                request_meta: upstream_request_meta.as_ref(),
+                error_status: None,
+                response_status: Some(response_status),
+                response_headers: response_headers.as_slice(),
+                response_body: Some(raw_body.clone()),
+                local_response: usage_source_response.as_ref(),
+            },
+        )
+        .await;
+        return response_from_status_headers_and_bytes(
+            status,
+            headers_for_client.as_slice(),
+            normalized_body,
+        );
+    }
+
+    enqueue_upstream_and_usage_event(
+        state.as_ref(),
+        UpstreamAndUsageEventInput {
+            auth,
+            request: &request_context,
+            provider_id,
+            credential_id: upstream_credential_id,
+            request_meta: upstream_request_meta.as_ref(),
+            error_status: None,
+            response_status: None,
+            response_headers: &[],
+            response_body: None,
+            local_response: None,
+        },
+    )
+    .await;
+    Err(UpstreamError::UpstreamRequest(
+        "upstream returned empty response".to_string(),
+    ))
+}
+
+pub(super) async fn execute_transform_request_payload(
+    state: Arc<AppState>,
+    channel: ChannelId,
+    provider: ProviderDefinition,
+    auth: RequestAuthContext,
+    request: TransformRequestPayload,
+) -> Result<Response, UpstreamError> {
+    let src_route = RouteKey::new(request.operation, request.protocol);
+    let Some(implementation) = provider.dispatch.resolve(src_route).cloned() else {
+        return Err(UpstreamError::UnsupportedRequest);
+    };
+
+    let route = match implementation {
+        RouteImplementation::Passthrough => Some(gproxy_middleware::TransformRoute {
+            src_operation: src_route.operation,
+            src_protocol: src_route.protocol,
+            dst_operation: src_route.operation,
+            dst_protocol: src_route.protocol,
+        }),
+        RouteImplementation::TransformTo { destination } => {
+            Some(gproxy_middleware::TransformRoute {
+                src_operation: src_route.operation,
+                src_protocol: src_route.protocol,
+                dst_operation: destination.operation,
+                dst_protocol: destination.protocol,
+            })
+        }
+        RouteImplementation::Local => None,
+        RouteImplementation::Unsupported => return Err(UpstreamError::UnsupportedRequest),
+    };
+
+    if let Some(route) = route
+        && gproxy_middleware::select_request_lane(route) == gproxy_middleware::TransformLane::Raw
+    {
+        return execute_passthrough_payload_request(state, channel, provider, auth, request).await;
+    }
+
+    let (operation, protocol, request_bytes) = collect_request_payload_body_bytes(request).await?;
+    let decoded =
+        gproxy_middleware::decode_request_payload(operation, protocol, request_bytes.as_slice())
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    execute_transform_request(state, channel, provider, auth, decoded).await
 }
 
 pub(super) async fn execute_transform_candidates(

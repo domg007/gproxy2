@@ -1,13 +1,13 @@
-use gproxy_middleware::{TransformRequest, TransformResponse};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
 use serde_json::{Map, Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod, Response as WreqResponse};
 
 use super::constants::DEFAULT_LOCATION;
 use super::oauth::{resolve_vertex_access_token, vertex_auth_material_from_credential};
 use crate::channels::retry::{
-    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
-    configured_pick_mode_uses_cache, credential_pick_mode,
-    retry_with_eligible_credentials_with_affinity,
+    CacheAffinityProtocol, CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
+    credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
@@ -29,7 +29,49 @@ pub async fn execute_vertex_with_retry(
     request: &TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
+    let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = VertexPreparedRequest::from_transform_request(request)?;
+    execute_vertex_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+pub async fn execute_vertex_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let prepared = VertexPreparedRequest::from_payload(operation, protocol, body)?;
+    let cache_protocol = cache_affinity_protocol_from_operation_protocol(operation, protocol);
+    execute_vertex_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+async fn execute_vertex_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: VertexPreparedRequest,
+    cache_protocol: Option<CacheAffinityProtocol>,
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -47,15 +89,13 @@ pub async fn execute_vertex_with_retry(
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
+        cache_protocol.and_then(|protocol| {
+            cache_affinity_hint_from_transform_request(
+                protocol,
+                prepared.model.as_deref(),
+                prepared.body.as_deref(),
+            )
+        })
     } else {
         None
     };
@@ -428,6 +468,24 @@ pub async fn execute_vertex_with_retry(
     .await
 }
 
+fn cache_affinity_protocol_from_operation_protocol(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> Option<CacheAffinityProtocol> {
+    match (operation, protocol) {
+        (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+            Some(CacheAffinityProtocol::GeminiGenerateContent)
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+            Some(CacheAffinityProtocol::OpenAiChatCompletions)
+        }
+        _ => None,
+    }
+}
+
 fn vertex_credential_update(
     credential_id: i64,
     access_token: &str,
@@ -617,6 +675,146 @@ impl VertexPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(body.model.clone()),
+                    model_response_kind: None,
+                })
+            }
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn parse_gemini_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<(String, Value, Option<String>), UpstreamError> {
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            let Some(model) = value
+                .pointer("/path/model")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+            else {
+                return Err(UpstreamError::SerializeRequest(
+                    "missing path.model in Gemini payload".to_string(),
+                ));
+            };
+            let Some(body_value) = value.get("body").cloned() else {
+                return Err(UpstreamError::SerializeRequest(
+                    "missing body in Gemini payload".to_string(),
+                ));
+            };
+            let alt = value
+                .pointer("/query/alt")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            Ok((model, body_value, alt))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::CountToken, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model_id = normalize_vertex_model_name(model.as_str());
+                let body = vertex_count_tokens_payload(model_id.as_str(), &body_value)?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:countTokens"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: None,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model_id = normalize_vertex_model_name(model.as_str());
+                let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:generateContent"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: None,
+                })
+            }
+            (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let model_id = normalize_vertex_model_name(model.as_str());
+                let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
+                let query = match protocol {
+                    ProtocolKind::Gemini => Some("alt=sse".to_string()),
+                    ProtocolKind::GeminiNDJson => alt.map(|_| "alt=sse".to_string()),
+                    _ => None,
+                };
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:streamGenerateContent"
+                    )),
+                    query,
+                    body: Some(
+                        serde_json::to_vec(&body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: None,
+                })
+            }
+            (OperationFamily::Embedding, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model_id = normalize_vertex_model_name(model.as_str());
+                let body = vertex_embedding_predict_payload(&body_value)?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:predict"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: Some(VertexModelResponseKind::Embedding),
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                let mut body_json = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let mut model: Option<String> = None;
+                if let Some(map) = body_json.as_object_mut()
+                    && let Some(raw_model) = map.get("model").and_then(Value::as_str)
+                {
+                    let normalized = normalize_vertex_openai_model(raw_model);
+                    map.insert("model".to_string(), Value::String(normalized.clone()));
+                    model = Some(normalized);
+                }
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(
+                        "endpoints/openapi/chat/completions".to_string(),
+                    ),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model,
                     model_response_kind: None,
                 })
             }

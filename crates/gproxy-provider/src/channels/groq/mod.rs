@@ -7,4 +7,4 @@ pub mod upstream;
 pub use credential::GroqCredential;
 pub use dispatch::default_dispatch_table;
 pub use settings::GroqSettings;
-pub use upstream::execute_groq_with_retry;
+pub use upstream::{execute_groq_payload_with_retry, execute_groq_with_retry};

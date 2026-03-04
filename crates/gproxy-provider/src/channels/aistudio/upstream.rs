@@ -1,9 +1,10 @@
+use serde_json::Value;
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::retry::{
-    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
-    configured_pick_mode_uses_cache, credential_pick_mode,
-    retry_with_eligible_credentials_with_affinity,
+    CacheAffinityProtocol, CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
+    credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
@@ -15,6 +16,7 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
+use gproxy_middleware::{OperationFamily, ProtocolKind};
 
 pub async fn execute_aistudio_with_retry(
     client: &WreqClient,
@@ -23,7 +25,49 @@ pub async fn execute_aistudio_with_retry(
     request: &gproxy_middleware::TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
+    let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = AiStudioPreparedRequest::from_transform_request(request)?;
+    execute_aistudio_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+pub async fn execute_aistudio_payload_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let prepared = AiStudioPreparedRequest::from_payload(operation, protocol, body)?;
+    let cache_protocol = cache_affinity_protocol_from_operation_protocol(operation, protocol);
+    execute_aistudio_with_prepared(
+        client,
+        provider,
+        credential_states,
+        prepared,
+        cache_protocol,
+        now_unix_ms,
+    )
+    .await
+}
+
+async fn execute_aistudio_with_prepared(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    prepared: AiStudioPreparedRequest,
+    cache_protocol: Option<CacheAffinityProtocol>,
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
     let base_url = provider.settings.base_url().trim();
     if base_url.is_empty() {
         return Err(UpstreamError::InvalidBaseUrl);
@@ -42,15 +86,13 @@ pub async fn execute_aistudio_with_retry(
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
-        )
+        cache_protocol.and_then(|protocol| {
+            cache_affinity_hint_from_transform_request(
+                protocol,
+                prepared.model.as_deref(),
+                prepared.body.as_deref(),
+            )
+        })
     } else {
         None
     };
@@ -214,6 +256,24 @@ pub async fn execute_aistudio_with_retry(
     .await
 }
 
+fn cache_affinity_protocol_from_operation_protocol(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> Option<CacheAffinityProtocol> {
+    match (operation, protocol) {
+        (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+            Some(CacheAffinityProtocol::GeminiGenerateContent)
+        }
+        (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+            Some(CacheAffinityProtocol::OpenAiChatCompletions)
+        }
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum AuthScheme {
     Bearer,
@@ -375,6 +435,130 @@ impl AiStudioPreparedRequest {
                 model: Some(value.body.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
             }),
+            _ => Err(UpstreamError::UnsupportedRequest),
+        }
+    }
+
+    fn from_payload(
+        operation: OperationFamily,
+        protocol: ProtocolKind,
+        body: &[u8],
+    ) -> Result<Self, UpstreamError> {
+        fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        }
+
+        fn parse_gemini_payload_wrapper(
+            payload: &[u8],
+        ) -> Result<(String, Value, Option<String>), UpstreamError> {
+            let value = serde_json::from_slice::<Value>(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            let Some(model) = value
+                .pointer("/path/model")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+            else {
+                return Err(UpstreamError::SerializeRequest(
+                    "missing path.model in Gemini payload".to_string(),
+                ));
+            };
+            let Some(body_value) = value.get("body").cloned() else {
+                return Err(UpstreamError::SerializeRequest(
+                    "missing body in Gemini payload".to_string(),
+                ));
+            };
+            let alt = value
+                .pointer("/query/alt")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            Ok((model, body_value, alt))
+        }
+
+        match (operation, protocol) {
+            (OperationFamily::CountToken, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model = normalize_gemini_model_name(model.as_str());
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: format!("/v1beta/{model}:countTokens"),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model = normalize_gemini_model_name(model.as_str());
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: format!("/v1beta/{model}:generateContent"),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                })
+            }
+            (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let model = normalize_gemini_model_name(model.as_str());
+                let query = match protocol {
+                    ProtocolKind::Gemini => {
+                        Some(format!("alt={}", alt.unwrap_or_else(|| "sse".to_string())))
+                    }
+                    ProtocolKind::GeminiNDJson => alt.map(|value| format!("alt={value}")),
+                    _ => None,
+                };
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: format!("/v1beta/{model}:streamGenerateContent"),
+                    query,
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                })
+            }
+            (OperationFamily::Embedding, ProtocolKind::Gemini) => {
+                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let model = normalize_gemini_model_name(model.as_str());
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: format!("/v1beta/{model}:embedContent"),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                })
+            }
+            (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    path: "/v1beta/openai/chat/completions".to_string(),
+                    query: None,
+                    body: Some(body.to_vec()),
+                    model: serde_json::from_slice::<Value>(body)
+                        .ok()
+                        .and_then(|value| json_pointer_string(&value, "/model")),
+                    auth_scheme: AuthScheme::Bearer,
+                })
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }

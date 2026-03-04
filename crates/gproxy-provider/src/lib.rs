@@ -36,7 +36,9 @@ pub use facade::{
     normalize_upstream_response_body_for_channel,
     normalize_upstream_stream_ndjson_chunk_for_channel, try_local_response_for_channel,
 };
-pub use provider::{ProviderDefinition, ProviderRegistry, TokenizerResolutionContext};
+pub use provider::{
+    ProviderDefinition, ProviderRegistry, RetryWithPayloadRequest, TokenizerResolutionContext,
+};
 pub use settings::{
     CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,
