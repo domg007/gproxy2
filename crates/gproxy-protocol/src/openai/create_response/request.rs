@@ -179,5 +179,6 @@ mod tests {
 
         let encoded = serde_json::to_value(body).expect("request body should serialize");
         assert!(encoded["input"][1].get("id").is_none());
+        assert!(encoded["input"][4].get("id").is_none());
     }
 }

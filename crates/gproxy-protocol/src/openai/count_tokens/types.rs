@@ -186,7 +186,7 @@ pub enum ResponseItemStatus {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseOutputMessage {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
     pub content: Vec<ResponseOutputContent>,
     pub role: ResponseOutputMessageRole,
