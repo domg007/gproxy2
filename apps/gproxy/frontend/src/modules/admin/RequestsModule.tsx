@@ -939,7 +939,7 @@ export function RequestsModule({
               if (kind === "upstream") {
                 const upstreamRow = row as UpstreamRequestQueryRow;
                 return {
-                  [traceIdColumn]: row.trace_id,
+                  [traceIdColumn]: upstreamRow.downstream_trace_id ?? row.trace_id,
                   [atColumn]: formatAtForViewer(row.at),
                   [statusColumn]: row.response_status ?? "",
                   [requestPathColumn]: upstreamRow.request_url ?? "",

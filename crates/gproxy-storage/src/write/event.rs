@@ -84,6 +84,7 @@ pub struct UserKeyWrite {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownstreamRequestWrite {
+    pub trace_id: i64,
     pub at_unix_ms: i64,
     pub internal: bool,
     pub user_id: Option<i64>,
@@ -100,6 +101,7 @@ pub struct DownstreamRequestWrite {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamRequestWrite {
+    pub downstream_trace_id: Option<i64>,
     pub at_unix_ms: i64,
     pub internal: bool,
     pub provider_id: Option<i64>,
@@ -115,6 +117,7 @@ pub struct UpstreamRequestWrite {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageWrite {
+    pub downstream_trace_id: Option<i64>,
     pub at_unix_ms: i64,
     pub provider_id: Option<i64>,
     pub credential_id: Option<i64>,

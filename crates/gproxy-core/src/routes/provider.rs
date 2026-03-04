@@ -106,6 +106,7 @@ pub(super) fn has_gemini_model_auth(headers: &HeaderMap, raw_query: Option<&str>
 struct RequestAuthContext {
     user_id: i64,
     user_key_id: i64,
+    downstream_trace_id: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -181,6 +182,7 @@ impl UpstreamStreamRecordGuard {
             if context.record_upstream_event {
                 enqueue_upstream_request_event_from_meta(
                     context.state.as_ref(),
+                    context.auth.downstream_trace_id,
                     context.provider_id,
                     context.credential_id,
                     context.request_meta.as_ref(),
@@ -219,6 +221,7 @@ impl Drop for UpstreamStreamRecordGuard {
             if context.record_upstream_event {
                 enqueue_upstream_request_event_from_meta(
                     context.state.as_ref(),
+                    context.auth.downstream_trace_id,
                     context.provider_id,
                     context.credential_id,
                     context.request_meta.as_ref(),

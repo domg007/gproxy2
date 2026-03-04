@@ -21,6 +21,7 @@ pub struct UpstreamRequestQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpstreamRequestQueryRow {
     pub trace_id: i64,
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub internal: bool,
     pub provider_id: Option<i64>,

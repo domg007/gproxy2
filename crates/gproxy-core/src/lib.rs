@@ -5,6 +5,8 @@ pub mod http_clients;
 pub mod routes;
 pub mod upstream_http;
 
+pub const INTERNAL_DOWNSTREAM_TRACE_ID_HEADER: &str = "x-gproxy-downstream-trace-id";
+
 pub use app_state::{
     AppState, AppStateInit, GlobalSettings, RuntimeConfigSnapshot, normalize_update_source,
 };

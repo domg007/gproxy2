@@ -7,6 +7,7 @@ use gproxy_protocol::claude::types::{AnthropicBeta, AnthropicVersion};
 use gproxy_provider::{ChannelId, ProviderDefinition, parse_query_value};
 
 use crate::AppState;
+use crate::INTERNAL_DOWNSTREAM_TRACE_ID_HEADER;
 
 use super::{
     AUTHORIZATION, CLAUDE_ANTHROPIC_BETA_HEADER, CLAUDE_ANTHROPIC_VERSION_HEADER, HttpError,
@@ -49,6 +50,11 @@ fn extract_provider_api_key(headers: &HeaderMap) -> Option<&str> {
         .or_else(|| authorization.strip_prefix("bearer "))
 }
 
+fn parse_downstream_trace_id(headers: &HeaderMap) -> Option<i64> {
+    header_value(headers, INTERNAL_DOWNSTREAM_TRACE_ID_HEADER)
+        .and_then(|raw| raw.parse::<i64>().ok())
+}
+
 pub(super) fn authorize_provider_access(
     headers: &HeaderMap,
     state: &AppState,
@@ -59,6 +65,7 @@ pub(super) fn authorize_provider_access(
         return Ok(RequestAuthContext {
             user_id: key.user_id,
             user_key_id: key.id,
+            downstream_trace_id: parse_downstream_trace_id(headers),
         });
     }
 
@@ -83,6 +90,7 @@ pub(super) fn resolve_provider(
 pub(super) fn collect_headers(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
+        .filter(|(name, _)| !name.as_str().eq_ignore_ascii_case(INTERNAL_DOWNSTREAM_TRACE_ID_HEADER))
         .filter_map(|(name, value)| {
             value
                 .to_str()

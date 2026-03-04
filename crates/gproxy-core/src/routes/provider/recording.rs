@@ -683,6 +683,7 @@ pub(super) async fn enqueue_stream_usage_event_with_estimate(
     }
 
     let usage_event = UsageWrite {
+        downstream_trace_id: context.auth.downstream_trace_id,
         at_unix_ms: now_unix_ms_i64(),
         provider_id: context.provider_id,
         credential_id: context.credential_id,
@@ -833,6 +834,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     };
     if let Some(meta) = request_meta {
         let upstream_event = UpstreamRequestWrite {
+            downstream_trace_id: auth.downstream_trace_id,
             at_unix_ms: now_unix_ms,
             internal: false,
             provider_id,
@@ -881,6 +883,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     }
 
     let usage_event = UsageWrite {
+        downstream_trace_id: auth.downstream_trace_id,
         at_unix_ms: now_unix_ms,
         provider_id,
         credential_id,
@@ -906,6 +909,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
 
 pub(super) async fn enqueue_upstream_request_event_from_meta(
     state: &AppState,
+    downstream_trace_id: Option<i64>,
     provider_id: Option<i64>,
     credential_id: Option<i64>,
     request_meta: Option<&UpstreamRequestMeta>,
@@ -918,6 +922,7 @@ pub(super) async fn enqueue_upstream_request_event_from_meta(
     };
     let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
     let upstream_event = UpstreamRequestWrite {
+        downstream_trace_id,
         at_unix_ms: now_unix_ms_i64(),
         internal: false,
         provider_id,
@@ -948,6 +953,7 @@ pub(super) async fn enqueue_upstream_request_event_from_meta(
 
 pub(super) async fn enqueue_internal_tracked_http_events(
     state: &AppState,
+    downstream_trace_id: Option<i64>,
     provider_id: Option<i64>,
     credential_id: Option<i64>,
     events: &[TrackedHttpEvent],
@@ -964,6 +970,7 @@ pub(super) async fn enqueue_internal_tracked_http_events(
             continue;
         }
         let upstream_event = UpstreamRequestWrite {
+            downstream_trace_id,
             at_unix_ms: now_unix_ms_i64(),
             internal: true,
             provider_id,

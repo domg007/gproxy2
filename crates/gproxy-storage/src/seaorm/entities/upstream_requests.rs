@@ -8,6 +8,8 @@ pub struct Model {
     /// Upstream request trace id (local i64 sequence).
     #[sea_orm(primary_key, auto_increment = true)]
     pub trace_id: i64,
+    /// Correlates with downstream_requests.trace_id generated at ingress.
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub internal: bool,
     pub provider_id: Option<i64>,

@@ -405,7 +405,7 @@ export function MyUsageModule({
           <Table
             columns={tableColumns}
             rows={rows.map((row) => ({
-              [tableColumns[0]]: row.trace_id,
+              [tableColumns[0]]: row.downstream_trace_id ?? row.trace_id,
               [tableColumns[1]]: row.provider_channel ?? "",
               [tableColumns[2]]: row.model ?? "",
               [tableColumns[3]]: row.input_tokens ?? "",

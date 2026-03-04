@@ -6,11 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::body::{Body, Bytes};
 use axum::extract::Request;
 use axum::extract::State;
+use axum::http::header::{HeaderName, HeaderValue};
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
 use futures_util::StreamExt;
-use gproxy_core::AppState;
+use gproxy_core::{AppState, INTERNAL_DOWNSTREAM_TRACE_ID_HEADER};
 use gproxy_storage::{DownstreamRequestWrite, StorageWriteEvent};
 
 const X_API_KEY: &str = "x-api-key";
@@ -18,6 +19,7 @@ const BODY_CAPTURE_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 struct DownstreamRequestEventBase {
+    trace_id: i64,
     at_unix_ms: i64,
     internal: bool,
     user_id: Option<i64>,
@@ -34,6 +36,7 @@ struct DownstreamRequestEventBase {
 impl DownstreamRequestEventBase {
     fn build_event(self, response_body: Option<Vec<u8>>) -> DownstreamRequestWrite {
         DownstreamRequestWrite {
+            trace_id: self.trace_id,
             at_unix_ms: self.at_unix_ms,
             internal: self.internal,
             user_id: self.user_id,
@@ -208,7 +211,13 @@ pub async fn middleware(
     } else {
         (!request_body_bytes.is_empty()).then(|| request_body_bytes.to_vec())
     };
-    let request = Request::from_parts(request_parts, Body::from(request_body_bytes));
+    let mut request = Request::from_parts(request_parts, Body::from(request_body_bytes));
+    if let Ok(value) = HeaderValue::from_str(trace_id.to_string().as_str()) {
+        request.headers_mut().insert(
+            HeaderName::from_static(INTERNAL_DOWNSTREAM_TRACE_ID_HEADER),
+            value,
+        );
+    }
 
     let authenticated = request
         .headers()
@@ -234,6 +243,7 @@ pub async fn middleware(
         })
         .unwrap_or(false);
     let event_base = DownstreamRequestEventBase {
+        trace_id,
         at_unix_ms,
         internal,
         user_id,

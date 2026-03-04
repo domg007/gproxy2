@@ -8,6 +8,8 @@ pub struct Model {
     /// One usage record per upstream trace.
     #[sea_orm(primary_key, auto_increment = true)]
     pub trace_id: i64,
+    /// Correlates with downstream_requests.trace_id generated at ingress.
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub provider_id: Option<i64>,
     pub credential_id: Option<i64>,

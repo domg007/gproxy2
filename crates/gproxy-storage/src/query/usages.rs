@@ -18,6 +18,7 @@ pub struct UsageQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UsageQueryRow {
     pub trace_id: i64,
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub provider_id: Option<i64>,
     pub provider_channel: Option<String>,

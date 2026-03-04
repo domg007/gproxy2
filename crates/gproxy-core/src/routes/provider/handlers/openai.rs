@@ -44,7 +44,7 @@ pub(in crate::routes::provider) async fn oauth_start(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    authorize_provider_access(&headers, &state)?;
+    let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
     let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
@@ -66,6 +66,7 @@ pub(in crate::routes::provider) async fn oauth_start(
             let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 None,
                 tracked_http_events.as_slice(),
@@ -75,6 +76,7 @@ pub(in crate::routes::provider) async fn oauth_start(
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 None,
                 err_request_meta.as_ref(),
@@ -88,6 +90,7 @@ pub(in crate::routes::provider) async fn oauth_start(
     };
     enqueue_upstream_request_event_from_meta(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         None,
         response.request_meta.as_ref(),
@@ -98,6 +101,7 @@ pub(in crate::routes::provider) async fn oauth_start(
     .await;
     enqueue_internal_tracked_http_events(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         None,
         tracked_http_events.as_slice(),
@@ -113,7 +117,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    authorize_provider_access(&headers, &state)?;
+    let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
     let http = if matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode)) {
@@ -137,6 +141,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
             let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 None,
                 tracked_http_events.as_slice(),
@@ -146,6 +151,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 None,
                 err_request_meta.as_ref(),
@@ -184,6 +190,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
     }
     enqueue_upstream_request_event_from_meta(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         resolved_credential_id,
         result.response.request_meta.as_ref(),
@@ -194,6 +201,7 @@ pub(in crate::routes::provider) async fn oauth_callback(
     .await;
     enqueue_internal_tracked_http_events(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         resolved_credential_id,
         tracked_http_events.as_slice(),
@@ -213,7 +221,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    authorize_provider_access(&headers, &state)?;
+    let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let provider_id = resolve_provider_id(&state, &channel).await.ok();
     let http = state.load_http();
@@ -239,6 +247,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
             let err_request_meta = upstream_error_request_meta(&err);
             enqueue_internal_tracked_http_events(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 credential_id,
                 tracked_http_events.as_slice(),
@@ -248,6 +257,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
             let err_status = upstream_error_status(&err);
             enqueue_upstream_request_event_from_meta(
                 state.as_ref(),
+                auth.downstream_trace_id,
                 provider_id,
                 credential_id,
                 err_request_meta.as_ref(),
@@ -278,6 +288,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
         .map_err(HttpError::from)?;
     enqueue_upstream_request_event_from_meta(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         upstream_credential_id,
         upstream_request_meta.as_ref(),
@@ -288,6 +299,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
     .await;
     enqueue_internal_tracked_http_events(
         state.as_ref(),
+        auth.downstream_trace_id,
         provider_id,
         upstream_credential_id.or(credential_id),
         tracked_http_events.as_slice(),

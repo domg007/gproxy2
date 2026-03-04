@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "downstream_requests")]
 pub struct Model {
-    /// Downstream request trace id (local i64 sequence).
+    /// Downstream request trace id generated at ingress.
     #[sea_orm(primary_key, auto_increment = true)]
     pub trace_id: i64,
     pub at: OffsetDateTime,

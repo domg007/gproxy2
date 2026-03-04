@@ -703,6 +703,7 @@ pub(super) async fn execute_transform_request(
             if !dispatch_local {
                 enqueue_internal_tracked_http_events(
                     state.as_ref(),
+                    auth.downstream_trace_id,
                     provider_id,
                     err_credential_id,
                     tracked_http_events.as_slice(),
@@ -734,6 +735,7 @@ pub(super) async fn execute_transform_request(
     if !dispatch_local {
         enqueue_internal_tracked_http_events(
             state.as_ref(),
+            auth.downstream_trace_id,
             provider_id,
             upstream_credential_id,
             tracked_http_events.as_slice(),

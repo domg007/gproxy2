@@ -418,7 +418,7 @@ async fn upsert_downstream_requests<C: ConnectionTrait>(
         })?;
 
         models.push(downstream_requests::ActiveModel {
-            trace_id: NotSet,
+            trace_id: Set(item.trace_id),
             at: Set(at),
             internal: Set(item.internal),
             user_id: Set(item.user_id),
@@ -470,6 +470,7 @@ async fn upsert_upstream_requests<C: ConnectionTrait>(
 
         models.push(upstream_requests::ActiveModel {
             trace_id: NotSet,
+            downstream_trace_id: Set(item.downstream_trace_id),
             at: Set(at),
             internal: Set(item.internal),
             provider_id: Set(item.provider_id),
@@ -513,6 +514,7 @@ async fn upsert_usages<C: ConnectionTrait>(
         })?;
         models.push(usages::ActiveModel {
             trace_id: NotSet,
+            downstream_trace_id: Set(item.downstream_trace_id),
             at: Set(at),
             provider_id: Set(item.provider_id),
             credential_id: Set(item.credential_id),

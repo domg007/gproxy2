@@ -252,6 +252,7 @@ impl SeaOrmStorage {
                 .into_iter()
                 .map(|row| UpstreamRequestQueryRow {
                     trace_id: row.trace_id,
+                    downstream_trace_id: row.downstream_trace_id,
                     at: row.at,
                     internal: row.internal,
                     provider_id: row.provider_id,
@@ -271,6 +272,7 @@ impl SeaOrmStorage {
         let mut stmt = upstream_requests::Entity::find()
             .select_only()
             .column(upstream_requests::Column::TraceId)
+            .column(upstream_requests::Column::DownstreamTraceId)
             .column(upstream_requests::Column::At)
             .column(upstream_requests::Column::Internal)
             .column(upstream_requests::Column::ProviderId)
@@ -400,6 +402,7 @@ impl SeaOrmStorage {
             .join(JoinType::LeftJoin, usages::Relation::Providers.def())
             .select_only()
             .column(usages::Column::TraceId)
+            .column(usages::Column::DownstreamTraceId)
             .column(usages::Column::At)
             .column(usages::Column::ProviderId)
             .column_as(providers::Column::Channel, "provider_channel")
@@ -595,6 +598,7 @@ where
 #[derive(Debug, Clone, FromQueryResult)]
 struct UpstreamRequestQueryRowNoBodyModel {
     pub trace_id: i64,
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub internal: bool,
     pub provider_id: Option<i64>,
@@ -611,6 +615,7 @@ impl From<UpstreamRequestQueryRowNoBodyModel> for UpstreamRequestQueryRow {
     fn from(value: UpstreamRequestQueryRowNoBodyModel) -> Self {
         Self {
             trace_id: value.trace_id,
+            downstream_trace_id: value.downstream_trace_id,
             at: value.at,
             internal: value.internal,
             provider_id: value.provider_id,
@@ -667,6 +672,7 @@ impl From<DownstreamRequestQueryRowNoBodyModel> for DownstreamRequestQueryRow {
 #[derive(Debug, Clone, FromQueryResult)]
 struct UsageQueryRowModel {
     pub trace_id: i64,
+    pub downstream_trace_id: Option<i64>,
     pub at: OffsetDateTime,
     pub provider_id: Option<i64>,
     pub provider_channel: Option<String>,
@@ -688,6 +694,7 @@ impl From<UsageQueryRowModel> for UsageQueryRow {
     fn from(value: UsageQueryRowModel) -> Self {
         Self {
             trace_id: value.trace_id,
+            downstream_trace_id: value.downstream_trace_id,
             at: value.at,
             provider_id: value.provider_id,
             provider_channel: value.provider_channel,
