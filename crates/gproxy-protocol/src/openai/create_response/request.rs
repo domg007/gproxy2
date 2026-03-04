@@ -181,4 +181,23 @@ mod tests {
         assert!(encoded["input"][1].get("id").is_none());
         assert!(encoded["input"][4].get("id").is_none());
     }
+
+    #[test]
+    fn request_body_preserves_empty_reasoning_summary() {
+        let value = json!({
+            "model": "gpt-5.3-codex",
+            "input": [
+                {
+                    "type": "reasoning",
+                    "summary": [],
+                    "encrypted_content": "abc"
+                }
+            ]
+        });
+
+        let body: RequestBody = serde_json::from_value(value).expect("request body should parse");
+        let encoded = serde_json::to_value(body).expect("request body should serialize");
+        assert!(encoded["input"][0].get("summary").is_some());
+        assert_eq!(encoded["input"][0]["summary"], json!([]));
+    }
 }
