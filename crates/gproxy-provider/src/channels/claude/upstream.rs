@@ -1,8 +1,7 @@
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::cache_control::{
-    CacheBreakpointRule, apply_magic_string_cache_control_triggers,
-    ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
@@ -12,9 +11,9 @@ use crate::channels::retry::{
 use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
-    claude_model_to_string,
-    default_gproxy_user_agent, is_auth_failure, is_transient_server_failure,
-    join_base_url_and_path, resolve_user_agent_or_else, retry_after_to_millis, to_wreq_method,
+    claude_model_to_string, default_gproxy_user_agent, is_auth_failure,
+    is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
+    retry_after_to_millis, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
@@ -235,7 +234,8 @@ impl ClaudePreparedRequest {
                     path.push('?');
                     path.push_str(&query);
                 }
-                path = append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
+                path =
+                    append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path,

@@ -7,7 +7,7 @@ fn default_spoof_emulation() -> String {
 }
 
 fn default_update_source() -> String {
-    "international".to_string()
+    "github".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -11,8 +11,8 @@ host = "127.0.0.1"
 port = 8787
 # Empty string means no proxy.
 proxy = ""
-# Self-update source: international|china.
-update_source = "international"
+# Self-update source: github|web-hosted.
+update_source = "github"
 # Optional HuggingFace token for tokenizer download.
 hf_token = ""
 # Default HF endpoint.

@@ -1,9 +1,9 @@
 use crate::channel::{BuiltinChannel, ChannelId};
+use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 use crate::channels::{
     BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
     openai, retry::CredentialPickMode, vertexexpress,
 };
-use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
 pub const CREDENTIAL_ROUND_ROBIN_ENABLED_KEY: &str = "credential_round_robin_enabled";
@@ -176,7 +176,8 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
 
     match settings {
         ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
-            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints) {
+            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints)
+            {
                 root.insert("cache_breakpoints".to_string(), rules);
             }
         }
@@ -252,7 +253,8 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
-            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints) {
+            if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints)
+            {
                 root.insert("cache_breakpoints".to_string(), rules);
             }
         }
@@ -443,8 +445,8 @@ mod tests {
 
     #[test]
     fn serialize_claude_settings_includes_cache_breakpoints() {
-        let settings = ChannelSettings::Builtin(BuiltinChannelSettings::Claude(
-            claude::ClaudeSettings {
+        let settings =
+            ChannelSettings::Builtin(BuiltinChannelSettings::Claude(claude::ClaudeSettings {
                 cache_breakpoints: vec![
                     CacheBreakpointRule {
                         target: CacheBreakpointTarget::TopLevel,
@@ -460,8 +462,7 @@ mod tests {
                     },
                 ],
                 ..Default::default()
-            },
-        ));
+            }));
 
         let value = provider_settings_to_json_value_with_credential_pick_mode(
             &settings,

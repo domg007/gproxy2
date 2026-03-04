@@ -10,8 +10,7 @@ use super::oauth::{
     resolve_claudecode_access_token,
 };
 use crate::channels::cache_control::{
-    CacheBreakpointRule, apply_magic_string_cache_control_triggers,
-    ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,
@@ -942,7 +941,8 @@ impl ClaudeCodePreparedRequest {
                     path.push('?');
                     path.push_str(&query);
                 }
-                path = append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
+                path =
+                    append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
 
                 let mut request_headers = anthropic_header_pairs(
                     &value.headers.anthropic_version,
@@ -1314,7 +1314,6 @@ fn should_expand_claudecode_model_list(
         && (url.contains("/v1/models?") || url.ends_with("/v1/models"))
         && !url.contains("/v1/models/")
 }
-
 
 fn requires_claudecode_sampling_guard(model: &str) -> bool {
     let lower = model.to_ascii_lowercase();

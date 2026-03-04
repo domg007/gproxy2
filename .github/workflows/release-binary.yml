@@ -55,6 +55,9 @@ jobs:
     name: Build (${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.libc || 'std' }})
     needs: build-frontend
     runs-on: ${{ matrix.runner }}
+    env:
+      GPROXY_UPDATE_SIGN_KEY_ID: ${{ secrets.UPDATE_SIGNING_KEY_ID != '' && secrets.UPDATE_SIGNING_KEY_ID || 'gproxy-release-v1' }}
+      GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
     defaults:
       run:
         shell: bash
@@ -120,6 +123,14 @@ jobs:
         with:
           name: frontend-dist
           path: apps/gproxy/frontend/dist
+
+      - name: Validate update signing build settings
+        run: |
+          set -euo pipefail
+          test -n "${GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64}" || {
+            echo "missing repo secret: UPDATE_SIGNING_PUBLIC_KEY_B64" >&2
+            exit 1
+          }
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -305,10 +316,105 @@ jobs:
             *.zip.sha256
           overwrite_files: true
 
+  sign-release-assets:
+    name: Sign release checksums
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-asset-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate signing settings
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
+          UPDATE_SIGNING_PUBLIC_KEY_B64: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${UPDATE_SIGNING_PRIVATE_KEY_B64}" || {
+            echo "missing repo secret: UPDATE_SIGNING_PRIVATE_KEY_B64" >&2
+            exit 1
+          }
+          test -n "${UPDATE_SIGNING_PUBLIC_KEY_B64}" || {
+            echo "missing repo secret: UPDATE_SIGNING_PUBLIC_KEY_B64" >&2
+            exit 1
+          }
+
+      - name: Sign checksum files
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
+          UPDATE_SIGNING_PUBLIC_KEY_B64: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p .signing
+          printf '%s' "${UPDATE_SIGNING_PRIVATE_KEY_B64}" | base64 --decode > .signing/update-signing-private.pem
+          chmod 600 .signing/update-signing-private.pem
+
+          derived_public_key_b64="$(openssl pkey -in .signing/update-signing-private.pem -pubout -outform DER | tail -c 32 | base64 -w0)"
+          if [ "${derived_public_key_b64}" != "${UPDATE_SIGNING_PUBLIC_KEY_B64}" ]; then
+            echo "update signing public key mismatch between private and configured public key" >&2
+            exit 1
+          fi
+
+          files=(dist/*.zip.sha256)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no checksum files found for signing" >&2
+            exit 1
+          fi
+
+          for checksum in "${files[@]}"; do
+            sig_bin="${checksum}.sig.bin"
+            sig_txt="${checksum}.sig"
+            openssl pkeyutl -sign -rawin \
+              -inkey .signing/update-signing-private.pem \
+              -in "$checksum" \
+              -out "$sig_bin"
+            base64 -w0 "$sig_bin" > "$sig_txt"
+            printf '\n' >> "$sig_txt"
+            rm -f "$sig_bin"
+          done
+
+          rm -f .signing/update-signing-private.pem
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-assets
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            dist/*.zip.sha256.sig
+          retention-days: 1
+
+  publish-release-signatures:
+    name: Upload release signatures
+    if: ${{ github.event_name == 'release' }}
+    needs: sign-release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download signed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release-assets
+          path: dist
+
+      - name: Upload checksum signatures to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip.sha256.sig
+          fail_on_unmatched_files: true
+          overwrite_files: true
+
   publish-staging-release:
     name: Publish staging prerelease
     if: ${{ github.event_name == 'push' || github.event_name == 'release' }}
-    needs: build
+    needs: sign-release-assets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -316,12 +422,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download packaged artifacts
+      - name: Download signed artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: release-asset-*
+          name: signed-release-assets
           path: dist
-          merge-multiple: true
 
       - name: Move staging tag to current commit
         run: |
@@ -343,23 +448,23 @@ jobs:
           files: |
             dist/*.zip
             dist/*.zip.sha256
+            dist/*.zip.sha256.sig
           fail_on_unmatched_files: true
           overwrite_files: true
 
   publish-binaries-s3:
     name: Publish binaries to S3-compatible storage
     if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
-    needs: build
+    needs: sign-release-assets
     runs-on: ubuntu-latest
     environment:
       name: s3
     steps:
-      - name: Download packaged artifacts
+      - name: Download signed artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: release-asset-*
+          name: signed-release-assets
           path: dist
-          merge-multiple: true
 
       - name: Resolve publish metadata
         shell: bash
@@ -415,7 +520,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(dist/*.zip dist/*.zip.sha256)
+          files=(dist/*.zip dist/*.zip.sha256 dist/*.zip.sha256.sig)
           if [ "${#files[@]}" -eq 0 ]; then
             echo "no files found to upload" >&2
             exit 1
@@ -450,6 +555,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
+          UPDATE_SIGNING_KEY_ID: ${{ secrets.UPDATE_SIGNING_KEY_ID != '' && secrets.UPDATE_SIGNING_KEY_ID || 'gproxy-release-v1' }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -463,6 +569,7 @@ jobs:
           bucket = os.environ["S3_BUCKET"]
           endpoint = os.environ["S3_ENDPOINT_URL"]
           public_base = os.environ["DOWNLOAD_PUBLIC_BASE_URL"].rstrip("/")
+          signing_key_id = os.environ["UPDATE_SIGNING_KEY_ID"].strip()
 
           def list_all_objects():
               objects = []
@@ -516,6 +623,8 @@ jobs:
               obj = by_key[key]
               sha_key = f"{key}.sha256"
               sha_url = f"{public_base}/{quote(sha_key, safe='/')}" if sha_key in by_key else None
+              sha_sig_key = f"{sha_key}.sig"
+              sha_sig_url = f"{public_base}/{quote(sha_sig_key, safe='/')}" if sha_sig_key in by_key else None
               encoded_key = quote(key, safe="/")
               url = f"{public_base}/{encoded_key}"
               name = key.rsplit("/", 1)[-1]
@@ -525,13 +634,23 @@ jobs:
                       "path": key,
                       "url": url,
                       "sha256_url": sha_url,
+                      "sha256_sig_url": sha_sig_url,
+                      "key_id": signing_key_id,
                       "size": obj.get("Size"),
                       "last_modified": obj.get("LastModified"),
                   }
               )
 
               if key.startswith("staging/"):
-                  staging_assets.append({"name": name, "url": url})
+                  staging_assets.append(
+                      {
+                          "name": name,
+                          "url": url,
+                          "sha256_url": sha_url,
+                          "sha256_sig_url": sha_sig_url,
+                          "key_id": signing_key_id,
+                      }
+                  )
                   continue
 
               if key.startswith("releases/"):
@@ -543,7 +662,15 @@ jobs:
                   continue
 
               if "/" not in key:
-                  release_assets.append({"name": name, "url": url})
+                  release_assets.append(
+                      {
+                          "name": name,
+                          "url": url,
+                          "sha256_url": sha_url,
+                          "sha256_sig_url": sha_sig_url,
+                          "key_id": signing_key_id,
+                      }
+                  )
 
           manifest = {
               "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -562,11 +689,13 @@ jobs:
           release_channel_manifest = {
               "tag": release_tag,
               "channel": "releases",
+              "key_id": signing_key_id,
               "assets": release_assets,
           }
           staging_channel_manifest = {
               "tag": "staging",
               "channel": "staging",
+              "key_id": signing_key_id,
               "assets": staging_assets,
           }
 

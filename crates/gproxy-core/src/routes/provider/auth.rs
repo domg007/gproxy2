@@ -90,7 +90,11 @@ pub(super) fn resolve_provider(
 pub(super) fn collect_headers(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .iter()
-        .filter(|(name, _)| !name.as_str().eq_ignore_ascii_case(INTERNAL_DOWNSTREAM_TRACE_ID_HEADER))
+        .filter(|(name, _)| {
+            !name
+                .as_str()
+                .eq_ignore_ascii_case(INTERNAL_DOWNSTREAM_TRACE_ID_HEADER)
+        })
         .filter_map(|(name, value)| {
             value
                 .to_str()

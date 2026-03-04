@@ -2,10 +2,8 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity,
-    cache_control::CacheBreakpointRule,
-    claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia, openai, vertex,
-    vertexexpress,
+    aistudio, antigravity, cache_control::CacheBreakpointRule, claude, claudecode, codex, custom,
+    deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

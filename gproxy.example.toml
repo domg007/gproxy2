@@ -11,7 +11,7 @@
 host = "127.0.0.1"
 port = 8787
 proxy = ""
-update_source = "international"
+update_source = "github"
 admin_key = ""
 mask_sensitive_info = true
 data_dir = "./data"

@@ -165,7 +165,13 @@ pub fn parse_cache_breakpoint_rules(value: Option<&Value>) -> Vec<CacheBreakpoin
 
 fn parse_cache_breakpoint_rule(item: &Value) -> Option<CacheBreakpointRule> {
     let obj = item.as_object()?;
-    let target = match obj.get("target").and_then(Value::as_str)?.trim().to_ascii_lowercase().as_str() {
+    let target = match obj
+        .get("target")
+        .and_then(Value::as_str)?
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "global" | "top_level" => CacheBreakpointTarget::TopLevel,
         "tools" => CacheBreakpointTarget::Tools,
         "system" => CacheBreakpointTarget::System,
@@ -279,7 +285,10 @@ fn apply_cache_breakpoint_rule(
                 return;
             };
             if !map.contains_key("cache_control") {
-                map.insert("cache_control".to_string(), cache_control_ephemeral(rule.ttl));
+                map.insert(
+                    "cache_control".to_string(),
+                    cache_control_ephemeral(rule.ttl),
+                );
                 *remaining_slots = remaining_slots.saturating_sub(1);
             }
         }
@@ -292,7 +301,10 @@ fn apply_cache_breakpoint_rule(
                     return;
                 };
                 if !map.contains_key("cache_control") {
-                    map.insert("cache_control".to_string(), cache_control_ephemeral(rule.ttl));
+                    map.insert(
+                        "cache_control".to_string(),
+                        cache_control_ephemeral(rule.ttl),
+                    );
                     *remaining_slots = remaining_slots.saturating_sub(1);
                 }
             }
@@ -301,7 +313,10 @@ fn apply_cache_breakpoint_rule(
                     return;
                 }
                 if !map.contains_key("cache_control") {
-                    map.insert("cache_control".to_string(), cache_control_ephemeral(rule.ttl));
+                    map.insert(
+                        "cache_control".to_string(),
+                        cache_control_ephemeral(rule.ttl),
+                    );
                     *remaining_slots = remaining_slots.saturating_sub(1);
                 }
             }
@@ -452,9 +467,9 @@ fn existing_cache_breakpoint_count(root: &serde_json::Map<String, Value>) -> usi
 #[cfg(test)]
 mod tests {
     use super::{
-        CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
-        apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
-        parse_cache_breakpoint_rules,
+        CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget,
+        CacheBreakpointTtl, apply_magic_string_cache_control_triggers,
+        ensure_cache_breakpoint_rules, parse_cache_breakpoint_rules,
     };
     use serde_json::json;
 
@@ -500,7 +515,10 @@ mod tests {
         ensure_cache_breakpoint_rules(&mut body, &rules);
         assert_eq!(body["cache_control"]["type"], json!("ephemeral"));
         assert_eq!(body["cache_control"]["ttl"], json!(null));
-        assert_eq!(body["messages"][1]["content"][0]["cache_control"]["ttl"], json!("1h"));
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["ttl"],
+            json!("1h")
+        );
     }
 
     #[test]
@@ -547,8 +565,14 @@ mod tests {
         ensure_cache_breakpoint_rules(&mut body, &rules);
 
         assert_eq!(body["system"][1]["cache_control"]["ttl"], json!("5m"));
-        assert_eq!(body["messages"][1]["content"][0]["cache_control"], json!(null));
-        assert_eq!(body["messages"][2]["content"][0]["cache_control"], json!(null));
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"],
+            json!(null)
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"],
+            json!(null)
+        );
     }
 
     #[test]
@@ -595,10 +619,19 @@ mod tests {
         assert!(!system_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
         assert!(!message_5m_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
         assert!(!message_1h_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
-        assert_eq!(body["system"][0]["cache_control"]["type"], json!("ephemeral"));
+        assert_eq!(
+            body["system"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
         assert_eq!(body["system"][0]["cache_control"]["ttl"], json!(null));
-        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["ttl"], json!("5m"));
-        assert_eq!(body["messages"][1]["content"][0]["cache_control"]["ttl"], json!("1h"));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["ttl"],
+            json!("1h")
+        );
     }
 
     #[test]
@@ -620,7 +653,10 @@ mod tests {
 
         apply_magic_string_cache_control_triggers(&mut body);
 
-        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
         assert_eq!(body["messages"][0]["content"][0]["text"], json!(""));
     }
 
@@ -682,7 +718,13 @@ mod tests {
 
         assert!(!message_5m_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
         assert!(!message_1h_text.contains("GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_"));
-        assert_eq!(body["messages"][1]["content"][0]["cache_control"]["ttl"], json!("5m"));
-        assert_eq!(body["messages"][2]["content"][0]["cache_control"], json!(null));
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"],
+            json!(null)
+        );
     }
 }

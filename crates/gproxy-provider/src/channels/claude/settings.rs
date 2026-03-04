@@ -2,9 +2,7 @@ pub use super::constants::DEFAULT_BASE_URL;
 
 use serde::{Deserialize, Serialize};
 
-use crate::channels::cache_control::{
-    CacheBreakpointRule, parse_cache_breakpoint_rules,
-};
+use crate::channels::cache_control::{CacheBreakpointRule, parse_cache_breakpoint_rules};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeSettings {
