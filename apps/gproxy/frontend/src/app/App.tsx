@@ -33,17 +33,9 @@ const DEFAULT_UPDATE_CHANNEL = "releases";
 const THEME_FAB_SIZE_PX = 48;
 const THEME_FAB_MARGIN_PX = 12;
 
-const ADMIN_NAV_IDS = [
-  "global-settings",
-  "providers",
-  "users",
-  "requests",
-  "usage",
-  "about"
-] as const;
 const USER_NAV_IDS = ["my-keys", "my-usage", "about"] as const;
 
-type AdminNavId = (typeof ADMIN_NAV_IDS)[number];
+type AdminNavId = "global-settings" | "providers" | "users" | "requests" | "usage" | "about";
 type UserNavId = (typeof USER_NAV_IDS)[number];
 
 type LoginResponse = {

@@ -141,7 +141,7 @@ export function parseDateTimeLocalToUnixMs(value: string): number | null {
   // Preferred manual format: YYYY-MM-DD HH:mm (also accepts '/' and 'T', and HH-mm).
   const normalized = raw.replaceAll("/", "-");
   const manual = normalized.match(
-    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})[:\-](\d{1,2}))?$/
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})[:-](\d{1,2}))?$/
   );
   if (manual) {
     const year = Number(manual[1]);
