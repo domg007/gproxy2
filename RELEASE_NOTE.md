@@ -1,5 +1,34 @@
 # Release Notes
 
+## v0.3.21
+
+### Added
+
+- Added graceful shutdown handling in app runtime:
+  - server now listens for `Ctrl+C` and `SIGTERM`
+  - `axum::serve` now exits via `with_graceful_shutdown(...)` instead of abrupt process termination.
+- Added cross-log trace correlation for provider traffic:
+  - downstream ingress `trace_id` is propagated internally and persisted as `downstream_trace_id` in upstream request logs and usage logs
+  - admin/user usage and request tables now prefer correlated downstream trace ids when available.
+
+### Changed
+
+- Updated cache-affinity TTL parsing for Claude explicit breakpoints:
+  - explicit `ttl: "5m"` now correctly maps to `5m` affinity TTL
+  - explicit breakpoints without `ttl` continue to use `1h`.
+- Updated admin request log UX:
+  - added a body-capture hint banner explaining that request/response body persistence requires disabling `mask_sensitive_info` in Global Settings.
+- Updated locale switcher labels and cache-breakpoint editor styles:
+  - language toggle labels were normalized (`中文/EN`, `中/EN`)
+  - cache breakpoint panel/cards/slots now use theme-aware styles for better dark-mode readability.
+- Updated deployment docs/instructions:
+  - Docker quickstart now uses prebuilt image pull guidance and explicit `GPROXY_HOST=0.0.0.0` for container exposure.
+
+### Compatibility
+
+- Default host in config/examples is now `127.0.0.1` for local-safe defaults.
+- For containerized/public binding, continue to set `GPROXY_HOST=0.0.0.0`.
+
 ## v0.3.20
 
 ### Changed
@@ -22,6 +51,9 @@
   - `/admin/system/latest_release` and `/admin/system/self_update` now accept optional `update_channel` query (`releases` / `staging`)
   - Admin Global Settings adds a frontend-only `update_channel` selector and passes it via request query
   - no new backend global-settings field is introduced for update channel persistence.
+- Updated SeaORM 2 schema sync behavior in storage initialization:
+  - removed SQLite-specific handwritten runtime `ALTER TABLE` fallback for `downstream_trace_id`
+  - now relies on SeaORM 2 `schema.sync()` entity diff to auto-add missing columns on existing tables.
 
 ### Docs
 
