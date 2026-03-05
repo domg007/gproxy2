@@ -914,21 +914,21 @@ export function RequestsModule({
   const credentialIdColumn = t("field.credential_id");
   const methodColumn = t("table.method");
   const payloadColumn = t("table.payload");
-  const actionColumn = t("common.action");
+  const selectColumn = t("requests.clear.selectRow");
 
   const tableColumns =
     kind === "upstream"
       ? [
+          selectColumn,
           traceIdColumn,
           atColumn,
           statusColumn,
           requestPathColumn,
           credentialIdColumn,
           methodColumn,
-          payloadColumn,
-          actionColumn
+          payloadColumn
         ]
-      : [traceIdColumn, atColumn, statusColumn, requestPathColumn, methodColumn, payloadColumn, actionColumn];
+      : [selectColumn, traceIdColumn, atColumn, statusColumn, requestPathColumn, methodColumn, payloadColumn];
 
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
@@ -1018,27 +1018,27 @@ export function RequestsModule({
           />
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button onClick={runQuery} disabled={loadingRows || loadingCount || clearingPayload}>
-          {loadingRows || loadingCount ? t("common.loading") : t("common.query")}
-        </Button>
-        <span className="text-xs text-muted">
-          {t("requests.clear.selectedCount", { count: selectedTraceIds.length })}
-        </span>
-        <Button
-          variant="danger"
-          disabled={selectedTraceIds.length === 0 || clearingPayload}
-          onClick={() => void clearPayload(false)}
-        >
-          {t("requests.clear.selected")}
-        </Button>
-        <Button
-          variant="danger"
-          disabled={clearingPayload}
-          onClick={() => void clearPayload(true)}
-        >
-          {t("requests.clear.all")}
-        </Button>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button onClick={runQuery} disabled={loadingRows || loadingCount || clearingPayload}>
+            {loadingRows || loadingCount ? t("common.loading") : t("common.query")}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-xs text-muted">
+            {t("requests.clear.selectedCount", { count: selectedTraceIds.length })}
+          </span>
+          <Button
+            variant="danger"
+            disabled={selectedTraceIds.length === 0 || clearingPayload}
+            onClick={() => void clearPayload(false)}
+          >
+            {t("requests.clear.selected")}
+          </Button>
+          <Button variant="danger" disabled={clearingPayload} onClick={() => void clearPayload(true)}>
+            {t("requests.clear.all")}
+          </Button>
+        </div>
       </div>
       <div className="mt-4">
         <div className="query-result-table-wrap">
@@ -1057,39 +1057,42 @@ export function RequestsModule({
                 />
               );
               const selected = selectedTraceIds.includes(row.trace_id);
-              const actionCell = (
-                <Button
-                  variant={selected ? "danger" : "neutral"}
-                  disabled={clearingPayload}
-                  onClick={() => toggleTraceIdSelected(row.trace_id)}
-                >
-                  {selected ? t("requests.clear.unselectRow") : t("requests.clear.selectRow")}
-                </Button>
+              const selectCell = (
+                <label className="inline-flex cursor-pointer items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={clearingPayload}
+                    onChange={() => toggleTraceIdSelected(row.trace_id)}
+                    aria-label={selected ? t("requests.clear.unselectRow") : t("requests.clear.selectRow")}
+                    className="h-4 w-4"
+                  />
+                </label>
               );
 
               if (kind === "upstream") {
                 const upstreamRow = row as UpstreamRequestQueryRow;
                 return {
+                  [selectColumn]: selectCell,
                   [traceIdColumn]: upstreamRow.downstream_trace_id ?? row.trace_id,
                   [atColumn]: formatAtForViewer(row.at),
                   [statusColumn]: row.response_status ?? "",
                   [requestPathColumn]: upstreamRow.request_url ?? "",
                   [credentialIdColumn]: upstreamRow.credential_id ?? "",
                   [methodColumn]: row.request_method,
-                  [payloadColumn]: payloadCell,
-                  [actionColumn]: actionCell
+                  [payloadColumn]: payloadCell
                 };
               }
 
               const downstreamRow = row as DownstreamRequestQueryRow;
               return {
+                [selectColumn]: selectCell,
                 [traceIdColumn]: row.trace_id,
                 [atColumn]: formatAtForViewer(row.at),
                 [statusColumn]: row.response_status ?? "",
                 [requestPathColumn]: downstreamRow.request_path,
                 [methodColumn]: row.request_method,
-                [payloadColumn]: payloadCell,
-                [actionColumn]: actionCell
+                [payloadColumn]: payloadCell
               };
             })}
           />
