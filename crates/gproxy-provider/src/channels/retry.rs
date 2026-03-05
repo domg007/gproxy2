@@ -170,12 +170,23 @@ pub fn cache_affinity_hint_from_codex_transform_request(
     body: Option<&[u8]>,
 ) -> Option<CacheAffinityHint> {
     let protocol = cache_affinity_protocol_from_transform_request(request)?;
-    if matches!(protocol, CacheAffinityProtocol::OpenAiResponses)
-        && let Some(hint) = cache_affinity_hint_for_codex_openai_responses(body)
-    {
-        return Some(hint);
+    if matches!(protocol, CacheAffinityProtocol::OpenAiResponses) {
+        return cache_affinity_hint_from_codex_openai_response_body(model, body);
     }
     cache_affinity_hint_from_transform_request(protocol, model, body)
+}
+
+pub fn cache_affinity_hint_from_codex_openai_response_body(
+    model: Option<&str>,
+    body: Option<&[u8]>,
+) -> Option<CacheAffinityHint> {
+    cache_affinity_hint_for_codex_openai_responses(body).or_else(|| {
+        cache_affinity_hint_from_transform_request(
+            CacheAffinityProtocol::OpenAiResponses,
+            model,
+            body,
+        )
+    })
 }
 
 fn cache_affinity_hint_for_codex_openai_responses(
@@ -547,11 +558,11 @@ fn pick_candidate_index<Material>(
             let Some(credential_id) =
                 get_affinity_credential_id(candidate.scoped_key.as_str(), now_unix_ms)
             else {
-                break;
+                continue;
             };
 
             if !remaining_idx_by_credential.contains_key(&credential_id) {
-                break;
+                continue;
             }
 
             let score = score_by_credential.entry(credential_id).or_default();
@@ -1609,7 +1620,7 @@ mod tests {
     }
 
     #[test]
-    fn round_robin_with_cache_stops_scanning_after_first_miss() {
+    fn round_robin_with_cache_scans_candidates_after_miss() {
         let now_unix_ms = 2_000_000u64;
         let key_1 = "test::ordered::key1";
         let key_2 = "test::ordered::key2";
@@ -1654,9 +1665,9 @@ mod tests {
             CredentialPickMode::RoundRobinWithCache,
         );
 
-        // key_3 must be ignored because key_2 misses before it.
-        assert_eq!(picked_idx, 0);
-        assert_eq!(matched_idx, Some(0));
+        // key_3 is still considered even though key_2 misses.
+        assert_eq!(picked_idx, 1);
+        assert_eq!(matched_idx, Some(2));
 
         clear_affinity(key_1);
         clear_affinity(key_3);
