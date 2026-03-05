@@ -452,297 +452,83 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
 
-  publish-binaries-s3:
-    name: Publish binaries to S3-compatible storage
-    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
-    needs: sign-release-assets
+  sync-cnb-staging:
+    name: Sync CNB (staging)
+    if: ${{ github.event_name == 'push' }}
+    needs: publish-staging-release
     runs-on: ubuntu-latest
-    environment:
-      name: s3
     steps:
-      - name: Download signed artifacts
-        uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: signed-release-assets
-          path: dist
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Resolve publish metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            mode="release"
-            tag="${{ github.event.release.tag_name }}"
-            release_dir="${tag#v}"
-          else
-            mode="staging"
-            tag="staging"
-            release_dir=""
-          fi
-
-          public_base="${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}"
-          public_base="${public_base%/}"
-
-          echo "UPLOAD_MODE=$mode" >> "$GITHUB_ENV"
-          echo "UPLOAD_TAG=$tag" >> "$GITHUB_ENV"
-          echo "UPLOAD_RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
-          echo "DOWNLOAD_PUBLIC_BASE_URL=$public_base" >> "$GITHUB_ENV"
-
-      - name: Validate S3 publish settings
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${{ secrets.DOWNLOADS_S3_BUCKET }}" || {
-            echo "missing repo secret: DOWNLOADS_S3_BUCKET" >&2
-            exit 1
-          }
-          test -n "${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}" || {
-            echo "missing repo secret: DOWNLOADS_S3_ENDPOINT_URL" >&2
-            exit 1
-          }
-          test -n "${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}" || {
-            echo "missing repo secret: DOWNLOADS_S3_ACCESS_KEY_ID" >&2
-            exit 1
-          }
-          test -n "${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}" || {
-            echo "missing repo secret: DOWNLOADS_S3_SECRET_ACCESS_KEY" >&2
-            exit 1
-          }
-
-      - name: Upload binaries to S3
-        shell: bash
+      - name: Sync Git Repository To CNB
+        uses: docker://tencentcom/git-sync
         env:
-          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
-          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
+          PLUGIN_TARGET_URL: ${{ secrets.CNB_REPO_URL }}
+          PLUGIN_AUTH_TYPE: "https"
+          PLUGIN_USERNAME: ${{ secrets.CNB_USERNAME }}
+          PLUGIN_PASSWORD: ${{ secrets.CNB_TOKEN }}
+          PLUGIN_FORCE: "true"
+          PLUGIN_PUSH_TAGS: "true"
+
+      - name: Install jq
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(dist/*.zip dist/*.zip.sha256 dist/*.zip.sha256.sig)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "no files found to upload" >&2
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq
 
-          upload_one() {
-            local src="$1"
-            local key="$2"
-            echo "uploading $src -> s3://${S3_BUCKET}/${key}"
-            aws s3 cp "$src" "s3://${S3_BUCKET}/${key}" \
-              --endpoint-url "${S3_ENDPOINT_URL}" \
-              --no-progress
-          }
-
-          if [ "${UPLOAD_MODE}" = "staging" ]; then
-            for file in "${files[@]}"; do
-              upload_one "$file" "staging/$(basename "$file")"
-            done
-          else
-            for file in "${files[@]}"; do
-              base="$(basename "$file")"
-              upload_one "$file" "$base"
-              upload_one "$file" "releases/${UPLOAD_RELEASE_DIR}/${base}"
-            done
-          fi
-
-      - name: Generate global manifest from bucket
-        shell: bash
+      - name: Sync staging release assets to CNB
         env:
-          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
-          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
-          UPDATE_SIGNING_KEY_ID: ${{ secrets.UPDATE_SIGNING_KEY_ID != '' && secrets.UPDATE_SIGNING_KEY_ID || 'gproxy-release-v1' }}
+          CNB_REPO_SLUG: ${{ secrets.CNB_REPO_SLUG }}
+          CNB_API_TOKEN: ${{ secrets.CNB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CNB_RELEASE_ASSET_TTL: ${{ secrets.CNB_RELEASE_ASSET_TTL }}
+          RELEASE_TAG: "staging"
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          import datetime
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-          from urllib.parse import quote
+          chmod +x scripts/sync_github_releases_to_cnb.sh
+          bash scripts/sync_github_releases_to_cnb.sh
 
-          bucket = os.environ["S3_BUCKET"]
-          endpoint = os.environ["S3_ENDPOINT_URL"]
-          public_base = os.environ["DOWNLOAD_PUBLIC_BASE_URL"].rstrip("/")
-          signing_key_id = os.environ["UPDATE_SIGNING_KEY_ID"].strip()
+  sync-cnb-release:
+    name: Sync CNB (release)
+    if: ${{ github.event_name == 'release' }}
+    needs: publish-release-signatures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
-          def list_all_objects():
-              objects = []
-              token = None
-              while True:
-                  cmd = [
-                      "aws",
-                      "s3api",
-                      "list-objects-v2",
-                      "--bucket",
-                      bucket,
-                      "--endpoint-url",
-                      endpoint,
-                      "--max-keys",
-                      "1000",
-                      "--output",
-                      "json",
-                  ]
-                  if token:
-                      cmd.extend(["--continuation-token", token])
-
-                  out = subprocess.check_output(cmd, text=True)
-                  data = json.loads(out)
-                  objects.extend(data.get("Contents", []))
-
-                  if not data.get("IsTruncated"):
-                      break
-                  token = data.get("NextContinuationToken")
-                  if not token:
-                      break
-              return objects
-
-          objects = list_all_objects()
-          by_key = {obj["Key"]: obj for obj in objects if "Key" in obj}
-
-          assets = []
-          release_assets = []
-          staging_assets = []
-          release_versions = []
-
-          def parse_semver(version: str):
-              parts = version.strip().split(".")
-              if len(parts) != 3:
-                  return None
-              try:
-                  return tuple(int(p) for p in parts)
-              except ValueError:
-                  return None
-
-          for key in sorted(k for k in by_key.keys() if k.endswith(".zip")):
-              obj = by_key[key]
-              sha_key = f"{key}.sha256"
-              sha_url = f"{public_base}/{quote(sha_key, safe='/')}" if sha_key in by_key else None
-              sha_sig_key = f"{sha_key}.sig"
-              sha_sig_url = f"{public_base}/{quote(sha_sig_key, safe='/')}" if sha_sig_key in by_key else None
-              encoded_key = quote(key, safe="/")
-              url = f"{public_base}/{encoded_key}"
-              name = key.rsplit("/", 1)[-1]
-              assets.append(
-                  {
-                      "name": name,
-                      "path": key,
-                      "url": url,
-                      "sha256_url": sha_url,
-                      "sha256_sig_url": sha_sig_url,
-                      "key_id": signing_key_id,
-                      "size": obj.get("Size"),
-                      "last_modified": obj.get("LastModified"),
-                  }
-              )
-
-              if key.startswith("staging/"):
-                  staging_assets.append(
-                      {
-                          "name": name,
-                          "url": url,
-                          "sha256_url": sha_url,
-                          "sha256_sig_url": sha_sig_url,
-                          "key_id": signing_key_id,
-                      }
-                  )
-                  continue
-
-              if key.startswith("releases/"):
-                  parts = key.split("/", 2)
-                  if len(parts) >= 3:
-                      version = parts[1]
-                      if parse_semver(version) is not None:
-                          release_versions.append(version)
-                  continue
-
-              if "/" not in key:
-                  release_assets.append(
-                      {
-                          "name": name,
-                          "url": url,
-                          "sha256_url": sha_url,
-                          "sha256_sig_url": sha_sig_url,
-                          "key_id": signing_key_id,
-                      }
-                  )
-
-          manifest = {
-              "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
-              "assets": assets,
-          }
-
-          latest_release_version = None
-          for version in release_versions:
-              if latest_release_version is None:
-                  latest_release_version = version
-                  continue
-              if parse_semver(version) > parse_semver(latest_release_version):
-                  latest_release_version = version
-
-          release_tag = f"v{latest_release_version}" if latest_release_version else ""
-          release_channel_manifest = {
-              "tag": release_tag,
-              "channel": "releases",
-              "key_id": signing_key_id,
-              "assets": release_assets,
-          }
-          staging_channel_manifest = {
-              "tag": "staging",
-              "channel": "staging",
-              "key_id": signing_key_id,
-              "assets": staging_assets,
-          }
-
-          out_path = Path("dist/manifest.json")
-          out_path.write_text(
-              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          Path("dist/releases.manifest.json").write_text(
-              json.dumps(release_channel_manifest, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          Path("dist/staging.manifest.json").write_text(
-              json.dumps(staging_channel_manifest, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          print(f"global manifest generated: assets={len(assets)}")
-          PY
-
-      - name: Upload global manifest
-        shell: bash
+      - name: Sync Git Repository To CNB
+        uses: docker://tencentcom/git-sync
         env:
-          S3_BUCKET: ${{ secrets.DOWNLOADS_S3_BUCKET }}
-          S3_ENDPOINT_URL: ${{ secrets.DOWNLOADS_S3_ENDPOINT_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.DOWNLOADS_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DOWNLOADS_S3_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DOWNLOADS_S3_REGION != '' && secrets.DOWNLOADS_S3_REGION || 'us-east-1' }}
-        run: |
-          set -euo pipefail
-          aws s3 cp "dist/manifest.json" "s3://${S3_BUCKET}/manifest.json" \
-            --endpoint-url "${S3_ENDPOINT_URL}" \
-            --no-progress
-          aws s3 cp "dist/releases.manifest.json" "s3://${S3_BUCKET}/releases/manifest.json" \
-            --endpoint-url "${S3_ENDPOINT_URL}" \
-            --no-progress
-          aws s3 cp "dist/staging.manifest.json" "s3://${S3_BUCKET}/staging/manifest.json" \
-            --endpoint-url "${S3_ENDPOINT_URL}" \
-            --no-progress
+          PLUGIN_TARGET_URL: ${{ secrets.CNB_REPO_URL }}
+          PLUGIN_AUTH_TYPE: "https"
+          PLUGIN_USERNAME: ${{ secrets.CNB_USERNAME }}
+          PLUGIN_PASSWORD: ${{ secrets.CNB_TOKEN }}
+          PLUGIN_FORCE: "true"
+          PLUGIN_PUSH_TAGS: "true"
 
-      - name: Upload summary
-        shell: bash
+      - name: Install jq
         run: |
-          set -euo pipefail
-          echo "Upload mode: ${UPLOAD_MODE}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Uploaded tag: ${UPLOAD_TAG}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Public base URL: ${DOWNLOAD_PUBLIC_BASE_URL}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Manifest: ${DOWNLOAD_PUBLIC_BASE_URL}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq
+
+      - name: Sync published release assets to CNB
+        env:
+          CNB_REPO_SLUG: ${{ secrets.CNB_REPO_SLUG }}
+          CNB_API_TOKEN: ${{ secrets.CNB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CNB_RELEASE_ASSET_TTL: ${{ secrets.CNB_RELEASE_ASSET_TTL }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          chmod +x scripts/sync_github_releases_to_cnb.sh
+          bash scripts/sync_github_releases_to_cnb.sh
 
   deploy-docs-cloudflare:
     name: Build and Deploy Docs (Cloudflare Pages)
@@ -770,7 +556,7 @@ jobs:
 
       - name: Build docs
         env:
-          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}
+          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://cnb.cool/ai-rp/gproxy' }}
         run: |
           cd docs
           pnpm install --frozen-lockfile

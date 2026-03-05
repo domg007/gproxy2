@@ -75,7 +75,7 @@ export const zhMessages = {
     "global.selfUpdateRunning": "更新中...",
     "global.selfUpdateOk": "已更新到 {tag}，正在自动重启进程。",
     "global.updateSource.github": "Github",
-    "global.updateSource.webHosted": "网页托管",
+    "global.updateSource.cnb": "CNB",
     "global.updateChannel.releases": "正式版（releases）",
     "global.updateChannel.staging": "预览版（staging）",
     "global.maskSensitive": "遮蔽敏感信息",

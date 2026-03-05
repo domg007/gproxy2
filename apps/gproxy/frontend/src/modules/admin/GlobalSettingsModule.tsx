@@ -22,7 +22,7 @@ const SPOOF_EMULATION_OPTIONS = [
 ];
 const UPDATE_SOURCE_OPTIONS = [
   { value: "github", labelKey: "global.updateSource.github" },
-  { value: "web-hosted", labelKey: "global.updateSource.webHosted" }
+  { value: "cnb", labelKey: "global.updateSource.cnb" }
 ] as const;
 const UPDATE_CHANNEL_OPTIONS = [
   { value: "releases", labelKey: "global.updateChannel.releases" },
@@ -36,7 +36,7 @@ function normalizeUpdateChannel(value: string | null | undefined): string {
 
 function normalizeUpdateSource(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
-  return normalized === "web-hosted" ? "web-hosted" : DEFAULT_UPDATE_SOURCE;
+  return normalized === "cnb" ? "cnb" : DEFAULT_UPDATE_SOURCE;
 }
 
 function readStoredUpdateChannel(): string {

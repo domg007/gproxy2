@@ -6,7 +6,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 
 use crate::AppState;
-use crate::app_state::{UPDATE_SOURCE_GITHUB, UPDATE_SOURCE_WEB_HOSTED};
+use crate::app_state::{UPDATE_SOURCE_CNB, UPDATE_SOURCE_GITHUB};
 use crate::normalize_update_source;
 
 use super::{HttpError, authorize_admin};
@@ -18,7 +18,7 @@ mod runtime;
 mod tests;
 mod types;
 mod verify;
-mod web_hosted;
+mod cnb;
 
 use channel::{is_semver_update_available, normalize_update_channel};
 use github::{fetch_github_release_asset, fetch_github_release_tag};
@@ -28,7 +28,7 @@ use runtime::{
 };
 use types::{ResolvedReleaseAsset, SelfUpdateResult, UpdateChannelQuery};
 use verify::{resolve_release_asset_sha256, verify_downloaded_asset_sha256};
-use web_hosted::{fetch_web_hosted_release_asset, fetch_web_hosted_release_tag};
+use cnb::{fetch_cnb_release_asset, fetch_cnb_release_tag};
 
 pub(super) async fn system_self_update(
     State(state): State<Arc<AppState>>,
@@ -171,7 +171,7 @@ async fn fetch_latest_release_tag(
 ) -> Result<String, String> {
     let client = build_self_update_client(proxy)?;
     match update_source {
-        UPDATE_SOURCE_WEB_HOSTED => fetch_web_hosted_release_tag(&client, update_channel).await,
+        UPDATE_SOURCE_CNB => fetch_cnb_release_tag(&client, update_channel).await,
         _ => fetch_github_release_tag(&client, update_channel).await,
     }
 }
@@ -183,8 +183,8 @@ async fn fetch_release_asset(
     update_channel: &str,
 ) -> Result<(String, ResolvedReleaseAsset), String> {
     match update_source {
-        UPDATE_SOURCE_WEB_HOSTED => {
-            fetch_web_hosted_release_asset(client, target_asset, update_channel).await
+        UPDATE_SOURCE_CNB => {
+            fetch_cnb_release_asset(client, target_asset, update_channel).await
         }
         UPDATE_SOURCE_GITHUB => {
             fetch_github_release_asset(client, target_asset, update_channel).await
