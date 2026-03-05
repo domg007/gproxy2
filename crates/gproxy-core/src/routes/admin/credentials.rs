@@ -88,14 +88,19 @@ pub(super) async fn upsert_credential(
             .map_err(|err| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
     };
 
-    state.upsert_provider_credential_in_memory(
-        &channel,
-        gproxy_provider::CredentialRef {
-            id,
-            label: payload.name.clone(),
-            credential,
-        },
-    );
+    if payload.enabled {
+        state.upsert_provider_credential_in_memory(
+            &channel,
+            gproxy_provider::CredentialRef {
+                id,
+                label: payload.name.clone(),
+                credential,
+            },
+        );
+    } else {
+        // Disabled credentials must not remain in runtime candidate pool.
+        let _ = state.delete_provider_credential_in_memory(&channel, id);
+    }
     Ok(Json(UpsertCredentialAck { ok: true, id }))
 }
 

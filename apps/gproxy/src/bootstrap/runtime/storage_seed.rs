@@ -394,7 +394,7 @@ pub(super) async fn hydrate_registry_credentials_and_statuses(
         .list_credentials(&CredentialQuery {
             provider_id: Scope::All,
             kind: Scope::All,
-            enabled: Scope::All,
+            enabled: Scope::Eq(true),
             limit: None,
         })
         .await
