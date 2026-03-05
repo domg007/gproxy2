@@ -160,13 +160,13 @@ impl ProviderDispatchTable {
         table.set(
             RouteKey::new(Op::OpenAiResponseWebSocket, Proto::OpenAi),
             RouteImplementation::TransformTo {
-                destination: RouteKey::new(Op::GenerateContent, Proto::OpenAiChatCompletion),
+                destination: RouteKey::new(Op::StreamGenerateContent, Proto::OpenAiChatCompletion),
             },
         );
         table.set(
             RouteKey::new(Op::GeminiLive, Proto::Gemini),
             RouteImplementation::TransformTo {
-                destination: RouteKey::new(Op::GenerateContent, Proto::OpenAiChatCompletion),
+                destination: RouteKey::new(Op::StreamGenerateContent, Proto::OpenAiChatCompletion),
             },
         );
 
