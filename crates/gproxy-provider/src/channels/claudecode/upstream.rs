@@ -1049,6 +1049,7 @@ impl ClaudeCodePreparedRequest {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
+                normalize_claudecode_unsupported_fields(&mut body_json);
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -1082,6 +1083,7 @@ impl ClaudeCodePreparedRequest {
                 }
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -1119,6 +1121,7 @@ impl ClaudeCodePreparedRequest {
                 }
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -1276,6 +1279,7 @@ impl ClaudeCodePreparedRequest {
                     )
                 })?;
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
+                normalize_claudecode_unsupported_fields(&mut body_json);
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
@@ -1308,6 +1312,7 @@ impl ClaudeCodePreparedRequest {
                 })?;
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -1552,6 +1557,15 @@ fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
     }
 }
 
+fn normalize_claudecode_unsupported_fields(body: &mut Value) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+
+    // Anthropic v1/messages on this upstream path currently rejects this field.
+    map.remove("context_management");
+}
+
 fn normalize_claudecode_model_and_thinking(model: &str, body: &mut Value) -> String {
     let trimmed = model.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -1683,7 +1697,7 @@ mod tests {
 
     use super::{
         CLAUDECODE_THINKING_BUDGET_TOKENS, extend_model_list_with_thinking_variants,
-        normalize_claudecode_model_and_thinking,
+        normalize_claudecode_model_and_thinking, normalize_claudecode_unsupported_fields,
     };
 
     #[test]
@@ -1795,5 +1809,22 @@ mod tests {
                 "claude-opus-4-6-thinking",
             ]
         );
+    }
+
+    #[test]
+    fn normalize_claudecode_unsupported_fields_removes_context_management() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-5",
+            "context_management": {
+                "edits": [{
+                    "type": "compact_20260112"
+                }]
+            },
+            "messages": []
+        });
+
+        normalize_claudecode_unsupported_fields(&mut body);
+
+        assert!(body.get("context_management").is_none());
     }
 }
