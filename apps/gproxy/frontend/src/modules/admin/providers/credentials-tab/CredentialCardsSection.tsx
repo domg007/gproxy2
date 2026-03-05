@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 
 import type {
   CredentialQueryRow,
@@ -85,6 +85,10 @@ export function CredentialCardsSection({
   resolveLiveLimitLabel: (label: string) => string;
   t: TranslateFn;
 }) {
+  const [usageVisibleByCredential, setUsageVisibleByCredential] = useState<Record<number, boolean>>(
+    {}
+  );
+
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {credentialRows.map((row) => {
@@ -101,6 +105,7 @@ export function CredentialCardsSection({
         const usageDisplayRows = usageDisplayRowsByCredential[row.id] ?? [];
         const usageLoading = Boolean(usageLoadingByCredential[row.id]);
         const usageError = usageErrorByCredential[row.id];
+        const usageVisible = Boolean(usageVisibleByCredential[row.id]);
         const showStatusEditor = statusEditorCredentialId === row.id;
 
         const applyCooldownDeletion = (targets: CooldownItem[]) => {
@@ -202,8 +207,16 @@ export function CredentialCardsSection({
               {supportsUpstreamUsage ? (
                 <Button
                   variant="neutral"
-                  onClick={() => onQueryUpstreamUsage(row.id)}
-                  disabled={usageLoading}
+                  onClick={() => {
+                    const nextVisible = !usageVisible;
+                    setUsageVisibleByCredential((prev) => ({
+                      ...prev,
+                      [row.id]: nextVisible
+                    }));
+                    if (nextVisible) {
+                      onQueryUpstreamUsage(row.id);
+                    }
+                  }}
                 >
                   {usageLoading ? t("common.loading") : t("providers.usage.fetch")}
                 </Button>
@@ -319,148 +332,158 @@ export function CredentialCardsSection({
               </div>
             ) : null}
 
-            {supportsUpstreamUsage &&
-            (usageContent || liveRows.length > 0 || usageDisplayRows.length > 0 || usageError) ? (
+            {supportsUpstreamUsage && usageVisible ? (
               <div className="space-y-1">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                  {t("providers.section.usage")}
-                </div>
-                {liveRows.length > 0 ? (
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    <div className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                      <span>{t("providers.usage.live_limit")}</span>
-                      <span>{t("providers.usage.live_percent")}</span>
-                      <span>{t("providers.usage.live_reset")}</span>
-                    </div>
-                    <div className="divide-y divide-border">
-                      {liveRows.map((item) => (
-                        <div
-                          key={`${row.id}-usage-live-${item.name}-${item.resetAt ?? "none"}`}
-                          className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 px-3 py-2 text-xs text-text"
-                        >
-                          <span className="truncate">{resolveLiveLimitLabel(item.name)}</span>
-                          <span>{formatUsagePercent(item.percent)}</span>
-                          <span>{item.resetAt === null ? "-" : formatAtForViewer(item.resetAt)}</span>
-                        </div>
-                      ))}
-                    </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                    {t("providers.section.usage")}
                   </div>
-                ) : usageContent ? (
-                  <div className="text-xs text-muted">{t("providers.usage.live_no_limits")}</div>
-                ) : null}
-
-                {usageDisplayRows.length > 0 ? (
-                  (() => {
-                    const preferredWindowOrder: UsageDisplayRow["window"][] =
-                      channel === "codex"
-                        ? ["primary", "secondary", "code_review"]
-                        : ["5h", "1d", "1w", "sum"];
-                    const presentWindowSet = new Set(usageDisplayRows.map((item) => item.window));
-                    const windows = preferredWindowOrder.filter((window) => presentWindowSet.has(window));
-                    const byLabel = new Map<
-                      string,
-                      Partial<Record<UsageDisplayRow["window"], UsageDisplayRow>>
-                    >();
-                    for (const item of usageDisplayRows) {
-                      const current = byLabel.get(item.label) ?? {};
-                      current[item.window] = item;
-                      byLabel.set(item.label, current);
-                    }
-                    const labels = Array.from(byLabel.keys()).sort((a, b) => a.localeCompare(b));
-
-                    return (
-                      <div className="space-y-2">
-                        {usageDisplayKind === "tokens" ? (
-                          <div className="text-xs text-muted">
-                            {t("providers.usage.calls")}/{t("providers.usage.tokens_input")}/
-                            {t("providers.usage.tokens_output")}/
-                            {t("providers.usage.tokens_cache_read")}/
-                            {t("providers.usage.tokens_cache_creation")}/
-                            {t("providers.usage.tokens_cache_creation_5m")}/
-                            {t("providers.usage.tokens_cache_creation_1h")}/
-                            {t("providers.usage.tokens_total")}
+                  <Button
+                    variant="neutral"
+                    onClick={() => onQueryUpstreamUsage(row.id)}
+                    disabled={usageLoading}
+                  >
+                    {t("common.refresh")}
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  {liveRows.length > 0 ? (
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      <div className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                        <span>{t("providers.usage.live_limit")}</span>
+                        <span>{t("providers.usage.live_percent")}</span>
+                        <span>{t("providers.usage.live_reset")}</span>
+                      </div>
+                      <div className="divide-y divide-border">
+                        {liveRows.map((item) => (
+                          <div
+                            key={`${row.id}-usage-live-${item.name}-${item.resetAt ?? "none"}`}
+                            className="grid grid-cols-[minmax(0,2fr)_minmax(90px,1fr)_minmax(160px,1fr)] gap-2 px-3 py-2 text-xs text-text"
+                          >
+                            <span className="truncate">{resolveLiveLimitLabel(item.name)}</span>
+                            <span>{formatUsagePercent(item.percent)}</span>
+                            <span>{item.resetAt === null ? "-" : formatAtForViewer(item.resetAt)}</span>
                           </div>
-                        ) : null}
-                        <div className="overflow-x-auto rounded-lg border border-border">
-                          <table className="min-w-[980px] w-full border-collapse text-xs">
-                            <thead>
-                              <tr className="border-b border-border bg-card text-muted">
-                                <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]">
-                                  {t("providers.usage.label")}
-                                </th>
-                                {windows.map((window) => (
-                                  <th
-                                    key={`usage-head-${window}`}
-                                    className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]"
-                                  >
-                                    {formatWindowLabel(window)}
+                        ))}
+                      </div>
+                    </div>
+                  ) : usageContent ? (
+                    <div className="text-xs text-muted">{t("providers.usage.live_no_limits")}</div>
+                  ) : null}
+
+                  {usageDisplayRows.length > 0 ? (
+                    (() => {
+                      const preferredWindowOrder: UsageDisplayRow["window"][] =
+                        channel === "codex"
+                          ? ["primary", "secondary", "code_review"]
+                          : ["5h", "1d", "1w", "sum"];
+                      const presentWindowSet = new Set(usageDisplayRows.map((item) => item.window));
+                      const windows = preferredWindowOrder.filter((window) => presentWindowSet.has(window));
+                      const byLabel = new Map<
+                        string,
+                        Partial<Record<UsageDisplayRow["window"], UsageDisplayRow>>
+                      >();
+                      for (const item of usageDisplayRows) {
+                        const current = byLabel.get(item.label) ?? {};
+                        current[item.window] = item;
+                        byLabel.set(item.label, current);
+                      }
+                      const labels = Array.from(byLabel.keys()).sort((a, b) => a.localeCompare(b));
+
+                      return (
+                        <div className="space-y-2">
+                          {usageDisplayKind === "tokens" ? (
+                            <div className="text-xs text-muted">
+                              {t("providers.usage.calls")}/{t("providers.usage.tokens_input")}/
+                              {t("providers.usage.tokens_output")}/
+                              {t("providers.usage.tokens_cache_read")}/
+                              {t("providers.usage.tokens_cache_creation")}/
+                              {t("providers.usage.tokens_cache_creation_5m")}/
+                              {t("providers.usage.tokens_cache_creation_1h")}/
+                              {t("providers.usage.tokens_total")}
+                            </div>
+                          ) : null}
+                          <div className="overflow-x-auto rounded-lg border border-border">
+                            <table className="min-w-[980px] w-full border-collapse text-xs">
+                              <thead>
+                                <tr className="border-b border-border bg-card text-muted">
+                                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]">
+                                    {t("providers.usage.label")}
                                   </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {labels.map((label) => {
-                                const rowByWindow = byLabel.get(label) ?? {};
-                                return (
-                                  <tr
-                                    key={`${row.id}-usage-row-${label}`}
-                                    className="border-b border-border last:border-b-0"
-                                  >
-                                    <td className="px-3 py-2 font-semibold text-text">
-                                      {resolveUsageGroupLabel(label)}
-                                    </td>
-                                    {windows.map((window) => {
-                                      const item = rowByWindow[window];
-                                      if (!item) {
+                                  {windows.map((window) => (
+                                    <th
+                                      key={`usage-head-${window}`}
+                                      className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em]"
+                                    >
+                                      {formatWindowLabel(window)}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {labels.map((label) => {
+                                  const rowByWindow = byLabel.get(label) ?? {};
+                                  return (
+                                    <tr
+                                      key={`${row.id}-usage-row-${label}`}
+                                      className="border-b border-border last:border-b-0"
+                                    >
+                                      <td className="px-3 py-2 font-semibold text-text">
+                                        {resolveUsageGroupLabel(label)}
+                                      </td>
+                                      {windows.map((window) => {
+                                        const item = rowByWindow[window];
+                                        if (!item) {
+                                          return (
+                                            <td
+                                              key={`${row.id}-usage-cell-${label}-${window}`}
+                                              className="px-3 py-2 text-muted"
+                                            >
+                                              -
+                                            </td>
+                                          );
+                                        }
+                                        const rangeText = `${formatAtForViewer(item.fromUnixMs)} - ${formatAtForViewer(item.toUnixMs)}`;
+                                        const cellText =
+                                          usageDisplayKind === "tokens"
+                                            ? `${item.calls}/${item.inputTokens}/${item.outputTokens}/${item.cacheReadTokens}/${item.cacheCreationTokens}/${item.cacheCreationTokens5m}/${item.cacheCreationTokens1h}/${item.totalTokens}`
+                                            : `${item.calls}`;
                                         return (
                                           <td
                                             key={`${row.id}-usage-cell-${label}-${window}`}
-                                            className="px-3 py-2 text-muted"
+                                            className="px-3 py-2 text-text whitespace-nowrap"
+                                            title={rangeText}
                                           >
-                                            -
+                                            {cellText}
                                           </td>
                                         );
-                                      }
-                                      const rangeText = `${formatAtForViewer(item.fromUnixMs)} - ${formatAtForViewer(item.toUnixMs)}`;
-                                      const cellText =
-                                        usageDisplayKind === "tokens"
-                                          ? `${item.calls}/${item.inputTokens}/${item.outputTokens}/${item.cacheReadTokens}/${item.cacheCreationTokens}/${item.cacheCreationTokens5m}/${item.cacheCreationTokens1h}/${item.totalTokens}`
-                                          : `${item.calls}`;
-                                      return (
-                                        <td
-                                          key={`${row.id}-usage-cell-${label}-${window}`}
-                                          className="px-3 py-2 text-text whitespace-nowrap"
-                                          title={rangeText}
-                                        >
-                                          {cellText}
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
+                                      })}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
+                      );
+                    })()
+                  ) : usageContent ? (
+                    <div className="text-xs text-muted">{t("providers.usage.no_calls")}</div>
+                  ) : null}
+
+                  {usageError ? <div className="text-xs text-amber-700">{usageError}</div> : null}
+
+                  {usageContent ? (
+                    <details className="rounded-lg border border-border px-3 py-2">
+                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+                        {t("providers.usage.raw")}
+                      </summary>
+                      <div className="mt-2">
+                        <TextArea value={usageContent} rows={8} readOnly onChange={() => {}} />
                       </div>
-                    );
-                  })()
-                ) : usageContent ? (
-                  <div className="text-xs text-muted">{t("providers.usage.no_calls")}</div>
-                ) : null}
-
-                {usageError ? <div className="text-xs text-amber-700">{usageError}</div> : null}
-
-                {usageContent ? (
-                  <details className="rounded-lg border border-border px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                      {t("providers.usage.raw")}
-                    </summary>
-                    <div className="mt-2">
-                      <TextArea value={usageContent} rows={8} readOnly onChange={() => {}} />
-                    </div>
-                  </details>
-                ) : null}
+                    </details>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
