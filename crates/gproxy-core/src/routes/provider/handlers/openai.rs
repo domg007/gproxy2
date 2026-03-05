@@ -713,7 +713,7 @@ fn prepare_upstream_websocket_request(
                             .user_agent()
                             .map(str::trim)
                             .filter(|value| !value.is_empty())
-                            .unwrap_or("codex_vscode/0.99.0")
+                            .unwrap_or("codex_vscode/0.110.0")
                             .to_string(),
                     );
                 }
