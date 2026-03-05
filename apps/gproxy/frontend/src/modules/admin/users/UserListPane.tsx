@@ -120,29 +120,52 @@ export function UserListPane({
           {pagedRows.map((row) => {
             const active = row.id === selectedUserId;
             return (
-              <div key={row.id} className={`provider-card ${active ? "provider-card-active" : ""}`}>
+              <div
+                key={row.id}
+                className={`provider-card cursor-pointer ${active ? "provider-card-active" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectUser(row.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectUser(row.id);
+                  }
+                }}
+              >
                 <div className="flex items-start justify-between gap-2">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => onSelectUser(row.id)}
-                  >
+                  <div className="min-w-0 flex-1 text-left">
                     <div className="truncate text-sm font-semibold text-text">{row.name}</div>
                     <div className="text-xs text-muted">{t("users.userMeta", { id: row.id })}</div>
-                  </button>
+                  </div>
                   <button
                     type="button"
                     className={`badge ${row.enabled ? "badge-active" : ""} cursor-pointer`}
-                    onClick={() => onToggleUserEnabled(row)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleUserEnabled(row);
+                    }}
                   >
                     {row.enabled ? t("common.enabled") : t("common.disabled")}
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="neutral" onClick={() => onEditUser(row)}>
+                  <Button
+                    variant="neutral"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onEditUser(row);
+                    }}
+                  >
                     {t("common.edit")}
                   </Button>
-                  <Button variant="danger" onClick={() => onRemoveUser(row.id)}>
+                  <Button
+                    variant="danger"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRemoveUser(row.id);
+                    }}
+                  >
                     {t("common.delete")}
                   </Button>
                 </div>
