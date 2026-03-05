@@ -93,6 +93,101 @@ fn encode_transform_stream_error_chunk(protocol: ProtocolKind, message: String) 
     Bytes::from(chunk)
 }
 
+fn should_wrap_payload_for_typed_decode(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> bool {
+    matches!(
+        (operation, protocol),
+        (OperationFamily::GenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude)
+        | (OperationFamily::CountToken, ProtocolKind::Claude)
+        | (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::CountToken, ProtocolKind::Gemini)
+        | (OperationFamily::Embedding, ProtocolKind::Gemini)
+        | (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
+        | (OperationFamily::CountToken, ProtocolKind::OpenAi)
+        | (OperationFamily::Embedding, ProtocolKind::OpenAi)
+        | (OperationFamily::Compact, ProtocolKind::OpenAi)
+    )
+}
+
+fn is_full_request_envelope(value: &serde_json::Value) -> bool {
+    value.get("method").is_some()
+        && value.get("path").is_some()
+        && value.get("query").is_some()
+        && value.get("headers").is_some()
+        && value.get("body").is_some()
+}
+
+fn default_http_method_for_operation(operation: OperationFamily) -> &'static str {
+    match operation {
+        OperationFamily::ModelList | OperationFamily::ModelGet => "GET",
+        _ => "POST",
+    }
+}
+
+fn wrap_payload_for_typed_decode(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: Vec<u8>,
+) -> Result<Vec<u8>, UpstreamError> {
+    if !should_wrap_payload_for_typed_decode(operation, protocol) {
+        return Ok(body);
+    }
+
+    let value = serde_json::from_slice::<serde_json::Value>(body.as_slice())
+        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    if is_full_request_envelope(&value) {
+        return Ok(body);
+    }
+
+    let mut path = json!({});
+    let mut query = json!({});
+    let mut headers = json!({});
+
+    let body_value = match protocol {
+        ProtocolKind::OpenAi | ProtocolKind::OpenAiChatCompletion => value,
+        ProtocolKind::Claude => {
+            if let Some(map) = value.as_object() {
+                if let Some(item) = map.get("headers") {
+                    headers = item.clone();
+                }
+                map.get("body").cloned().unwrap_or(value)
+            } else {
+                value
+            }
+        }
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
+            if let Some(map) = value.as_object() {
+                if let Some(item) = map.get("path") {
+                    path = item.clone();
+                }
+                if let Some(item) = map.get("query") {
+                    query = item.clone();
+                }
+                map.get("body").cloned().unwrap_or(value)
+            } else {
+                value
+            }
+        }
+    };
+
+    serde_json::to_vec(&json!({
+        "method": default_http_method_for_operation(operation),
+        "path": path,
+        "query": query,
+        "headers": headers,
+        "body": body_value,
+    }))
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
+}
+
 pub(super) fn rewrite_content_type(headers: &mut Vec<(String, String)>, content_type: &str) {
     let mut replaced = false;
     for (name, value) in headers.iter_mut() {
@@ -1390,6 +1485,7 @@ pub(super) async fn execute_transform_request_payload(
     }
 
     let (operation, protocol, request_bytes) = collect_request_payload_body_bytes(request).await?;
+    let request_bytes = wrap_payload_for_typed_decode(operation, protocol, request_bytes)?;
     let decoded =
         gproxy_middleware::decode_request_payload(operation, protocol, request_bytes.as_slice())
             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
@@ -1432,12 +1528,15 @@ pub(super) async fn execute_transform_candidates(
 
 #[cfg(test)]
 mod tests {
-    use gproxy_middleware::ProtocolKind;
     use gproxy_middleware::TransformResponse;
+    use gproxy_middleware::{OperationFamily, ProtocolKind};
     use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
     use serde_json::json;
 
-    use super::{encode_transform_stream_error_chunk, serialize_local_response_body};
+    use super::{
+        encode_transform_stream_error_chunk, serialize_local_response_body,
+        wrap_payload_for_typed_decode,
+    };
 
     #[test]
     fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
@@ -1506,5 +1605,106 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("boom")
         );
+    }
+
+    #[test]
+    fn wrap_openai_body_into_full_envelope_for_typed_decode() {
+        let raw = serde_json::to_vec(&json!({
+            "model": "gpt-5",
+            "messages": [{"role": "user", "content": "ping"}],
+            "stream": false
+        }))
+        .expect("serialize raw body");
+
+        let wrapped = wrap_payload_for_typed_decode(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAiChatCompletion,
+            raw,
+        )
+        .expect("wrap payload");
+        let value: serde_json::Value = serde_json::from_slice(&wrapped).expect("decode wrapped");
+
+        assert_eq!(value.get("method").and_then(|v| v.as_str()), Some("POST"));
+        assert!(value.get("path").is_some());
+        assert!(value.get("query").is_some());
+        assert!(value.get("headers").is_some());
+        assert_eq!(
+            value
+                .get("body")
+                .and_then(|v| v.get("model"))
+                .and_then(|v| v.as_str()),
+            Some("gpt-5")
+        );
+    }
+
+    #[test]
+    fn wrap_claude_partial_envelope_with_defaults() {
+        let raw = serde_json::to_vec(&json!({
+            "headers": {"anthropic-version": "2023-06-01"},
+            "body": {"model": "claude-sonnet-4", "messages": [], "max_tokens": 16}
+        }))
+        .expect("serialize raw body");
+
+        let wrapped = wrap_payload_for_typed_decode(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            raw,
+        )
+        .expect("wrap payload");
+        let value: serde_json::Value = serde_json::from_slice(&wrapped).expect("decode wrapped");
+
+        assert_eq!(value.get("method").and_then(|v| v.as_str()), Some("POST"));
+        assert!(value.get("path").is_some());
+        assert!(value.get("query").is_some());
+        assert_eq!(
+            value
+                .get("headers")
+                .and_then(|v| v.get("anthropic-version"))
+                .and_then(|v| v.as_str()),
+            Some("2023-06-01")
+        );
+        assert_eq!(
+            value
+                .get("body")
+                .and_then(|v| v.get("model"))
+                .and_then(|v| v.as_str()),
+            Some("claude-sonnet-4")
+        );
+    }
+
+    #[test]
+    fn wrap_gemini_partial_envelope_with_defaults() {
+        let raw = serde_json::to_vec(&json!({
+            "path": {"model": "models/gemini-2.5-pro"},
+            "query": {"alt": "sse"},
+            "body": {"contents": []}
+        }))
+        .expect("serialize raw body");
+
+        let wrapped = wrap_payload_for_typed_decode(
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+            raw,
+        )
+        .expect("wrap payload");
+        let value: serde_json::Value = serde_json::from_slice(&wrapped).expect("decode wrapped");
+
+        assert_eq!(value.get("method").and_then(|v| v.as_str()), Some("POST"));
+        assert_eq!(
+            value
+                .get("path")
+                .and_then(|v| v.get("model"))
+                .and_then(|v| v.as_str()),
+            Some("models/gemini-2.5-pro")
+        );
+        assert_eq!(
+            value
+                .get("query")
+                .and_then(|v| v.get("alt"))
+                .and_then(|v| v.as_str()),
+            Some("sse")
+        );
+        assert!(value.get("headers").is_some());
+        assert!(value.get("body").is_some());
     }
 }
