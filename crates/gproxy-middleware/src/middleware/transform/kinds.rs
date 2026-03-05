@@ -8,6 +8,8 @@ pub enum OperationFamily {
     Compact,
     GenerateContent,
     StreamGenerateContent,
+    OpenAiResponseWebSocket,
+    GeminiLive,
     Embedding,
 }
 

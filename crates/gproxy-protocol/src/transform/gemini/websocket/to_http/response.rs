@@ -319,8 +319,8 @@ mod tests {
             },
         )];
 
-        let response = GeminiGenerateContentResponse::try_from(messages)
-            .expect("conversion should succeed");
+        let response =
+            GeminiGenerateContentResponse::try_from(messages).expect("conversion should succeed");
         let GeminiGenerateContentResponse::Success { body, .. } = response else {
             panic!("expected non-stream success response");
         };

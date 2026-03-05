@@ -202,8 +202,8 @@ pub fn gemini_stream_response_to_live_messages_with_context(
 mod tests {
     use http::StatusCode;
 
-    use crate::gemini::generate_content::response::GeminiGenerateContentResponse;
     use crate::gemini::count_tokens::types::{GeminiContent, GeminiPart};
+    use crate::gemini::generate_content::response::GeminiGenerateContentResponse;
     use crate::gemini::generate_content::response::ResponseBody;
     use crate::gemini::generate_content::types::{GeminiCandidate, GeminiFinishReason};
     use crate::gemini::stream_generate_content::response::GeminiStreamGenerateContentResponse;

@@ -30,6 +30,8 @@ use gproxy_protocol::gemini::generate_content::request::{
 use gproxy_protocol::gemini::generate_content::response::{
     GeminiGenerateContentResponse, ResponseBody as GeminiGenerateContentResponseBody,
 };
+use gproxy_protocol::gemini::live::request::GeminiLiveConnectRequest;
+use gproxy_protocol::gemini::live::response::GeminiLiveMessageResponse;
 use gproxy_protocol::gemini::model_get::request::GeminiModelGetRequest;
 use gproxy_protocol::gemini::model_get::response::GeminiModelGetResponse;
 use gproxy_protocol::gemini::model_list::request::GeminiModelListRequest;
@@ -64,6 +66,8 @@ use gproxy_protocol::openai::create_response::stream::{
     OpenAiCreateResponseSseData, OpenAiCreateResponseSseEvent, OpenAiCreateResponseSseStreamBody,
 };
 use gproxy_protocol::openai::create_response::types::HttpMethod as OpenAiResponseHttpMethod;
+use gproxy_protocol::openai::create_response::websocket::request::OpenAiCreateResponseWebSocketConnectRequest;
+use gproxy_protocol::openai::create_response::websocket::response::OpenAiCreateResponseWebSocketMessageResponse;
 use gproxy_protocol::openai::embeddings::request::OpenAiEmbeddingsRequest;
 use gproxy_protocol::openai::embeddings::response::OpenAiEmbeddingsResponse;
 use gproxy_protocol::openai::model_get::request::OpenAiModelGetRequest;
@@ -240,6 +244,15 @@ pub fn decode_request_payload(
             Ok(TransformRequest::StreamGenerateContentGeminiNdjson(request))
         }
 
+        (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::OpenAiResponseWebSocket(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::GeminiLive, ProtocolKind::Gemini) => Ok(TransformRequest::GeminiLive(
+            decode_json("request", operation, protocol, body)?,
+        )),
+
         (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(
             TransformRequest::EmbeddingOpenAi(decode_json("request", operation, protocol, body)?),
         ),
@@ -318,6 +331,10 @@ pub(crate) fn encode_request_payload(
         TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
             encode_json("request", operation, protocol, &value)
         }
+        TransformRequest::OpenAiResponseWebSocket(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::GeminiLive(value) => encode_json("request", operation, protocol, &value),
         TransformRequest::EmbeddingOpenAi(value) => {
             encode_json("request", operation, protocol, &value)
         }
@@ -423,6 +440,15 @@ pub fn decode_response_payload(
             ))
         }
 
+        (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::OpenAiResponseWebSocket(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::GeminiLive, ProtocolKind::Gemini) => Ok(TransformResponse::GeminiLive(
+            decode_json("response", operation, protocol, body)?,
+        )),
+
         (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(
             TransformResponse::EmbeddingOpenAi(decode_json("response", operation, protocol, body)?),
         ),
@@ -507,6 +533,12 @@ pub(crate) fn encode_response_payload(
             protocol,
             &ensure_gemini_ndjson_stream(value),
         ),
+        TransformResponse::OpenAiResponseWebSocket(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::GeminiLive(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
         TransformResponse::EmbeddingOpenAi(value) => {
             encode_json("response", operation, protocol, &value)
         }
@@ -1756,6 +1788,10 @@ pub fn transform_request(
             let generate_request = transform_generate_request(input, route.dst_protocol)?;
             promote_generate_request_to_stream(generate_request, route.dst_protocol)
         }
+        OperationFamily::OpenAiResponseWebSocket => {
+            transform_openai_response_websocket_request(input, route.dst_protocol)
+        }
+        OperationFamily::GeminiLive => transform_gemini_live_request(input, route.dst_protocol),
         OperationFamily::Compact => transform_compact_request(input, route.dst_protocol),
     }
 }
@@ -1778,12 +1814,36 @@ pub fn transform_response(
         current_response = demote_stream_response_to_generate(current_response)?;
         current_operation = OperationFamily::GenerateContent;
     }
+    if current_operation == OperationFamily::OpenAiResponseWebSocket
+        && route.src_operation != OperationFamily::OpenAiResponseWebSocket
+    {
+        current_response = demote_openai_response_websocket_response_to_generate(current_response)?;
+        current_operation = OperationFamily::GenerateContent;
+    }
+    if current_operation == OperationFamily::GeminiLive
+        && route.src_operation != OperationFamily::GeminiLive
+    {
+        current_response = demote_gemini_live_response_to_generate(current_response)?;
+        current_operation = OperationFamily::GenerateContent;
+    }
 
     if route.src_operation == OperationFamily::StreamGenerateContent
         && current_operation != OperationFamily::StreamGenerateContent
     {
         let generated = transform_generate_response(current_response, route.src_protocol)?;
         return promote_generate_response_to_stream(generated, route.src_protocol);
+    }
+    if route.src_operation == OperationFamily::OpenAiResponseWebSocket
+        && current_operation != OperationFamily::OpenAiResponseWebSocket
+    {
+        let generated = transform_generate_response(current_response, ProtocolKind::OpenAi)?;
+        return promote_generate_response_to_openai_response_websocket(generated);
+    }
+    if route.src_operation == OperationFamily::GeminiLive
+        && current_operation != OperationFamily::GeminiLive
+    {
+        let generated = transform_generate_response(current_response, ProtocolKind::Gemini)?;
+        return promote_generate_response_to_gemini_live(generated);
     }
 
     match route.src_operation {
@@ -1810,6 +1870,12 @@ pub fn transform_response(
                     "stream response source requires stream destination",
                 ))
             }
+        }
+        OperationFamily::OpenAiResponseWebSocket => {
+            transform_openai_response_websocket_response(current_response, route.src_protocol)
+        }
+        OperationFamily::GeminiLive => {
+            transform_gemini_live_response(current_response, route.src_protocol)
         }
         OperationFamily::Compact => {
             transform_compact_response(current_response, route.src_protocol)
@@ -2072,6 +2138,18 @@ fn transform_generate_request(
             let nonstream = demote_stream_request_to_generate(input)?;
             convert_generate_request_between_protocols(nonstream, dst_protocol)
         }
+        TransformRequest::OpenAiResponseWebSocket(request) => {
+            let nonstream = TransformRequest::GenerateContentOpenAiResponse(
+                OpenAiCreateResponseRequest::try_from(request)?,
+            );
+            convert_generate_request_between_protocols(nonstream, dst_protocol)
+        }
+        TransformRequest::GeminiLive(request) => {
+            let nonstream = TransformRequest::GenerateContentGemini(
+                GeminiGenerateContentRequest::try_from(request)?,
+            );
+            convert_generate_request_between_protocols(nonstream, dst_protocol)
+        }
         TransformRequest::CompactOpenAi(request) => Ok(match dst_protocol {
             ProtocolKind::OpenAi => TransformRequest::GenerateContentOpenAiResponse(
                 OpenAiCreateResponseRequest::try_from(request)?,
@@ -2094,7 +2172,51 @@ fn transform_generate_request(
             }
         }),
         _ => Err(MiddlewareTransformError::Unsupported(
-            "generate_content request transform requires generate/stream/compact source payload",
+            "generate_content request transform requires generate/stream/websocket/compact source payload",
+        )),
+    }
+}
+
+fn transform_openai_response_websocket_request(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "openai websocket request currently requires OpenAi destination protocol",
+        ));
+    }
+
+    let generated = transform_generate_request(input, ProtocolKind::OpenAi)?;
+    match generated {
+        TransformRequest::GenerateContentOpenAiResponse(request) => {
+            Ok(TransformRequest::OpenAiResponseWebSocket(
+                OpenAiCreateResponseWebSocketConnectRequest::try_from(request)?,
+            ))
+        }
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "openai websocket request transform requires openai generate source payload",
+        )),
+    }
+}
+
+fn transform_gemini_live_request(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::Gemini {
+        return Err(MiddlewareTransformError::Unsupported(
+            "gemini live request currently requires Gemini destination protocol",
+        ));
+    }
+
+    let generated = transform_generate_request(input, ProtocolKind::Gemini)?;
+    match generated {
+        TransformRequest::GenerateContentGemini(request) => Ok(TransformRequest::GeminiLive(
+            GeminiLiveConnectRequest::try_from(request)?,
+        )),
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "gemini live request transform requires gemini generate source payload",
         )),
     }
 }
@@ -2621,6 +2743,112 @@ fn transform_generate_response(
             ));
         }
     })
+}
+
+fn demote_openai_response_websocket_response_to_generate(
+    input: TransformResponse,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    Ok(match input {
+        TransformResponse::OpenAiResponseWebSocket(messages) => {
+            TransformResponse::GenerateContentOpenAiResponse(
+                OpenAiCreateResponseResponse::try_from(messages)?,
+            )
+        }
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "openai websocket response demotion requires openai websocket payload",
+            ));
+        }
+    })
+}
+
+fn demote_gemini_live_response_to_generate(
+    input: TransformResponse,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    Ok(match input {
+        TransformResponse::GeminiLive(messages) => TransformResponse::GenerateContentGemini(
+            GeminiGenerateContentResponse::try_from(messages)?,
+        ),
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "gemini live response demotion requires gemini live payload",
+            ));
+        }
+    })
+}
+
+fn promote_generate_response_to_openai_response_websocket(
+    input: TransformResponse,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    match input {
+        TransformResponse::GenerateContentOpenAiResponse(response) => {
+            Ok(TransformResponse::OpenAiResponseWebSocket(Vec::<
+                OpenAiCreateResponseWebSocketMessageResponse,
+            >::try_from(
+                response
+            )?))
+        }
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "openai websocket response promotion requires openai generate payload",
+        )),
+    }
+}
+
+fn promote_generate_response_to_gemini_live(
+    input: TransformResponse,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    match input {
+        TransformResponse::GenerateContentGemini(response) => {
+            Ok(TransformResponse::GeminiLive(Vec::<
+                GeminiLiveMessageResponse,
+            >::try_from(
+                response
+            )?))
+        }
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "gemini live response promotion requires gemini generate payload",
+        )),
+    }
+}
+
+fn transform_openai_response_websocket_response(
+    input: TransformResponse,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "openai websocket response currently requires OpenAi destination protocol",
+        ));
+    }
+
+    match input {
+        TransformResponse::OpenAiResponseWebSocket(messages) => {
+            Ok(TransformResponse::OpenAiResponseWebSocket(messages))
+        }
+        _ => {
+            let generated = transform_generate_response(input, ProtocolKind::OpenAi)?;
+            promote_generate_response_to_openai_response_websocket(generated)
+        }
+    }
+}
+
+fn transform_gemini_live_response(
+    input: TransformResponse,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::Gemini {
+        return Err(MiddlewareTransformError::Unsupported(
+            "gemini live response currently requires Gemini destination protocol",
+        ));
+    }
+
+    match input {
+        TransformResponse::GeminiLive(messages) => Ok(TransformResponse::GeminiLive(messages)),
+        _ => {
+            let generated = transform_generate_response(input, ProtocolKind::Gemini)?;
+            promote_generate_response_to_gemini_live(generated)
+        }
+    }
 }
 
 fn demote_stream_response_to_generate(

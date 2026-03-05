@@ -200,10 +200,12 @@ impl TryFrom<&GeminiBidiGenerateContentClientMessage> for GeminiGenerateContentR
     type Error = TransformError;
 
     fn try_from(value: &GeminiBidiGenerateContentClientMessage) -> Result<Self, TransformError> {
-        Ok(gemini_live_client_messages_to_nonstream_request_with_context(
-            std::slice::from_ref(value),
-        )?
-        .0)
+        Ok(
+            gemini_live_client_messages_to_nonstream_request_with_context(std::slice::from_ref(
+                value,
+            ))?
+            .0,
+        )
     }
 }
 
@@ -358,9 +360,10 @@ mod tests {
 
     #[test]
     fn websocket_connect_without_body_maps_to_nonstream_fallback() {
-        let (request, ctx) =
-            gemini_live_connect_to_nonstream_request_with_context(&GeminiLiveConnectRequest::default())
-                .expect("conversion should succeed");
+        let (request, ctx) = gemini_live_connect_to_nonstream_request_with_context(
+            &GeminiLiveConnectRequest::default(),
+        )
+        .expect("conversion should succeed");
         assert_eq!(request.path.model, FALLBACK_MODEL);
         assert_eq!(ctx.warnings.len(), 1);
     }

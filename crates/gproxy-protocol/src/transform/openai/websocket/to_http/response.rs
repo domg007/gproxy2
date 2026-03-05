@@ -83,9 +83,7 @@ impl TryFrom<Vec<OpenAiCreateResponseWebSocketMessageResponse>>
     }
 }
 
-impl TryFrom<&[OpenAiCreateResponseWebSocketMessageResponse]>
-    for OpenAiCreateResponseResponse
-{
+impl TryFrom<&[OpenAiCreateResponseWebSocketMessageResponse]> for OpenAiCreateResponseResponse {
     type Error = crate::transform::utils::TransformError;
 
     fn try_from(
@@ -95,9 +93,7 @@ impl TryFrom<&[OpenAiCreateResponseWebSocketMessageResponse]>
     }
 }
 
-impl TryFrom<Vec<OpenAiCreateResponseWebSocketMessageResponse>>
-    for OpenAiCreateResponseResponse
-{
+impl TryFrom<Vec<OpenAiCreateResponseWebSocketMessageResponse>> for OpenAiCreateResponseResponse {
     type Error = crate::transform::utils::TransformError;
 
     fn try_from(
@@ -271,8 +267,8 @@ mod tests {
 
     #[test]
     fn websocket_messages_map_to_nonstream_response_via_stream_bridge() {
-        let message =
-            OpenAiCreateResponseWebSocketServerMessage::StreamEvent(ResponseStreamEvent::Completed {
+        let message = OpenAiCreateResponseWebSocketServerMessage::StreamEvent(
+            ResponseStreamEvent::Completed {
                 response: crate::openai::create_response::response::ResponseBody {
                     id: "resp_1".to_string(),
                     created_at: 1,
@@ -311,7 +307,8 @@ mod tests {
                     user: None,
                 },
                 sequence_number: 1,
-            });
+            },
+        );
 
         let response = OpenAiCreateResponseResponse::try_from(vec![message])
             .expect("conversion should succeed");

@@ -155,6 +155,9 @@ fn extract_model_from_json_payload(
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
             json_pointer_string(&value, "/body/model")
         }
+        (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+            json_pointer_string(&value, "/body/model")
+        }
         (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
             json_pointer_string(&value, "/body/model")
@@ -168,6 +171,9 @@ fn extract_model_from_json_payload(
         | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
             json_pointer_string(&value, "/path/model")
+        }
+        (OperationFamily::GeminiLive, ProtocolKind::Gemini) => {
+            json_pointer_string(&value, "/body/setup/model")
         }
 
         (OperationFamily::Embedding, ProtocolKind::OpenAi) => {

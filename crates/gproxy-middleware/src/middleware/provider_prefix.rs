@@ -441,6 +441,17 @@ fn strip_provider_prefix_from_request_value(
                 Some("missing body.model for OpenAI responses"),
             )?;
         }
+        (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+            strip_required_string_field(
+                request,
+                &mut capture,
+                operation,
+                protocol,
+                "body.model",
+                "/body/model",
+                Some("missing body.model for OpenAI websocket connect"),
+            )?;
+        }
         (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::GenerateContent, ProtocolKind::Claude)
@@ -459,6 +470,7 @@ fn strip_provider_prefix_from_request_value(
         | (OperationFamily::GenerateContent, ProtocolKind::GeminiNDJson)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::GeminiLive, ProtocolKind::Gemini)
         | (OperationFamily::Embedding, ProtocolKind::Gemini)
         | (OperationFamily::Embedding, ProtocolKind::GeminiNDJson) => {
             strip_required_string_field(
@@ -467,7 +479,11 @@ fn strip_provider_prefix_from_request_value(
                 operation,
                 protocol,
                 "path.model",
-                "/path/model",
+                if operation == OperationFamily::GeminiLive {
+                    "/body/setup/model"
+                } else {
+                    "/path/model"
+                },
                 None,
             )?;
         }
@@ -636,6 +652,15 @@ fn add_provider_prefix_to_response(response: &mut TransformResponse, provider: &
             },
         ) => {
             body.model = add_provider_prefix(&body.model, provider);
+        }
+        TransformResponse::OpenAiResponseWebSocket(messages) => {
+            for message in messages {
+                if let gproxy_protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketServerMessage::StreamEvent(event) =
+                    message
+                {
+                    add_prefix_to_openai_response_stream_event(event, provider);
+                }
+            }
         }
         _ => {}
     }

@@ -18,6 +18,8 @@ use gproxy_protocol::gemini::embeddings::request::GeminiEmbedContentRequest;
 use gproxy_protocol::gemini::embeddings::response::GeminiEmbedContentResponse;
 use gproxy_protocol::gemini::generate_content::request::GeminiGenerateContentRequest;
 use gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse;
+use gproxy_protocol::gemini::live::request::GeminiLiveConnectRequest;
+use gproxy_protocol::gemini::live::response::GeminiLiveMessageResponse;
 use gproxy_protocol::gemini::model_get::request::GeminiModelGetRequest;
 use gproxy_protocol::gemini::model_get::response::GeminiModelGetResponse;
 use gproxy_protocol::gemini::model_list::request::GeminiModelListRequest;
@@ -34,6 +36,8 @@ use gproxy_protocol::openai::create_chat_completions::stream::OpenAiChatCompleti
 use gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest;
 use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse;
 use gproxy_protocol::openai::create_response::stream::OpenAiCreateResponseSseStreamBody;
+use gproxy_protocol::openai::create_response::websocket::request::OpenAiCreateResponseWebSocketConnectRequest;
+use gproxy_protocol::openai::create_response::websocket::response::OpenAiCreateResponseWebSocketMessageResponse;
 use gproxy_protocol::openai::embeddings::request::OpenAiEmbeddingsRequest;
 use gproxy_protocol::openai::embeddings::response::OpenAiEmbeddingsResponse;
 use gproxy_protocol::openai::model_get::request::OpenAiModelGetRequest;
@@ -143,6 +147,9 @@ pub enum TransformRequest {
     StreamGenerateContentGeminiSse(GeminiStreamGenerateContentRequest),
     StreamGenerateContentGeminiNdjson(GeminiStreamGenerateContentRequest),
 
+    OpenAiResponseWebSocket(OpenAiCreateResponseWebSocketConnectRequest),
+    GeminiLive(GeminiLiveConnectRequest),
+
     EmbeddingOpenAi(OpenAiEmbeddingsRequest),
     EmbeddingGemini(GeminiEmbedContentRequest),
 
@@ -170,6 +177,8 @@ impl TransformRequest {
             | Self::StreamGenerateContentClaude(_)
             | Self::StreamGenerateContentGeminiSse(_)
             | Self::StreamGenerateContentGeminiNdjson(_) => OperationFamily::StreamGenerateContent,
+            Self::OpenAiResponseWebSocket(_) => OperationFamily::OpenAiResponseWebSocket,
+            Self::GeminiLive(_) => OperationFamily::GeminiLive,
             Self::EmbeddingOpenAi(_) | Self::EmbeddingGemini(_) => OperationFamily::Embedding,
             Self::CompactOpenAi(_) => OperationFamily::Compact,
         }
@@ -201,6 +210,9 @@ impl TransformRequest {
             Self::StreamGenerateContentClaude(_) => ProtocolKind::Claude,
             Self::StreamGenerateContentGeminiSse(_) => ProtocolKind::Gemini,
             Self::StreamGenerateContentGeminiNdjson(_) => ProtocolKind::GeminiNDJson,
+
+            Self::OpenAiResponseWebSocket(_) => ProtocolKind::OpenAi,
+            Self::GeminiLive(_) => ProtocolKind::Gemini,
 
             Self::EmbeddingOpenAi(_) => ProtocolKind::OpenAi,
             Self::EmbeddingGemini(_) => ProtocolKind::Gemini,
@@ -236,6 +248,9 @@ pub enum TransformResponse {
     StreamGenerateContentGeminiSse(GeminiStreamGenerateContentResponse),
     StreamGenerateContentGeminiNdjson(GeminiStreamGenerateContentResponse),
 
+    OpenAiResponseWebSocket(Vec<OpenAiCreateResponseWebSocketMessageResponse>),
+    GeminiLive(Vec<GeminiLiveMessageResponse>),
+
     EmbeddingOpenAi(OpenAiEmbeddingsResponse),
     EmbeddingGemini(GeminiEmbedContentResponse),
 
@@ -263,6 +278,8 @@ impl TransformResponse {
             | Self::StreamGenerateContentClaude(_)
             | Self::StreamGenerateContentGeminiSse(_)
             | Self::StreamGenerateContentGeminiNdjson(_) => OperationFamily::StreamGenerateContent,
+            Self::OpenAiResponseWebSocket(_) => OperationFamily::OpenAiResponseWebSocket,
+            Self::GeminiLive(_) => OperationFamily::GeminiLive,
             Self::EmbeddingOpenAi(_) | Self::EmbeddingGemini(_) => OperationFamily::Embedding,
             Self::CompactOpenAi(_) => OperationFamily::Compact,
         }
@@ -294,6 +311,9 @@ impl TransformResponse {
             Self::StreamGenerateContentClaude(_) => ProtocolKind::Claude,
             Self::StreamGenerateContentGeminiSse(_) => ProtocolKind::Gemini,
             Self::StreamGenerateContentGeminiNdjson(_) => ProtocolKind::GeminiNDJson,
+
+            Self::OpenAiResponseWebSocket(_) => ProtocolKind::OpenAi,
+            Self::GeminiLive(_) => ProtocolKind::Gemini,
 
             Self::EmbeddingOpenAi(_) => ProtocolKind::OpenAi,
             Self::EmbeddingGemini(_) => ProtocolKind::Gemini,
