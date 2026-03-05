@@ -360,6 +360,34 @@ pub(super) fn extract_usage_from_local_response(
             .usage_metadata
             .as_ref()
             .map(usage_metrics_from_gemini_usage),
+        gproxy_middleware::TransformResponse::OpenAiResponseWebSocket(messages) => {
+            match openai_create_response_response::OpenAiCreateResponseResponse::try_from(
+                messages.clone(),
+            ) {
+                Ok(openai_create_response_response::OpenAiCreateResponseResponse::Success {
+                    body,
+                    ..
+                }) => body
+                    .usage
+                    .as_ref()
+                    .map(usage_metrics_from_openai_response_usage),
+                _ => None,
+            }
+        }
+        gproxy_middleware::TransformResponse::GeminiLive(messages) => {
+            match gemini_generate_content_response::GeminiGenerateContentResponse::try_from(
+                messages.clone(),
+            ) {
+                Ok(gemini_generate_content_response::GeminiGenerateContentResponse::Success {
+                    body,
+                    ..
+                }) => body
+                    .usage_metadata
+                    .as_ref()
+                    .map(usage_metrics_from_gemini_usage),
+                _ => None,
+            }
+        }
         gproxy_middleware::TransformResponse::EmbeddingOpenAi(
             openai_embeddings_response::OpenAiEmbeddingsResponse::Success { body, .. },
         ) => Some(usage_metrics_from_openai_embeddings_usage(&body.usage)),
@@ -936,6 +964,7 @@ pub(super) fn extract_model_from_payload(
 
         (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi)
         | (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::GenerateContent, ProtocolKind::Claude)
@@ -947,9 +976,11 @@ pub(super) fn extract_model_from_payload(
         | (OperationFamily::GenerateContent, ProtocolKind::GeminiNDJson)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
+        | (OperationFamily::GeminiLive, ProtocolKind::Gemini)
         | (OperationFamily::Embedding, ProtocolKind::Gemini)
         | (OperationFamily::Embedding, ProtocolKind::GeminiNDJson) => {
             json_pointer_string(&value, "/path/model")
+                .or_else(|| json_pointer_string(&value, "/body/setup/model"))
         }
         _ => None,
     }
@@ -1017,6 +1048,24 @@ pub(super) fn extract_model_from_request(request: &TransformRequest) -> Option<S
         | TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
             Some(value.path.model.clone())
         }
+        TransformRequest::OpenAiResponseWebSocket(value) => value.body.as_ref().and_then(|body| {
+            if let gproxy_protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketClientMessage::ResponseCreate(create) =
+                body
+            {
+                create.request.model.clone()
+            } else {
+                None
+            }
+        }),
+        TransformRequest::GeminiLive(value) => value.body.as_ref().and_then(|body| {
+            if let gproxy_protocol::gemini::live::types::GeminiBidiGenerateContentClientMessageType::Setup { setup } =
+                &body.message_type
+            {
+                Some(setup.model.clone())
+            } else {
+                None
+            }
+        }),
 
         TransformRequest::EmbeddingOpenAi(value) => {
             serialize_openai_embedding_model(&value.body.model)

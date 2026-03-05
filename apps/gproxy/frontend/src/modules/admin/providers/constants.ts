@@ -6,6 +6,8 @@ export const OPERATION_OPTIONS = [
   "CountToken",
   "Compact",
   "GenerateContent",
+  "OpenAiResponseWebSocket",
+  "GeminiLive",
   "StreamGenerateContent",
   "Embedding"
 ];

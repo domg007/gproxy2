@@ -157,6 +157,18 @@ impl ProviderDispatchTable {
                 destination: RouteKey::new(Op::GenerateContent, Proto::OpenAiChatCompletion),
             },
         );
+        table.set(
+            RouteKey::new(Op::OpenAiResponseWebSocket, Proto::OpenAi),
+            RouteImplementation::TransformTo {
+                destination: RouteKey::new(Op::GenerateContent, Proto::OpenAiChatCompletion),
+            },
+        );
+        table.set(
+            RouteKey::new(Op::GeminiLive, Proto::Gemini),
+            RouteImplementation::TransformTo {
+                destination: RouteKey::new(Op::GenerateContent, Proto::OpenAiChatCompletion),
+            },
+        );
 
         // Stream generate content: chat completions is native, others transform to it.
         table.set(

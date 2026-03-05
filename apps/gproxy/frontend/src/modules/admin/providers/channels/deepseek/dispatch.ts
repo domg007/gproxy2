@@ -14,6 +14,8 @@ export const DISPATCH_TEMPLATE_ROUTES: readonly TemplateRoute[] = [
   ["GenerateContent", "OpenAiChatCompletion", "GenerateContent", "OpenAiChatCompletion"],
   ["GenerateContent", "OpenAi", "GenerateContent", "OpenAiChatCompletion"],
   ["GenerateContent", "Gemini", "GenerateContent", "OpenAiChatCompletion"],
+  ["OpenAiResponseWebSocket", "OpenAi", "GenerateContent", "OpenAiChatCompletion"],
+  ["GeminiLive", "Gemini", "GenerateContent", "OpenAiChatCompletion"],
   ["StreamGenerateContent", "Claude", "StreamGenerateContent", "Claude"],
   ["StreamGenerateContent", "OpenAiChatCompletion", "StreamGenerateContent", "OpenAiChatCompletion"],
   ["StreamGenerateContent", "OpenAi", "StreamGenerateContent", "OpenAiChatCompletion"],

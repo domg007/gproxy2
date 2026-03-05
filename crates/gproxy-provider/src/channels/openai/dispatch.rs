@@ -40,6 +40,18 @@ const ROUTES: &[TypedRoute] = &[
     ),
     // Generate content (stream)
     (
+        Op::OpenAiResponseWebSocket,
+        Proto::OpenAi,
+        Op::GenerateContent,
+        Proto::OpenAi,
+    ),
+    (
+        Op::GeminiLive,
+        Proto::Gemini,
+        Op::GenerateContent,
+        Proto::OpenAi,
+    ),
+    (
         Op::StreamGenerateContent,
         Proto::OpenAi,
         Op::StreamGenerateContent,

@@ -545,6 +545,14 @@ impl CustomPreparedRequest {
                     request_headers: Vec::new(),
                 })
             }
+            gproxy_middleware::TransformRequest::OpenAiResponseWebSocket(value) => {
+                let _ = value;
+                Err(UpstreamError::UnsupportedRequest)
+            }
+            gproxy_middleware::TransformRequest::GeminiLive(value) => {
+                let _ = value;
+                Err(UpstreamError::UnsupportedRequest)
+            }
         }
     }
 }
