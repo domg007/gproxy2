@@ -129,22 +129,18 @@ fn apply_magic_trigger_to_block(
 
 fn remove_magic_trigger_tokens(text: &mut String) -> Option<CacheBreakpointTtl> {
     let specs = [
-        (MAGIC_TRIGGER_AUTO_ID, "auto", CacheBreakpointTtl::Auto),
-        (MAGIC_TRIGGER_5M_ID, "5m", CacheBreakpointTtl::Ttl5m),
-        (MAGIC_TRIGGER_1H_ID, "1h", CacheBreakpointTtl::Ttl1h),
+        (MAGIC_TRIGGER_AUTO_ID, CacheBreakpointTtl::Auto),
+        (MAGIC_TRIGGER_5M_ID, CacheBreakpointTtl::Ttl5m),
+        (MAGIC_TRIGGER_1H_ID, CacheBreakpointTtl::Ttl1h),
     ];
 
     let mut matched_ttl = None;
-    for (id, ttl_suffix, ttl) in specs {
-        let with_suffix = format!("{id} {ttl_suffix}");
-        if text.contains(&with_suffix) {
-            *text = text.replace(&with_suffix, "");
+    for (id, ttl) in specs {
+        if text.contains(id) {
+            *text = text.replace(id, "");
             if matched_ttl.is_none() {
                 matched_ttl = Some(ttl);
             }
-        }
-        if text.contains(id) {
-            *text = text.replace(id, "");
         }
     }
 
@@ -581,7 +577,7 @@ mod tests {
             "system": [
                 {
                     "type":"text",
-                    "text":"prefix GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH auto suffix"
+                    "text":"prefix GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH suffix"
                 }
             ],
             "messages": [
@@ -590,7 +586,7 @@ mod tests {
                     "content":[
                         {
                             "type":"text",
-                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m y"
+                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF y"
                         }
                     ]
                 },
@@ -599,7 +595,7 @@ mod tests {
                     "content":[
                         {
                             "type":"text",
-                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h w"
+                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY w"
                         }
                     ]
                 }
@@ -643,7 +639,7 @@ mod tests {
                     "content":[
                         {
                             "type":"text",
-                            "text":"GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h",
+                            "text":"GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY",
                             "cache_control":{"type":"ephemeral","ttl":"5m"}
                         }
                     ]
@@ -691,7 +687,7 @@ mod tests {
                     "content":[
                         {
                             "type":"text",
-                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF 5m y"
+                            "text":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF y"
                         }
                     ]
                 },
@@ -700,7 +696,7 @@ mod tests {
                     "content":[
                         {
                             "type":"text",
-                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY 1h w"
+                            "text":"z GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY w"
                         }
                     ]
                 }
