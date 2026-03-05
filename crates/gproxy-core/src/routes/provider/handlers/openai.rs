@@ -40,11 +40,10 @@ use gproxy_provider::{
     ProviderDefinition, RouteImplementation, RouteKey, UpstreamOAuthRequest, parse_query_value,
 };
 use serde_json::json;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::{Message as TungsteniteMessage, http as tungstenite_http};
+use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use url::form_urlencoded;
 
+use super::websocket_retry::{UpstreamWebSocket, connect_upstream_websocket_with_credential_retry};
 use crate::AppState;
 
 use super::super::{
@@ -396,9 +395,6 @@ pub(in crate::routes::provider) async fn handle_openai_realtime_upgrade(
     }))
 }
 
-type UpstreamWebSocket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
 async fn run_openai_websocket_session(
     state: Arc<AppState>,
     auth: RequestAuthContext,
@@ -464,18 +460,35 @@ async fn run_openai_websocket_session(
         if let Ok(upstream_request) =
             gproxy_middleware::transform_request(downstream_request.clone(), route)
                 .map_err(|err| err.to_string())
-            && let Ok(mut upstream) =
-                dial_upstream_websocket(&channel, &provider, &upstream_request, now).await
         {
-            return run_direct_websocket_bridge_loop(
-                downstream,
-                &mut upstream,
-                route,
-                upstream_request,
-                query,
-                request_headers,
+            let model_hint = websocket_model_hint_from_upstream_request(&upstream_request);
+            if let Ok(mut upstream) = connect_upstream_websocket_with_credential_retry(
+                state.as_ref(),
+                &channel,
+                &provider,
+                model_hint.as_deref(),
+                now,
+                |credential| {
+                    prepare_upstream_websocket_request(
+                        &channel,
+                        &provider,
+                        &upstream_request,
+                        credential,
+                    )
+                },
             )
-            .await;
+            .await
+            {
+                return run_direct_websocket_bridge_loop(
+                    downstream,
+                    &mut upstream,
+                    route,
+                    upstream_request,
+                    query,
+                    request_headers,
+                )
+                .await;
+            }
         }
     }
 
@@ -606,42 +619,11 @@ fn openai_ws_headers_from_upgrade_headers(
     out
 }
 
-async fn dial_upstream_websocket(
-    channel: &ChannelId,
-    provider: &ProviderDefinition,
-    upstream_request: &TransformRequest,
-    now_unix_ms: u64,
-) -> Result<UpstreamWebSocket, String> {
-    let (url, headers) =
-        prepare_upstream_websocket_request(channel, provider, upstream_request, now_unix_ms)?;
-    let mut request = url
-        .as_str()
-        .into_client_request()
-        .map_err(|err| format!("invalid upstream websocket request URL: {err}"))?;
-    {
-        let request_headers = request.headers_mut();
-        for (name, value) in headers {
-            let header_name = tungstenite_http::HeaderName::from_bytes(name.as_bytes())
-                .map_err(|err| format!("invalid upstream websocket header name `{name}`: {err}"))?;
-            let header_value =
-                tungstenite_http::HeaderValue::from_str(value.as_str()).map_err(|err| {
-                    format!("invalid upstream websocket header value for `{name}`: {err}")
-                })?;
-            request_headers.insert(header_name, header_value);
-        }
-    }
-
-    connect_async(request)
-        .await
-        .map(|(socket, _)| socket)
-        .map_err(|err| format!("upstream websocket connect failed: {err}"))
-}
-
 fn prepare_upstream_websocket_request(
     channel: &ChannelId,
     provider: &ProviderDefinition,
     upstream_request: &TransformRequest,
-    now_unix_ms: u64,
+    credential: &CredentialRef,
 ) -> Result<(String, Vec<(String, String)>), String> {
     let base_url = to_websocket_base_url(provider.settings.base_url())?;
     match upstream_request {
@@ -683,15 +665,6 @@ fn prepare_upstream_websocket_request(
                 add_or_replace_header(&mut headers, key.as_str(), value.clone());
             }
 
-            let model_hint = openai_model_hint_from_connect_request(request);
-            let Some(credential) =
-                provider.pick_random_eligible_credential(model_hint.as_deref(), now_unix_ms)
-            else {
-                return Err(format!(
-                    "provider {} has no eligible credential for websocket",
-                    channel.as_str()
-                ));
-            };
             match (&channel, &credential.credential) {
                 (
                     ChannelId::Builtin(BuiltinChannel::OpenAi),
@@ -796,15 +769,6 @@ fn prepare_upstream_websocket_request(
                 add_or_replace_header(&mut headers, "authorization", value.to_string());
             }
 
-            let model_hint = gemini_live_model_hint_from_connect_request(request);
-            let Some(credential) =
-                provider.pick_random_eligible_credential(model_hint.as_deref(), now_unix_ms)
-            else {
-                return Err(format!(
-                    "provider {} has no eligible credential for websocket",
-                    channel.as_str()
-                ));
-            };
             match (&channel, &credential.credential) {
                 (
                     ChannelId::Builtin(BuiltinChannel::AiStudio),
@@ -857,6 +821,16 @@ fn gemini_live_model_hint_from_connect_request(
         .pointer("/setup/model")
         .and_then(serde_json::Value::as_str)
         .map(ToOwned::to_owned)
+}
+
+fn websocket_model_hint_from_upstream_request(request: &TransformRequest) -> Option<String> {
+    match request {
+        TransformRequest::OpenAiResponseWebSocket(value) => {
+            openai_model_hint_from_connect_request(value)
+        }
+        TransformRequest::GeminiLive(value) => gemini_live_model_hint_from_connect_request(value),
+        _ => None,
+    }
 }
 
 fn default_websocket_user_agent(provider: &ProviderDefinition) -> String {
@@ -1886,9 +1860,15 @@ mod tests {
             "test-key",
         );
         let request = TransformRequest::GeminiLive(GeminiLiveConnectRequest::default());
+        let credential = provider
+            .credentials
+            .credentials
+            .first()
+            .expect("provider credential");
 
-        let (url, headers) = prepare_upstream_websocket_request(&channel, &provider, &request, 0)
-            .expect("prepare websocket request");
+        let (url, headers) =
+            prepare_upstream_websocket_request(&channel, &provider, &request, credential)
+                .expect("prepare websocket request");
 
         assert!(
             url.starts_with(
