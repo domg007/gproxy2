@@ -128,7 +128,7 @@ export function availableBulkModes(
   supportsOAuth: boolean
 ): CredentialBulkMode[] {
   if (channel === "claudecode") {
-    return ["claudecode_cookie", "json"];
+    return ["keys"];
   }
   if (isKeyOnlySchema(schema)) {
     return ["keys"];
@@ -246,7 +246,7 @@ export function parseBulkCredentialText(args: {
   }
 
   if (mode === "keys") {
-    const keyField = fieldByKey(schema, "api_key");
+    const keyField = fieldByKey(schema, "api_key") ?? fieldByKey(schema, "cookie");
     if (!keyField) {
       throw new Error("this channel does not support key-line bulk import");
     }
@@ -277,11 +277,13 @@ export function buildBulkExportText(args: {
   }
 
   if (mode === "keys" || mode === "claudecode_cookie") {
-    const valueKey = mode === "keys" ? "api_key" : "cookie";
     return credentialRows
       .map((row) => {
         const secretValues = secretValuesFromSecretJson(channel, row.secret_json);
-        const value = secretValues[valueKey];
+        const value =
+          mode === "claudecode_cookie"
+            ? secretValues.cookie
+            : (secretValues.api_key ?? secretValues.cookie);
         return typeof value === "string" ? value.trim() : "";
       })
       .filter(Boolean)

@@ -47,7 +47,7 @@ type OAuthReadableResult = {
 
 type CredentialSearchMode = "id" | "name";
 
-export type CredentialsTabMode = "single" | "bulk" | "oauth" | "list";
+export type CredentialsTabMode = "bulk" | "oauth" | "list";
 
 export type CredentialsTabViewModel = {
   selectedProvider: ProviderQueryRow | null;
@@ -259,8 +259,6 @@ export function CredentialsTab({
   const [bulkInputText, setBulkInputText] = useState("");
   const [bulkExportText, setBulkExportText] = useState("");
   const [bulkError, setBulkError] = useState("");
-  const [singleQuickAddText, setSingleQuickAddText] = useState("");
-  const [singleQuickAddError, setSingleQuickAddError] = useState("");
   const [listEditorCredentialId, setListEditorCredentialId] = useState<number | null>(null);
   const [listSearchMode, setListSearchMode] = useState<CredentialSearchMode>("name");
   const [listSearchText, setListSearchText] = useState("");
@@ -282,8 +280,6 @@ export function CredentialsTab({
     setBulkInputText("");
     setBulkExportText("");
     setBulkError("");
-    setSingleQuickAddText("");
-    setSingleQuickAddError("");
     setExpandedCooldownCredentialId(null);
     setSelectedCooldownKeysByCredential({});
     setListEditorCredentialId(null);
@@ -335,52 +331,6 @@ export function CredentialsTab({
     const start = (listPage - 1) * listPageSize;
     return filteredCredentialRows.slice(start, start + listPageSize);
   }, [filteredCredentialRows, listPage, listPageSize]);
-
-  const singleQuickAddPlaceholder = useMemo(() => {
-    if (channel === "claudecode") {
-      return t("providers.singleQuick.placeholder.claudecode");
-    }
-    return t("providers.singleQuick.placeholder.default");
-  }, [channel, t]);
-
-  const runSingleQuickAdd = () => {
-    const rawText = singleQuickAddText.trim();
-    if (!rawText) {
-      setSingleQuickAddError(t("providers.bulk.emptyImport"));
-      return;
-    }
-
-    try {
-      const looksLikeJson = rawText.startsWith("{") || rawText.startsWith("[");
-      const mode: CredentialBulkMode = looksLikeJson
-        ? "json"
-        : channel === "claudecode"
-          ? "claudecode_cookie"
-          : credentialSchema.fields.some((field) => field.key === "api_key")
-            ? "keys"
-            : (() => {
-                throw new Error(t("providers.singleQuick.keyUnsupported"));
-              })();
-
-      const entries = parseBulkCredentialText({
-        channel,
-        schema: credentialSchema,
-        mode,
-        rawText
-      });
-      if (entries.length === 0) {
-        throw new Error(t("providers.bulk.emptyImport"));
-      }
-      if (entries.length > 1) {
-        throw new Error(t("providers.singleQuick.singleOnly"));
-      }
-      setSingleQuickAddError("");
-      onUpsertCredentialsBatch(entries);
-      setSingleQuickAddText("");
-    } catch (error) {
-      setSingleQuickAddError(error instanceof Error ? error.message : String(error));
-    }
-  };
 
   const normalizeHealthKind = (value: string | undefined): CredentialHealthKind => {
     switch (value?.trim().toLowerCase()) {
@@ -439,6 +389,9 @@ export function CredentialsTab({
 
   const bulkPlaceholder = useMemo(() => {
     if (bulkMode === "keys") {
+      if (channel === "claudecode") {
+        return `${t("providers.bulk.placeholder.cookieLineA")}\n${t("providers.bulk.placeholder.cookieLineB")}`;
+      }
       return `${t("providers.bulk.placeholder.keyLineA")}\n${t("providers.bulk.placeholder.keyLineB")}`;
     }
     if (bulkMode === "claudecode_cookie") {
@@ -797,38 +750,7 @@ export function CredentialsTab({
 
   return (
     <div className="space-y-4">
-      {mode === "single" ? (
-        <>
-          <div className="space-y-3 rounded-xl border border-border p-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {t("providers.singleQuick.title")}
-            </div>
-            <div className="text-sm text-muted">{t("providers.singleQuick.hint")}</div>
-            <TextArea
-              rows={4}
-              value={singleQuickAddText}
-              onChange={(value) => {
-                setSingleQuickAddText(value);
-                setSingleQuickAddError("");
-              }}
-              placeholder={singleQuickAddPlaceholder}
-            />
-            {singleQuickAddError ? <div className="text-sm text-red-500">{singleQuickAddError}</div> : null}
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={runSingleQuickAdd}>{t("providers.singleQuick.add")}</Button>
-              <Button
-                variant="neutral"
-                onClick={() => {
-                  setSingleQuickAddText("");
-                  setSingleQuickAddError("");
-                }}
-              >
-                {t("providers.bulk.clearInput")}
-              </Button>
-            </div>
-          </div>
-        </>
-      ) : mode === "bulk" ? (
+      {mode === "bulk" ? (
         <>
           <CredentialBulkSection
             bulkModes={bulkModes}

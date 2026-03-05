@@ -1,5 +1,5 @@
 export type DispatchMode = "passthrough" | "transform" | "local" | "unsupported";
-export type WorkspaceTab = "single" | "bulk" | "oauth" | "list" | "config";
+export type WorkspaceTab = "bulk" | "oauth" | "list" | "config";
 export type CredentialsSubTab = "single" | "bulk" | "oauth";
 export type CredentialBulkMode = "keys" | "json" | "claudecode_cookie";
 

@@ -732,11 +732,6 @@ export function ProvidersModule({
               <div className="flex flex-wrap gap-2">
                 {([
                   {
-                    id: "single",
-                    label: t("providers.tab.single"),
-                    enabled: !!selectedProvider
-                  },
-                  {
                     id: "bulk",
                     label: t("providers.tab.bulk"),
                     enabled: !!selectedProvider
@@ -782,15 +777,6 @@ export function ProvidersModule({
                   isCreatingProvider={isCreatingProvider}
                   onCancelCreate={() => setIsCreatingProvider(false)}
                   onSave={() => void upsertProvider()}
-                  t={t}
-                />
-              ) : null}
-
-              {activeTab === "single" ? (
-                <CredentialsTab
-                  mode="single"
-                  viewModel={credentialsViewModel}
-                  actions={credentialsActions}
                   t={t}
                 />
               ) : null}
