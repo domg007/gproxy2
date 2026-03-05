@@ -1,4 +1,5 @@
 use crate::gemini::count_tokens::types::GeminiContent;
+use crate::gemini::generate_content::response::GeminiGenerateContentResponse;
 use crate::gemini::generate_content::response::ResponseBody as GeminiGenerateContentResponseBody;
 use crate::gemini::generate_content::types::{GeminiCandidate, GeminiUsageMetadata};
 use crate::gemini::live::response::GeminiLiveMessageResponse;
@@ -144,6 +145,27 @@ impl TryFrom<GeminiStreamGenerateContentResponse> for Vec<GeminiLiveMessageRespo
     }
 }
 
+impl TryFrom<GeminiGenerateContentResponse> for Vec<GeminiLiveMessageResponse> {
+    type Error = TransformError;
+
+    fn try_from(value: GeminiGenerateContentResponse) -> Result<Self, TransformError> {
+        Ok(gemini_nonstream_response_to_live_messages_with_context(value)?.0)
+    }
+}
+
+pub fn gemini_nonstream_response_to_live_messages_with_context(
+    value: GeminiGenerateContentResponse,
+) -> Result<
+    (
+        Vec<GeminiLiveMessageResponse>,
+        GeminiWebsocketTransformContext,
+    ),
+    TransformError,
+> {
+    let stream = GeminiStreamGenerateContentResponse::try_from(value)?;
+    gemini_stream_response_to_live_messages_with_context(stream)
+}
+
 pub fn gemini_stream_response_to_live_messages_with_context(
     value: GeminiStreamGenerateContentResponse,
 ) -> Result<
@@ -180,6 +202,7 @@ pub fn gemini_stream_response_to_live_messages_with_context(
 mod tests {
     use http::StatusCode;
 
+    use crate::gemini::generate_content::response::GeminiGenerateContentResponse;
     use crate::gemini::count_tokens::types::{GeminiContent, GeminiPart};
     use crate::gemini::generate_content::response::ResponseBody;
     use crate::gemini::generate_content::types::{GeminiCandidate, GeminiFinishReason};
@@ -252,5 +275,31 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn nonstream_response_maps_to_live_messages_via_stream_bridge() {
+        let response = GeminiGenerateContentResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: GeminiResponseHeaders::default(),
+            body: ResponseBody {
+                candidates: Some(vec![GeminiCandidate {
+                    content: Some(GeminiContent {
+                        parts: vec![GeminiPart {
+                            text: Some("hello".to_string()),
+                            ..GeminiPart::default()
+                        }],
+                        role: None,
+                    }),
+                    finish_reason: Some(GeminiFinishReason::Stop),
+                    ..GeminiCandidate::default()
+                }]),
+                ..ResponseBody::default()
+            },
+        };
+
+        let frames = Vec::<GeminiLiveMessageResponse>::try_from(response)
+            .expect("conversion should succeed");
+        assert_eq!(frames.len(), 1);
     }
 }

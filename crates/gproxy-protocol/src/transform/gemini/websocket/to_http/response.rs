@@ -1,6 +1,7 @@
 use http::StatusCode;
 
 use crate::gemini::count_tokens::types::{GeminiContentRole, GeminiFunctionCall, GeminiPart};
+use crate::gemini::generate_content::response::GeminiGenerateContentResponse;
 use crate::gemini::generate_content::response::ResponseBody as GeminiGenerateContentResponseBody;
 use crate::gemini::generate_content::types::{
     GeminiCandidate, GeminiContent, GeminiFinishReason, GeminiUsageMetadata,
@@ -161,6 +162,28 @@ impl TryFrom<Vec<GeminiLiveMessageResponse>> for GeminiStreamGenerateContentResp
     }
 }
 
+impl TryFrom<Vec<GeminiLiveMessageResponse>> for GeminiGenerateContentResponse {
+    type Error = TransformError;
+
+    fn try_from(value: Vec<GeminiLiveMessageResponse>) -> Result<Self, TransformError> {
+        Ok(gemini_live_messages_to_nonstream_response_with_context(value)?.0)
+    }
+}
+
+pub fn gemini_live_messages_to_nonstream_response_with_context(
+    value: Vec<GeminiLiveMessageResponse>,
+) -> Result<
+    (
+        GeminiGenerateContentResponse,
+        GeminiWebsocketTransformContext,
+    ),
+    TransformError,
+> {
+    let (stream_response, ctx) = gemini_live_messages_to_stream_response_with_context(value)?;
+    let nonstream_response = GeminiGenerateContentResponse::try_from(stream_response)?;
+    Ok((nonstream_response, ctx))
+}
+
 pub fn gemini_live_messages_to_stream_response_with_context(
     value: Vec<GeminiLiveMessageResponse>,
 ) -> Result<
@@ -272,5 +295,35 @@ mod tests {
         };
         assert_eq!(body.events.len(), 1);
         assert_eq!(ctx.warnings.len(), 1);
+    }
+
+    #[test]
+    fn live_messages_map_to_nonstream_response_via_stream_bridge() {
+        let messages = vec![GeminiLiveMessageResponse::Message(
+            GeminiBidiGenerateContentServerMessage {
+                usage_metadata: None,
+                message_type: GeminiBidiGenerateContentServerMessageType::ServerContent {
+                    server_content: GeminiBidiGenerateContentServerContent {
+                        model_turn: Some(GeminiContent {
+                            parts: vec![GeminiPart {
+                                text: Some("hello".to_string()),
+                                ..GeminiPart::default()
+                            }],
+                            role: Some(GeminiContentRole::Model),
+                        }),
+                        generation_complete: Some(true),
+                        turn_complete: Some(true),
+                        ..GeminiBidiGenerateContentServerContent::default()
+                    },
+                },
+            },
+        )];
+
+        let response = GeminiGenerateContentResponse::try_from(messages)
+            .expect("conversion should succeed");
+        let GeminiGenerateContentResponse::Success { body, .. } = response else {
+            panic!("expected non-stream success response");
+        };
+        assert_eq!(body.candidates.unwrap_or_default().len(), 1);
     }
 }

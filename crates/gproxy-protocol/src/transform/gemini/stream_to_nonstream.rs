@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
+use crate::gemini::generate_content::request::GeminiGenerateContentRequest;
 use crate::gemini::generate_content::response::{
     GeminiGenerateContentResponse, ResponseBody as GeminiGenerateContentResponseBody,
 };
 use crate::gemini::generate_content::types::GeminiCandidate;
+use crate::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest;
 use crate::gemini::stream_generate_content::response::GeminiStreamGenerateContentResponse;
 use crate::gemini::stream_generate_content::stream::GeminiSseEventData;
 use crate::transform::utils::TransformError;
@@ -103,6 +105,30 @@ fn finalize_body(
         merged.candidates = Some(candidate_map.into_values().collect());
     }
     merged
+}
+
+impl TryFrom<&GeminiStreamGenerateContentRequest> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: &GeminiStreamGenerateContentRequest) -> Result<Self, TransformError> {
+        Ok(GeminiGenerateContentRequest {
+            method: value.method,
+            path: crate::gemini::generate_content::request::PathParameters {
+                model: value.path.model.clone(),
+            },
+            query: crate::gemini::generate_content::request::QueryParameters::default(),
+            headers: crate::gemini::generate_content::request::RequestHeaders::default(),
+            body: value.body.clone(),
+        })
+    }
+}
+
+impl TryFrom<GeminiStreamGenerateContentRequest> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: GeminiStreamGenerateContentRequest) -> Result<Self, TransformError> {
+        GeminiGenerateContentRequest::try_from(&value)
+    }
 }
 
 impl TryFrom<GeminiStreamGenerateContentResponse> for GeminiGenerateContentResponse {

@@ -1,4 +1,5 @@
 use crate::gemini::count_tokens::types::{GeminiContent, GeminiContentRole, GeminiPart};
+use crate::gemini::generate_content::request::GeminiGenerateContentRequest;
 use crate::gemini::live::request::GeminiLiveConnectRequest;
 use crate::gemini::live::types::{
     GeminiBidiGenerateContentClientMessage, GeminiBidiGenerateContentClientMessageType,
@@ -130,6 +131,34 @@ pub fn gemini_live_connect_to_stream_request_with_context(
     gemini_live_client_messages_to_stream_request_with_context(std::slice::from_ref(frame))
 }
 
+pub fn gemini_live_client_messages_to_nonstream_request_with_context(
+    value: &[GeminiBidiGenerateContentClientMessage],
+) -> Result<
+    (
+        GeminiGenerateContentRequest,
+        GeminiWebsocketTransformContext,
+    ),
+    TransformError,
+> {
+    let (stream_request, ctx) = gemini_live_client_messages_to_stream_request_with_context(value)?;
+    let request = GeminiGenerateContentRequest::try_from(stream_request)?;
+    Ok((request, ctx))
+}
+
+pub fn gemini_live_connect_to_nonstream_request_with_context(
+    value: &GeminiLiveConnectRequest,
+) -> Result<
+    (
+        GeminiGenerateContentRequest,
+        GeminiWebsocketTransformContext,
+    ),
+    TransformError,
+> {
+    let (stream_request, ctx) = gemini_live_connect_to_stream_request_with_context(value)?;
+    let request = GeminiGenerateContentRequest::try_from(stream_request)?;
+    Ok((request, ctx))
+}
+
 impl TryFrom<&GeminiBidiGenerateContentClientMessage> for GeminiStreamGenerateContentRequest {
     type Error = TransformError;
 
@@ -164,6 +193,41 @@ impl TryFrom<GeminiLiveConnectRequest> for GeminiStreamGenerateContentRequest {
 
     fn try_from(value: GeminiLiveConnectRequest) -> Result<Self, TransformError> {
         GeminiStreamGenerateContentRequest::try_from(&value)
+    }
+}
+
+impl TryFrom<&GeminiBidiGenerateContentClientMessage> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: &GeminiBidiGenerateContentClientMessage) -> Result<Self, TransformError> {
+        Ok(gemini_live_client_messages_to_nonstream_request_with_context(
+            std::slice::from_ref(value),
+        )?
+        .0)
+    }
+}
+
+impl TryFrom<&[GeminiBidiGenerateContentClientMessage]> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: &[GeminiBidiGenerateContentClientMessage]) -> Result<Self, TransformError> {
+        Ok(gemini_live_client_messages_to_nonstream_request_with_context(value)?.0)
+    }
+}
+
+impl TryFrom<&GeminiLiveConnectRequest> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: &GeminiLiveConnectRequest) -> Result<Self, TransformError> {
+        Ok(gemini_live_connect_to_nonstream_request_with_context(value)?.0)
+    }
+}
+
+impl TryFrom<GeminiLiveConnectRequest> for GeminiGenerateContentRequest {
+    type Error = TransformError;
+
+    fn try_from(value: GeminiLiveConnectRequest) -> Result<Self, TransformError> {
+        GeminiGenerateContentRequest::try_from(&value)
     }
 }
 
@@ -254,6 +318,48 @@ mod tests {
 
         let (request, ctx) =
             gemini_live_client_messages_to_stream_request_with_context(frames.as_slice())
+                .expect("conversion should succeed");
+        assert_eq!(request.path.model, FALLBACK_MODEL);
+        assert_eq!(ctx.warnings.len(), 1);
+    }
+
+    #[test]
+    fn websocket_frames_map_to_nonstream_request_via_stream_bridge() {
+        let frames = vec![
+            GeminiBidiGenerateContentClientMessage {
+                message_type: GeminiBidiGenerateContentClientMessageType::Setup {
+                    setup: GeminiBidiGenerateContentSetup {
+                        model: "models/gemini-2.5-flash".to_string(),
+                        ..GeminiBidiGenerateContentSetup::default()
+                    },
+                },
+            },
+            GeminiBidiGenerateContentClientMessage {
+                message_type: GeminiBidiGenerateContentClientMessageType::ClientContent {
+                    client_content: GeminiBidiGenerateContentClientContent {
+                        turns: Some(vec![GeminiContent {
+                            parts: vec![GeminiPart {
+                                text: Some("hello".to_string()),
+                                ..GeminiPart::default()
+                            }],
+                            role: None,
+                        }]),
+                        turn_complete: Some(true),
+                    },
+                },
+            },
+        ];
+
+        let request = GeminiGenerateContentRequest::try_from(frames.as_slice())
+            .expect("conversion should succeed");
+        assert_eq!(request.path.model, "models/gemini-2.5-flash");
+        assert_eq!(request.body.contents.len(), 1);
+    }
+
+    #[test]
+    fn websocket_connect_without_body_maps_to_nonstream_fallback() {
+        let (request, ctx) =
+            gemini_live_connect_to_nonstream_request_with_context(&GeminiLiveConnectRequest::default())
                 .expect("conversion should succeed");
         assert_eq!(request.path.model, FALLBACK_MODEL);
         assert_eq!(ctx.warnings.len(), 1);

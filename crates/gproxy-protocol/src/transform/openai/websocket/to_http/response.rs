@@ -1,3 +1,4 @@
+use crate::openai::create_response::response::OpenAiCreateResponseResponse;
 use crate::openai::create_response::stream::{
     OpenAiCreateResponseSseData, OpenAiCreateResponseSseEvent, OpenAiCreateResponseSseStreamBody,
     ResponseStreamEvent,
@@ -80,6 +81,44 @@ impl TryFrom<Vec<OpenAiCreateResponseWebSocketMessageResponse>>
     ) -> Result<Self, Self::Error> {
         OpenAiCreateResponseSseStreamBody::try_from(value.as_slice())
     }
+}
+
+impl TryFrom<&[OpenAiCreateResponseWebSocketMessageResponse]>
+    for OpenAiCreateResponseResponse
+{
+    type Error = crate::transform::utils::TransformError;
+
+    fn try_from(
+        value: &[OpenAiCreateResponseWebSocketMessageResponse],
+    ) -> Result<Self, crate::transform::utils::TransformError> {
+        Ok(websocket_messages_to_openai_nonstream_with_context(value)?.0)
+    }
+}
+
+impl TryFrom<Vec<OpenAiCreateResponseWebSocketMessageResponse>>
+    for OpenAiCreateResponseResponse
+{
+    type Error = crate::transform::utils::TransformError;
+
+    fn try_from(
+        value: Vec<OpenAiCreateResponseWebSocketMessageResponse>,
+    ) -> Result<Self, crate::transform::utils::TransformError> {
+        OpenAiCreateResponseResponse::try_from(value.as_slice())
+    }
+}
+
+pub fn websocket_messages_to_openai_nonstream_with_context(
+    value: &[OpenAiCreateResponseWebSocketMessageResponse],
+) -> Result<
+    (
+        OpenAiCreateResponseResponse,
+        OpenAiWebsocketTransformContext,
+    ),
+    crate::transform::utils::TransformError,
+> {
+    let (stream, ctx) = websocket_messages_to_openai_sse_with_context(value)?;
+    let response = OpenAiCreateResponseResponse::try_from(stream)?;
+    Ok((response, ctx))
 }
 
 pub fn websocket_messages_to_openai_sse_with_context(
@@ -228,5 +267,59 @@ mod tests {
         let (_, ctx) = websocket_messages_to_openai_sse_with_context(&[message])
             .expect("conversion should succeed");
         assert_eq!(ctx.warnings.len(), 2);
+    }
+
+    #[test]
+    fn websocket_messages_map_to_nonstream_response_via_stream_bridge() {
+        let message =
+            OpenAiCreateResponseWebSocketServerMessage::StreamEvent(ResponseStreamEvent::Completed {
+                response: crate::openai::create_response::response::ResponseBody {
+                    id: "resp_1".to_string(),
+                    created_at: 1,
+                    error: None,
+                    incomplete_details: None,
+                    instructions: None,
+                    metadata: Default::default(),
+                    model: "gpt-5.3-codex".to_string(),
+                    object: crate::openai::create_response::types::ResponseObject::Response,
+                    output: vec![],
+                    parallel_tool_calls: true,
+                    temperature: 1.0,
+                    tool_choice: crate::openai::count_tokens::types::ResponseToolChoice::Options(
+                        crate::openai::count_tokens::types::ResponseToolChoiceOptions::Auto,
+                    ),
+                    tools: vec![],
+                    top_p: 1.0,
+                    background: None,
+                    completed_at: None,
+                    conversation: None,
+                    max_output_tokens: None,
+                    max_tool_calls: None,
+                    output_text: None,
+                    previous_response_id: None,
+                    prompt: None,
+                    prompt_cache_key: None,
+                    prompt_cache_retention: None,
+                    reasoning: None,
+                    safety_identifier: None,
+                    service_tier: None,
+                    status: None,
+                    text: None,
+                    top_logprobs: None,
+                    truncation: None,
+                    usage: None,
+                    user: None,
+                },
+                sequence_number: 1,
+            });
+
+        let response = OpenAiCreateResponseResponse::try_from(vec![message])
+            .expect("conversion should succeed");
+        match response {
+            OpenAiCreateResponseResponse::Success { body, .. } => {
+                assert_eq!(body.id, "resp_1");
+            }
+            _ => panic!("expected non-stream success response"),
+        }
     }
 }

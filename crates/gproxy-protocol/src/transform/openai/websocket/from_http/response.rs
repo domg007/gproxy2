@@ -1,3 +1,4 @@
+use crate::openai::create_response::response::OpenAiCreateResponseResponse;
 use crate::openai::create_response::stream::{
     OpenAiCreateResponseSseData, OpenAiCreateResponseSseStreamBody,
 };
@@ -28,6 +29,27 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody>
     fn try_from(value: OpenAiCreateResponseSseStreamBody) -> Result<Self, TransformError> {
         Vec::<OpenAiCreateResponseWebSocketMessageResponse>::try_from(&value)
     }
+}
+
+impl TryFrom<OpenAiCreateResponseResponse> for Vec<OpenAiCreateResponseWebSocketMessageResponse> {
+    type Error = TransformError;
+
+    fn try_from(value: OpenAiCreateResponseResponse) -> Result<Self, TransformError> {
+        Ok(openai_nonstream_response_to_websocket_messages_with_context(value)?.0)
+    }
+}
+
+pub fn openai_nonstream_response_to_websocket_messages_with_context(
+    value: OpenAiCreateResponseResponse,
+) -> Result<
+    (
+        Vec<OpenAiCreateResponseWebSocketMessageResponse>,
+        OpenAiWebsocketTransformContext,
+    ),
+    TransformError,
+> {
+    let stream = OpenAiCreateResponseSseStreamBody::try_from(value)?;
+    openai_sse_to_websocket_messages_with_context(&stream)
 }
 
 pub fn openai_sse_to_websocket_messages_with_context(
@@ -66,11 +88,15 @@ pub fn openai_sse_to_websocket_messages_with_context(
 
 #[cfg(test)]
 mod tests {
+    use http::StatusCode;
+
+    use crate::openai::create_response::response::OpenAiCreateResponseResponse;
     use crate::openai::create_response::response::ResponseBody;
     use crate::openai::create_response::stream::{
         OpenAiCreateResponseSseData, OpenAiCreateResponseSseEvent,
         OpenAiCreateResponseSseStreamBody, ResponseStreamEvent,
     };
+    use crate::openai::types::OpenAiResponseHeaders;
 
     use super::*;
 
@@ -154,5 +180,58 @@ mod tests {
             OpenAiCreateResponseWebSocketServerMessage::Done(_)
         ));
         assert_eq!(ctx.warnings.len(), 1);
+    }
+
+    #[test]
+    fn nonstream_response_maps_to_websocket_messages_via_stream_bridge() {
+        let response = OpenAiCreateResponseResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: OpenAiResponseHeaders::default(),
+            body: ResponseBody {
+                id: "resp_1".to_string(),
+                created_at: 1,
+                error: None,
+                incomplete_details: None,
+                instructions: None,
+                metadata: Default::default(),
+                model: "gpt-5.3-codex".to_string(),
+                object: crate::openai::create_response::types::ResponseObject::Response,
+                output: vec![],
+                parallel_tool_calls: true,
+                temperature: 1.0,
+                tool_choice: crate::openai::count_tokens::types::ResponseToolChoice::Options(
+                    crate::openai::count_tokens::types::ResponseToolChoiceOptions::Auto,
+                ),
+                tools: vec![],
+                top_p: 1.0,
+                background: None,
+                completed_at: None,
+                conversation: None,
+                max_output_tokens: None,
+                max_tool_calls: None,
+                output_text: None,
+                previous_response_id: None,
+                prompt: None,
+                prompt_cache_key: None,
+                prompt_cache_retention: None,
+                reasoning: None,
+                safety_identifier: None,
+                service_tier: None,
+                status: None,
+                text: None,
+                top_logprobs: None,
+                truncation: None,
+                usage: None,
+                user: None,
+            },
+        };
+
+        let ws = Vec::<OpenAiCreateResponseWebSocketMessageResponse>::try_from(response)
+            .expect("conversion should succeed");
+        assert_eq!(ws.len(), 4);
+        assert!(matches!(
+            ws.last().expect("done frame"),
+            OpenAiCreateResponseWebSocketServerMessage::Done(_)
+        ));
     }
 }
