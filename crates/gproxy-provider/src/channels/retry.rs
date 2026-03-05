@@ -164,6 +164,71 @@ pub fn cache_affinity_hint_from_transform_request(
     }
 }
 
+pub fn cache_affinity_hint_from_codex_transform_request(
+    request: &TransformRequest,
+    model: Option<&str>,
+    body: Option<&[u8]>,
+) -> Option<CacheAffinityHint> {
+    let protocol = cache_affinity_protocol_from_transform_request(request)?;
+    if matches!(protocol, CacheAffinityProtocol::OpenAiResponses)
+        && let Some(hint) = cache_affinity_hint_for_codex_openai_responses(body)
+    {
+        return Some(hint);
+    }
+    cache_affinity_hint_from_transform_request(protocol, model, body)
+}
+
+fn cache_affinity_hint_for_codex_openai_responses(
+    body: Option<&[u8]>,
+) -> Option<CacheAffinityHint> {
+    let body_json = serde_json::from_slice::<Value>(body?).ok()?;
+    let session_marker = body_json
+        .get("prompt_cache_key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            let conversation = body_json.get("conversation")?;
+            match conversation {
+                Value::String(value) => {
+                    let value = value.trim();
+                    (!value.is_empty()).then(|| value.to_string())
+                }
+                Value::Object(value) => value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(ToString::to_string),
+                _ => None,
+            }
+        })
+        .or_else(|| {
+            body_json
+                .get("previous_response_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })?;
+
+    let key = format!(
+        "codex.responses.session:{}",
+        hash_str_to_hex(session_marker.as_str())
+    );
+    let key_len = key.len();
+    let candidate = CacheAffinityCandidate {
+        key,
+        ttl_ms: OPENAI_24H_CACHE_AFFINITY_TTL_MS,
+        key_len,
+    };
+    Some(CacheAffinityHint {
+        candidates: vec![candidate.clone()],
+        bind: candidate,
+    })
+}
+
 pub fn cache_affinity_hint_for_claude_effective_body(
     body_json: Value,
 ) -> Option<CacheAffinityHint> {
@@ -1232,11 +1297,13 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        CredentialCandidate, CredentialPickMode, ScopedAffinityCandidate, bind_affinity,
-        build_prefix_hashes, cache_affinity_hint_for_claude_effective_body,
-        cache_affinity_hint_for_gemini, cache_affinity_hint_for_openai_chat,
-        cache_affinity_hint_for_openai_responses, clear_affinity, hash_str_to_hex,
-        non_claude_candidate_indices, openai_chat_cache_blocks, pick_candidate_index,
+        CredentialCandidate, CredentialPickMode, OPENAI_24H_CACHE_AFFINITY_TTL_MS,
+        ScopedAffinityCandidate, bind_affinity, build_prefix_hashes,
+        cache_affinity_hint_for_claude_effective_body,
+        cache_affinity_hint_for_codex_openai_responses, cache_affinity_hint_for_gemini,
+        cache_affinity_hint_for_openai_chat, cache_affinity_hint_for_openai_responses,
+        clear_affinity, hash_str_to_hex, non_claude_candidate_indices, openai_chat_cache_blocks,
+        pick_candidate_index,
     };
 
     #[test]
@@ -1283,6 +1350,54 @@ mod tests {
         let hint_a = cache_affinity_hint_for_openai_responses(body_a).expect("hint a");
         let hint_b = cache_affinity_hint_for_openai_responses(body_b).expect("hint b");
         assert_eq!(hint_a.bind.key, hint_b.bind.key);
+    }
+
+    #[test]
+    fn codex_openai_responses_uses_prompt_cache_key_as_session_marker() {
+        let body = json!({
+            "model": "gpt-5.3-codex",
+            "prompt_cache_key": "thread-123",
+            "input": [{"role":"user","content":[{"type":"input_text","text":"hello"}]}]
+        });
+        let bytes = serde_json::to_vec(&body).expect("serialize body");
+
+        let hint = cache_affinity_hint_for_codex_openai_responses(Some(bytes.as_slice()))
+            .expect("codex hint");
+        let expected = format!("codex.responses.session:{}", hash_str_to_hex("thread-123"));
+        assert_eq!(hint.bind.key, expected);
+        assert_eq!(hint.bind.ttl_ms, OPENAI_24H_CACHE_AFFINITY_TTL_MS);
+        assert_eq!(hint.candidates.len(), 1);
+        assert_eq!(hint.candidates[0].key, hint.bind.key);
+    }
+
+    #[test]
+    fn codex_openai_responses_falls_back_to_conversation_and_previous_response() {
+        let conversation_body = json!({
+            "model": "gpt-5.3-codex",
+            "conversation": { "id": "conv-abc" }
+        });
+        let conversation_bytes =
+            serde_json::to_vec(&conversation_body).expect("serialize conversation body");
+        let conversation_hint =
+            cache_affinity_hint_for_codex_openai_responses(Some(conversation_bytes.as_slice()))
+                .expect("conversation hint");
+        assert_eq!(
+            conversation_hint.bind.key,
+            format!("codex.responses.session:{}", hash_str_to_hex("conv-abc"))
+        );
+
+        let previous_body = json!({
+            "model": "gpt-5.3-codex",
+            "previous_response_id": "resp_42"
+        });
+        let previous_bytes = serde_json::to_vec(&previous_body).expect("serialize previous body");
+        let previous_hint =
+            cache_affinity_hint_for_codex_openai_responses(Some(previous_bytes.as_slice()))
+                .expect("previous response hint");
+        assert_eq!(
+            previous_hint.bind.key,
+            format!("codex.responses.session:{}", hash_str_to_hex("resp_42"))
+        );
     }
 
     #[test]

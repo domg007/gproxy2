@@ -14,7 +14,7 @@ use super::oauth::{
     CodexRefreshedToken, codex_auth_material_from_credential, resolve_codex_access_token,
 };
 use crate::channels::retry::{
-    CredentialRetryDecision, cache_affinity_hint_from_transform_request,
+    CredentialRetryDecision, cache_affinity_hint_from_codex_transform_request,
     configured_pick_mode_uses_cache, credential_pick_mode, retry_with_eligible_credentials,
     retry_with_eligible_credentials_with_affinity,
 };
@@ -62,14 +62,10 @@ pub async fn execute_codex_with_retry(
 
     let prepared = CodexPreparedRequest::from_transform_request(request)?;
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
-        crate::channels::retry::cache_affinity_protocol_from_transform_request(request).and_then(
-            |protocol| {
-                cache_affinity_hint_from_transform_request(
-                    protocol,
-                    prepared.model.as_deref(),
-                    prepared.body.as_deref(),
-                )
-            },
+        cache_affinity_hint_from_codex_transform_request(
+            request,
+            prepared.model.as_deref(),
+            prepared.body.as_deref(),
         )
     } else {
         None
