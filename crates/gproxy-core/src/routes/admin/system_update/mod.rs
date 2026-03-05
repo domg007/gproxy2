@@ -12,15 +12,16 @@ use crate::normalize_update_source;
 use super::{HttpError, authorize_admin};
 
 mod channel;
+mod cnb;
 mod github;
 mod runtime;
 #[cfg(test)]
 mod tests;
 mod types;
 mod verify;
-mod cnb;
 
 use channel::{is_semver_update_available, normalize_update_channel};
+use cnb::{fetch_cnb_release_asset, fetch_cnb_release_tag};
 use github::{fetch_github_release_asset, fetch_github_release_tag};
 use runtime::{
     build_self_update_client, download_bytes_with_redirects, extract_binary_from_zip,
@@ -28,7 +29,6 @@ use runtime::{
 };
 use types::{ResolvedReleaseAsset, SelfUpdateResult, UpdateChannelQuery};
 use verify::{resolve_release_asset_sha256, verify_downloaded_asset_sha256};
-use cnb::{fetch_cnb_release_asset, fetch_cnb_release_tag};
 
 pub(super) async fn system_self_update(
     State(state): State<Arc<AppState>>,
@@ -183,9 +183,7 @@ async fn fetch_release_asset(
     update_channel: &str,
 ) -> Result<(String, ResolvedReleaseAsset), String> {
     match update_source {
-        UPDATE_SOURCE_CNB => {
-            fetch_cnb_release_asset(client, target_asset, update_channel).await
-        }
+        UPDATE_SOURCE_CNB => fetch_cnb_release_asset(client, target_asset, update_channel).await,
         UPDATE_SOURCE_GITHUB => {
             fetch_github_release_asset(client, target_asset, update_channel).await
         }

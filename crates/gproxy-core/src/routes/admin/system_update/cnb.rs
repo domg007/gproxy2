@@ -1,8 +1,6 @@
 use std::env;
 
-use super::types::{
-    GPROXY_CNB_DOWNLOADS_BASE_DEFAULT, ResolvedReleaseAsset, CnbReleaseManifest,
-};
+use super::types::{CnbReleaseManifest, GPROXY_CNB_DOWNLOADS_BASE_DEFAULT, ResolvedReleaseAsset};
 use super::verify::{normalize_sha256_hex, normalized_update_signing_key_id};
 
 pub(super) async fn fetch_cnb_release_tag(
@@ -32,8 +30,8 @@ pub(super) async fn fetch_cnb_release_tag(
         .bytes()
         .await
         .map_err(|err| format!("read_cnb_manifest_body: {err}"))?;
-    let manifest: CnbReleaseManifest = serde_json::from_slice(&body)
-        .map_err(|err| format!("parse_cnb_manifest_json: {err}"))?;
+    let manifest: CnbReleaseManifest =
+        serde_json::from_slice(&body).map_err(|err| format!("parse_cnb_manifest_json: {err}"))?;
     Ok(manifest.tag)
 }
 
@@ -65,8 +63,8 @@ pub(super) async fn fetch_cnb_release_asset(
         .bytes()
         .await
         .map_err(|err| format!("read_cnb_manifest_body: {err}"))?;
-    let manifest: CnbReleaseManifest = serde_json::from_slice(&body)
-        .map_err(|err| format!("parse_cnb_manifest_json: {err}"))?;
+    let manifest: CnbReleaseManifest =
+        serde_json::from_slice(&body).map_err(|err| format!("parse_cnb_manifest_json: {err}"))?;
     if let Some(channel) = manifest.channel.as_deref() {
         let normalized = channel.trim().to_ascii_lowercase();
         if normalized != update_channel {

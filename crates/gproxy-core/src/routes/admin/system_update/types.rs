@@ -6,8 +6,7 @@ pub(super) const GPROXY_REPO_API_LATEST: &str =
     "https://api.github.com/repos/LeenHawk/gproxy/releases/latest";
 pub(super) const GPROXY_REPO_API_STAGING: &str =
     "https://api.github.com/repos/LeenHawk/gproxy/releases/tags/staging";
-pub(super) const GPROXY_CNB_DOWNLOADS_BASE_DEFAULT: &str =
-    "https://cnb.cool/ai-rp/gproxy";
+pub(super) const GPROXY_CNB_DOWNLOADS_BASE_DEFAULT: &str = "https://cnb.cool/ai-rp/gproxy";
 pub(super) const UPDATE_CHANNEL_RELEASES: &str = "releases";
 pub(super) const UPDATE_CHANNEL_STAGING: &str = "staging";
 pub(super) const UPDATE_SIGNING_KEY_ID_DEFAULT: &str = "gproxy-release-v1";
