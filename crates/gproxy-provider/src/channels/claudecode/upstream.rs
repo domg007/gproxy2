@@ -32,6 +32,9 @@ use crate::provider::{ProviderDefinition, RetryWithPayloadRequest};
 
 const BETA_QUERY_KEY: &str = "beta";
 const BETA_QUERY_VALUE: &str = "true";
+const CLAUDECODE_THINKING_MODEL_SUFFIX: &str = "-thinking";
+const CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX: &str = "-adaptive-thinking";
+const CLAUDECODE_THINKING_BUDGET_TOKENS: u64 = 4_096;
 
 pub async fn execute_claudecode_with_retry(
     client: &WreqClient,
@@ -511,6 +514,7 @@ async fn execute_claudecode_with_prepared(
                     if let Some(body_obj) = model_list_body.as_object_mut()
                         && let Some(data) = body_obj.get_mut("data").and_then(Value::as_array_mut)
                     {
+                        extend_model_list_with_thinking_variants(data);
                         let first_id = data
                             .first()
                             .and_then(|item| item.get("id"))
@@ -1044,6 +1048,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -1075,6 +1080,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
@@ -1111,6 +1117,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
@@ -1268,6 +1275,7 @@ impl ClaudeCodePreparedRequest {
                         "missing model in claudecode count_tokens payload".to_string(),
                     )
                 })?;
+                let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
@@ -1298,6 +1306,7 @@ impl ClaudeCodePreparedRequest {
                         "missing model in claudecode message payload".to_string(),
                     )
                 })?;
+                let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
@@ -1543,6 +1552,54 @@ fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
     }
 }
 
+fn normalize_claudecode_model_and_thinking(model: &str, body: &mut Value) -> String {
+    let trimmed = model.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.ends_with(CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX) {
+        let mut normalized = trimmed
+            [..trimmed.len() - CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX.len()]
+            .trim()
+            .to_string();
+        if normalized.is_empty() {
+            normalized = trimmed.to_string();
+        }
+        let Some(map) = body.as_object_mut() else {
+            return normalized;
+        };
+        map.insert("model".to_string(), Value::String(normalized.clone()));
+        map.insert(
+            "thinking".to_string(),
+            serde_json::json!({
+                "type": "adaptive"
+            }),
+        );
+        return normalized;
+    }
+
+    if lower.ends_with(CLAUDECODE_THINKING_MODEL_SUFFIX) {
+        let mut normalized = trimmed[..trimmed.len() - CLAUDECODE_THINKING_MODEL_SUFFIX.len()]
+            .trim()
+            .to_string();
+        if normalized.is_empty() {
+            normalized = trimmed.to_string();
+        }
+        let Some(map) = body.as_object_mut() else {
+            return normalized;
+        };
+        map.insert("model".to_string(), Value::String(normalized.clone()));
+        map.insert(
+            "thinking".to_string(),
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": CLAUDECODE_THINKING_BUDGET_TOKENS
+            }),
+        );
+        return normalized;
+    }
+
+    trimmed.to_string()
+}
+
 fn should_expand_claudecode_model_list(
     method: &WreqMethod,
     url: &str,
@@ -1552,6 +1609,46 @@ fn should_expand_claudecode_model_list(
         && body.is_none()
         && (url.contains("/v1/models?") || url.ends_with("/v1/models"))
         && !url.contains("/v1/models/")
+}
+
+fn extend_model_list_with_thinking_variants(data: &mut Vec<Value>) {
+    let existing_ids = data
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mut out = Vec::with_capacity(data.len().saturating_mul(3));
+    for item in data.iter() {
+        out.push(item.clone());
+
+        let Some(id) = item.get("id").and_then(Value::as_str).map(str::trim) else {
+            continue;
+        };
+        let id_lower = id.to_ascii_lowercase();
+        if id.is_empty()
+            || id_lower.ends_with(CLAUDECODE_THINKING_MODEL_SUFFIX)
+            || id_lower.ends_with(CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX)
+        {
+            continue;
+        }
+
+        let thinking_id = format!("{id}{CLAUDECODE_THINKING_MODEL_SUFFIX}");
+        let adaptive_thinking_id = format!("{id}{CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX}");
+        for variant_id in [thinking_id, adaptive_thinking_id] {
+            if existing_ids.contains(variant_id.as_str()) {
+                continue;
+            }
+
+            let mut variant_item = item.clone();
+            if let Some(obj) = variant_item.as_object_mut() {
+                obj.insert("id".to_string(), Value::String(variant_id));
+                out.push(variant_item);
+            }
+        }
+    }
+
+    *data = out;
 }
 
 fn requires_claudecode_sampling_guard(model: &str) -> bool {
@@ -1577,5 +1674,126 @@ fn claudecode_credential_update(
         cookie: refreshed.cookie.clone(),
         enable_claude_1m_sonnet: None,
         enable_claude_1m_opus: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        CLAUDECODE_THINKING_BUDGET_TOKENS, extend_model_list_with_thinking_variants,
+        normalize_claudecode_model_and_thinking,
+    };
+
+    #[test]
+    fn thinking_suffix_sets_fixed_budget_and_strips_model_suffix() {
+        let mut body = json!({
+            "model": "claude-opus-4-5-thinking",
+            "messages": [],
+            "max_tokens": 2048
+        });
+
+        let model = normalize_claudecode_model_and_thinking("claude-opus-4-5-thinking", &mut body);
+
+        assert_eq!(model, "claude-opus-4-5");
+        assert_eq!(body["model"], json!("claude-opus-4-5"));
+        assert_eq!(body["thinking"]["type"], json!("enabled"));
+        assert_eq!(
+            body["thinking"]["budget_tokens"],
+            json!(CLAUDECODE_THINKING_BUDGET_TOKENS)
+        );
+    }
+
+    #[test]
+    fn adaptive_thinking_suffix_forces_adaptive() {
+        let mut body = json!({
+            "model": "claude-opus-4-5-adaptive-thinking",
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 1024
+            }
+        });
+
+        let model =
+            normalize_claudecode_model_and_thinking("claude-opus-4-5-adaptive-thinking", &mut body);
+
+        assert_eq!(model, "claude-opus-4-5");
+        assert_eq!(body["model"], json!("claude-opus-4-5"));
+        assert_eq!(body["thinking"], json!({"type": "adaptive"}));
+    }
+
+    #[test]
+    fn thinking_suffix_overrides_existing_to_fixed_budget() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-5-thinking",
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 2048
+            }
+        });
+
+        let model =
+            normalize_claudecode_model_and_thinking("claude-sonnet-4-5-thinking", &mut body);
+
+        assert_eq!(model, "claude-sonnet-4-5");
+        assert_eq!(body["model"], json!("claude-sonnet-4-5"));
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "enabled",
+                "budget_tokens": CLAUDECODE_THINKING_BUDGET_TOKENS
+            })
+        );
+    }
+
+    #[test]
+    fn model_list_expands_with_thinking_variants() {
+        let mut data = vec![
+            json!({"id": "claude-opus-4-6", "object": "model"}),
+            json!({"id": "claude-sonnet-4-5", "object": "model"}),
+        ];
+
+        extend_model_list_with_thinking_variants(&mut data);
+
+        let ids = data
+            .iter()
+            .filter_map(|item| item.get("id").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                "claude-opus-4-6",
+                "claude-opus-4-6-thinking",
+                "claude-opus-4-6-adaptive-thinking",
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-5-thinking",
+                "claude-sonnet-4-5-adaptive-thinking"
+            ]
+        );
+    }
+
+    #[test]
+    fn model_list_does_not_duplicate_existing_thinking_entries() {
+        let mut data = vec![
+            json!({"id": "claude-opus-4-6", "object": "model"}),
+            json!({"id": "claude-opus-4-6-thinking", "object": "model"}),
+        ];
+
+        extend_model_list_with_thinking_variants(&mut data);
+
+        let mut ids = data
+            .iter()
+            .filter_map(|item| item.get("id").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            vec![
+                "claude-opus-4-6",
+                "claude-opus-4-6-adaptive-thinking",
+                "claude-opus-4-6-thinking",
+            ]
+        );
     }
 }

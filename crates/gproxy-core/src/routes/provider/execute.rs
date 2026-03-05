@@ -100,20 +100,29 @@ fn should_wrap_payload_for_typed_decode(
     matches!(
         (operation, protocol),
         (OperationFamily::GenerateContent, ProtocolKind::Claude)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude)
-        | (OperationFamily::CountToken, ProtocolKind::Claude)
-        | (OperationFamily::GenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
-        | (OperationFamily::CountToken, ProtocolKind::Gemini)
-        | (OperationFamily::Embedding, ProtocolKind::Gemini)
-        | (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
-        | (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
-        | (OperationFamily::CountToken, ProtocolKind::OpenAi)
-        | (OperationFamily::Embedding, ProtocolKind::OpenAi)
-        | (OperationFamily::Compact, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude)
+            | (OperationFamily::CountToken, ProtocolKind::Claude)
+            | (OperationFamily::GenerateContent, ProtocolKind::Gemini)
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+            | (
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::GeminiNDJson
+            )
+            | (OperationFamily::CountToken, ProtocolKind::Gemini)
+            | (OperationFamily::Embedding, ProtocolKind::Gemini)
+            | (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
+            | (
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion
+            )
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+            | (
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion
+            )
+            | (OperationFamily::CountToken, ProtocolKind::OpenAi)
+            | (OperationFamily::Embedding, ProtocolKind::OpenAi)
+            | (OperationFamily::Compact, ProtocolKind::OpenAi)
     )
 }
 
