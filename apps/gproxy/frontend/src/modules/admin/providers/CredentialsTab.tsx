@@ -275,6 +275,7 @@ export function CredentialsTab({
   const oauthCallbackQuery = oauthCallbackQueryByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthRawResult = oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthOpenUrl = oauthReadableResult?.authUrl ?? oauthReadableResult?.verificationUri;
+  const oauthSubmitUrl = readQueryParam(oauthCallbackQuery, "callback_url");
 
   useEffect(() => {
     setBulkMode(defaultBulkMode(channel, credentialSchema, supportsOAuth));
@@ -578,10 +579,17 @@ export function CredentialsTab({
     URL.revokeObjectURL(url);
   };
 
-  const readQueryParam = (rawQuery: string, key: string): string => {
+  function readQueryParam(rawQuery: string, key: string): string {
     const input = rawQuery.trim();
     const params = new URLSearchParams(input.startsWith("?") ? input.slice(1) : input);
     return params.get(key) ?? "";
+  }
+
+  const oauthQueryParamName = (field: string): string => {
+    if (field === "callback_code") {
+      return "code";
+    }
+    return field;
   };
 
   const updateQueryParam = (rawQuery: string, key: string, value: string): string => {
@@ -616,6 +624,7 @@ export function CredentialsTab({
     field: string,
     rawQuery: string
   ) => {
+    const fieldKey = oauthQueryParamName(field);
     const labelKey = `field.${field}`;
     const translated = t(labelKey);
     const placeholder =
@@ -624,9 +633,11 @@ export function CredentialsTab({
       <div key={`${kind}-${field}`}>
         <Label>{translated === labelKey ? field : translated}</Label>
         <Input
-          value={readQueryParam(rawQuery, field)}
+          value={readQueryParam(rawQuery, fieldKey)}
           onChange={(value) =>
-            kind === "start" ? setOAuthStartParam(field, value) : setOAuthCallbackParam(field, value)
+            kind === "start"
+              ? setOAuthStartParam(fieldKey, value)
+              : setOAuthCallbackParam(fieldKey, value)
           }
           placeholder={placeholder}
         />
@@ -708,21 +719,33 @@ export function CredentialsTab({
             {t("providers.oauth.openAuthUrl")}
           </a>
         ) : null}
-        {!oauthCallbackUsesCustomFields
-          ? oauthCallbackButtons.map((button) => (
-              <Button
-                key={button.labelKey}
-                variant={button.mode ? "neutral" : "primary"}
-                onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
-              >
-                {t(button.labelKey)}
-              </Button>
-            ))
-          : null}
       </div>
       {!oauthCallbackUsesCustomFields
         ? oauthUi?.callbackFields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))
         : null}
+      {!oauthCallbackUsesCustomFields ? (
+        <div className="flex flex-wrap gap-2">
+          {oauthSubmitUrl ? (
+            <a
+              className="btn btn-primary inline-flex"
+              href={oauthSubmitUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t("providers.oauth.openCallbackUrl")}
+            </a>
+          ) : null}
+          {oauthCallbackButtons.map((button) => (
+            <Button
+              key={button.labelKey}
+              variant={button.mode ? "neutral" : "primary"}
+              onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
+            >
+              {t(button.labelKey)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       {oauthCallbackUsesCustomFields ? (
         <div className="space-y-2">
           {oauthCallbackButtons.map((button) => {
@@ -736,12 +759,24 @@ export function CredentialsTab({
                   {t(button.labelKey)}
                 </div>
                 {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
-                <Button
-                  variant={button.mode ? "neutral" : "primary"}
-                  onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
-                >
-                  {t(button.labelKey)}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {oauthSubmitUrl ? (
+                    <a
+                      className="btn btn-primary inline-flex"
+                      href={oauthSubmitUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t("providers.oauth.openCallbackUrl")}
+                    </a>
+                  ) : null}
+                  <Button
+                    variant={button.mode ? "neutral" : "primary"}
+                    onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
+                  >
+                    {t(button.labelKey)}
+                  </Button>
+                </div>
               </div>
             );
           })}

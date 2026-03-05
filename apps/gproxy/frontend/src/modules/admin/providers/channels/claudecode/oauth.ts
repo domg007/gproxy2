@@ -2,6 +2,6 @@ import type { ChannelOAuthUi } from "../oauth";
 
 export const OAUTH_UI: ChannelOAuthUi = {
   startFields: [],
-  callbackFields: ["code"],
+  callbackFields: ["callback_url", "callback_code"],
   startDefaults: {}
 };

@@ -11,32 +11,90 @@ import { mergeQueryString, usagePayloadToText } from "../index";
 type NotifyFn = (kind: "success" | "error" | "info", message: string) => void;
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
 
-function extractOAuthState(payload: unknown): string | undefined {
-  let objectPayload: Record<string, unknown> | null = null;
+function toOAuthObjectPayload(payload: unknown): Record<string, unknown> | null {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    objectPayload = payload as Record<string, unknown>;
-  } else if (typeof payload === "string") {
-    const trimmed = payload.trim();
-    if (trimmed) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          objectPayload = parsed as Record<string, unknown>;
-        }
-      } catch {
-        return undefined;
-      }
+    return payload as Record<string, unknown>;
+  }
+  if (typeof payload !== "string") {
+    return null;
+  }
+  const trimmed = payload.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
     }
+  } catch {
+    return null;
   }
-  if (!objectPayload) {
+  return null;
+}
+
+function pickOAuthString(
+  payload: Record<string, unknown> | null,
+  key: string
+): string | undefined {
+  if (!payload) {
     return undefined;
   }
-  const state = objectPayload.state;
-  if (typeof state !== "string") {
+  const value = payload[key];
+  if (typeof value !== "string") {
     return undefined;
   }
-  const trimmed = state.trim();
+  const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function extractOAuthState(payload: unknown): string | undefined {
+  const objectPayload = toOAuthObjectPayload(payload);
+  return pickOAuthString(objectPayload, "state");
+}
+
+function extractOAuthCallbackCode(payload: unknown): string | undefined {
+  const objectPayload = toOAuthObjectPayload(payload);
+  return (
+    pickOAuthString(objectPayload, "user_code") ??
+    pickOAuthString(objectPayload, "code")
+  );
+}
+
+function remapCallbackQueryForRequest(rawQuery: string): string {
+  const input = rawQuery.trim();
+  const params = new URLSearchParams(input.startsWith("?") ? input.slice(1) : input);
+  const callbackCode = params.get("callback_code")?.trim() ?? "";
+  if (callbackCode) {
+    params.set("code", callbackCode);
+  }
+  params.delete("callback_code");
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function normalizeCallbackDefaults(
+  defaults?: Record<string, string | null | undefined>
+): Record<string, string | null | undefined> {
+  if (!defaults) {
+    return {};
+  }
+  const next: Record<string, string | null | undefined> = { ...defaults };
+  const callbackCode = next.callback_code;
+  if (callbackCode !== undefined) {
+    next.code = callbackCode;
+    delete next.callback_code;
+  }
+  return next;
+}
+
+function buildCallbackRequestQuery(
+  rawQuery: string,
+  extras: Record<string, string | null | undefined>
+): string {
+  const normalizedBase = remapCallbackQueryForRequest(rawQuery);
+  const normalizedExtras = normalizeCallbackDefaults(extras);
+  return mergeQueryString(normalizedBase, normalizedExtras);
 }
 
 export function useCredentialOAuth({
@@ -97,10 +155,14 @@ export function useCredentialOAuth({
           method: "GET"
         });
         const oauthState = extractOAuthState(payload);
-        if (oauthState) {
+        const oauthCode = extractOAuthCallbackCode(payload);
+        if (oauthState || oauthCode) {
           setOauthCallbackQueryByCredential((prev) => ({
             ...prev,
-            [key]: mergeQueryString(prev[key] ?? "", { state: oauthState })
+            [key]: buildCallbackRequestQuery(prev[key] ?? "", {
+              state: oauthState,
+              code: oauthCode
+            })
           }));
         }
         setOauthResultByCredential((prev) => ({
@@ -127,7 +189,7 @@ export function useCredentialOAuth({
       }
       try {
         const key = credentialId ?? 0;
-        const query = mergeQueryString(oauthCallbackQueryByCredential[key] ?? "", {
+        const query = buildCallbackRequestQuery(oauthCallbackQueryByCredential[key] ?? "", {
           ...(queryDefaults ?? {}),
           credential_id: credentialId === undefined ? undefined : String(credentialId),
           mode

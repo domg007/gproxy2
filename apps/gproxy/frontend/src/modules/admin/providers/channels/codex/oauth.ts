@@ -12,16 +12,17 @@ export const OAUTH_UI: ChannelOAuthUi = {
     {
       labelKey: "providers.oauth.callbackDeviceAuth",
       mode: "device_auth",
-      fields: [],
+      fields: ["callback_code"],
       queryDefaults: {
         callback_url: null,
+        callback_code: null,
         code: null
       }
     },
     {
       labelKey: "providers.oauth.callbackAuthorizationCode",
       mode: "authorization_code",
-      fields: ["callback_url", "state", "code"]
+      fields: ["callback_url", "callback_code"]
     }
   ]
 };
