@@ -742,6 +742,11 @@ export function ProvidersModule({
                     enabled: !!selectedProvider
                   },
                   {
+                    id: "oauth",
+                    label: t("providers.tab.oauth"),
+                    enabled: !!selectedProvider
+                  },
+                  {
                     id: "list",
                     label: t("providers.tab.list"),
                     enabled: !!selectedProvider
@@ -793,6 +798,15 @@ export function ProvidersModule({
               {activeTab === "bulk" ? (
                 <CredentialsTab
                   mode="bulk"
+                  viewModel={credentialsViewModel}
+                  actions={credentialsActions}
+                  t={t}
+                />
+              ) : null}
+
+              {activeTab === "oauth" ? (
+                <CredentialsTab
+                  mode="oauth"
                   viewModel={credentialsViewModel}
                   actions={credentialsActions}
                   t={t}

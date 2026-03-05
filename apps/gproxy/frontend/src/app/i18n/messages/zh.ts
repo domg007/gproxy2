@@ -140,6 +140,7 @@ export const zhMessages = {
     "providers.oauth.callbackDeviceAuth": "提交 Device Auth",
     "providers.oauth.callbackUserCode": "提交 User Code",
     "providers.oauth.callbackAuthorizationCode": "提交 Callback URL",
+    "providers.oauth.submit": "提交",
     "providers.oauth.startDone": "OAuth start 请求已完成",
     "providers.oauth.callbackDone": "OAuth callback 请求已完成",
     "providers.oauth.authUrl": "auth_url",

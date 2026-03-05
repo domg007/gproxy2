@@ -47,7 +47,7 @@ type OAuthReadableResult = {
 
 type CredentialSearchMode = "id" | "name";
 
-export type CredentialsTabMode = "single" | "bulk" | "list";
+export type CredentialsTabMode = "single" | "bulk" | "oauth" | "list";
 
 export type CredentialsTabViewModel = {
   selectedProvider: ProviderQueryRow | null;
@@ -827,7 +827,6 @@ export function CredentialsTab({
               </Button>
             </div>
           </div>
-          {oauthSection}
         </>
       ) : mode === "bulk" ? (
         <>
@@ -850,6 +849,8 @@ export function CredentialsTab({
             t={t}
           />
         </>
+      ) : mode === "oauth" ? (
+        <>{oauthSection}</>
       ) : (
         <>
           <div className="flex flex-wrap items-end gap-2">

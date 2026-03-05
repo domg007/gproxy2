@@ -140,6 +140,7 @@ export const enMessages = {
     "providers.oauth.callbackDeviceAuth": "Submit Device Auth",
     "providers.oauth.callbackUserCode": "Submit User Code",
     "providers.oauth.callbackAuthorizationCode": "Submit Callback URL",
+    "providers.oauth.submit": "Submit",
     "providers.oauth.startDone": "OAuth start request completed",
     "providers.oauth.callbackDone": "OAuth callback request completed",
     "providers.oauth.authUrl": "auth_url",
