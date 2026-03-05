@@ -29,6 +29,11 @@ jobs:
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
 
+      - name: Prepare frontend dist placeholder
+        run: |
+          mkdir -p apps/gproxy/frontend/dist
+          echo "hello world" > apps/gproxy/frontend/dist/index.html
+
       - name: cargo fmt
         run: cargo fmt --all --check
 
