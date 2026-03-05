@@ -425,6 +425,20 @@ function PayloadCell({
     }
   };
 
+  const copyRespHeaders = async () => {
+    const payload = responseHeaders.full;
+    if (!payload) {
+      notify("info", t("common.none"));
+      return;
+    }
+    try {
+      await copyTextToClipboard(payload);
+      notify("success", t("common.copied"));
+    } catch {
+      notify("error", t("common.copyFailed"));
+    }
+  };
+
   return (
     <details>
       <summary className="cursor-pointer text-xs text-muted" aria-label="toggle payload" />
@@ -467,7 +481,26 @@ function PayloadCell({
             </div>
           }
         />
-        <PayloadSection title="resp headers" section={responseHeaders} />
+        {responseHeaders.preview ? (
+          <PayloadSection
+            title="resp headers"
+            section={responseHeaders}
+            action={
+              <BodyCopyButton
+                ariaLabel={t("common.copy")}
+                loading={false}
+                onClick={() => void copyRespHeaders()}
+              />
+            }
+          />
+        ) : (
+          <div>
+            <div className="mb-1 flex items-center gap-1 font-semibold text-muted">
+              <span>resp headers</span>
+            </div>
+            <div className="text-xs text-muted">-</div>
+          </div>
+        )}
         <PayloadSection
           title="resp body"
           section={respBodySection}
