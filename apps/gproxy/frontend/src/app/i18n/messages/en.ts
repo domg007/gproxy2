@@ -247,6 +247,16 @@ export const enMessages = {
     "requests.path.placeholder": "Type or select path/url",
     "requests.bodyHint":
       "To record request/response bodies, disable mask_sensitive_info in Global Settings.",
+    "requests.clear.selectedCount": "{count} selected",
+    "requests.clear.selectRow": "Select",
+    "requests.clear.unselectRow": "Unselect",
+    "requests.clear.selected": "Clear Selected",
+    "requests.clear.all": "Clear All",
+    "requests.clear.confirmSelected":
+      "Clear headers/bodies for {count} selected logs?",
+    "requests.clear.confirmAll":
+      "Clear headers/bodies for all logs of this request kind?",
+    "requests.clear.done": "Cleared headers/bodies for {count} logs",
     "usage.title": "Usage",
     "usage.subtitle": "Query usage rows and summaries",
     "usage.rows": "Usage Rows",

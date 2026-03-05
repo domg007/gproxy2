@@ -8,6 +8,7 @@ import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
 import type {
   DownstreamRequestQueryRow,
+  RequestClearAck,
   RequestQueryCount,
   UpstreamRequestQueryRow
 } from "../../lib/types";
@@ -280,6 +281,10 @@ function requestCountPath(kind: RequestKind): string {
   return kind === "upstream" ? "/admin/requests/upstream/count" : "/admin/requests/downstream/count";
 }
 
+function requestClearPath(kind: RequestKind): string {
+  return kind === "upstream" ? "/admin/requests/upstream/clear" : "/admin/requests/downstream/clear";
+}
+
 function toPositiveOrNull(value: number | null): number | null {
   if (value === null || value <= 0) {
     return null;
@@ -547,6 +552,8 @@ export function RequestsModule({
   const [bodyByTraceId, setBodyByTraceId] = useState<Record<number, RequestBodyPayload>>({});
   const [bodyLoadingByTraceId, setBodyLoadingByTraceId] = useState<Record<number, boolean>>({});
   const [bodyErrorByTraceId, setBodyErrorByTraceId] = useState<Record<number, string>>({});
+  const [selectedTraceIds, setSelectedTraceIds] = useState<number[]>([]);
+  const [clearingPayload, setClearingPayload] = useState(false);
   const rowsRequestSeq = useRef(0);
   const countRequestSeq = useRef(0);
   const {
@@ -672,6 +679,7 @@ export function RequestsModule({
     setBodyByTraceId({});
     setBodyLoadingByTraceId({});
     setBodyErrorByTraceId({});
+    setSelectedTraceIds([]);
   }, [kind]);
 
   useEffect(() => {
@@ -717,6 +725,7 @@ export function RequestsModule({
     setBodyByTraceId({});
     setBodyLoadingByTraceId({});
     setBodyErrorByTraceId({});
+    setSelectedTraceIds([]);
   };
 
   useEffect(() => {
@@ -846,6 +855,58 @@ export function RequestsModule({
     }
   };
 
+  const toggleTraceIdSelected = (traceId: number) => {
+    setSelectedTraceIds((prev) =>
+      prev.includes(traceId) ? prev.filter((item) => item !== traceId) : [...prev, traceId]
+    );
+  };
+
+  const clearPayload = async (all: boolean) => {
+    const normalizedIds = Array.from(
+      new Set(selectedTraceIds.filter((id) => Number.isInteger(id) && id > 0))
+    ).sort((a, b) => a - b);
+
+    if (!all && normalizedIds.length === 0) {
+      notify("info", t("common.none"));
+      return;
+    }
+
+    const confirmed = all
+      ? window.confirm(t("requests.clear.confirmAll"))
+      : window.confirm(t("requests.clear.confirmSelected", { count: normalizedIds.length }));
+    if (!confirmed) {
+      return;
+    }
+
+    setClearingPayload(true);
+    try {
+      const result = await apiRequest<RequestClearAck>(requestClearPath(kind), {
+        apiKey,
+        method: "POST",
+        body: {
+          all,
+          trace_ids: all ? [] : normalizedIds
+        }
+      });
+      notify("success", t("requests.clear.done", { count: result.cleared }));
+      setSelectedTraceIds([]);
+      setBodyByTraceId({});
+      setBodyLoadingByTraceId({});
+      setBodyErrorByTraceId({});
+
+      if (activeQuery) {
+        setActiveQuery({ ...activeQuery });
+      } else {
+        setRows([]);
+        setTotalRows(0);
+      }
+    } catch (error) {
+      notify("error", formatError(error));
+    } finally {
+      setClearingPayload(false);
+    }
+  };
+
   const traceIdColumn = t("table.trace_id");
   const atColumn = t("table.at");
   const statusColumn = t("table.status");
@@ -853,11 +914,21 @@ export function RequestsModule({
   const credentialIdColumn = t("field.credential_id");
   const methodColumn = t("table.method");
   const payloadColumn = t("table.payload");
+  const actionColumn = t("common.action");
 
   const tableColumns =
     kind === "upstream"
-      ? [traceIdColumn, atColumn, statusColumn, requestPathColumn, credentialIdColumn, methodColumn, payloadColumn]
-      : [traceIdColumn, atColumn, statusColumn, requestPathColumn, methodColumn, payloadColumn];
+      ? [
+          traceIdColumn,
+          atColumn,
+          statusColumn,
+          requestPathColumn,
+          credentialIdColumn,
+          methodColumn,
+          payloadColumn,
+          actionColumn
+        ]
+      : [traceIdColumn, atColumn, statusColumn, requestPathColumn, methodColumn, payloadColumn, actionColumn];
 
   return (
     <Card title={t("requests.title")} subtitle={t("requests.subtitle")}>
@@ -947,9 +1018,26 @@ export function RequestsModule({
           />
         </div>
       </div>
-      <div className="mt-3">
-        <Button onClick={runQuery} disabled={loadingRows || loadingCount}>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={runQuery} disabled={loadingRows || loadingCount || clearingPayload}>
           {loadingRows || loadingCount ? t("common.loading") : t("common.query")}
+        </Button>
+        <span className="text-xs text-muted">
+          {t("requests.clear.selectedCount", { count: selectedTraceIds.length })}
+        </span>
+        <Button
+          variant="danger"
+          disabled={selectedTraceIds.length === 0 || clearingPayload}
+          onClick={() => void clearPayload(false)}
+        >
+          {t("requests.clear.selected")}
+        </Button>
+        <Button
+          variant="danger"
+          disabled={clearingPayload}
+          onClick={() => void clearPayload(true)}
+        >
+          {t("requests.clear.all")}
         </Button>
       </div>
       <div className="mt-4">
@@ -968,6 +1056,16 @@ export function RequestsModule({
                   ensureBodyLoaded={ensureBodyLoaded}
                 />
               );
+              const selected = selectedTraceIds.includes(row.trace_id);
+              const actionCell = (
+                <Button
+                  variant={selected ? "danger" : "neutral"}
+                  disabled={clearingPayload}
+                  onClick={() => toggleTraceIdSelected(row.trace_id)}
+                >
+                  {selected ? t("requests.clear.unselectRow") : t("requests.clear.selectRow")}
+                </Button>
+              );
 
               if (kind === "upstream") {
                 const upstreamRow = row as UpstreamRequestQueryRow;
@@ -978,7 +1076,8 @@ export function RequestsModule({
                   [requestPathColumn]: upstreamRow.request_url ?? "",
                   [credentialIdColumn]: upstreamRow.credential_id ?? "",
                   [methodColumn]: row.request_method,
-                  [payloadColumn]: payloadCell
+                  [payloadColumn]: payloadCell,
+                  [actionColumn]: actionCell
                 };
               }
 
@@ -989,7 +1088,8 @@ export function RequestsModule({
                 [statusColumn]: row.response_status ?? "",
                 [requestPathColumn]: downstreamRow.request_path,
                 [methodColumn]: row.request_method,
-                [payloadColumn]: payloadCell
+                [payloadColumn]: payloadCell,
+                [actionColumn]: actionCell
               };
             })}
           />

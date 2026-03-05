@@ -1,13 +1,15 @@
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    DbErr,
+    ColumnTrait, DbErr, EntityTrait, QueryFilter,
 };
 use serde_json::Value as JsonValue;
 use time::OffsetDateTime;
 
 use super::SeaOrmStorage;
-use super::entities::{credentials, providers, user_keys, users};
+use super::entities::{
+    credentials, downstream_requests, providers, upstream_requests, user_keys, users,
+};
 
 fn parse_json(field: &str, raw: &str) -> Result<JsonValue, DbErr> {
     serde_json::from_str(raw)
@@ -112,5 +114,57 @@ impl SeaOrmStorage {
         .insert(self.connection())
         .await?;
         Ok(model.id)
+    }
+
+    pub async fn clear_upstream_request_payloads(
+        &self,
+        trace_ids: Option<&[i64]>,
+    ) -> Result<u64, DbErr> {
+        if let Some(ids) = trace_ids
+            && ids.is_empty()
+        {
+            return Ok(0);
+        }
+
+        let mut stmt =
+            upstream_requests::Entity::update_many().set(upstream_requests::ActiveModel {
+                request_headers_json: Set(serde_json::json!({})),
+                request_body: Set(None),
+                response_headers_json: Set(serde_json::json!({})),
+                response_body: Set(None),
+                ..Default::default()
+            });
+
+        if let Some(ids) = trace_ids {
+            stmt = stmt.filter(upstream_requests::Column::TraceId.is_in(ids.iter().copied()));
+        }
+
+        Ok(stmt.exec(self.connection()).await?.rows_affected)
+    }
+
+    pub async fn clear_downstream_request_payloads(
+        &self,
+        trace_ids: Option<&[i64]>,
+    ) -> Result<u64, DbErr> {
+        if let Some(ids) = trace_ids
+            && ids.is_empty()
+        {
+            return Ok(0);
+        }
+
+        let mut stmt =
+            downstream_requests::Entity::update_many().set(downstream_requests::ActiveModel {
+                request_headers_json: Set(serde_json::json!({})),
+                request_body: Set(None),
+                response_headers_json: Set(serde_json::json!({})),
+                response_body: Set(None),
+                ..Default::default()
+            });
+
+        if let Some(ids) = trace_ids {
+            stmt = stmt.filter(downstream_requests::Column::TraceId.is_in(ids.iter().copied()));
+        }
+
+        Ok(stmt.exec(self.connection()).await?.rows_affected)
     }
 }

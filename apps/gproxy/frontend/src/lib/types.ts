@@ -106,6 +106,11 @@ export interface RequestQueryCount {
   count: number;
 }
 
+export interface RequestClearAck {
+  ok: boolean;
+  cleared: number;
+}
+
 export interface UsageQueryRow {
   trace_id: number;
   upstream_trace_id: number;

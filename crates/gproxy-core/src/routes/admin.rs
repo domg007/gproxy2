@@ -247,12 +247,20 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/requests/upstream/query", post(query_upstream_requests))
         .route("/requests/upstream/count", post(count_upstream_requests))
         .route(
+            "/requests/upstream/clear",
+            post(clear_upstream_request_payloads),
+        )
+        .route(
             "/requests/downstream/query",
             post(query_downstream_requests),
         )
         .route(
             "/requests/downstream/count",
             post(count_downstream_requests),
+        )
+        .route(
+            "/requests/downstream/clear",
+            post(clear_downstream_request_payloads),
         )
         .route("/usages/query", post(query_usages))
         .route("/usages/count", post(count_usages))
