@@ -14,7 +14,7 @@ use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
-use gproxy_middleware::{OperationFamily, ProtocolKind};
+use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformRoute};
 
 pub async fn execute_openai_with_retry(
     client: &WreqClient,
@@ -361,6 +361,12 @@ impl OpenAiPreparedRequest {
                 ),
                 model: Some(value.body.model.clone()),
             }),
+            gproxy_middleware::TransformRequest::OpenAiResponseWebSocket(value) => {
+                let transformed = transform_openai_ws_request_to_stream(
+                    TransformRequest::OpenAiResponseWebSocket(value.clone()),
+                )?;
+                Self::from_transform_request(&transformed)
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
@@ -435,9 +441,30 @@ impl OpenAiPreparedRequest {
                 body: Some(body.to_vec()),
                 model: json_pointer_string(body, "/model"),
             }),
+            (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+                let request = gproxy_middleware::decode_request_payload(operation, protocol, body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let transformed = transform_openai_ws_request_to_stream(request)?;
+                Self::from_transform_request(&transformed)
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
+}
+
+fn transform_openai_ws_request_to_stream(
+    request: TransformRequest,
+) -> Result<TransformRequest, UpstreamError> {
+    gproxy_middleware::transform_request(
+        request,
+        TransformRoute {
+            src_operation: OperationFamily::OpenAiResponseWebSocket,
+            src_protocol: ProtocolKind::OpenAi,
+            dst_operation: OperationFamily::StreamGenerateContent,
+            dst_protocol: ProtocolKind::OpenAi,
+        },
+    )
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
 }
 
 fn requires_gpt5_sampling_guard(model: &str) -> bool {
@@ -459,7 +486,12 @@ fn strip_openai_sampling_fields(body: Vec<u8>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{requires_gpt5_sampling_guard, strip_openai_sampling_fields};
+    use super::{
+        OpenAiPreparedRequest, WreqMethod, requires_gpt5_sampling_guard,
+        strip_openai_sampling_fields,
+    };
+    use gproxy_middleware::{OperationFamily, ProtocolKind};
+    use serde_json::json;
 
     #[test]
     fn gpt5_guard_matches_case_insensitive_substring() {
@@ -487,5 +519,33 @@ mod tests {
             Some("gpt-5-nano")
         );
         assert_eq!(json.get("stream").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn websocket_payload_is_supported_via_stream_fallback() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "GET",
+            "path": { "endpoint": "responses" },
+            "query": {},
+            "headers": {},
+            "body": {
+                "type": "response.create",
+                "model": "gpt-5",
+                "stream": true
+            }
+        }))
+        .expect("serialize websocket payload");
+
+        let prepared = OpenAiPreparedRequest::from_payload(
+            OperationFamily::OpenAiResponseWebSocket,
+            ProtocolKind::OpenAi,
+            payload.as_slice(),
+        )
+        .expect("prepare websocket payload");
+
+        assert_eq!(prepared.method, WreqMethod::POST);
+        assert_eq!(prepared.path, "/v1/responses");
+        assert_eq!(prepared.model.as_deref(), Some("gpt-5"));
+        assert!(prepared.body.is_some());
     }
 }

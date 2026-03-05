@@ -41,7 +41,7 @@ const ROUTES: &[TypedRoute] = &[
     (
         Op::OpenAiResponseWebSocket,
         Proto::OpenAi,
-        Op::StreamGenerateContent,
+        Op::OpenAiResponseWebSocket,
         Proto::OpenAi,
     ),
     (

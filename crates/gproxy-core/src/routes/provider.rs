@@ -344,25 +344,6 @@ fn oauth_response_to_axum(response: UpstreamOAuthResponse) -> Response {
         .unwrap_or_else(|_| Response::new(Body::from("failed to build provider response")))
 }
 
-fn websocket_upgrade_required_response(message: &str) -> Response {
-    let body = serde_json::to_vec(&json!({
-        "error": {
-            "message": message,
-            "type": "upgrade_required",
-            "code": "websocket_upgrade_required"
-        }
-    }))
-    .unwrap_or_default();
-
-    Response::builder()
-        .status(StatusCode::UPGRADE_REQUIRED)
-        .header("content-type", "application/json")
-        .header("connection", "Upgrade")
-        .header("upgrade", "websocket")
-        .body(Body::from(body))
-        .unwrap_or_else(|_| Response::new(Body::from("failed to build websocket upgrade response")))
-}
-
 fn oauth_callback_response_to_axum(
     result: gproxy_provider::UpstreamOAuthCallbackResult,
     credential_id: Option<i64>,

@@ -10,13 +10,14 @@ use crate::channels::upstream::{UpstreamError, UpstreamResponse};
 use crate::channels::utils::{
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
     is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
-    retry_after_to_millis, to_wreq_method,
+    retry_after_to_millis, serialize_json_scalar, to_wreq_method,
 };
 use crate::channels::{BuiltinChannelCredential, ChannelCredential};
 use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 use gproxy_middleware::{OperationFamily, ProtocolKind};
+use url::form_urlencoded;
 
 pub async fn execute_aistudio_with_retry(
     client: &WreqClient,
@@ -435,6 +436,21 @@ impl AiStudioPreparedRequest {
                 model: Some(value.body.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
             }),
+            gproxy_middleware::TransformRequest::GeminiLive(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: gemini_live_rpc_path(&value.path.rpc)?,
+                query: gemini_live_query_string(
+                    value.query.key.as_deref(),
+                    value.query.access_token.as_deref(),
+                ),
+                body: None,
+                model: value
+                    .body
+                    .as_ref()
+                    .and_then(gemini_live_setup_model_from_body)
+                    .map(|model| normalize_gemini_model_name(model.as_str())),
+                auth_scheme: AuthScheme::XGoogApiKey,
+            }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
@@ -559,9 +575,78 @@ impl AiStudioPreparedRequest {
                     auth_scheme: AuthScheme::Bearer,
                 })
             }
+            (OperationFamily::GeminiLive, ProtocolKind::Gemini) => {
+                let request = serde_json::from_slice::<Value>(body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let method = request
+                    .pointer("/method")
+                    .and_then(Value::as_str)
+                    .unwrap_or("GET")
+                    .to_string();
+                let rpc = request
+                    .pointer("/path/rpc")
+                    .and_then(Value::as_str)
+                    .unwrap_or(
+                        "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+                    )
+                    .to_string();
+                let key = request.pointer("/query/key").and_then(Value::as_str);
+                let access_token = request
+                    .pointer("/query/access_token")
+                    .and_then(Value::as_str);
+                let model = request
+                    .pointer("/body/setup/model")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned);
+                Ok(Self {
+                    method: to_wreq_method(&method)?,
+                    path: gemini_live_rpc_path(&rpc)?,
+                    query: gemini_live_query_string(key, access_token),
+                    body: None,
+                    model: model.map(|model| normalize_gemini_model_name(model.as_str())),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                })
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
+}
+
+fn gemini_live_rpc_path(rpc: &impl serde::Serialize) -> Result<String, UpstreamError> {
+    let rpc = serialize_json_scalar(rpc)?;
+    Ok(format!("/ws/{rpc}"))
+}
+
+fn gemini_live_query_string(key: Option<&str>, access_token: Option<&str>) -> Option<String> {
+    let mut has_query = false;
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+
+    if let Some(key) = key.map(str::trim).filter(|value| !value.is_empty()) {
+        serializer.append_pair("key", key);
+        has_query = true;
+    }
+    if let Some(access_token) = access_token
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        serializer.append_pair("access_token", access_token);
+        has_query = true;
+    }
+
+    if has_query {
+        Some(serializer.finish())
+    } else {
+        None
+    }
+}
+
+fn gemini_live_setup_model_from_body(body: &impl serde::Serialize) -> Option<String> {
+    serde_json::to_value(body).ok().and_then(|value| {
+        value
+            .pointer("/setup/model")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    })
 }
 
 fn normalize_gemini_model_name(model: &str) -> String {
@@ -569,5 +654,81 @@ fn normalize_gemini_model_name(model: &str) -> String {
         model.to_string()
     } else {
         format!("models/{model}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sample_live_request_json() -> Value {
+        json!({
+            "method": "GET",
+            "path": {
+                "rpc": "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained"
+            },
+            "query": {
+                "key": "api key",
+                "access_token": "token/abc"
+            },
+            "headers": {
+                "Authorization": "Token abc"
+            },
+            "body": {
+                "setup": {
+                    "model": "gemini-2.5-flash"
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn gemini_live_transform_request_maps_to_ws_path_and_query() {
+        let payload = serde_json::to_vec(&sample_live_request_json()).expect("serialize request");
+        let request = gproxy_middleware::decode_request_payload(
+            OperationFamily::GeminiLive,
+            ProtocolKind::Gemini,
+            payload.as_slice(),
+        )
+        .expect("decode request");
+
+        let prepared =
+            AiStudioPreparedRequest::from_transform_request(&request).expect("prepare request");
+
+        assert_eq!(prepared.method, WreqMethod::GET);
+        assert_eq!(
+            prepared.path,
+            "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained"
+        );
+        assert_eq!(
+            prepared.query.as_deref(),
+            Some("key=api+key&access_token=token%2Fabc")
+        );
+        assert_eq!(prepared.model.as_deref(), Some("models/gemini-2.5-flash"));
+        assert!(prepared.body.is_none());
+    }
+
+    #[test]
+    fn gemini_live_payload_maps_to_ws_path_and_query() {
+        let payload = serde_json::to_vec(&sample_live_request_json()).expect("serialize request");
+        let prepared = AiStudioPreparedRequest::from_payload(
+            OperationFamily::GeminiLive,
+            ProtocolKind::Gemini,
+            payload.as_slice(),
+        )
+        .expect("prepare payload");
+
+        assert_eq!(prepared.method, WreqMethod::GET);
+        assert_eq!(
+            prepared.path,
+            "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained"
+        );
+        assert_eq!(
+            prepared.query.as_deref(),
+            Some("key=api+key&access_token=token%2Fabc")
+        );
+        assert_eq!(prepared.model.as_deref(), Some("models/gemini-2.5-flash"));
+        assert!(prepared.body.is_none());
     }
 }

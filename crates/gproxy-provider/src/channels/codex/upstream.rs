@@ -1,6 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequest, TransformResponse};
+use gproxy_middleware::{
+    OperationFamily, ProtocolKind, TransformRequest, TransformResponse, TransformRoute,
+};
 use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
@@ -866,6 +868,12 @@ impl CodexPreparedRequest {
                     kind: CodexRequestKind::Forward,
                 })
             }
+            TransformRequest::OpenAiResponseWebSocket(value) => {
+                let transformed = transform_openai_ws_request_to_stream(
+                    TransformRequest::OpenAiResponseWebSocket(value.clone()),
+                )?;
+                Self::from_transform_request(&transformed)
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
@@ -951,9 +959,30 @@ impl CodexPreparedRequest {
                     kind: CodexRequestKind::Forward,
                 })
             }
+            (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
+                let request = gproxy_middleware::decode_request_payload(operation, protocol, body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let transformed = transform_openai_ws_request_to_stream(request)?;
+                Self::from_transform_request(&transformed)
+            }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }
+}
+
+fn transform_openai_ws_request_to_stream(
+    request: TransformRequest,
+) -> Result<TransformRequest, UpstreamError> {
+    gproxy_middleware::transform_request(
+        request,
+        TransformRoute {
+            src_operation: OperationFamily::OpenAiResponseWebSocket,
+            src_protocol: ProtocolKind::OpenAi,
+            dst_operation: OperationFamily::StreamGenerateContent,
+            dst_protocol: ProtocolKind::OpenAi,
+        },
+    )
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
 }
 
 async fn try_local_codex_count_token_response(
@@ -1408,7 +1437,8 @@ fn codex_credential_update(
 mod tests {
     use serde_json::json;
 
-    use super::normalize_codex_response_request_body;
+    use super::{CodexPreparedRequest, WreqMethod, normalize_codex_response_request_body};
+    use gproxy_middleware::{OperationFamily, ProtocolKind};
 
     #[test]
     fn codex_moves_system_and_developer_messages_into_instructions() {
@@ -1496,5 +1526,33 @@ mod tests {
             Some("user")
         );
         assert!(body.pointer("/input/1").is_none());
+    }
+
+    #[test]
+    fn codex_supports_websocket_payload_via_stream_fallback() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "GET",
+            "path": { "endpoint": "responses" },
+            "query": {},
+            "headers": {},
+            "body": {
+                "type": "response.create",
+                "model": "codex/gpt-5",
+                "stream": true
+            }
+        }))
+        .expect("serialize websocket payload");
+
+        let prepared = CodexPreparedRequest::from_payload(
+            OperationFamily::OpenAiResponseWebSocket,
+            ProtocolKind::OpenAi,
+            payload.as_slice(),
+        )
+        .expect("prepare websocket payload");
+
+        assert_eq!(prepared.method, WreqMethod::POST);
+        assert_eq!(prepared.path, "/responses");
+        assert_eq!(prepared.model.as_deref(), Some("codex/gpt-5"));
+        assert!(prepared.body.is_some());
     }
 }
