@@ -7,6 +7,7 @@ use crate::gemini::live::types::{
 /// Parsed Live WebSocket frame from Gemini.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum GeminiLiveMessageResponse {
     /// Regular server message frame.
     Message(GeminiBidiGenerateContentServerMessage),

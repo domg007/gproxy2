@@ -15,9 +15,7 @@ fn extract_client_metadata_from_request_body(
     body: &mut RequestBody,
     ctx: &mut OpenAiWebsocketTransformContext,
 ) -> Option<Metadata> {
-    let Some(metadata) = body.metadata.as_mut() else {
-        return None;
-    };
+    let metadata = body.metadata.as_mut()?;
 
     let mut tunnel = BTreeMap::new();
     let keys = metadata.keys().cloned().collect::<Vec<_>>();

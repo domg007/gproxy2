@@ -499,8 +499,7 @@ async fn run_openai_websocket_session(
         auth,
         downstream,
         first_client_message,
-        query,
-        request_headers,
+        (query, request_headers),
     )
     .await
 }
@@ -1038,19 +1037,19 @@ async fn run_direct_websocket_bridge_loop(
                     }
                     TungsteniteMessage::Binary(payload) => {
                         downstream
-                            .send(AxumWsMessage::Binary(payload.into()))
+                            .send(AxumWsMessage::Binary(payload))
                             .await
                             .map_err(|err| format!("forward upstream binary frame failed: {err}"))?;
                     }
                     TungsteniteMessage::Ping(payload) => {
                         downstream
-                            .send(AxumWsMessage::Ping(payload.into()))
+                            .send(AxumWsMessage::Ping(payload))
                             .await
                             .map_err(|err| format!("forward upstream ping failed: {err}"))?;
                     }
                     TungsteniteMessage::Pong(payload) => {
                         downstream
-                            .send(AxumWsMessage::Pong(payload.into()))
+                            .send(AxumWsMessage::Pong(payload))
                             .await
                             .map_err(|err| format!("forward upstream pong failed: {err}"))?;
                     }
@@ -1134,9 +1133,12 @@ async fn run_http_fallback_session(
     auth: RequestAuthContext,
     mut downstream: WebSocket,
     first_message: OpenAiCreateResponseWebSocketClientMessage,
-    query: OpenAiCreateResponseWebSocketQueryParameters,
-    headers: OpenAiCreateResponseWebSocketRequestHeaders,
+    connect_context: (
+        OpenAiCreateResponseWebSocketQueryParameters,
+        OpenAiCreateResponseWebSocketRequestHeaders,
+    ),
 ) -> Result<(), String> {
+    let (query, headers) = connect_context;
     let mut pending = Some(first_message);
     loop {
         let message = if let Some(message) = pending.take() {

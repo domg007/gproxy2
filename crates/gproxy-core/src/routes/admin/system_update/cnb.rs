@@ -183,10 +183,10 @@ fn parse_cnb_release_from_value(value: &Value) -> Result<CnbApiRelease, String> 
 }
 
 fn extract_cnb_release_value(value: &Value) -> Option<Value> {
-    if let Some(release) = parse_release_candidate(value) {
-        if cnb_release_tag(&release).is_some() {
-            return Some(value.clone());
-        }
+    if let Some(release) = parse_release_candidate(value)
+        && cnb_release_tag(&release).is_some()
+    {
+        return Some(value.clone());
     }
 
     if let Some(array) = value.as_array() {
@@ -200,10 +200,10 @@ fn extract_cnb_release_value(value: &Value) -> Option<Value> {
 
     if let Some(object) = value.as_object() {
         for key in ["release", "data", "releases", "items", "result", "list"] {
-            if let Some(item) = object.get(key) {
-                if let Some(found) = extract_cnb_release_value(item) {
-                    return Some(found);
-                }
+            if let Some(item) = object.get(key)
+                && let Some(found) = extract_cnb_release_value(item)
+            {
+                return Some(found);
             }
         }
         for item in object.values() {
