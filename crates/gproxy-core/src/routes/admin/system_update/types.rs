@@ -38,30 +38,6 @@ pub(super) struct GithubReleaseInfo {
     pub(super) assets: Vec<GithubReleaseAsset>,
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct CnbReleaseManifest {
-    pub(super) tag: String,
-    #[serde(default)]
-    pub(super) channel: Option<String>,
-    #[serde(default)]
-    pub(super) key_id: Option<String>,
-    pub(super) assets: Vec<CnbReleaseAsset>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub(super) struct CnbReleaseAsset {
-    pub(super) name: String,
-    pub(super) url: String,
-    #[serde(default)]
-    pub(super) sha256: Option<String>,
-    #[serde(default)]
-    pub(super) sha256_url: Option<String>,
-    #[serde(default)]
-    pub(super) sha256_sig_url: Option<String>,
-    #[serde(default)]
-    pub(super) key_id: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedReleaseAsset {
     pub(super) name: String,
