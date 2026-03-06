@@ -1,5 +1,97 @@
 # Release Notes
 
+## v0.3.24
+
+### English
+
+#### Added
+
+- Added passthrough forwarding for downstream extra headers across provider routes, including Codex-related metadata such as `session_id`, `x-codex-turn-metadata`, and `originator` when present.
+- Added the latest built-in ClaudeCode beta header set:
+  - `claude-code-20250219`
+  - `adaptive-thinking-2026-01-28`
+  - `context-management-2025-06-27`
+  - `prompt-caching-scope-2026-01-05`
+  - `advanced-tool-use-2025-11-20`
+  - `effort-2025-11-24`
+
+#### Changed
+
+- Updated Codex session handling:
+  - preserves downstream `session_id` / `session-id` when provided
+  - otherwise synthesizes a stable session id from prompt cache markers, or from `instructions + first input message`
+  - improves cache stickiness and prompt-cache hit rates for Codex-compatible traffic, including non-Codex clients routed through the Codex channel.
+- Updated Antigravity session handling:
+  - prefers explicit `request.sessionId`
+  - otherwise derives a stable session id from `systemInstruction + first user message`
+  - removes the older legacy fallback path.
+- Updated Admin OAuth flows for supported channels:
+  - ClaudeCode callback UI now only requires `code`
+  - Codex separates `device_auth` and `authorization_code` flows, with matching callback inputs
+  - Antigravity callback UI now uses `callback_url`
+  - Gemini CLI now uses `user_code + callback_url` semantics depending on the selected mode
+  - callback submit controls are shown only for the OAuth mode that was started.
+- Updated Request Log bulk-clear UX to use checkbox row selection instead of per-row action buttons.
+- Updated built-in Codex client metadata defaults to `0.110.0`.
+- Updated ClaudeCode request normalization to better tolerate unsupported fields from mixed clients before forwarding upstream.
+
+#### Fixed
+
+- Fixed low cache-hit behavior for Codex-compatible requests when clients did not send a stable session id.
+- Fixed Admin OAuth callback mismatches caused by showing multiple submit paths at the same time for multi-mode providers.
+- Fixed ClaudeCode beta header assembly so required default betas are attached more consistently.
+- Improved upstream transport compatibility by enabling additional compression support in `wreq`.
+
+#### Compatibility
+
+- Codex and Antigravity requests may now bind more consistently to the same credential/account because session markers are more deterministic.
+- If you use the Admin OAuth page, re-check the callback inputs for Codex, ClaudeCode, Gemini CLI, and Antigravity because the visible fields are now mode-specific.
+
+### 中文
+
+#### 新增
+
+- 新增了 provider 路由层对下游额外请求头的透传能力，支持保留 Codex 相关元数据，例如 `session_id`、`x-codex-turn-metadata`、`originator`。
+- 更新了内置的 ClaudeCode beta 头集合：
+  - `claude-code-20250219`
+  - `adaptive-thinking-2026-01-28`
+  - `context-management-2025-06-27`
+  - `prompt-caching-scope-2026-01-05`
+  - `advanced-tool-use-2025-11-20`
+  - `effort-2025-11-24`
+
+#### 变更
+
+- 调整了 Codex 渠道的 session 处理逻辑：
+  - 如果下游已传 `session_id` / `session-id`，则优先沿用
+  - 否则优先基于 prompt cache marker 生成稳定 session id；没有 marker 时，再退化为基于 `instructions + 第一条输入消息` 生成
+  - 提升了 Codex 兼容流量的账号粘性和 prompt cache 命中率，包括通过 Codex 渠道转发的非 Codex 客户端。
+- 调整了 Antigravity 渠道的 session 处理逻辑：
+  - 优先使用显式的 `request.sessionId`
+  - 否则基于 `systemInstruction + 第一条用户消息` 生成稳定 session id
+  - 移除了旧的 legacy fallback 路径。
+- 调整了后台支持 OAuth 渠道的管理界面流程：
+  - ClaudeCode 回调界面现在只需要填写 `code`
+  - Codex 将 `device_auth` 和 `authorization_code` 分开处理，并显示对应的回调输入
+  - Antigravity 回调界面改为使用 `callback_url`
+  - Gemini CLI 会根据所选模式分别使用 `user_code` 或 `callback_url`
+  - 只有先点击了对应的“发起”按钮，才会显示匹配的“提交”入口。
+- 调整了请求日志批量清理交互，行选择从操作按钮改成了复选框。
+- 更新了内置 Codex 客户端元数据默认值到 `0.110.0`。
+- 调整了 ClaudeCode 请求规范化逻辑，在混合客户端场景下对不支持字段的兼容性更好。
+
+#### 修复
+
+- 修复了 Codex 兼容请求在未携带稳定 session id 时缓存命中率偏低的问题。
+- 修复了多模式 OAuth 渠道在后台页面同时显示多个提交入口，导致回调流程容易混淆的问题。
+- 修复了 ClaudeCode beta 请求头拼装不够稳定的问题，确保必需的默认 betas 更一致地附带到上游请求。
+- 通过为 `wreq` 启用更多压缩能力，提升了上游传输兼容性。
+
+#### 兼容性说明
+
+- Codex 和 Antigravity 的请求在升级后会更稳定地绑定到同一凭证/账号，因为 session 标记现在更可预测。
+- 如果你使用后台 OAuth 页面，请重新确认 Codex、ClaudeCode、Gemini CLI、Antigravity 的回调输入项，因为它们现在是按模式显示的。
+
 ## v0.3.23
 
 ### Added
