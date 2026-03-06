@@ -9,6 +9,7 @@
 - Updated provider-route request envelopes for OpenAI, Gemini, and Claude to use flattened header payloads and canonical Claude header names.
 - Updated ClaudeCode, Codex, and Gemini CLI upstream request helpers to use structured request parameters, removing repeated argument-heavy call patterns.
 - Updated the `release-binary` workflow to run `gproxy --help` both before and after UPX compression.
+- Expanded native OpenAI Responses <-> Claude mapping coverage for tools and tool results, preserving more builtin/custom/MCP semantics instead of flattening them into generic payloads.
 
 #### Fixed
 
@@ -16,11 +17,13 @@
 - Fixed raw payload compatibility across provider channels by accepting both legacy nested `headers.extra` and flattened `headers` passthrough layouts.
 - Fixed Claude-family raw payload parsing to recognize canonical `anthropic-version` and `anthropic-beta` headers.
 - Fixed Claude custom tool serialization to emit `type` instead of `type_`, avoiding `invalid_request_error` failures for custom-tool requests.
+- Fixed OpenAI Responses <-> Claude conversions for builtin tool choice, MCP/error states, and native shell/apply-patch/code-interpreter/file-search/web-search item mapping.
 
 #### Compatibility
 
 - Existing raw-payload clients using the older nested header envelope remain supported.
 - Claude-compatible custom-tool requests no longer require downstream workarounds for `tools.*.type_` validation failures.
+- Claude-compatible `/responses` traffic now preserves more structured tool-call state when bridged to or from OpenAI Responses clients.
 
 ### 中文
 
@@ -29,6 +32,7 @@
 - 调整了 OpenAI、Gemini、Claude 的 provider route 请求封装，统一改为扁平化 `headers` 结构，并对 Claude 使用规范头名。
 - 调整了 ClaudeCode、Codex、Gemini CLI 的上游请求辅助逻辑，改为使用结构化参数，移除了多处参数过多的调用方式。
 - 调整了 `release-binary` 工作流，在 UPX 压缩前后都会执行一次 `gproxy --help` 自检。
+- 扩大了 OpenAI Responses <-> Claude 的原生映射覆盖范围，尽量保留 builtin/custom/MCP 工具及其结果的结构化语义，而不是退化成通用文本载荷。
 
 #### 修复
 
@@ -36,11 +40,13 @@
 - 修复了 provider 原始 payload 兼容性问题，现同时兼容旧的嵌套 `headers.extra` 结构和新的扁平 `headers` 透传结构。
 - 修复了 Claude 系列原始 payload 对请求头的解析，现可正确识别规范的 `anthropic-version` 和 `anthropic-beta`。
 - 修复了 Claude 自定义工具序列化字段错误，确保输出 `type` 而不是 `type_`，避免 custom tool 请求触发 `invalid_request_error`。
+- 修复了 OpenAI Responses <-> Claude 在 builtin tool choice、MCP 错误态，以及 shell/apply-patch/code-interpreter/file-search/web-search 等原生 item 映射上的兼容问题。
 
 #### 兼容性说明
 
 - 仍在使用旧版嵌套 header envelope 的 raw-payload 客户端无需立即调整，升级后仍可兼容。
 - Claude 兼容的 custom tool 请求不再需要额外规避 `tools.*.type_` 校验失败问题。
+- Claude 兼容 `/responses` 流量在与 OpenAI Responses 客户端互转时，现可保留更多结构化工具调用状态。
 
 ## v0.3.24
 

@@ -108,6 +108,56 @@ pub fn openai_message_content_to_claude(
     }
 }
 
+pub fn response_input_content_to_claude_block(
+    content: ot::ResponseInputContent,
+) -> Option<ct::BetaContentBlockParam> {
+    openai_content_to_claude_block(content)
+}
+
+pub fn response_input_contents_to_tool_result_content(
+    parts: Vec<ot::ResponseInputContent>,
+) -> Option<ct::BetaToolResultBlockParamContent> {
+    let mut text_parts = Vec::new();
+    let mut content_blocks = Vec::new();
+
+    for part in parts {
+        match openai_content_to_claude_block(part)? {
+            ct::BetaContentBlockParam::Text(block) => text_parts.push(block.text),
+            ct::BetaContentBlockParam::Image(block) => {
+                content_blocks.push(ct::BetaToolResultContentBlockParam::Image(block))
+            }
+            ct::BetaContentBlockParam::SearchResult(block) => {
+                content_blocks.push(ct::BetaToolResultContentBlockParam::SearchResult(block))
+            }
+            ct::BetaContentBlockParam::RequestDocument(block) => {
+                content_blocks.push(ct::BetaToolResultContentBlockParam::Document(block))
+            }
+            _ => return None,
+        }
+    }
+
+    if !content_blocks.is_empty() {
+        if !text_parts.is_empty() {
+            content_blocks.insert(
+                0,
+                ct::BetaToolResultContentBlockParam::Text(ct::BetaTextBlockParam {
+                    text: text_parts.join("\n"),
+                    type_: ct::BetaTextBlockType::Text,
+                    cache_control: None,
+                    citations: None,
+                }),
+            );
+        }
+        Some(ct::BetaToolResultBlockParamContent::Blocks(content_blocks))
+    } else if text_parts.is_empty() {
+        None
+    } else {
+        Some(ct::BetaToolResultBlockParamContent::Text(
+            text_parts.join("\n"),
+        ))
+    }
+}
+
 pub fn openai_role_to_claude(role: ot::ResponseInputMessageRole) -> ct::BetaMessageRole {
     match role {
         ot::ResponseInputMessageRole::Assistant => ct::BetaMessageRole::Assistant,
@@ -257,11 +307,37 @@ pub fn openai_tool_choice_to_claude(
                 }))
             }
         },
-        Some(ot::ResponseToolChoice::Types(_))
-        | Some(ot::ResponseToolChoice::ApplyPatch(_))
-        | Some(ot::ResponseToolChoice::Shell(_)) => {
-            Some(ct::BetaToolChoice::Any(ct::BetaToolChoiceAny {
-                type_: ct::BetaToolChoiceAnyType::Any,
+        Some(ot::ResponseToolChoice::Types(tool)) => {
+            let name = match tool.type_ {
+                ot::ResponseToolChoiceBuiltinType::FileSearch => "tool_search_tool_bm25",
+                ot::ResponseToolChoiceBuiltinType::ComputerUsePreview => "computer",
+                ot::ResponseToolChoiceBuiltinType::WebSearchPreview
+                | ot::ResponseToolChoiceBuiltinType::WebSearchPreview20250311 => "web_search",
+                ot::ResponseToolChoiceBuiltinType::CodeInterpreter => "code_execution",
+                ot::ResponseToolChoiceBuiltinType::ImageGeneration => {
+                    return Some(ct::BetaToolChoice::Any(ct::BetaToolChoiceAny {
+                        type_: ct::BetaToolChoiceAnyType::Any,
+                        disable_parallel_tool_use,
+                    }));
+                }
+            };
+            Some(ct::BetaToolChoice::Tool(ct::BetaToolChoiceTool {
+                name: name.to_string(),
+                type_: ct::BetaToolChoiceToolType::Tool,
+                disable_parallel_tool_use,
+            }))
+        }
+        Some(ot::ResponseToolChoice::ApplyPatch(_)) => {
+            Some(ct::BetaToolChoice::Tool(ct::BetaToolChoiceTool {
+                name: "str_replace_based_edit_tool".to_string(),
+                type_: ct::BetaToolChoiceToolType::Tool,
+                disable_parallel_tool_use,
+            }))
+        }
+        Some(ot::ResponseToolChoice::Shell(_)) => {
+            Some(ct::BetaToolChoice::Tool(ct::BetaToolChoiceTool {
+                name: "bash".to_string(),
+                type_: ct::BetaToolChoiceToolType::Tool,
                 disable_parallel_tool_use,
             }))
         }
@@ -549,5 +625,72 @@ mod tests {
             thinking,
             Some(ct::BetaThinkingConfigParam::Disabled(_))
         ));
+    }
+
+    fn assert_named_tool_choice(
+        choice: ot::ResponseToolChoice,
+        disable_parallel_tool_use: Option<bool>,
+        expected_name: &str,
+    ) {
+        match openai_tool_choice_to_claude(Some(choice), disable_parallel_tool_use) {
+            Some(ct::BetaToolChoice::Tool(tool)) => {
+                assert_eq!(tool.name, expected_name);
+                assert_eq!(tool.disable_parallel_tool_use, disable_parallel_tool_use);
+            }
+            other => panic!("unexpected tool choice: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn builtin_tool_choices_map_to_named_claude_tools() {
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Types(ot::ResponseToolChoiceTypes {
+                type_: ot::ResponseToolChoiceBuiltinType::FileSearch,
+            }),
+            Some(true),
+            "tool_search_tool_bm25",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Types(ot::ResponseToolChoiceTypes {
+                type_: ot::ResponseToolChoiceBuiltinType::ComputerUsePreview,
+            }),
+            Some(false),
+            "computer",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Types(ot::ResponseToolChoiceTypes {
+                type_: ot::ResponseToolChoiceBuiltinType::WebSearchPreview,
+            }),
+            None,
+            "web_search",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Types(ot::ResponseToolChoiceTypes {
+                type_: ot::ResponseToolChoiceBuiltinType::WebSearchPreview20250311,
+            }),
+            None,
+            "web_search",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Types(ot::ResponseToolChoiceTypes {
+                type_: ot::ResponseToolChoiceBuiltinType::CodeInterpreter,
+            }),
+            None,
+            "code_execution",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::ApplyPatch(ot::ResponseToolChoiceApplyPatch {
+                type_: ot::ResponseToolChoiceApplyPatchType::ApplyPatch,
+            }),
+            None,
+            "str_replace_based_edit_tool",
+        );
+        assert_named_tool_choice(
+            ot::ResponseToolChoice::Shell(ot::ResponseToolChoiceShell {
+                type_: ot::ResponseToolChoiceShellType::Shell,
+            }),
+            Some(true),
+            "bash",
+        );
     }
 }

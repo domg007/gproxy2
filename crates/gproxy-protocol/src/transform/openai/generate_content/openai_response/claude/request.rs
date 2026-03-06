@@ -11,13 +11,31 @@ use crate::openai::create_response::types::{ResponseContextManagementType, Respo
 use crate::transform::openai::count_tokens::claude::utils::{
     mcp_allowed_tools_to_configs, openai_mcp_tool_to_server, openai_message_content_to_claude,
     openai_reasoning_to_claude, openai_role_to_claude, openai_tool_choice_to_claude,
-    parallel_disable, tool_from_function,
+    parallel_disable, response_input_contents_to_tool_result_content, tool_from_function,
 };
 use crate::transform::openai::count_tokens::openai::utils::{
-    openai_function_call_output_content_to_text, openai_input_to_items,
-    openai_reasoning_summary_to_text,
+    openai_input_to_items, openai_reasoning_summary_to_text,
 };
 use crate::transform::utils::TransformError;
+
+fn parse_tool_use_input(input: String) -> ct::JsonObject {
+    serde_json::from_str::<ct::JsonObject>(&input).unwrap_or_else(|_| {
+        let mut object = ct::JsonObject::new();
+        object.insert("input".to_string(), serde_json::Value::String(input));
+        object
+    })
+}
+
+fn push_block_message(
+    messages: &mut Vec<ct::BetaMessageParam>,
+    role: ct::BetaMessageRole,
+    block: ct::BetaContentBlockParam,
+) {
+    messages.push(ct::BetaMessageParam {
+        content: ct::BetaMessageContent::Blocks(vec![block]),
+        role,
+    });
+}
 
 impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
     type Error = TransformError;
@@ -53,41 +71,507 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     }
                 }
                 ot::ResponseInputItem::FunctionToolCall(tool_call) => {
-                    let input = serde_json::from_str::<ct::JsonObject>(&tool_call.arguments)
-                        .unwrap_or_default();
-                    messages.push(ct::BetaMessageParam {
-                        content: ct::BetaMessageContent::Blocks(vec![
-                            ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                                id: tool_call.call_id,
-                                input,
-                                name: tool_call.name,
-                                type_: ct::BetaToolUseBlockType::ToolUse,
-                                cache_control: None,
-                                caller: None,
-                            }),
-                        ]),
-                        role: ct::BetaMessageRole::Assistant,
-                    });
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                            id: tool_call.call_id,
+                            input: parse_tool_use_input(tool_call.arguments),
+                            name: tool_call.name,
+                            type_: ct::BetaToolUseBlockType::ToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::CustomToolCall(tool_call) => {
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                            id: tool_call.call_id,
+                            input: parse_tool_use_input(tool_call.input),
+                            name: tool_call.name,
+                            type_: ct::BetaToolUseBlockType::ToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
                 }
                 ot::ResponseInputItem::FunctionCallOutput(tool_result) => {
-                    let output_text =
-                        openai_function_call_output_content_to_text(&tool_result.output);
-                    messages.push(ct::BetaMessageParam {
-                        content: ct::BetaMessageContent::Blocks(vec![
-                            ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                                tool_use_id: tool_result.call_id,
-                                type_: ct::BetaToolResultBlockType::ToolResult,
-                                cache_control: None,
-                                content: if output_text.is_empty() {
-                                    None
-                                } else {
-                                    Some(ct::BetaToolResultBlockParamContent::Text(output_text))
+                    let content = match tool_result.output {
+                        ot::ResponseFunctionCallOutputContent::Text(text) => (!text.is_empty())
+                            .then_some(ct::BetaToolResultBlockParamContent::Text(text)),
+                        ot::ResponseFunctionCallOutputContent::Content(parts) => {
+                            response_input_contents_to_tool_result_content(parts)
+                        }
+                    };
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::User,
+                        ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
+                            tool_use_id: tool_result.call_id,
+                            type_: ct::BetaToolResultBlockType::ToolResult,
+                            cache_control: None,
+                            content,
+                            is_error: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::CustomToolCallOutput(tool_result) => {
+                    let content = match tool_result.output {
+                        ot::ResponseCustomToolCallOutputContent::Text(text) => (!text.is_empty())
+                            .then_some(ct::BetaToolResultBlockParamContent::Text(text)),
+                        ot::ResponseCustomToolCallOutputContent::Content(parts) => {
+                            response_input_contents_to_tool_result_content(parts)
+                        }
+                    };
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::User,
+                        ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
+                            tool_use_id: tool_result.call_id,
+                            type_: ct::BetaToolResultBlockType::ToolResult,
+                            cache_control: None,
+                            content,
+                            is_error: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::McpCall(call) => {
+                    let tool_use_id = call.id.clone();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::McpToolUse(ct::BetaMcpToolUseBlockParam {
+                            id: tool_use_id.clone(),
+                            input: parse_tool_use_input(call.arguments),
+                            name: call.name,
+                            server_name: call.server_label,
+                            type_: ct::BetaMcpToolUseBlockType::McpToolUse,
+                            cache_control: None,
+                        }),
+                    );
+                    if call.output.is_some() || call.error.is_some() {
+                        let text = call.output.or(call.error).unwrap_or_default();
+                        push_block_message(
+                            &mut messages,
+                            ct::BetaMessageRole::User,
+                            ct::BetaContentBlockParam::McpToolResult(
+                                ct::BetaRequestMcpToolResultBlockParam {
+                                    tool_use_id,
+                                    type_: ct::BetaRequestMcpToolResultBlockType::McpToolResult,
+                                    cache_control: None,
+                                    content: (!text.is_empty()).then_some(
+                                        ct::BetaMcpToolResultBlockParamContent::Text(text),
+                                    ),
+                                    is_error: None,
                                 },
-                                is_error: None,
-                            }),
-                        ]),
-                        role: ct::BetaMessageRole::User,
-                    });
+                            ),
+                        );
+                    }
+                }
+                ot::ResponseInputItem::CodeInterpreterToolCall(call) => {
+                    let mut input = ct::JsonObject::new();
+                    input.insert("code".to_string(), serde_json::Value::String(call.code));
+                    if !call.container_id.is_empty() {
+                        input.insert(
+                            "container_id".to_string(),
+                            serde_json::Value::String(call.container_id),
+                        );
+                    }
+                    let tool_use_id = call.id.clone();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ServerToolUse(ct::BetaServerToolUseBlockParam {
+                            id: tool_use_id.clone(),
+                            input,
+                            name: ct::BetaServerToolUseName::CodeExecution,
+                            type_: ct::BetaServerToolUseBlockType::ServerToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                    if let Some(outputs) = call.outputs {
+                        let mut stdout = Vec::new();
+                        for output in outputs {
+                            match output {
+                                ot::ResponseCodeInterpreterOutputItem::Logs { logs } => {
+                                    if !logs.is_empty() {
+                                        stdout.push(logs);
+                                    }
+                                }
+                                ot::ResponseCodeInterpreterOutputItem::Image { url } => {
+                                    if !url.is_empty() {
+                                        stdout.push(url);
+                                    }
+                                }
+                            }
+                        }
+                        push_block_message(
+                            &mut messages,
+                            ct::BetaMessageRole::User,
+                            ct::BetaContentBlockParam::CodeExecutionToolResult(
+                                ct::BetaCodeExecutionToolResultBlockParam {
+                                    content: ct::BetaCodeExecutionToolResultBlockParamContent::Result(
+                                        ct::BetaCodeExecutionResultBlockParam {
+                                            content: Vec::new(),
+                                            return_code: 0,
+                                            stderr: String::new(),
+                                            stdout: stdout.join("\n"),
+                                            type_: ct::BetaCodeExecutionResultBlockType::CodeExecutionResult,
+                                        },
+                                    ),
+                                    tool_use_id,
+                                    type_: ct::BetaCodeExecutionToolResultBlockType::CodeExecutionToolResult,
+                                    cache_control: None,
+                                },
+                            ),
+                        );
+                    }
+                }
+                ot::ResponseInputItem::FunctionWebSearch(call) => {
+                    let tool_use_id = call.id.clone();
+                    match call.action {
+                        ot::ResponseFunctionWebSearchAction::Search {
+                            query,
+                            queries,
+                            sources,
+                        } => {
+                            let mut input = ct::JsonObject::new();
+                            if let Some(query) = query.clone() {
+                                input.insert("query".to_string(), serde_json::Value::String(query));
+                            }
+                            if let Some(queries) = queries.clone() {
+                                input.insert(
+                                    "queries".to_string(),
+                                    serde_json::Value::Array(
+                                        queries
+                                            .into_iter()
+                                            .map(serde_json::Value::String)
+                                            .collect(),
+                                    ),
+                                );
+                            }
+                            push_block_message(
+                                &mut messages,
+                                ct::BetaMessageRole::Assistant,
+                                ct::BetaContentBlockParam::ServerToolUse(
+                                    ct::BetaServerToolUseBlockParam {
+                                        id: tool_use_id.clone(),
+                                        input,
+                                        name: ct::BetaServerToolUseName::WebSearch,
+                                        type_: ct::BetaServerToolUseBlockType::ServerToolUse,
+                                        cache_control: None,
+                                        caller: None,
+                                    },
+                                ),
+                            );
+                            if let Some(sources) = sources {
+                                let text = sources
+                                    .into_iter()
+                                    .map(|source| source.url)
+                                    .filter(|url| !url.is_empty())
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                push_block_message(
+                                    &mut messages,
+                                    ct::BetaMessageRole::User,
+                                    ct::BetaContentBlockParam::ToolResult(
+                                        ct::BetaToolResultBlockParam {
+                                            tool_use_id,
+                                            type_: ct::BetaToolResultBlockType::ToolResult,
+                                            cache_control: None,
+                                            content: (!text.is_empty()).then_some(
+                                                ct::BetaToolResultBlockParamContent::Text(text),
+                                            ),
+                                            is_error: None,
+                                        },
+                                    ),
+                                );
+                            }
+                        }
+                        ot::ResponseFunctionWebSearchAction::OpenPage { url } => {
+                            let mut input = ct::JsonObject::new();
+                            if let Some(url) = url.clone() {
+                                input.insert("url".to_string(), serde_json::Value::String(url));
+                            }
+                            push_block_message(
+                                &mut messages,
+                                ct::BetaMessageRole::Assistant,
+                                ct::BetaContentBlockParam::ServerToolUse(
+                                    ct::BetaServerToolUseBlockParam {
+                                        id: tool_use_id.clone(),
+                                        input,
+                                        name: ct::BetaServerToolUseName::WebFetch,
+                                        type_: ct::BetaServerToolUseBlockType::ServerToolUse,
+                                        cache_control: None,
+                                        caller: None,
+                                    },
+                                ),
+                            );
+                        }
+                        ot::ResponseFunctionWebSearchAction::FindInPage { pattern, url } => {
+                            let mut input = ct::JsonObject::new();
+                            input.insert("pattern".to_string(), serde_json::Value::String(pattern));
+                            input.insert("url".to_string(), serde_json::Value::String(url));
+                            push_block_message(
+                                &mut messages,
+                                ct::BetaMessageRole::Assistant,
+                                ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                                    id: tool_use_id,
+                                    input,
+                                    name: "web_fetch".to_string(),
+                                    type_: ct::BetaToolUseBlockType::ToolUse,
+                                    cache_control: None,
+                                    caller: None,
+                                }),
+                            );
+                        }
+                    }
+                }
+                ot::ResponseInputItem::ShellCall(call) => {
+                    let mut input = ct::JsonObject::new();
+                    input.insert(
+                        "commands".to_string(),
+                        serde_json::Value::Array(
+                            call.action
+                                .commands
+                                .into_iter()
+                                .map(serde_json::Value::String)
+                                .collect(),
+                        ),
+                    );
+                    if let Some(timeout_ms) = call.action.timeout_ms {
+                        input.insert(
+                            "timeout_ms".to_string(),
+                            serde_json::Value::Number(timeout_ms.into()),
+                        );
+                    }
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ServerToolUse(ct::BetaServerToolUseBlockParam {
+                            id: call.call_id,
+                            input,
+                            name: ct::BetaServerToolUseName::BashCodeExecution,
+                            type_: ct::BetaServerToolUseBlockType::ServerToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::ShellCallOutput(call) => {
+                    if let Some(first) = call.output.into_iter().next() {
+                        let content = match first.outcome {
+                            ot::ResponseShellCallOutcome::Timeout => {
+                                ct::BetaBashCodeExecutionToolResultBlockParamContent::Error(
+                                    ct::BetaBashCodeExecutionToolResultErrorParam {
+                                        error_code: ct::BetaBashCodeExecutionToolResultErrorCode::ExecutionTimeExceeded,
+                                        type_: ct::BetaBashCodeExecutionToolResultErrorType::BashCodeExecutionToolResultError,
+                                    },
+                                )
+                            }
+                            ot::ResponseShellCallOutcome::Exit { exit_code } => {
+                                ct::BetaBashCodeExecutionToolResultBlockParamContent::Result(
+                                    ct::BetaBashCodeExecutionResultBlockParam {
+                                        content: Vec::new(),
+                                        return_code: i64::from(exit_code),
+                                        stderr: first.stderr,
+                                        stdout: first.stdout,
+                                        type_: ct::BetaBashCodeExecutionResultBlockType::BashCodeExecutionResult,
+                                    },
+                                )
+                            }
+                        };
+                        push_block_message(
+                            &mut messages,
+                            ct::BetaMessageRole::User,
+                            ct::BetaContentBlockParam::BashCodeExecutionToolResult(
+                                ct::BetaBashCodeExecutionToolResultBlockParam {
+                                    content,
+                                    tool_use_id: call.call_id,
+                                    type_: ct::BetaBashCodeExecutionToolResultBlockType::BashCodeExecutionToolResult,
+                                    cache_control: None,
+                                },
+                            ),
+                        );
+                    }
+                }
+                ot::ResponseInputItem::LocalShellCall(call) => {
+                    let input = serde_json::to_value(call.action)
+                        .ok()
+                        .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
+                        .unwrap_or_default();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                            id: call.call_id,
+                            input,
+                            name: "bash".to_string(),
+                            type_: ct::BetaToolUseBlockType::ToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::LocalShellCallOutput(call) => {
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::User,
+                        ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
+                            tool_use_id: call.id,
+                            type_: ct::BetaToolResultBlockType::ToolResult,
+                            cache_control: None,
+                            content: (!call.output.is_empty())
+                                .then_some(ct::BetaToolResultBlockParamContent::Text(call.output)),
+                            is_error: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::ApplyPatchCall(call) => {
+                    let input = serde_json::to_value(call.operation)
+                        .ok()
+                        .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
+                        .unwrap_or_default();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                            id: call.call_id,
+                            input,
+                            name: "str_replace_based_edit_tool".to_string(),
+                            type_: ct::BetaToolUseBlockType::ToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::ApplyPatchCallOutput(call) => {
+                    let text = call
+                        .output
+                        .unwrap_or_else(|| format!("status:{:?}", call.status));
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::User,
+                        ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
+                            tool_use_id: call.call_id,
+                            type_: ct::BetaToolResultBlockType::ToolResult,
+                            cache_control: None,
+                            content: (!text.is_empty())
+                                .then_some(ct::BetaToolResultBlockParamContent::Text(text)),
+                            is_error: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::ComputerToolCall(call) => {
+                    let input = serde_json::to_value(call.action)
+                        .ok()
+                        .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
+                        .unwrap_or_default();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
+                            id: call.call_id,
+                            input,
+                            name: "computer".to_string(),
+                            type_: ct::BetaToolUseBlockType::ToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::ComputerCallOutput(call) => {
+                    let mut parts = Vec::new();
+                    if let Some(file_id) = call.output.file_id {
+                        parts.push(ot::ResponseInputContent::Image(ot::ResponseInputImage {
+                            detail: None,
+                            type_: ot::ResponseInputImageType::InputImage,
+                            file_id: Some(file_id),
+                            image_url: None,
+                        }));
+                    } else if let Some(image_url) = call.output.image_url {
+                        parts.push(ot::ResponseInputContent::Image(ot::ResponseInputImage {
+                            detail: None,
+                            type_: ot::ResponseInputImageType::InputImage,
+                            file_id: None,
+                            image_url: Some(image_url),
+                        }));
+                    }
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::User,
+                        ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
+                            tool_use_id: call.call_id,
+                            type_: ct::BetaToolResultBlockType::ToolResult,
+                            cache_control: None,
+                            content: response_input_contents_to_tool_result_content(parts),
+                            is_error: None,
+                        }),
+                    );
+                }
+                ot::ResponseInputItem::FileSearchToolCall(call) => {
+                    let mut input = ct::JsonObject::new();
+                    if let Some(query) = call.queries.first().cloned() {
+                        input.insert("query".to_string(), serde_json::Value::String(query));
+                    }
+                    if call.queries.len() > 1 {
+                        input.insert(
+                            "queries".to_string(),
+                            serde_json::Value::Array(
+                                call.queries
+                                    .iter()
+                                    .cloned()
+                                    .map(serde_json::Value::String)
+                                    .collect(),
+                            ),
+                        );
+                    }
+                    let tool_use_id = call.id.clone();
+                    push_block_message(
+                        &mut messages,
+                        ct::BetaMessageRole::Assistant,
+                        ct::BetaContentBlockParam::ServerToolUse(ct::BetaServerToolUseBlockParam {
+                            id: tool_use_id.clone(),
+                            input,
+                            name: ct::BetaServerToolUseName::ToolSearchToolBm25,
+                            type_: ct::BetaServerToolUseBlockType::ServerToolUse,
+                            cache_control: None,
+                            caller: None,
+                        }),
+                    );
+                    if let Some(results) = call.results {
+                        let tool_references = results
+                            .into_iter()
+                            .filter_map(|result| result.filename.or(result.text))
+                            .filter(|name| !name.is_empty())
+                            .map(|tool_name| ct::BetaToolReferenceBlockParam {
+                                tool_name,
+                                type_: ct::BetaToolReferenceBlockType::ToolReference,
+                                cache_control: None,
+                            })
+                            .collect::<Vec<_>>();
+                        push_block_message(
+                            &mut messages,
+                            ct::BetaMessageRole::User,
+                            ct::BetaContentBlockParam::ToolSearchToolResult(
+                                ct::BetaToolSearchToolResultBlockParam {
+                                    content: ct::BetaToolSearchToolResultBlockParamContent::Result(
+                                        ct::BetaToolSearchToolSearchResultBlockParam {
+                                            tool_references,
+                                            type_: ct::BetaToolSearchToolSearchResultBlockType::ToolSearchToolSearchResult,
+                                        },
+                                    ),
+                                    tool_use_id,
+                                    type_: ct::BetaToolSearchToolResultBlockType::ToolSearchToolResult,
+                                    cache_control: None,
+                                },
+                            ),
+                        );
+                    }
                 }
                 ot::ResponseInputItem::ReasoningItem(reasoning) => {
                     let mut thinking = openai_reasoning_summary_to_text(&reasoning.summary);
@@ -100,16 +584,15 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     if !thinking.is_empty()
                         && let Some(signature) = reasoning.id.filter(|id| !id.is_empty())
                     {
-                        messages.push(ct::BetaMessageParam {
-                            content: ct::BetaMessageContent::Blocks(vec![
-                                ct::BetaContentBlockParam::Thinking(ct::BetaThinkingBlockParam {
-                                    signature,
-                                    thinking,
-                                    type_: ct::BetaThinkingBlockType::Thinking,
-                                }),
-                            ]),
-                            role: ct::BetaMessageRole::Assistant,
-                        });
+                        push_block_message(
+                            &mut messages,
+                            ct::BetaMessageRole::Assistant,
+                            ct::BetaContentBlockParam::Thinking(ct::BetaThinkingBlockParam {
+                                signature,
+                                thinking,
+                                type_: ct::BetaThinkingBlockType::Thinking,
+                            }),
+                        );
                     }
                 }
                 other => {
@@ -231,15 +714,31 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             type_: Some(ct::BetaCustomToolType::Custom),
                         }));
                     }
-                    ot::ResponseTool::CodeInterpreter(_)
-                    | ot::ResponseTool::LocalShell(_)
-                    | ot::ResponseTool::Shell(_)
-                    | ot::ResponseTool::ApplyPatch(_) => {
+                    ot::ResponseTool::CodeInterpreter(_) => {
                         converted_tools.push(ct::BetaToolUnion::CodeExecution20250825(
                             ct::BetaCodeExecutionTool20250825 {
                                 name: ct::BetaCodeExecutionToolName::CodeExecution,
                                 type_: ct::BetaCodeExecutionTool20250825Type::CodeExecution20250825,
                                 common: ct::BetaToolCommonFields::default(),
+                            },
+                        ));
+                    }
+                    ot::ResponseTool::LocalShell(_) | ot::ResponseTool::Shell(_) => {
+                        converted_tools.push(ct::BetaToolUnion::Bash20250124(
+                            ct::BetaToolBash20250124 {
+                                name: ct::BetaBashToolName::Bash,
+                                type_: ct::BetaToolBash20250124Type::Bash20250124,
+                                common: ct::BetaToolCommonFields::default(),
+                            },
+                        ));
+                    }
+                    ot::ResponseTool::ApplyPatch(_) => {
+                        converted_tools.push(ct::BetaToolUnion::TextEditor20250728(
+                            ct::BetaToolTextEditor20250728 {
+                                name: ct::BetaTextEditorToolNameV2::StrReplaceBasedEditTool,
+                                type_: ct::BetaToolTextEditor20250728Type::TextEditor20250728,
+                                common: ct::BetaToolCommonFields::default(),
+                                max_characters: None,
                             },
                         ));
                     }
@@ -431,5 +930,151 @@ mod tests {
 
         assert_eq!(encoded["body"]["tools"][0]["type"], json!("custom"));
         assert!(encoded["body"]["tools"][0].get("type_").is_none());
+    }
+
+    #[test]
+    fn response_builtin_tool_choice_preserves_specific_claude_tool_name() {
+        let request = OpenAiCreateResponseRequest {
+            body: oreq::RequestBody {
+                model: Some("claude-sonnet-4-6".to_string()),
+                tool_choice: Some(ot::ResponseToolChoice::ApplyPatch(
+                    ot::ResponseToolChoiceApplyPatch {
+                        type_: ot::ResponseToolChoiceApplyPatchType::ApplyPatch,
+                    },
+                )),
+                tools: Some(vec![ot::ResponseTool::ApplyPatch(
+                    ot::ResponseApplyPatchTool {
+                        type_: ot::ResponseApplyPatchToolType::ApplyPatch,
+                    },
+                )]),
+                ..oreq::RequestBody::default()
+            },
+            ..OpenAiCreateResponseRequest::default()
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request)
+            .expect("response request should convert to claude");
+
+        match converted.body.tool_choice {
+            Some(ct::BetaToolChoice::Tool(tool)) => {
+                assert_eq!(tool.name, "str_replace_based_edit_tool");
+            }
+            other => panic!("unexpected tool choice: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn response_typed_input_items_convert_to_native_claude_blocks() {
+        let request = OpenAiCreateResponseRequest {
+            body: oreq::RequestBody {
+                model: Some("claude-sonnet-4-6".to_string()),
+                input: Some(ot::ResponseInput::Items(vec![
+                    ot::ResponseInputItem::CodeInterpreterToolCall(
+                        ot::ResponseCodeInterpreterToolCall {
+                            id: "code_1".to_string(),
+                            code: "print(1)".to_string(),
+                            container_id: "container_1".to_string(),
+                            outputs: Some(vec![ot::ResponseCodeInterpreterOutputItem::Logs {
+                                logs: "1".to_string(),
+                            }]),
+                            status: ot::ResponseCodeInterpreterToolCallStatus::Completed,
+                            type_: ot::ResponseCodeInterpreterToolCallType::CodeInterpreterCall,
+                        },
+                    ),
+                    ot::ResponseInputItem::ShellCall(ot::ResponseShellCall {
+                        action: ot::ResponseShellCallAction {
+                            commands: vec!["pwd".to_string()],
+                            max_output_length: None,
+                            timeout_ms: Some(3_000),
+                        },
+                        call_id: "bash_1".to_string(),
+                        type_: ot::ResponseShellCallType::ShellCall,
+                        id: Some("bash_1".to_string()),
+                        environment: None,
+                        status: Some(ot::ResponseItemStatus::Completed),
+                    }),
+                    ot::ResponseInputItem::ShellCallOutput(ot::ResponseShellCallOutput {
+                        call_id: "bash_1".to_string(),
+                        output: vec![ot::ResponseFunctionShellCallOutputContent {
+                            outcome: ot::ResponseShellCallOutcome::Exit { exit_code: 0 },
+                            stderr: String::new(),
+                            stdout: "/tmp".to_string(),
+                        }],
+                        type_: ot::ResponseShellCallOutputType::ShellCallOutput,
+                        id: None,
+                        max_output_length: None,
+                        status: Some(ot::ResponseItemStatus::Completed),
+                    }),
+                    ot::ResponseInputItem::ApplyPatchCall(ot::ResponseApplyPatchCall {
+                        call_id: "edit_1".to_string(),
+                        operation: ot::ResponseApplyPatchOperation::UpdateFile {
+                            diff: "@@ -1 +1 @@".to_string(),
+                            path: "src/lib.rs".to_string(),
+                        },
+                        status: ot::ResponseApplyPatchCallStatus::Completed,
+                        type_: ot::ResponseApplyPatchCallType::ApplyPatchCall,
+                        id: Some("edit_1".to_string()),
+                    }),
+                    ot::ResponseInputItem::ApplyPatchCallOutput(ot::ResponseApplyPatchCallOutput {
+                        call_id: "edit_1".to_string(),
+                        status: ot::ResponseApplyPatchCallOutputStatus::Completed,
+                        type_: ot::ResponseApplyPatchCallOutputType::ApplyPatchCallOutput,
+                        id: None,
+                        output: Some("patched".to_string()),
+                    }),
+                    ot::ResponseInputItem::FileSearchToolCall(ot::ResponseFileSearchToolCall {
+                        id: "search_1".to_string(),
+                        queries: vec!["needle".to_string()],
+                        status: ot::ResponseFileSearchToolCallStatus::Completed,
+                        type_: ot::ResponseFileSearchToolCallType::FileSearchCall,
+                        results: Some(vec![ot::ResponseFileSearchResult {
+                            filename: Some("src/lib.rs".to_string()),
+                            text: Some("src/lib.rs".to_string()),
+                            ..Default::default()
+                        }]),
+                    }),
+                ])),
+                ..oreq::RequestBody::default()
+            },
+            ..OpenAiCreateResponseRequest::default()
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request)
+            .expect("response request should convert to claude");
+        let encoded = serde_json::to_value(converted).expect("claude request should serialize");
+        let messages = encoded["body"]["messages"]
+            .as_array()
+            .expect("claude messages should be an array");
+
+        assert_eq!(messages[0]["content"][0]["type"], json!("server_tool_use"));
+        assert_eq!(messages[0]["content"][0]["name"], json!("code_execution"));
+        assert_eq!(
+            messages[1]["content"][0]["type"],
+            json!("code_execution_tool_result")
+        );
+        assert_eq!(messages[2]["content"][0]["type"], json!("server_tool_use"));
+        assert_eq!(
+            messages[2]["content"][0]["name"],
+            json!("bash_code_execution")
+        );
+        assert_eq!(
+            messages[3]["content"][0]["type"],
+            json!("bash_code_execution_tool_result")
+        );
+        assert_eq!(messages[4]["content"][0]["type"], json!("tool_use"));
+        assert_eq!(
+            messages[4]["content"][0]["name"],
+            json!("str_replace_based_edit_tool")
+        );
+        assert_eq!(messages[5]["content"][0]["type"], json!("tool_result"));
+        assert_eq!(messages[6]["content"][0]["type"], json!("server_tool_use"));
+        assert_eq!(
+            messages[6]["content"][0]["name"],
+            json!("tool_search_tool_bm25")
+        );
+        assert_eq!(
+            messages[7]["content"][0]["type"],
+            json!("tool_search_tool_result")
+        );
     }
 }
