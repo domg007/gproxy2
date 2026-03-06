@@ -1202,6 +1202,7 @@ fn strip_geminicli_unsupported_generation_config(body: &mut Value) {
 
     generation_config.remove("logprobs");
     generation_config.remove("responseLogprobs");
+    generation_config.remove("maxOutputTokens");
 }
 
 fn generate_user_prompt_id() -> String {
@@ -1374,7 +1375,8 @@ mod tests {
             "generationConfig": {
                 "temperature": 1,
                 "logprobs": 5,
-                "responseLogprobs": true
+                "responseLogprobs": true,
+                "maxOutputTokens": 1024
             }
         });
 
@@ -1387,5 +1389,6 @@ mod tests {
         );
         assert!(body.pointer("/generationConfig/logprobs").is_none());
         assert!(body.pointer("/generationConfig/responseLogprobs").is_none());
+        assert!(body.pointer("/generationConfig/maxOutputTokens").is_none());
     }
 }

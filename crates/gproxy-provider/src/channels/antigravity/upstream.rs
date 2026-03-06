@@ -1150,15 +1150,19 @@ fn build_request_body_bytes(
                 ));
             };
             let mut request = request.clone();
-            if model.to_ascii_lowercase().contains("gemini")
-                && let Some(config_obj) = request
-                    .as_object_mut()
-                    .and_then(|root| root.get_mut("generationConfig"))
-                    .and_then(Value::as_object_mut)
+            if let Some(config_obj) = request
+                .as_object_mut()
+                .and_then(|root| root.get_mut("generationConfig"))
+                .and_then(Value::as_object_mut)
             {
-                config_obj.remove("logprobs");
-                config_obj.remove("responseLogprobs");
-                config_obj.remove("response_logprobs");
+                config_obj.remove("maxOutputTokens");
+                config_obj.remove("max_output_tokens");
+
+                if model.to_ascii_lowercase().contains("gemini") {
+                    config_obj.remove("logprobs");
+                    config_obj.remove("responseLogprobs");
+                    config_obj.remove("response_logprobs");
+                }
             }
             if let Some(value) = session_id.map(str::trim).filter(|value| !value.is_empty())
                 && let Some(request_obj) = request.as_object_mut()
@@ -1677,9 +1681,44 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AntigravityRequestKind, explicit_antigravity_session_id, prompt_stable_session_id,
-        session_id_for_kind,
+        AntigravityRequestKind, build_request_body_bytes, explicit_antigravity_session_id,
+        prompt_stable_session_id, session_id_for_kind,
     };
+
+    #[test]
+    fn antigravity_build_request_strips_max_output_tokens() {
+        let body = json!({
+            "contents": [{"role":"user","parts":[{"text":"hello"}]}],
+            "generationConfig": {
+                "maxOutputTokens": 128000,
+                "temperature": 1.0
+            }
+        });
+        let kind = AntigravityRequestKind::Forward {
+            requires_project: true,
+            request_type: Some("agent"),
+        };
+
+        let bytes = build_request_body_bytes(
+            Some(&body),
+            Some("claude-sonnet-4-6"),
+            &kind,
+            "inductive-autumn-0x7ln",
+            None,
+        )
+        .expect("request body")
+        .expect("wrapped bytes");
+
+        let wrapped: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+        let generation_config = wrapped
+            .get("request")
+            .and_then(|request| request.get("generationConfig"))
+            .and_then(|config| config.as_object())
+            .expect("generation config");
+
+        assert!(!generation_config.contains_key("maxOutputTokens"));
+        assert_eq!(generation_config.get("temperature"), Some(&json!(1.0)));
+    }
 
     #[test]
     fn antigravity_session_id_prefers_explicit_request_value() {
