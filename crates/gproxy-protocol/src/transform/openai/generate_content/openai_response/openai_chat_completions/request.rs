@@ -18,12 +18,100 @@ use super::utils::{
     response_tool_choice_to_chat_tool_choice, response_tools_to_chat_tools,
 };
 
+fn assistant_message_with_text(text: String) -> ct::ChatCompletionAssistantMessageParam {
+    ct::ChatCompletionAssistantMessageParam {
+        role: ct::ChatCompletionAssistantRole::Assistant,
+        audio: None,
+        content: if text.is_empty() {
+            None
+        } else {
+            Some(ct::ChatCompletionAssistantContent::Text(text))
+        },
+        reasoning_content: None,
+        function_call: None,
+        name: None,
+        refusal: None,
+        tool_calls: None,
+    }
+}
+
+fn append_joined_text(target: &mut Option<String>, delta: String) {
+    if delta.is_empty() {
+        return;
+    }
+
+    match target {
+        Some(existing) if !existing.is_empty() => {
+            existing.push('\n');
+            existing.push_str(&delta);
+        }
+        Some(existing) => existing.push_str(&delta),
+        None => *target = Some(delta),
+    }
+}
+
+fn append_assistant_text(target: &mut ct::ChatCompletionAssistantMessageParam, delta: String) {
+    if delta.is_empty() {
+        return;
+    }
+
+    match target.content.as_mut() {
+        Some(ct::ChatCompletionAssistantContent::Text(existing)) if !existing.is_empty() => {
+            existing.push('\n');
+            existing.push_str(&delta);
+        }
+        Some(ct::ChatCompletionAssistantContent::Text(existing)) => existing.push_str(&delta),
+        Some(ct::ChatCompletionAssistantContent::Parts(parts)) => {
+            parts.push(ct::ChatCompletionAssistantContentPart::Text(
+                ct::ChatCompletionContentPartText {
+                    text: delta,
+                    type_: ct::ChatCompletionContentPartTextType::Text,
+                },
+            ));
+        }
+        None => {
+            target.content = Some(ct::ChatCompletionAssistantContent::Text(delta));
+        }
+    }
+}
+
+fn reasoning_item_to_text(reasoning: &ot::ResponseReasoningItem) -> String {
+    if let Some(content) = reasoning.content.as_ref() {
+        let text = content
+            .iter()
+            .map(|part| part.text.as_str())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !text.is_empty() {
+            return text;
+        }
+    }
+
+    let text = openai_reasoning_summary_to_text(&reasoning.summary);
+    if !text.is_empty() {
+        return text;
+    }
+
+    reasoning.encrypted_content.clone().unwrap_or_default()
+}
+
+fn flush_pending_assistant(
+    messages: &mut Vec<ct::ChatCompletionMessageParam>,
+    pending_assistant: &mut Option<ct::ChatCompletionAssistantMessageParam>,
+) {
+    if let Some(message) = pending_assistant.take() {
+        messages.push(ct::ChatCompletionMessageParam::Assistant(message));
+    }
+}
+
 impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
     type Error = TransformError;
 
     fn try_from(value: OpenAiCreateResponseRequest) -> Result<Self, TransformError> {
         let body = value.body;
         let mut messages = Vec::new();
+        let mut pending_assistant: Option<ct::ChatCompletionAssistantMessageParam> = None;
 
         if let Some(instructions) = body.instructions.as_ref().filter(|text| !text.is_empty()) {
             messages.push(ct::ChatCompletionMessageParam::System(
@@ -39,6 +127,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
             match item {
                 ot::ResponseInputItem::Message(message) => match message.role {
                     ot::ResponseInputMessageRole::User => {
+                        flush_pending_assistant(&mut messages, &mut pending_assistant);
                         messages.push(ct::ChatCompletionMessageParam::User(
                             ct::ChatCompletionUserMessageParam {
                                 content: message_content_to_user_content(message.content),
@@ -49,24 +138,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                     }
                     ot::ResponseInputMessageRole::Assistant => {
                         let text = openai_message_content_to_text(&message.content);
-                        messages.push(ct::ChatCompletionMessageParam::Assistant(
-                            ct::ChatCompletionAssistantMessageParam {
-                                role: ct::ChatCompletionAssistantRole::Assistant,
-                                audio: None,
-                                content: if text.is_empty() {
-                                    None
-                                } else {
-                                    Some(ct::ChatCompletionAssistantContent::Text(text))
-                                },
-                                reasoning_content: None,
-                                function_call: None,
-                                name: None,
-                                refusal: None,
-                                tool_calls: None,
-                            },
-                        ));
+                        let assistant = pending_assistant
+                            .get_or_insert_with(|| assistant_message_with_text(String::new()));
+                        append_assistant_text(assistant, text);
                     }
                     ot::ResponseInputMessageRole::System => {
+                        flush_pending_assistant(&mut messages, &mut pending_assistant);
                         let text = openai_message_content_to_text(&message.content);
                         messages.push(ct::ChatCompletionMessageParam::System(
                             ct::ChatCompletionSystemMessageParam {
@@ -77,6 +154,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                         ));
                     }
                     ot::ResponseInputMessageRole::Developer => {
+                        flush_pending_assistant(&mut messages, &mut pending_assistant);
                         let text = openai_message_content_to_text(&message.content);
                         messages.push(ct::ChatCompletionMessageParam::Developer(
                             ct::ChatCompletionDeveloperMessageParam {
@@ -88,6 +166,8 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                     }
                 },
                 ot::ResponseInputItem::OutputMessage(message) => {
+                    let assistant = pending_assistant
+                        .get_or_insert_with(|| assistant_message_with_text(String::new()));
                     let mut text_parts = Vec::new();
                     let mut refusal_parts = Vec::new();
                     for part in message.content {
@@ -105,80 +185,47 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                         }
                     }
 
-                    messages.push(ct::ChatCompletionMessageParam::Assistant(
-                        ct::ChatCompletionAssistantMessageParam {
-                            role: ct::ChatCompletionAssistantRole::Assistant,
-                            audio: None,
-                            content: if text_parts.is_empty() {
-                                None
-                            } else {
-                                Some(ct::ChatCompletionAssistantContent::Text(
-                                    text_parts.join("\n"),
-                                ))
-                            },
-                            reasoning_content: None,
-                            function_call: None,
-                            name: None,
-                            refusal: if refusal_parts.is_empty() {
-                                None
-                            } else {
-                                Some(refusal_parts.join("\n"))
-                            },
-                            tool_calls: None,
-                        },
-                    ));
+                    append_assistant_text(assistant, text_parts.join("\n"));
+                    append_joined_text(&mut assistant.refusal, refusal_parts.join("\n"));
                 }
                 ot::ResponseInputItem::FunctionToolCall(tool_call) => {
-                    messages.push(ct::ChatCompletionMessageParam::Assistant(
-                        ct::ChatCompletionAssistantMessageParam {
-                            role: ct::ChatCompletionAssistantRole::Assistant,
-                            audio: None,
-                            content: None,
-                            reasoning_content: None,
-                            function_call: None,
-                            name: None,
-                            refusal: None,
-                            tool_calls: Some(vec![ct::ChatCompletionMessageToolCall::Function(
-                                ct::ChatCompletionMessageFunctionToolCall {
-                                    id: tool_call.call_id,
-                                    function: ct::ChatCompletionFunctionCall {
-                                        arguments: tool_call.arguments,
-                                        name: tool_call.name,
-                                    },
-                                    type_: ct::ChatCompletionMessageFunctionToolCallType::Function,
+                    let assistant = pending_assistant
+                        .get_or_insert_with(|| assistant_message_with_text(String::new()));
+                    assistant.tool_calls.get_or_insert_with(Vec::new).push(
+                        ct::ChatCompletionMessageToolCall::Function(
+                            ct::ChatCompletionMessageFunctionToolCall {
+                                id: tool_call.call_id,
+                                function: ct::ChatCompletionFunctionCall {
+                                    arguments: tool_call.arguments,
+                                    name: tool_call.name,
                                 },
-                            )]),
-                        },
-                    ));
+                                type_: ct::ChatCompletionMessageFunctionToolCallType::Function,
+                            },
+                        ),
+                    );
                 }
                 ot::ResponseInputItem::CustomToolCall(tool_call) => {
                     let id = tool_call
                         .id
                         .clone()
                         .unwrap_or_else(|| tool_call.call_id.clone());
-                    messages.push(ct::ChatCompletionMessageParam::Assistant(
-                        ct::ChatCompletionAssistantMessageParam {
-                            role: ct::ChatCompletionAssistantRole::Assistant,
-                            audio: None,
-                            content: None,
-                            reasoning_content: None,
-                            function_call: None,
-                            name: None,
-                            refusal: None,
-                            tool_calls: Some(vec![ct::ChatCompletionMessageToolCall::Custom(
-                                ct::ChatCompletionMessageCustomToolCall {
-                                    id,
-                                    custom: ct::ChatCompletionMessageCustomToolCallPayload {
-                                        input: tool_call.input,
-                                        name: tool_call.name,
-                                    },
-                                    type_: ct::ChatCompletionMessageCustomToolCallType::Custom,
+                    let assistant = pending_assistant
+                        .get_or_insert_with(|| assistant_message_with_text(String::new()));
+                    assistant.tool_calls.get_or_insert_with(Vec::new).push(
+                        ct::ChatCompletionMessageToolCall::Custom(
+                            ct::ChatCompletionMessageCustomToolCall {
+                                id,
+                                custom: ct::ChatCompletionMessageCustomToolCallPayload {
+                                    input: tool_call.input,
+                                    name: tool_call.name,
                                 },
-                            )]),
-                        },
-                    ));
+                                type_: ct::ChatCompletionMessageCustomToolCallType::Custom,
+                            },
+                        ),
+                    );
                 }
                 ot::ResponseInputItem::FunctionCallOutput(call) => {
+                    flush_pending_assistant(&mut messages, &mut pending_assistant);
                     messages.push(ct::ChatCompletionMessageParam::Tool(
                         ct::ChatCompletionToolMessageParam {
                             content: ct::ChatCompletionTextContent::Text(
@@ -190,6 +237,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                     ));
                 }
                 ot::ResponseInputItem::CustomToolCallOutput(call) => {
+                    flush_pending_assistant(&mut messages, &mut pending_assistant);
                     messages.push(ct::ChatCompletionMessageParam::Tool(
                         ct::ChatCompletionToolMessageParam {
                             content: ct::ChatCompletionTextContent::Text(
@@ -201,28 +249,15 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                     ));
                 }
                 ot::ResponseInputItem::ReasoningItem(reasoning) => {
-                    let mut text = openai_reasoning_summary_to_text(&reasoning.summary);
-                    if text.is_empty()
-                        && let Some(content) = reasoning.encrypted_content
-                    {
-                        text = content;
-                    }
+                    let text = reasoning_item_to_text(&reasoning);
                     if !text.is_empty() {
-                        messages.push(ct::ChatCompletionMessageParam::Assistant(
-                            ct::ChatCompletionAssistantMessageParam {
-                                role: ct::ChatCompletionAssistantRole::Assistant,
-                                audio: None,
-                                content: Some(ct::ChatCompletionAssistantContent::Text(text)),
-                                reasoning_content: None,
-                                function_call: None,
-                                name: None,
-                                refusal: None,
-                                tool_calls: None,
-                            },
-                        ));
+                        let assistant = pending_assistant
+                            .get_or_insert_with(|| assistant_message_with_text(String::new()));
+                        append_joined_text(&mut assistant.reasoning_content, text);
                     }
                 }
                 other => {
+                    flush_pending_assistant(&mut messages, &mut pending_assistant);
                     let text = format!("{other:?}");
                     messages.push(ct::ChatCompletionMessageParam::User(
                         ct::ChatCompletionUserMessageParam {
@@ -234,6 +269,8 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                 }
             }
         }
+
+        flush_pending_assistant(&mut messages, &mut pending_assistant);
 
         let (tools, web_search_options) = response_tools_to_chat_tools(body.tools);
 
@@ -295,5 +332,71 @@ impl TryFrom<OpenAiCreateResponseRequest> for OpenAiChatCompletionsRequest {
                 web_search_options,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::count_tokens::types::{
+        ResponseFunctionCallOutput, ResponseFunctionCallOutputType, ResponseFunctionToolCall,
+        ResponseFunctionToolCallType, ResponseInput, ResponseInputItem, ResponseReasoningItem,
+        ResponseReasoningItemType, ResponseSummaryTextContent, ResponseSummaryTextContentType,
+    };
+    use crate::openai::create_response::request::{OpenAiCreateResponseRequest, RequestBody};
+
+    #[test]
+    fn responses_request_merges_reasoning_and_tool_call_into_one_assistant_message() {
+        let request = OpenAiCreateResponseRequest {
+            body: RequestBody {
+                model: Some("deepseek/deepseek-reasoner".to_string()),
+                input: Some(ResponseInput::Items(vec![
+                    ResponseInputItem::ReasoningItem(ResponseReasoningItem {
+                        id: Some("reasoning_1".to_string()),
+                        summary: vec![ResponseSummaryTextContent {
+                            text: "step by step".to_string(),
+                            type_: ResponseSummaryTextContentType::SummaryText,
+                        }],
+                        type_: ResponseReasoningItemType::Reasoning,
+                        content: None,
+                        encrypted_content: None,
+                        status: None,
+                    }),
+                    ResponseInputItem::FunctionToolCall(ResponseFunctionToolCall {
+                        arguments: "{}".to_string(),
+                        call_id: "call_1".to_string(),
+                        name: "exec_command".to_string(),
+                        type_: ResponseFunctionToolCallType::FunctionCall,
+                        id: None,
+                        status: None,
+                    }),
+                    ResponseInputItem::FunctionCallOutput(ResponseFunctionCallOutput {
+                        call_id: "call_1".to_string(),
+                        output: crate::openai::count_tokens::types::ResponseFunctionCallOutputContent::Text(
+                            "ok".to_string(),
+                        ),
+                        type_: ResponseFunctionCallOutputType::FunctionCallOutput,
+                        id: None,
+                        status: None,
+                    }),
+                ])),
+                ..RequestBody::default()
+            },
+            ..OpenAiCreateResponseRequest::default()
+        };
+
+        let converted = OpenAiChatCompletionsRequest::try_from(request).expect("convert request");
+        assert_eq!(converted.body.messages.len(), 2);
+
+        let ct::ChatCompletionMessageParam::Assistant(message) = &converted.body.messages[0] else {
+            panic!("expected assistant message");
+        };
+        assert_eq!(message.reasoning_content.as_deref(), Some("step by step"));
+        assert_eq!(message.tool_calls.as_ref().map(Vec::len), Some(1));
+
+        let ct::ChatCompletionMessageParam::Tool(message) = &converted.body.messages[1] else {
+            panic!("expected tool message");
+        };
+        assert_eq!(message.tool_call_id, "call_1");
     }
 }

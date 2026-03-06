@@ -88,6 +88,14 @@ struct FunctionCallState {
 }
 
 #[derive(Debug, Clone)]
+struct ReasoningState {
+    item_id: String,
+    choice_index: u32,
+    output_index: u64,
+    text: String,
+}
+
+#[derive(Debug, Clone)]
 struct FunctionCallDeltaInput {
     call_key: String,
     choice_index: u32,
@@ -115,6 +123,7 @@ pub struct OpenAiChatCompletionsToOpenAiResponseStream {
     output_text: String,
     message_states: BTreeMap<u32, MessageState>,
     function_states: BTreeMap<String, FunctionCallState>,
+    reasoning_states: BTreeMap<u32, ReasoningState>,
 }
 
 impl OpenAiChatCompletionsToOpenAiResponseStream {
@@ -450,6 +459,87 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
         );
     }
 
+    fn ensure_reasoning_item(
+        &mut self,
+        out: &mut Vec<OpenAiCreateResponseSseEvent>,
+        choice_index: u32,
+    ) {
+        if self.reasoning_states.contains_key(&choice_index) {
+            return;
+        }
+
+        let item_id = format!("{}_reasoning_{}", self.response_id, choice_index);
+        let output_index = self.next_output_index();
+
+        let sequence_number = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::OutputItemAdded {
+                item: reasoning_item(
+                    item_id.clone(),
+                    String::new(),
+                    ot::ResponseItemStatus::InProgress,
+                ),
+                output_index,
+                sequence_number,
+            },
+        );
+
+        let part_sequence = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::ContentPartAdded {
+                content_index: 0,
+                item_id: item_id.clone(),
+                output_index,
+                part: ResponseStreamContentPart::ReasoningText(reasoning_text_part(String::new())),
+                sequence_number: part_sequence,
+            },
+        );
+
+        self.reasoning_states.insert(
+            choice_index,
+            ReasoningState {
+                item_id,
+                choice_index,
+                output_index,
+                text: String::new(),
+            },
+        );
+    }
+
+    fn emit_reasoning_delta(
+        &mut self,
+        out: &mut Vec<OpenAiCreateResponseSseEvent>,
+        choice_index: u32,
+        delta: String,
+        obfuscation: Option<String>,
+    ) {
+        if delta.is_empty() {
+            return;
+        }
+
+        self.ensure_reasoning_item(out, choice_index);
+
+        let Some(state) = self.reasoning_states.get_mut(&choice_index) else {
+            return;
+        };
+        state.text.push_str(&delta);
+
+        let sequence_number = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::ReasoningTextDelta {
+                content_index: 0,
+                delta,
+                item_id: state.item_id.clone(),
+                output_index: state.output_index,
+                sequence_number,
+                obfuscation,
+            },
+        );
+    }
+
     fn emit_function_call_delta(
         &mut self,
         out: &mut Vec<OpenAiCreateResponseSseEvent>,
@@ -595,6 +685,101 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
         );
     }
 
+    fn close_reasoning(&mut self, out: &mut Vec<OpenAiCreateResponseSseEvent>, choice_index: u32) {
+        let Some(state) = self.reasoning_states.remove(&choice_index) else {
+            return;
+        };
+
+        let reasoning_done_sequence = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::ReasoningTextDone {
+                content_index: 0,
+                item_id: state.item_id.clone(),
+                output_index: state.output_index,
+                sequence_number: reasoning_done_sequence,
+                text: state.text.clone(),
+            },
+        );
+
+        let part_done_sequence = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::ContentPartDone {
+                content_index: 0,
+                item_id: state.item_id.clone(),
+                output_index: state.output_index,
+                part: ResponseStreamContentPart::ReasoningText(reasoning_text_part(
+                    state.text.clone(),
+                )),
+                sequence_number: part_done_sequence,
+            },
+        );
+
+        if !state.text.is_empty() {
+            let summary = summary_text_part(state.text.clone());
+
+            let summary_added_sequence = next_sequence_number(&mut self.next_sequence_number);
+            push_stream_event(
+                out,
+                ResponseStreamEvent::ReasoningSummaryPartAdded {
+                    item_id: state.item_id.clone(),
+                    output_index: state.output_index,
+                    part: summary.clone(),
+                    sequence_number: summary_added_sequence,
+                    summary_index: 0,
+                },
+            );
+
+            let summary_delta_sequence = next_sequence_number(&mut self.next_sequence_number);
+            push_stream_event(
+                out,
+                ResponseStreamEvent::ReasoningSummaryTextDelta {
+                    delta: state.text.clone(),
+                    item_id: state.item_id.clone(),
+                    output_index: state.output_index,
+                    sequence_number: summary_delta_sequence,
+                    summary_index: 0,
+                    obfuscation: None,
+                },
+            );
+
+            let summary_done_sequence = next_sequence_number(&mut self.next_sequence_number);
+            push_stream_event(
+                out,
+                ResponseStreamEvent::ReasoningSummaryTextDone {
+                    item_id: state.item_id.clone(),
+                    output_index: state.output_index,
+                    sequence_number: summary_done_sequence,
+                    summary_index: 0,
+                    text: state.text.clone(),
+                },
+            );
+
+            let summary_part_done_sequence = next_sequence_number(&mut self.next_sequence_number);
+            push_stream_event(
+                out,
+                ResponseStreamEvent::ReasoningSummaryPartDone {
+                    item_id: state.item_id.clone(),
+                    output_index: state.output_index,
+                    part: summary,
+                    sequence_number: summary_part_done_sequence,
+                    summary_index: 0,
+                },
+            );
+        }
+
+        let item_done_sequence = next_sequence_number(&mut self.next_sequence_number);
+        push_stream_event(
+            out,
+            ResponseStreamEvent::OutputItemDone {
+                item: reasoning_item(state.item_id, state.text, ot::ResponseItemStatus::Completed),
+                output_index: state.output_index,
+                sequence_number: item_done_sequence,
+            },
+        );
+    }
+
     fn close_function_calls(
         &mut self,
         out: &mut Vec<OpenAiCreateResponseSseEvent>,
@@ -649,6 +834,7 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
     }
 
     fn finish_choice(&mut self, out: &mut Vec<OpenAiCreateResponseSseEvent>, choice_index: u32) {
+        self.close_reasoning(out, choice_index);
         self.close_message(out, choice_index);
         self.close_function_calls(out, choice_index);
     }
@@ -727,6 +913,15 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
                 choice_index,
                 text_delta,
                 Self::map_logprobs(logprobs.as_ref(), false),
+                delta.obfuscation.clone(),
+            );
+        }
+
+        if let Some(reasoning_delta) = delta.reasoning_content {
+            self.emit_reasoning_delta(
+                out,
+                choice_index,
+                reasoning_delta,
                 delta.obfuscation.clone(),
             );
         }
@@ -844,6 +1039,11 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
             .keys()
             .copied()
             .chain(
+                self.reasoning_states
+                    .values()
+                    .map(|state| state.choice_index),
+            )
+            .chain(
                 self.function_states
                     .values()
                     .map(|state| state.choice_index),
@@ -892,6 +1092,127 @@ impl OpenAiChatCompletionsToOpenAiResponseStream {
 
     pub fn finish(&mut self) -> Vec<OpenAiCreateResponseSseEvent> {
         self.finalize()
+    }
+}
+
+fn reasoning_text_part(text: String) -> ot::ResponseReasoningTextContent {
+    ot::ResponseReasoningTextContent {
+        text,
+        type_: ot::ResponseReasoningTextContentType::ReasoningText,
+    }
+}
+
+fn summary_text_part(text: String) -> ot::ResponseSummaryTextContent {
+    ot::ResponseSummaryTextContent {
+        text,
+        type_: ot::ResponseSummaryTextContentType::SummaryText,
+    }
+}
+
+fn reasoning_item(
+    item_id: String,
+    text: String,
+    status: ot::ResponseItemStatus,
+) -> rt::ResponseOutputItem {
+    let summary = if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![summary_text_part(text.clone())]
+    };
+    let content = if text.is_empty() {
+        None
+    } else {
+        Some(vec![reasoning_text_part(text)])
+    };
+
+    rt::ResponseOutputItem::ReasoningItem(ot::ResponseReasoningItem {
+        id: Some(item_id),
+        summary,
+        type_: ot::ResponseReasoningItemType::Reasoning,
+        content,
+        encrypted_content: None,
+        status: Some(status),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::create_chat_completions::stream::{
+        ChatCompletionChunk, ChatCompletionChunkChoice, ChatCompletionChunkDelta,
+        ChatCompletionChunkObject, OpenAiChatCompletionsSseData, OpenAiChatCompletionsSseEvent,
+    };
+
+    #[test]
+    fn streaming_chat_reasoning_maps_to_response_reasoning_events() {
+        let stream = OpenAiChatCompletionsSseStreamBody {
+            events: vec![
+                OpenAiChatCompletionsSseEvent {
+                    event: None,
+                    data: OpenAiChatCompletionsSseData::Chunk(ChatCompletionChunk {
+                        id: "chatcmpl_1".to_string(),
+                        choices: vec![ChatCompletionChunkChoice {
+                            delta: ChatCompletionChunkDelta {
+                                reasoning_content: Some("plan".to_string()),
+                                ..ChatCompletionChunkDelta::default()
+                            },
+                            finish_reason: None,
+                            index: 0,
+                            logprobs: None,
+                        }],
+                        created: 1,
+                        model: "deepseek-reasoner".to_string(),
+                        object: ChatCompletionChunkObject::ChatCompletionChunk,
+                        service_tier: None,
+                        system_fingerprint: None,
+                        usage: None,
+                    }),
+                },
+                OpenAiChatCompletionsSseEvent {
+                    event: None,
+                    data: OpenAiChatCompletionsSseData::Chunk(ChatCompletionChunk {
+                        id: "chatcmpl_1".to_string(),
+                        choices: vec![ChatCompletionChunkChoice {
+                            delta: ChatCompletionChunkDelta::default(),
+                            finish_reason: Some(ct::ChatCompletionFinishReason::ToolCalls),
+                            index: 0,
+                            logprobs: None,
+                        }],
+                        created: 1,
+                        model: "deepseek-reasoner".to_string(),
+                        object: ChatCompletionChunkObject::ChatCompletionChunk,
+                        service_tier: None,
+                        system_fingerprint: None,
+                        usage: None,
+                    }),
+                },
+                OpenAiChatCompletionsSseEvent {
+                    event: None,
+                    data: OpenAiChatCompletionsSseData::Done("[DONE]".to_string()),
+                },
+            ],
+        };
+
+        let converted = OpenAiCreateResponseSseStreamBody::try_from(stream).expect("convert");
+        assert!(converted.events.iter().any(|event| {
+            matches!(
+                &event.data,
+                crate::openai::create_response::stream::OpenAiCreateResponseSseData::Event(
+                    ResponseStreamEvent::ReasoningTextDelta { delta, .. }
+                ) if delta == "plan"
+            )
+        }));
+        assert!(converted.events.iter().any(|event| {
+            matches!(
+                &event.data,
+                crate::openai::create_response::stream::OpenAiCreateResponseSseData::Event(
+                    ResponseStreamEvent::OutputItemDone {
+                        item: rt::ResponseOutputItem::ReasoningItem(_),
+                        ..
+                    }
+                )
+            )
+        }));
     }
 }
 

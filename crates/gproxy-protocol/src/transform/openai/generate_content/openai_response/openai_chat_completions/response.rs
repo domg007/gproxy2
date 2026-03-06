@@ -8,6 +8,65 @@ use crate::openai::create_response::types as rt;
 use crate::openai::types::OpenAiResponseHeaders;
 use crate::transform::utils::TransformError;
 
+fn reasoning_item_from_chat_message(
+    fallback_id: String,
+    reasoning_content: Option<String>,
+    reasoning_details: Option<Vec<ct::ChatCompletionReasoningDetail>>,
+) -> Option<rt::ResponseOutputItem> {
+    let mut encrypted_content = None;
+    let mut reasoning_id = Some(fallback_id);
+
+    if let Some(details) = reasoning_details {
+        for detail in details {
+            if matches!(
+                detail.type_,
+                ct::ChatCompletionReasoningDetailType::ReasoningEncrypted
+            ) {
+                if detail.id.is_some() {
+                    reasoning_id = detail.id;
+                }
+                if detail.data.is_some() {
+                    encrypted_content = detail.data;
+                }
+                break;
+            }
+        }
+    }
+
+    let text = reasoning_content.unwrap_or_default();
+    if text.is_empty() && encrypted_content.is_none() {
+        return None;
+    }
+
+    let summary = if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![ot::ResponseSummaryTextContent {
+            text: text.clone(),
+            type_: ot::ResponseSummaryTextContentType::SummaryText,
+        }]
+    };
+    let content = if text.is_empty() {
+        None
+    } else {
+        Some(vec![ot::ResponseReasoningTextContent {
+            text,
+            type_: ot::ResponseReasoningTextContentType::ReasoningText,
+        }])
+    };
+
+    Some(rt::ResponseOutputItem::ReasoningItem(
+        ot::ResponseReasoningItem {
+            id: reasoning_id,
+            summary,
+            type_: ot::ResponseReasoningItemType::Reasoning,
+            content,
+            encrypted_content,
+            status: Some(ot::ResponseItemStatus::Completed),
+        },
+    ))
+}
+
 impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiCreateResponseResponse {
     type Error = TransformError;
 
@@ -43,6 +102,14 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiCreateResponseResponse {
                         ct::ChatCompletionFinishReason::Stop
                         | ct::ChatCompletionFinishReason::ToolCalls
                         | ct::ChatCompletionFinishReason::FunctionCall => {}
+                    }
+
+                    if let Some(reasoning_item) = reasoning_item_from_chat_message(
+                        format!("{}_reasoning_0", body.id),
+                        choice.message.reasoning_content.clone(),
+                        choice.message.reasoning_details.clone(),
+                    ) {
+                        output.push(reasoning_item);
                     }
 
                     let mut message_content = Vec::new();
@@ -223,5 +290,77 @@ impl TryFrom<OpenAiChatCompletionsResponse> for OpenAiCreateResponseResponse {
                 body,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use http::StatusCode;
+
+    use super::*;
+
+    #[test]
+    fn chat_response_preserves_reasoning_in_responses_output() {
+        let response = OpenAiChatCompletionsResponse::Success {
+            stats_code: StatusCode::OK,
+            headers: OpenAiResponseHeaders::default(),
+            body: ct::ChatCompletion {
+                id: "chatcmpl_1".to_string(),
+                choices: vec![ct::ChatCompletionChoice {
+                    finish_reason: ct::ChatCompletionFinishReason::ToolCalls,
+                    index: 0,
+                    logprobs: None,
+                    message: ct::ChatCompletionMessage {
+                        content: None,
+                        reasoning_content: Some("plan first".to_string()),
+                        reasoning_details: Some(vec![ct::ChatCompletionReasoningDetail {
+                            type_: ct::ChatCompletionReasoningDetailType::ReasoningEncrypted,
+                            id: Some("reasoning_0".to_string()),
+                            data: Some("sig".to_string()),
+                        }]),
+                        refusal: None,
+                        role: ct::ChatCompletionAssistantRole::Assistant,
+                        annotations: None,
+                        audio: None,
+                        function_call: None,
+                        tool_calls: Some(vec![ct::ChatCompletionMessageToolCall::Function(
+                            ct::ChatCompletionMessageFunctionToolCall {
+                                id: "call_1".to_string(),
+                                function: ct::ChatCompletionFunctionCall {
+                                    arguments: "{}".to_string(),
+                                    name: "exec_command".to_string(),
+                                },
+                                type_: ct::ChatCompletionMessageFunctionToolCallType::Function,
+                            },
+                        )]),
+                    },
+                }],
+                created: 1,
+                model: "deepseek-reasoner".to_string(),
+                object: ct::ChatCompletionObject::ChatCompletion,
+                service_tier: None,
+                system_fingerprint: None,
+                usage: None,
+            },
+        };
+
+        let converted = OpenAiCreateResponseResponse::try_from(response).expect("convert");
+        let OpenAiCreateResponseResponse::Success { body, .. } = converted else {
+            panic!("expected success");
+        };
+
+        let Some(rt::ResponseOutputItem::ReasoningItem(reasoning)) = body.output.first() else {
+            panic!("expected reasoning item first");
+        };
+        assert_eq!(reasoning.id.as_deref(), Some("reasoning_0"));
+        assert_eq!(reasoning.encrypted_content.as_deref(), Some("sig"));
+        assert_eq!(
+            reasoning
+                .content
+                .as_ref()
+                .and_then(|items| items.first())
+                .map(|item| item.text.as_str()),
+            Some("plan first")
+        );
     }
 }
