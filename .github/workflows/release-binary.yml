@@ -224,16 +224,18 @@ jobs:
           BORINGSSL_DISABLE_ASM: ${{ matrix.boringssl_disable_asm }}
         run: cargo build --release --target "$env:TARGET" -p gproxy
 
-      - name: Run -h check (unix)
+      - name: Run --help check before UPX (unix)
         if: ${{ runner.os != 'Windows' && matrix.run_check }}
-        run: target/$TARGET/release/gproxy -h
+        run: |
+          cd target/$TARGET/release
+          ./gproxy --help
 
-      - name: Run -h check (windows)
+      - name: Run --help check before UPX (windows)
         if: ${{ runner.os == 'Windows' && matrix.run_check }}
         shell: pwsh
         run: |
           $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
-          & $bin -h
+          & $bin --help
 
       - name: Install UPX (linux)
         if: ${{ runner.os == 'Linux' }}
@@ -257,6 +259,19 @@ jobs:
       - name: Compress binary (macos)
         if: ${{ runner.os == 'macOS' }}
         run: upx --best --lzma --force-macos target/$TARGET/release/gproxy$BIN_EXT
+
+      - name: Run --help check after UPX (unix)
+        if: ${{ runner.os != 'Windows' && matrix.run_check }}
+        run: |
+          cd target/$TARGET/release
+          ./gproxy --help
+
+      - name: Run --help check after UPX (windows)
+        if: ${{ runner.os == 'Windows' && matrix.run_check && matrix.arch != 'aarch64' }}
+        shell: pwsh
+        run: |
+          $bin = Join-Path -Path "target" -ChildPath "$env:TARGET/release/gproxy$env:BIN_EXT"
+          & $bin --help
 
       - name: Codesign (macos)
         if: ${{ runner.os == 'macOS' }}
