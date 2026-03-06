@@ -126,7 +126,8 @@ impl TryFrom<OpenAiCreateResponseRequest> for GeminiGenerateContentRequest {
             .map(openai_tools_to_gemini)
             .unwrap_or((None, false));
 
-        let tool_config = openai_tool_choice_to_gemini(body.tool_choice, has_function_calling_tools);
+        let tool_config =
+            openai_tool_choice_to_gemini(body.tool_choice, has_function_calling_tools);
         let generation_config = openai_generation_config(
             body.reasoning,
             body.text,
@@ -218,7 +219,10 @@ mod tests {
         let function_calling = tool_config
             .function_calling_config
             .expect("function calling config");
-        assert_eq!(function_calling.mode, Some(gt::GeminiFunctionCallingMode::Auto));
+        assert_eq!(
+            function_calling.mode,
+            Some(gt::GeminiFunctionCallingMode::Auto)
+        );
     }
 
     #[test]
