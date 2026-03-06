@@ -24,4 +24,4 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
 tracing = "0.1"
 url = "2"
-wreq = { version = "6.0.0-rc.28", features = ["stream"] }
+wreq = { version = "6.0.0-rc.28", features = ["json","cookies", "socks", "stream", "deflate", "gzip", "zstd", "brotli"] }
