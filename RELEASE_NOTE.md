@@ -1,5 +1,47 @@
 # Release Notes
 
+## v0.3.27
+
+### English
+
+#### Changed
+
+- Migrated release downloads and self-update from CNB to a dedicated Cloudflare Pages downloads site.
+- Renamed the admin update source shown to users to `Cloudflare`; stored legacy values such as `cnb`, `web-hosted`, and `s3` now normalize automatically.
+- Updated the release workflow and docs to publish and consume `/manifest.json`, `/releases/manifest.json`, and `/staging/manifest.json` from Cloudflare Pages.
+- Refreshed container build/runtime bases to `rust:latest` and `distroless/cc-debian13`.
+- Updated `release.sh` to run `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` before version bump and release tagging.
+
+#### Fixed
+
+- Removed unsupported `maxOutputTokens` fields from Antigravity and Gemini CLI `generationConfig` payloads to avoid upstream request failures.
+- Kept Gemini-specific `logprobs` cleanup while also stripping generic max-token fields from Antigravity forwarded requests.
+
+#### Compatibility
+
+- Existing configs using `cnb`, `web-hosted`, or `s3` as update-source values remain compatible and are treated as the `Cloudflare` source.
+- Default public downloads base is `https://download-gproxy.leenhawk.com`.
+
+### 中文
+
+#### 变更
+
+- 将 release 下载与自更新源从 CNB 迁移到独立的 Cloudflare Pages 下载站。
+- 管理后台面向用户显示的更新源名称改为 `Cloudflare`，历史配置中的 `cnb`、`web-hosted`、`s3` 会自动兼容映射。
+- 更新了发布工作流和文档，Cloudflare Pages 现在提供并消费 `/manifest.json`、`/releases/manifest.json`、`/staging/manifest.json`。
+- 容器构建/运行时基础镜像更新为 `rust:latest` 和 `distroless/cc-debian13`。
+- `release.sh` 在版本升级和打 tag 前会先执行 `cargo fmt` 与 `cargo clippy --all-targets --all-features -- -D warnings`。
+
+#### 修复
+
+- 去掉了 Antigravity 与 Gemini CLI 请求 `generationConfig` 中不被上游接受的 `maxOutputTokens` 字段，避免请求失败。
+- Antigravity 转发请求在保留 Gemini 专属 `logprobs` 清理逻辑的同时，也会统一剥离通用的 max-token 字段。
+
+#### 兼容性
+
+- 现有把 `cnb`、`web-hosted`、`s3` 作为更新源的配置仍可继续使用，运行时会自动视为 `Cloudflare` 源。
+- 默认公开下载基址为 `https://download-gproxy.leenhawk.com`。
+
 ## v0.3.26
 
 Just a fix for Geminicli and antigravity
