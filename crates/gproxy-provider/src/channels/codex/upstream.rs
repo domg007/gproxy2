@@ -800,7 +800,11 @@ async fn send_codex_request(
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let mut headers = Vec::new();
     merge_extra_headers(&mut headers, extra_headers);
-    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(
+        &mut headers,
+        "authorization",
+        format!("Bearer {access_token}"),
+    );
     add_or_replace_header(&mut headers, ACCOUNT_ID_HEADER, account_id.to_string());
     add_or_replace_header(&mut headers, ORIGINATOR_HEADER, ORIGINATOR_VALUE);
     add_or_replace_header(&mut headers, USER_AGENT_HEADER, user_agent.to_string());
@@ -1002,7 +1006,10 @@ impl CodexPreparedRequest {
         }
         .map(|mut prepared| {
             if matches!(prepared.kind, CodexRequestKind::Forward) {
-                ensure_codex_session_id_header(&mut prepared.extra_headers, prepared.body.as_deref());
+                ensure_codex_session_id_header(
+                    &mut prepared.extra_headers,
+                    prepared.body.as_deref(),
+                );
             }
             prepared
         })
@@ -1743,15 +1750,9 @@ mod tests {
         )
         .expect("prepare payload");
 
-        assert!(
-            prepared
-                .extra_headers
-                .iter()
-                .any(|(name, value)| {
-                    name == SESSION_ID_HEADER
-                        && value == stable_codex_session_id("thread-123").as_str()
-                })
-        );
+        assert!(prepared.extra_headers.iter().any(|(name, value)| {
+            name == SESSION_ID_HEADER && value == stable_codex_session_id("thread-123").as_str()
+        }));
     }
 
     #[test]

@@ -131,7 +131,9 @@ fn request_extra_headers(input: &TransformRequest) -> std::collections::BTreeMap
         TransformRequest::CountTokenClaude(value) => value.headers.extra.clone(),
         TransformRequest::CountTokenGemini(value) => value.headers.extra.clone(),
         TransformRequest::GenerateContentOpenAiResponse(value) => value.headers.extra.clone(),
-        TransformRequest::GenerateContentOpenAiChatCompletions(value) => value.headers.extra.clone(),
+        TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
+            value.headers.extra.clone()
+        }
         TransformRequest::GenerateContentClaude(value) => value.headers.extra.clone(),
         TransformRequest::GenerateContentGemini(value) => value.headers.extra.clone(),
         TransformRequest::StreamGenerateContentOpenAiResponse(value) => value.headers.extra.clone(),

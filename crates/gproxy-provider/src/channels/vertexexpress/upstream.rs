@@ -152,11 +152,7 @@ async fn execute_vertexexpress_with_prepared(
                 add_or_replace_header(&mut request_headers, "user-agent", user_agent);
 
                 if body.is_some() {
-                    add_or_replace_header(
-                        &mut request_headers,
-                        "content-type",
-                        "application/json",
-                    );
+                    add_or_replace_header(&mut request_headers, "content-type", "application/json");
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,

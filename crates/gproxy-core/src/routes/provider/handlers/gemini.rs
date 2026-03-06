@@ -14,9 +14,8 @@ use crate::AppState;
 
 use super::super::{
     HttpError, authorize_provider_access, bad_request, collect_passthrough_headers,
-    collect_unscoped_model_ids,
-    execute_transform_request, execute_transform_request_payload, internal_error,
-    normalize_gemini_model_path, parse_optional_query_value, resolve_provider,
+    collect_unscoped_model_ids, execute_transform_request, execute_transform_request_payload,
+    internal_error, normalize_gemini_model_path, parse_optional_query_value, resolve_provider,
     response_from_status_headers_and_bytes, split_provider_prefixed_gemini_target,
     split_provider_prefixed_model_path,
 };

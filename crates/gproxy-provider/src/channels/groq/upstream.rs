@@ -213,11 +213,7 @@ async fn execute_groq_with_prepared(
                 );
                 add_or_replace_header(&mut sent_headers, "user-agent", user_agent);
                 if body.is_some() {
-                    add_or_replace_header(
-                        &mut sent_headers,
-                        "content-type",
-                        "application/json",
-                    );
+                    add_or_replace_header(&mut sent_headers, "content-type", "application/json");
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -455,18 +451,16 @@ impl GroqPreparedRequest {
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
-            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
-                Ok(Self {
-                    method: WreqMethod::POST,
-                    path: "/v1/responses".to_string(),
-                    body: Some(normalize_response_request_body(
-                        serde_json::to_vec(&body_value)
-                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
-                    )),
-                    model: json_pointer_string(&body_value, "/model"),
-                    extra_headers,
-                })
-            }
+            | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/responses".to_string(),
+                body: Some(normalize_response_request_body(
+                    serde_json::to_vec(&body_value)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                )),
+                model: json_pointer_string(&body_value, "/model"),
+                extra_headers,
+            }),
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
                 Ok(Self {
@@ -480,18 +474,16 @@ impl GroqPreparedRequest {
                     extra_headers,
                 })
             }
-            (OperationFamily::Embedding, ProtocolKind::OpenAi) => {
-                Ok(Self {
-                    method: WreqMethod::POST,
-                    path: "/v1/embeddings".to_string(),
-                    body: Some(
-                        serde_json::to_vec(&body_value)
-                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
-                    ),
-                    model: json_pointer_string(&body_value, "/model"),
-                    extra_headers,
-                })
-            }
+            (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/embeddings".to_string(),
+                body: Some(
+                    serde_json::to_vec(&body_value)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: json_pointer_string(&body_value, "/model"),
+                extra_headers,
+            }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }
     }

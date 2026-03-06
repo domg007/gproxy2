@@ -819,7 +819,11 @@ async fn send_geminicli_request(
     let mut headers = Vec::new();
     merge_extra_headers(&mut headers, extra_headers);
     add_or_replace_header(&mut headers, "accept", "application/json");
-    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(
+        &mut headers,
+        "authorization",
+        format!("Bearer {access_token}"),
+    );
     add_or_replace_header(&mut headers, "user-agent", user_agent);
     add_or_replace_header(&mut headers, "accept-encoding", "gzip");
     if body.is_some() {

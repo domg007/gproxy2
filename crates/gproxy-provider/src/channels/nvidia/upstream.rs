@@ -203,11 +203,7 @@ async fn execute_nvidia_with_prepared(
                 );
                 add_or_replace_header(&mut request_headers, "user-agent", user_agent);
                 if body.is_some() {
-                    add_or_replace_header(
-                        &mut request_headers,
-                        "content-type",
-                        "application/json",
-                    );
+                    add_or_replace_header(&mut request_headers, "content-type", "application/json");
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -386,10 +382,7 @@ impl NvidiaPreparedRequest {
         protocol: ProtocolKind,
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
-        fn json_pointer_string(
-            value: &serde_json::Value,
-            pointer: &str,
-        ) -> Option<String> {
+        fn json_pointer_string(value: &serde_json::Value, pointer: &str) -> Option<String> {
             value
                 .pointer(pointer)
                 .and_then(serde_json::Value::as_str)

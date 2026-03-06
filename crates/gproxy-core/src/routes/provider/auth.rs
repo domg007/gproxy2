@@ -135,9 +135,7 @@ fn should_drop_passthrough_header(name: &str, websocket: bool) -> bool {
     websocket
         && (name.eq_ignore_ascii_case("connection")
             || name.eq_ignore_ascii_case("upgrade")
-            || name
-                .to_ascii_lowercase()
-                .starts_with("sec-websocket-"))
+            || name.to_ascii_lowercase().starts_with("sec-websocket-"))
 }
 
 fn collect_filtered_passthrough_headers(
@@ -235,8 +233,14 @@ mod tests {
             ("x-stainless-lang", "js"),
         ]);
         let filtered = collect_passthrough_headers(&headers);
-        assert_eq!(filtered.get("originator").map(String::as_str), Some("codex_vscode"));
-        assert_eq!(filtered.get("x-stainless-lang").map(String::as_str), Some("js"));
+        assert_eq!(
+            filtered.get("originator").map(String::as_str),
+            Some("codex_vscode")
+        );
+        assert_eq!(
+            filtered.get("x-stainless-lang").map(String::as_str),
+            Some("js")
+        );
         assert!(!filtered.contains_key("Host"));
         assert!(!filtered.contains_key("Authorization"));
         assert!(!filtered.contains_key("USER-AGENT"));
@@ -244,11 +248,7 @@ mod tests {
 
     #[test]
     fn passthrough_headers_skip_empty_values() {
-        let headers = headers(&[
-            ("x-app", "cli"),
-            ("x-empty", " "),
-            ("x-space", ""),
-        ]);
+        let headers = headers(&[("x-app", "cli"), ("x-empty", " "), ("x-space", "")]);
         let filtered = collect_passthrough_headers(&headers);
         assert_eq!(filtered.get("x-app").map(String::as_str), Some("cli"));
         assert!(!filtered.contains_key("x-empty"));

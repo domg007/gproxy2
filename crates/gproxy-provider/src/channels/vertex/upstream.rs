@@ -515,7 +515,11 @@ async fn send_vertex_request(
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
     let mut headers = Vec::new();
     merge_extra_headers(&mut headers, extra_headers);
-    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(
+        &mut headers,
+        "authorization",
+        format!("Bearer {access_token}"),
+    );
     add_or_replace_header(&mut headers, "user-agent", user_agent.to_string());
     if body.is_some() {
         add_or_replace_header(&mut headers, "content-type", "application/json");

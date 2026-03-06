@@ -1394,7 +1394,11 @@ pub(in crate::routes::provider) async fn openai_chat_completions(
     let payload = TransformRequestPayload::from_bytes(
         operation,
         ProtocolKind::OpenAiChatCompletion,
-        build_openai_payload(value, &headers, "invalid openai chat completions request body")?,
+        build_openai_payload(
+            value,
+            &headers,
+            "invalid openai chat completions request body",
+        )?,
     );
     execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
@@ -1429,7 +1433,11 @@ pub(in crate::routes::provider) async fn openai_chat_completions_unscoped(
     } else {
         OperationFamily::GenerateContent
     };
-    let body = build_openai_payload(body, &headers, "invalid openai chat completions request body")?;
+    let body = build_openai_payload(
+        body,
+        &headers,
+        "invalid openai chat completions request body",
+    )?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let payload =
         TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAiChatCompletion, body);
@@ -1606,8 +1614,7 @@ pub(in crate::routes::provider) async fn openai_compact(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, HttpError> {
-    let value =
-        parse_json_body::<serde_json::Value>(&body, "invalid openai compact request body")?;
+    let value = parse_json_body::<serde_json::Value>(&body, "invalid openai compact request body")?;
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let payload = TransformRequestPayload::from_bytes(
@@ -1913,13 +1920,22 @@ mod tests {
     #[test]
     fn openai_ws_upgrade_headers_keep_business_headers_and_drop_transport_headers() {
         let mut headers = HeaderMap::new();
-        headers.insert("authorization", HeaderValue::from_static("Bearer client-secret"));
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer client-secret"),
+        );
         headers.insert("user-agent", HeaderValue::from_static("codex_vscode/0.1"));
         headers.insert("connection", HeaderValue::from_static("Upgrade"));
         headers.insert("upgrade", HeaderValue::from_static("websocket"));
         headers.insert("sec-websocket-key", HeaderValue::from_static("abc123"));
-        headers.insert("openai-beta", HeaderValue::from_static("responses_websockets=2026-02-04"));
-        headers.insert("x-codex-turn-metadata", HeaderValue::from_static("{\"turn_id\":\"1\"}"));
+        headers.insert(
+            "openai-beta",
+            HeaderValue::from_static("responses_websockets=2026-02-04"),
+        );
+        headers.insert(
+            "x-codex-turn-metadata",
+            HeaderValue::from_static("{\"turn_id\":\"1\"}"),
+        );
         headers.insert("session_id", HeaderValue::from_static("sess-123"));
         headers.insert("x-app", HeaderValue::from_static("cli"));
 

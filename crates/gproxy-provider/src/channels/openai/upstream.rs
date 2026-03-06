@@ -135,11 +135,7 @@ async fn execute_openai_with_prepared(
                 );
                 add_or_replace_header(&mut sent_headers, "user-agent", user_agent);
                 if body.is_some() {
-                    add_or_replace_header(
-                        &mut sent_headers,
-                        "content-type",
-                        "application/json",
-                    );
+                    add_or_replace_header(&mut sent_headers, "content-type", "application/json");
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -398,10 +394,7 @@ impl OpenAiPreparedRequest {
         protocol: ProtocolKind,
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
-        fn json_pointer_string(
-            value: &serde_json::Value,
-            pointer: &str,
-        ) -> Option<String> {
+        fn json_pointer_string(value: &serde_json::Value, pointer: &str) -> Option<String> {
             value
                 .pointer(pointer)
                 .and_then(serde_json::Value::as_str)
@@ -637,7 +630,10 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(prepared.body.as_deref().expect("body bytes"))
                 .expect("valid json");
-        assert_eq!(body.get("model").and_then(|value| value.as_str()), Some("gpt-4.1-mini"));
+        assert_eq!(
+            body.get("model").and_then(|value| value.as_str()),
+            Some("gpt-4.1-mini")
+        );
         assert!(body.get("headers").is_none());
     }
 }

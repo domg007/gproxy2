@@ -241,9 +241,7 @@ pub fn extra_headers_from_transform_request(request: &TransformRequest) -> Vec<(
         TransformRequest::GenerateContentClaude(value) => &value.headers.extra,
         TransformRequest::GenerateContentGemini(value) => &value.headers.extra,
         TransformRequest::StreamGenerateContentOpenAiResponse(value) => &value.headers.extra,
-        TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
-            &value.headers.extra
-        }
+        TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => &value.headers.extra,
         TransformRequest::StreamGenerateContentClaude(value) => &value.headers.extra,
         TransformRequest::StreamGenerateContentGeminiSse(value) => &value.headers.extra,
         TransformRequest::StreamGenerateContentGeminiNdjson(value) => &value.headers.extra,
@@ -263,7 +261,9 @@ pub fn extra_headers_from_payload_value(value: &Value) -> Vec<(String, String)> 
         .map(|map| {
             map.iter()
                 .filter_map(|(name, value)| {
-                    value.as_str().map(|value| (name.clone(), value.to_string()))
+                    value
+                        .as_str()
+                        .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect::<Vec<_>>()
         })

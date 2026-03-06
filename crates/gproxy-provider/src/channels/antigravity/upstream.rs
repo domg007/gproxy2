@@ -249,10 +249,7 @@ async fn execute_antigravity_with_prepared(
                     ));
                 }
 
-                let session_id = session_id_for_kind(
-                    &kind,
-                    body.as_ref(),
-                );
+                let session_id = session_id_for_kind(&kind, body.as_ref());
                 let body_bytes = match build_request_body_bytes(
                     body.as_ref(),
                     model.as_deref(),
@@ -852,7 +849,11 @@ async fn send_antigravity_request(
     let mut headers = Vec::new();
     merge_extra_headers(&mut headers, extra_headers);
     add_or_replace_header(&mut headers, "accept", "application/json");
-    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(
+        &mut headers,
+        "authorization",
+        format!("Bearer {access_token}"),
+    );
     add_or_replace_header(&mut headers, "user-agent", user_agent.to_string());
     add_or_replace_header(&mut headers, "accept-encoding", "gzip");
     add_or_replace_header(&mut headers, "requestid", request_id.to_string());
@@ -1545,10 +1546,7 @@ fn make_request_id() -> String {
     format!("gproxy-{nanos}")
 }
 
-fn session_id_for_kind(
-    kind: &AntigravityRequestKind,
-    body: Option<&Value>,
-) -> Option<String> {
+fn session_id_for_kind(kind: &AntigravityRequestKind, body: Option<&Value>) -> Option<String> {
     match kind {
         AntigravityRequestKind::Forward {
             requires_project: true,
@@ -1571,7 +1569,9 @@ fn prompt_stable_session_id(body: Option<&Value>) -> Option<String> {
     let body = body?;
     let mut marker = Map::new();
 
-    if let Some(system_instruction) = body.get("systemInstruction").filter(|value| !value.is_null())
+    if let Some(system_instruction) = body
+        .get("systemInstruction")
+        .filter(|value| !value.is_null())
     {
         marker.insert("systemInstruction".to_string(), system_instruction.clone());
     }
@@ -1592,12 +1592,7 @@ fn first_user_content(contents: Option<&Value>) -> Option<Value> {
     let contents = contents?.as_array()?;
     contents
         .iter()
-        .find(|content| {
-            matches!(
-                content.get("role").and_then(Value::as_str),
-                Some("user")
-            )
-        })
+        .find(|content| matches!(content.get("role").and_then(Value::as_str), Some("user")))
         .cloned()
         .or_else(|| contents.first().cloned())
 }

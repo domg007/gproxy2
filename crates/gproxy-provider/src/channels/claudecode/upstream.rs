@@ -1880,7 +1880,11 @@ mod tests {
         strip_context_1m_beta(&mut headers);
 
         let mut expected = vec!["custom-beta".to_string(), OAUTH_BETA.to_string()];
-        expected.extend(CLAUDECODE_DEFAULT_BETAS.iter().map(|value| value.to_string()));
+        expected.extend(
+            CLAUDECODE_DEFAULT_BETAS
+                .iter()
+                .map(|value| value.to_string()),
+        );
 
         assert_eq!(
             headers,
