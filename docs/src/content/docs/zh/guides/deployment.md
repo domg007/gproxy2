@@ -1,6 +1,6 @@
 ---
 title: 部署
-description: GPROXY 部署说明：本地（二进制、Docker）与云端（Zeabur）。
+description: GPROXY 部署说明：本地（二进制、Docker）与云端（ClawCloud Run）。
 ---
 
 ## 本地部署
@@ -46,26 +46,30 @@ docker run --rm -p 8787:8787 \
 
 ## 云端部署
 
-### Zeabur
+### ClawCloud Run
 
-当前云端模板仅提供 Zeabur。
+当前云端模板提供 ClawCloud Run。
 
-- 模板文件：[`zeabur.yaml`](https://github.com/LeenHawk/gproxy/blob/main/zeabur.yaml)
+- 模板文件：[`claw.yaml`](https://github.com/LeenHawk/gproxy/blob/main/claw.yaml)
 - 预构建镜像：`ghcr.io/leenhawk/gproxy:latest`
+- 可在 ClawCloud Run 的 App Store -> My Apps -> Debugging 中使用该模板
 
-推荐配置：
+推荐输入项：
 
-- `GPROXY_ADMIN_KEY`：必填
-- `GPROXY_HOST`：`0.0.0.0`
-- `GPROXY_PORT`：`8787`
-- `GPROXY_DATA_DIR`：`/app/data`
+- `admin_key`（默认自动生成随机值）
+- `rust_log`（默认 `info`）
+- `volume_size`（默认 `1`）
 - 将 `/app/data` 挂载为持久化卷
 
-可选配置：
+内置环境变量默认值：
 
-- `GPROXY_DSN`（外部数据库或自定义 sqlite 路径）
-- `GPROXY_PROXY`（上游代理）
-- `RUST_LOG`（日志级别）
+- `GPROXY_HOST=0.0.0.0`
+- `GPROXY_PORT=8787`
+- `GPROXY_DSN=sqlite:///app/data/gproxy.db?mode=rwc`
+
+可选输入项：
+
+- `proxy_url`（上游代理）
 
 ### Release 下载与自更新（Cloudflare Pages）
 

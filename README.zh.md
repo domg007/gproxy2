@@ -133,11 +133,11 @@ docker run --rm -p 8787:8787 \
 
 ### 云端部署
 
-#### Zeabur
+#### ClawCloud Run
 
-- 模板文件：[`zeabur.yaml`](./zeabur.yaml)
-- 可通过文档/示例里的 Zeabur 按钮部署，或在 Zeabur 导入本仓库并使用模板部署。
-- 必填环境变量：`GPROXY_ADMIN_KEY`
+- 模板文件：[`claw.yaml`](./claw.yaml)
+- 可在 ClawCloud Run 的 App Store -> My Apps -> Debugging 中将 `claw.yaml` 作为自定义模板使用。
+- 关键输入项：`admin_key`（默认自动生成）、`proxy_url`、`rust_log`、`volume_size`
 - 建议将 `/app/data` 挂载为持久化卷。
 
 #### Release 下载与自更新（Cloudflare Pages）

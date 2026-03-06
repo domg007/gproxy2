@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Deploy GPROXY locally (binary, Docker) and in cloud (Zeabur).
+description: Deploy GPROXY locally (binary, Docker) and in cloud (ClawCloud Run).
 ---
 
 ## Local deployment
@@ -46,26 +46,30 @@ docker run --rm -p 8787:8787 \
 
 ## Cloud deployment
 
-### Zeabur
+### ClawCloud Run
 
-Current cloud template support is Zeabur.
+Current cloud template support is ClawCloud Run.
 
-- Template file: [`zeabur.yaml`](https://github.com/LeenHawk/gproxy/blob/main/zeabur.yaml)
+- Template file: [`claw.yaml`](https://github.com/LeenHawk/gproxy/blob/main/claw.yaml)
 - Prebuilt image: `ghcr.io/leenhawk/gproxy:latest`
+- Use the template in ClawCloud Run App Store -> My Apps -> Debugging
 
-Recommended settings:
+Recommended inputs:
 
-- `GPROXY_ADMIN_KEY`: required
-- `GPROXY_HOST`: `0.0.0.0`
-- `GPROXY_PORT`: `8787`
-- `GPROXY_DATA_DIR`: `/app/data`
+- `admin_key` (default: generated random value)
+- `rust_log` (`info`)
+- `volume_size` (`1`)
 - Persist volume at `/app/data`
 
-Optional:
+Built-in environment defaults:
 
-- `GPROXY_DSN` (external database or custom sqlite path)
-- `GPROXY_PROXY` (upstream egress proxy)
-- `RUST_LOG` (log level)
+- `GPROXY_HOST=0.0.0.0`
+- `GPROXY_PORT=8787`
+- `GPROXY_DSN=sqlite:///app/data/gproxy.db?mode=rwc`
+
+Optional inputs:
+
+- `proxy_url` (upstream egress proxy)
 
 ### Release downloads and self-update (Cloudflare Pages)
 
