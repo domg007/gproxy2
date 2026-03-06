@@ -18,6 +18,7 @@
 - Fixed Claude-family raw payload parsing to recognize canonical `anthropic-version` and `anthropic-beta` headers.
 - Fixed Claude custom tool serialization to emit `type` instead of `type_`, avoiding `invalid_request_error` failures for custom-tool requests.
 - Fixed OpenAI Responses <-> Claude conversions for builtin tool choice, MCP/error states, and native shell/apply-patch/code-interpreter/file-search/web-search item mapping.
+- Fixed Claude -> OpenAI Responses streaming tool-call argument assembly so `input_json_delta` no longer gets prefixed with the placeholder `{}`, preventing malformed payloads like `{}{"cmd": ...}` that broke Codex/ClaudeCode `exec_command` calls.
 
 #### Compatibility
 
@@ -41,6 +42,7 @@
 - 修复了 Claude 系列原始 payload 对请求头的解析，现可正确识别规范的 `anthropic-version` 和 `anthropic-beta`。
 - 修复了 Claude 自定义工具序列化字段错误，确保输出 `type` 而不是 `type_`，避免 custom tool 请求触发 `invalid_request_error`。
 - 修复了 OpenAI Responses <-> Claude 在 builtin tool choice、MCP 错误态，以及 shell/apply-patch/code-interpreter/file-search/web-search 等原生 item 映射上的兼容问题。
+- 修复了 Claude -> OpenAI Responses 流式工具参数拼装问题，不再把占位 `{}` 前缀拼到 `input_json_delta` 上，避免生成 `{}{"cmd": ...}` 这类非法参数并导致 Codex/ClaudeCode 的 `exec_command` 调用失败。
 
 #### 兼容性说明
 
