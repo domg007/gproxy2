@@ -53,6 +53,16 @@ struct GeminiCliPreparedRequest {
     extra_headers: Vec<(String, String)>,
 }
 
+struct GeminiCliRequestParams<'a> {
+    method: WreqMethod,
+    url: &'a str,
+    access_token: &'a str,
+    custom_user_agent: Option<&'a str>,
+    model_for_ua: Option<&'a str>,
+    extra_headers: &'a [(String, String)],
+    body: Option<&'a [u8]>,
+}
+
 pub async fn execute_geminicli_with_retry(
     client: &WreqClient,
     provider: &ProviderDefinition,
@@ -251,13 +261,15 @@ async fn execute_geminicli_with_prepared(
                 };
                 let (mut response, mut request_meta) = match send_geminicli_request(
                     client,
-                    method.clone(),
-                    url.as_str(),
-                    resolved_access_token.access_token.as_str(),
-                    user_agent.as_deref(),
-                    model.as_deref(),
-                    extra_headers.as_slice(),
-                    body_bytes.as_deref(),
+                    GeminiCliRequestParams {
+                        method: method.clone(),
+                        url: url.as_str(),
+                        access_token: resolved_access_token.access_token.as_str(),
+                        custom_user_agent: user_agent.as_deref(),
+                        model_for_ua: model.as_deref(),
+                        extra_headers: extra_headers.as_slice(),
+                        body: body_bytes.as_deref(),
+                    },
                 )
                 .await
                 {
@@ -327,13 +339,15 @@ async fn execute_geminicli_with_prepared(
                     }
                     (response, request_meta) = match send_geminicli_request(
                         client,
-                        method,
-                        url.as_str(),
-                        refreshed_access_token.access_token.as_str(),
-                        user_agent.as_deref(),
-                        model.as_deref(),
-                        extra_headers.as_slice(),
-                        body_bytes.as_deref(),
+                        GeminiCliRequestParams {
+                            method,
+                            url: url.as_str(),
+                            access_token: refreshed_access_token.access_token.as_str(),
+                            custom_user_agent: user_agent.as_deref(),
+                            model_for_ua: model.as_deref(),
+                            extra_headers: extra_headers.as_slice(),
+                            body: body_bytes.as_deref(),
+                        },
                     )
                     .await
                     {
@@ -688,13 +702,15 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
                 };
                 let response = send_geminicli_request(
                     client,
-                    WreqMethod::POST,
-                    usage_url.as_str(),
-                    resolved_access_token.access_token.as_str(),
-                    user_agent.as_deref(),
-                    None,
-                    &[],
-                    Some(usage_body_bytes.as_slice()),
+                    GeminiCliRequestParams {
+                        method: WreqMethod::POST,
+                        url: usage_url.as_str(),
+                        access_token: resolved_access_token.access_token.as_str(),
+                        custom_user_agent: user_agent.as_deref(),
+                        model_for_ua: None,
+                        extra_headers: &[],
+                        body: Some(usage_body_bytes.as_slice()),
+                    },
                 )
                 .await;
                 let (response, request_meta) = match response {
@@ -804,37 +820,32 @@ fn geminicli_credential_update(
 
 async fn send_geminicli_request(
     client: &WreqClient,
-    method: WreqMethod,
-    url: &str,
-    access_token: &str,
-    custom_user_agent: Option<&str>,
-    model_for_ua: Option<&str>,
-    extra_headers: &[(String, String)],
-    body: Option<&[u8]>,
+    params: GeminiCliRequestParams<'_>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
-    let user_agent = custom_user_agent
+    let user_agent = params
+        .custom_user_agent
         .map(str::trim)
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| geminicli_user_agent(model_for_ua));
+        .unwrap_or_else(|| geminicli_user_agent(params.model_for_ua));
     let mut headers = Vec::new();
-    merge_extra_headers(&mut headers, extra_headers);
+    merge_extra_headers(&mut headers, params.extra_headers);
     add_or_replace_header(&mut headers, "accept", "application/json");
     add_or_replace_header(
         &mut headers,
         "authorization",
-        format!("Bearer {access_token}"),
+        format!("Bearer {}", params.access_token),
     );
     add_or_replace_header(&mut headers, "user-agent", user_agent);
     add_or_replace_header(&mut headers, "accept-encoding", "gzip");
-    if body.is_some() {
+    if params.body.is_some() {
         add_or_replace_header(&mut headers, "content-type", "application/json");
     }
     crate::channels::upstream::tracked_send_request(
         client,
-        method,
-        url,
+        params.method,
+        params.url,
         headers,
-        body.map(|value| value.to_vec()),
+        params.body.map(|value| value.to_vec()),
     )
     .await
 }

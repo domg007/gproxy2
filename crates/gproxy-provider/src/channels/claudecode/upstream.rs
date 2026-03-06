@@ -39,6 +39,16 @@ const CLAUDECODE_THINKING_MODEL_SUFFIX: &str = "-thinking";
 const CLAUDECODE_ADAPTIVE_THINKING_MODEL_SUFFIX: &str = "-adaptive-thinking";
 const CLAUDECODE_THINKING_BUDGET_TOKENS: u64 = 4_096;
 
+struct ClaudeCodeRequestParams<'a> {
+    method: WreqMethod,
+    url: &'a str,
+    access_token: &'a str,
+    user_agent: &'a str,
+    extra_headers: &'a [(String, String)],
+    request_headers: &'a [(String, String)],
+    body: Option<&'a [u8]>,
+}
+
 pub async fn execute_claudecode_with_retry(
     client: &WreqClient,
     spoof_client: &WreqClient,
@@ -246,13 +256,15 @@ async fn execute_claudecode_with_prepared(
 
                 let (mut response, mut request_meta) = match send_claudecode_request(
                     active_client,
-                    method.clone(),
-                    url.as_str(),
-                    active_access_token.as_str(),
-                    request_user_agent.as_str(),
-                    extra_headers.as_slice(),
-                    request_headers.as_slice(),
-                    body.as_ref(),
+                    ClaudeCodeRequestParams {
+                        method: method.clone(),
+                        url: url.as_str(),
+                        access_token: active_access_token.as_str(),
+                        user_agent: request_user_agent.as_str(),
+                        extra_headers: extra_headers.as_slice(),
+                        request_headers: request_headers.as_slice(),
+                        body: body.as_deref(),
+                    },
                 )
                 .await
                 {
@@ -327,13 +339,15 @@ async fn execute_claudecode_with_prepared(
                     active_access_token = refreshed_token;
                     let (retry_response, retry_meta) = match send_claudecode_request(
                         active_client,
-                        method.clone(),
-                        url.as_str(),
-                        active_access_token.as_str(),
-                        request_user_agent.as_str(),
-                        extra_headers.as_slice(),
-                        request_headers.as_slice(),
-                        body.as_ref(),
+                        ClaudeCodeRequestParams {
+                            method: method.clone(),
+                            url: url.as_str(),
+                            access_token: active_access_token.as_str(),
+                            user_agent: request_user_agent.as_str(),
+                            extra_headers: extra_headers.as_slice(),
+                            request_headers: request_headers.as_slice(),
+                            body: body.as_deref(),
+                        },
                     )
                     .await
                     {
@@ -383,13 +397,15 @@ async fn execute_claudecode_with_prepared(
                     strip_context_1m_beta(&mut retry_headers_without_context);
                     let (retry_response, retry_meta) = match send_claudecode_request(
                         active_client,
-                        method.clone(),
-                        url.as_str(),
-                        active_access_token.as_str(),
-                        request_user_agent.as_str(),
-                        extra_headers.as_slice(),
-                        retry_headers_without_context.as_slice(),
-                        body.as_ref(),
+                        ClaudeCodeRequestParams {
+                            method: method.clone(),
+                            url: url.as_str(),
+                            access_token: active_access_token.as_str(),
+                            user_agent: request_user_agent.as_str(),
+                            extra_headers: extra_headers.as_slice(),
+                            request_headers: retry_headers_without_context.as_slice(),
+                            body: body.as_deref(),
+                        },
                     )
                     .await
                     {
@@ -891,16 +907,11 @@ pub async fn execute_claudecode_upstream_usage_with_retry(
 
 async fn send_claudecode_request(
     client: &WreqClient,
-    method: WreqMethod,
-    url: &str,
-    access_token: &str,
-    user_agent: &str,
-    extra_headers: &[(String, String)],
-    request_headers: &[(String, String)],
-    body: Option<&Vec<u8>>,
+    params: ClaudeCodeRequestParams<'_>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let beta_values = normalized_claudecode_beta_values(
-        request_headers
+        params
+            .request_headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
             .map(|(_, value)| parse_anthropic_beta_values(value))
@@ -909,30 +920,34 @@ async fn send_claudecode_request(
     );
 
     let mut sent_headers = Vec::new();
-    merge_extra_headers(&mut sent_headers, extra_headers);
+    merge_extra_headers(&mut sent_headers, params.extra_headers);
     add_or_replace_header(
         &mut sent_headers,
         "authorization",
-        format!("Bearer {}", access_token),
+        format!("Bearer {}", params.access_token),
     );
-    add_or_replace_header(&mut sent_headers, "user-agent", user_agent.to_string());
+    add_or_replace_header(
+        &mut sent_headers,
+        "user-agent",
+        params.user_agent.to_string(),
+    );
     add_or_replace_header(&mut sent_headers, "anthropic-beta", beta_values.join(","));
-    for (name, value) in request_headers {
+    for (name, value) in params.request_headers {
         if name.eq_ignore_ascii_case("anthropic-beta") {
             continue;
         }
         add_or_replace_header(&mut sent_headers, name, value.clone());
     }
-    if body.is_some() {
+    if params.body.is_some() {
         add_or_replace_header(&mut sent_headers, "content-type", "application/json");
     }
 
     crate::channels::upstream::tracked_send_request(
         client,
-        method,
-        url,
+        params.method,
+        params.url,
         sent_headers,
-        body.cloned(),
+        params.body.map(|value| value.to_vec()),
     )
     .await
 }

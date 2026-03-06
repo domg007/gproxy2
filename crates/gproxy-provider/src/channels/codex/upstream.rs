@@ -54,6 +54,16 @@ struct CodexPreparedRequest {
     extra_headers: Vec<(String, String)>,
 }
 
+struct CodexRequestParams<'a> {
+    method: WreqMethod,
+    url: &'a str,
+    access_token: &'a str,
+    account_id: &'a str,
+    user_agent: &'a str,
+    extra_headers: &'a [(String, String)],
+    body: Option<&'a [u8]>,
+}
+
 pub async fn execute_codex_with_retry(
     client: &WreqClient,
     provider: &ProviderDefinition,
@@ -257,13 +267,15 @@ async fn execute_codex_with_prepared(
                 };
                 let (mut response, mut request_meta) = match send_codex_request(
                     client,
-                    method.clone(),
-                    url.as_str(),
-                    access_token.as_str(),
-                    attempt.material.account_id.as_str(),
-                    user_agent.as_str(),
-                    extra_headers.as_slice(),
-                    body.as_ref(),
+                    CodexRequestParams {
+                        method: method.clone(),
+                        url: url.as_str(),
+                        access_token: access_token.as_str(),
+                        account_id: attempt.material.account_id.as_str(),
+                        user_agent: user_agent.as_str(),
+                        extra_headers: extra_headers.as_slice(),
+                        body: body.as_deref(),
+                    },
                 )
                 .await
                 {
@@ -333,13 +345,15 @@ async fn execute_codex_with_prepared(
                     };
                     (response, request_meta) = match send_codex_request(
                         client,
-                        method,
-                        url.as_str(),
-                        refreshed_token.as_str(),
-                        attempt.material.account_id.as_str(),
-                        user_agent.as_str(),
-                        extra_headers.as_slice(),
-                        body.as_ref(),
+                        CodexRequestParams {
+                            method,
+                            url: url.as_str(),
+                            access_token: refreshed_token.as_str(),
+                            account_id: attempt.material.account_id.as_str(),
+                            user_agent: user_agent.as_str(),
+                            extra_headers: extra_headers.as_slice(),
+                            body: body.as_deref(),
+                        },
                     )
                     .await
                     {
@@ -790,29 +804,37 @@ pub async fn execute_codex_upstream_usage_with_retry(
 
 async fn send_codex_request(
     client: &WreqClient,
-    method: WreqMethod,
-    url: &str,
-    access_token: &str,
-    account_id: &str,
-    user_agent: &str,
-    extra_headers: &[(String, String)],
-    body: Option<&Vec<u8>>,
+    params: CodexRequestParams<'_>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let mut headers = Vec::new();
-    merge_extra_headers(&mut headers, extra_headers);
+    merge_extra_headers(&mut headers, params.extra_headers);
     add_or_replace_header(
         &mut headers,
         "authorization",
-        format!("Bearer {access_token}"),
+        format!("Bearer {}", params.access_token),
     );
-    add_or_replace_header(&mut headers, ACCOUNT_ID_HEADER, account_id.to_string());
+    add_or_replace_header(
+        &mut headers,
+        ACCOUNT_ID_HEADER,
+        params.account_id.to_string(),
+    );
     add_or_replace_header(&mut headers, ORIGINATOR_HEADER, ORIGINATOR_VALUE);
-    add_or_replace_header(&mut headers, USER_AGENT_HEADER, user_agent.to_string());
-    if body.is_some() {
+    add_or_replace_header(
+        &mut headers,
+        USER_AGENT_HEADER,
+        params.user_agent.to_string(),
+    );
+    if params.body.is_some() {
         add_or_replace_header(&mut headers, "content-type", "application/json");
     }
-    crate::channels::upstream::tracked_send_request(client, method, url, headers, body.cloned())
-        .await
+    crate::channels::upstream::tracked_send_request(
+        client,
+        params.method,
+        params.url,
+        headers,
+        params.body.map(|value| value.to_vec()),
+    )
+    .await
 }
 
 async fn send_codex_usage_request(
