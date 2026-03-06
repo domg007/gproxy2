@@ -66,3 +66,22 @@ docker run --rm -p 8787:8787 \
 - `GPROXY_DSN`（外部数据库或自定义 sqlite 路径）
 - `GPROXY_PROXY`（上游代理）
 - `RUST_LOG`（日志级别）
+
+### Release 下载与自更新（Cloudflare Pages）
+
+- 发布工作流还会部署一个独立的 Cloudflare Pages 下载站，用于托管二进制和更新清单。
+- 默认公开地址：`https://download-gproxy.leenhawk.com`
+- 会生成以下清单：
+  - `/manifest.json` —— 文档下载页使用的全量文件索引
+  - `/releases/manifest.json` —— 正式版自更新通道
+  - `/staging/manifest.json` —— 预览版自更新通道
+- 管理后台中的 `Cloudflare 源` 会从该站点读取更新。
+- 下载站部署所需仓库 secrets：
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_DOWNLOADS_PROJECT_NAME`
+- 可选仓库 secrets：
+  - `DOWNLOAD_PUBLIC_BASE_URL`
+  - `UPDATE_SIGNING_KEY_ID`
+  - `UPDATE_SIGNING_PRIVATE_KEY_B64`
+  - `UPDATE_SIGNING_PUBLIC_KEY_B64`

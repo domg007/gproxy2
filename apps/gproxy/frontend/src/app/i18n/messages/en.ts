@@ -75,7 +75,7 @@ export const enMessages = {
     "global.selfUpdateRunning": "Updating...",
     "global.selfUpdateOk": "Binary updated to {tag}. Process restart has been scheduled automatically.",
     "global.updateSource.github": "Github",
-    "global.updateSource.cnb": "CNB",
+    "global.updateSource.cloudflare": "Cloudflare",
     "global.updateChannel.releases": "Releases",
     "global.updateChannel.staging": "Staging",
     "global.maskSensitive": "mask_sensitive_info",

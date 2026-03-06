@@ -142,6 +142,24 @@ docker run --rm -p 8787:8787 \
 - Required env: `GPROXY_ADMIN_KEY`
 - Recommended persistence: mount `/app/data` as a persistent volume.
 
+#### Release downloads and self-update (Cloudflare Pages)
+
+- Release CI publishes signed binaries and update manifests to a dedicated Cloudflare Pages downloads project.
+- Default public base URL: `https://download-gproxy.leenhawk.com`
+- Generated manifests:
+  - `/manifest.json` — full download index used by the docs downloads page
+  - `/releases/manifest.json` — stable self-update feed
+  - `/staging/manifest.json` — staging self-update feed
+- The admin UI `Cloudflare` update source and `/admin/system/self_update` read from this downloads site.
+- Required GitHub Actions secrets for the downloads deployment:
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_DOWNLOADS_PROJECT_NAME`
+- Optional secrets:
+  - `DOWNLOAD_PUBLIC_BASE_URL` — custom public domain or Pages URL exposed in docs/manifests
+  - `UPDATE_SIGNING_KEY_ID` — manifest key id override (default `gproxy-release-v1`)
+  - `UPDATE_SIGNING_PRIVATE_KEY_B64` and `UPDATE_SIGNING_PUBLIC_KEY_B64` — checksum signature generation and verification
+
 ## Admin Frontend
 
 - Console entry: `GET /`

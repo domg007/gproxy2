@@ -6,13 +6,13 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 
 use crate::AppState;
-use crate::app_state::{UPDATE_SOURCE_CNB, UPDATE_SOURCE_GITHUB};
+use crate::app_state::{UPDATE_SOURCE_CLOUDFLARE, UPDATE_SOURCE_GITHUB};
 use crate::normalize_update_source;
 
 use super::{HttpError, authorize_admin};
 
 mod channel;
-mod cnb;
+mod cloudflare;
 mod github;
 mod runtime;
 #[cfg(test)]
@@ -21,7 +21,7 @@ mod types;
 mod verify;
 
 use channel::{is_semver_update_available, normalize_update_channel};
-use cnb::{fetch_cnb_release_asset, fetch_cnb_release_tag};
+use cloudflare::{fetch_cloudflare_release_asset, fetch_cloudflare_release_tag};
 use github::{fetch_github_release_asset, fetch_github_release_tag};
 use runtime::{
     build_self_update_client, download_bytes_with_redirects, extract_binary_from_zip,
@@ -171,7 +171,7 @@ async fn fetch_latest_release_tag(
 ) -> Result<String, String> {
     let client = build_self_update_client(proxy)?;
     match update_source {
-        UPDATE_SOURCE_CNB => fetch_cnb_release_tag(&client, update_channel).await,
+        UPDATE_SOURCE_CLOUDFLARE => fetch_cloudflare_release_tag(&client, update_channel).await,
         _ => fetch_github_release_tag(&client, update_channel).await,
     }
 }
@@ -183,7 +183,9 @@ async fn fetch_release_asset(
     update_channel: &str,
 ) -> Result<(String, ResolvedReleaseAsset), String> {
     match update_source {
-        UPDATE_SOURCE_CNB => fetch_cnb_release_asset(client, target_asset, update_channel).await,
+        UPDATE_SOURCE_CLOUDFLARE => {
+            fetch_cloudflare_release_asset(client, target_asset, update_channel).await
+        }
         UPDATE_SOURCE_GITHUB => {
             fetch_github_release_asset(client, target_asset, update_channel).await
         }

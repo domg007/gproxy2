@@ -66,3 +66,22 @@ Optional:
 - `GPROXY_DSN` (external database or custom sqlite path)
 - `GPROXY_PROXY` (upstream egress proxy)
 - `RUST_LOG` (log level)
+
+### Release downloads and self-update (Cloudflare Pages)
+
+- The release workflow also deploys a dedicated Cloudflare Pages downloads site for binaries and update manifests.
+- Default public base URL: `https://download-gproxy.leenhawk.com`
+- Generated manifests:
+  - `/manifest.json` — full file index for the docs downloads page
+  - `/releases/manifest.json` — stable self-update channel
+  - `/staging/manifest.json` — staging self-update channel
+- The admin UI `Cloudflare` update source reads from this site.
+- Required repository secrets for the downloads deployment:
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_DOWNLOADS_PROJECT_NAME`
+- Optional repository secrets:
+  - `DOWNLOAD_PUBLIC_BASE_URL`
+  - `UPDATE_SIGNING_KEY_ID`
+  - `UPDATE_SIGNING_PRIVATE_KEY_B64`
+  - `UPDATE_SIGNING_PUBLIC_KEY_B64`

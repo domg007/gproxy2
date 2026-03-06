@@ -448,62 +448,52 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
 
-  sync-cnb:
-    name: Sync CNB
+  deploy-downloads-cloudflare:
+    name: Deploy Downloads (Cloudflare Pages)
     if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     needs: publish-release-assets
     runs-on: ubuntu-latest
     environment:
-      name: cnb
+      name: cloudflare
     env:
-      CNB_REPO_SLUG: ${{ secrets.CNB_REPO_SLUG }}
-      CNB_API_TOKEN: ${{ secrets.CNB_TOKEN }}
-      CNB_USERNAME: ${{ secrets.CNB_USERNAME }}
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CNB_RELEASE_ASSET_TTL: ${{ secrets.CNB_RELEASE_ASSET_TTL }}
       UPDATE_SIGNING_KEY_ID: ${{ secrets.UPDATE_SIGNING_KEY_ID != '' && secrets.UPDATE_SIGNING_KEY_ID || 'gproxy-release-v1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate Cloudflare downloads settings
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" || {
+            echo "missing repo secret: CLOUDFLARE_API_TOKEN" >&2
+            exit 1
+          }
+          test -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" || {
+            echo "missing repo secret: CLOUDFLARE_ACCOUNT_ID" >&2
+            exit 1
+          }
+          test -n "${{ secrets.CLOUDFLARE_DOWNLOADS_PROJECT_NAME }}" || {
+            echo "missing repo secret: CLOUDFLARE_DOWNLOADS_PROJECT_NAME" >&2
+            exit 1
+          }
+
+      - name: Build downloads site for Cloudflare Pages
+        env:
+          DOWNLOAD_PUBLIC_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}
+        run: |
+          python3 scripts/build_cloudflare_downloads_site.py
+
+      - name: Deploy downloads to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Sync Git Repository To CNB
-        uses: docker://tencentcom/git-sync
-        env:
-          PLUGIN_TARGET_URL: ${{ secrets.CNB_REPO_URL }}
-          PLUGIN_AUTH_TYPE: "https"
-          PLUGIN_USERNAME: ${{ secrets.CNB_USERNAME }}
-          PLUGIN_PASSWORD: ${{ secrets.CNB_TOKEN }}
-          PLUGIN_FORCE: "true"
-          PLUGIN_PUSH_TAGS: "true"
-
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends jq
-
-      - name: Sync staging release assets and manifests to CNB
-        if: ${{ github.event_name == 'push' }}
-        env:
-          RELEASE_TAG: "staging"
-          SYNC_CHANNEL: "staging"
-          CNB_PRERELEASE: "true"
-          CNB_MAKE_LATEST: "false"
-        run: |
-          bash scripts/sync_github_releases_to_cnb.sh
-
-      - name: Sync published release assets and manifests to CNB
-        if: ${{ github.event_name == 'release' }}
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          SYNC_CHANNEL: "releases"
-          CNB_PRERELEASE: "false"
-          CNB_MAKE_LATEST: "legacy"
-        run: |
-          bash scripts/sync_github_releases_to_cnb.sh
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ./dist/downloads-site --project-name=${{ secrets.CLOUDFLARE_DOWNLOADS_PROJECT_NAME }}
 
   deploy-docs-cloudflare:
     name: Build and Deploy Docs (Cloudflare Pages)
@@ -531,7 +521,7 @@ jobs:
 
       - name: Build docs
         env:
-          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://cnb.cool/ai-rp/gproxy' }}
+          PUBLIC_DOWNLOADS_BASE_URL: ${{ secrets.DOWNLOAD_PUBLIC_BASE_URL != '' && secrets.DOWNLOAD_PUBLIC_BASE_URL || 'https://download-gproxy.leenhawk.com' }}
         run: |
           cd docs
           pnpm install --frozen-lockfile

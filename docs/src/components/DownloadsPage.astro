@@ -13,7 +13,7 @@ const i18n =
         backToDocs: "返回文档",
         switchLanguage: "English",
         pageTitle: "GPROXY 下载",
-        pageDescription: "单页展示下载桶内全部二进制文件结构（latest / staging / releases）。",
+        pageDescription: "单页展示 Cloudflare Downloads 内全部二进制文件结构（latest / staging / releases）。",
         loadingManifest: "正在加载 manifest.json ...",
         searchLabel: "搜索",
         searchPlaceholder: "gproxy-linux-x86_64.zip",
@@ -47,7 +47,7 @@ const i18n =
         backToDocs: "Back to docs",
         switchLanguage: "简体中文",
         pageTitle: "GPROXY Downloads",
-        pageDescription: "Single-page file tree from bucket manifest (latest / staging / releases).",
+        pageDescription: "Single-page file tree from Cloudflare Downloads manifests (latest / staging / releases).",
         loadingManifest: "Loading manifest.json ...",
         searchLabel: "Search",
         searchPlaceholder: "gproxy-linux-x86_64.zip",
@@ -80,7 +80,7 @@ const i18n =
 
 const pageTitle = i18n.pageTitle;
 const pageDescription = i18n.pageDescription;
-const downloadsBaseUrl = (import.meta.env.PUBLIC_DOWNLOADS_BASE_URL || "https://cnb.cool/ai-rp/gproxy")
+const downloadsBaseUrl = (import.meta.env.PUBLIC_DOWNLOADS_BASE_URL || "https://download-gproxy.leenhawk.com")
   .trim()
   .replace(/\/+$/, "");
 const docsHomeHref = locale === "zh" ? "/zh/" : "/";

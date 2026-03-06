@@ -140,6 +140,24 @@ docker run --rm -p 8787:8787 \
 - 必填环境变量：`GPROXY_ADMIN_KEY`
 - 建议将 `/app/data` 挂载为持久化卷。
 
+#### Release 下载与自更新（Cloudflare Pages）
+
+- 发布流程会把签名后的二进制和更新清单发布到独立的 Cloudflare Pages 下载站。
+- 默认公开地址：`https://download-gproxy.leenhawk.com`
+- 会生成以下清单：
+  - `/manifest.json` —— 文档下载页使用的全量索引
+  - `/releases/manifest.json` —— 正式版自更新源
+  - `/staging/manifest.json` —— 预览版自更新源
+- 管理后台里的 `Cloudflare 源` 和 `/admin/system/self_update` 都读取这个下载站。
+- 下载站部署所需 GitHub Actions secrets：
+  - `CLOUDFLARE_API_TOKEN`
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_DOWNLOADS_PROJECT_NAME`
+- 可选 secrets：
+  - `DOWNLOAD_PUBLIC_BASE_URL` —— 文档和 manifest 中对外暴露的自定义域名或 Pages 地址
+  - `UPDATE_SIGNING_KEY_ID` —— manifest 中的签名 key id 覆盖值（默认 `gproxy-release-v1`）
+  - `UPDATE_SIGNING_PRIVATE_KEY_B64` 与 `UPDATE_SIGNING_PUBLIC_KEY_B64` —— 用于 checksum 签名生成与校验
+
 ## 前端控制台
 
 - 控制台入口：`GET /`

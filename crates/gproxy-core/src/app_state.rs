@@ -27,7 +27,7 @@ pub const DEFAULT_MASK_SENSITIVE_INFO: bool = true;
 pub const DEFAULT_HF_URL: &str = "https://huggingface.co";
 pub const DEFAULT_UPDATE_SOURCE: &str = "github";
 pub const UPDATE_SOURCE_GITHUB: &str = "github";
-pub const UPDATE_SOURCE_CNB: &str = "cnb";
+pub const UPDATE_SOURCE_CLOUDFLARE: &str = "cloudflare";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GlobalSettings {
@@ -69,7 +69,7 @@ pub fn normalize_update_source(value: Option<&str>) -> String {
         .map(|item| item.trim().to_ascii_lowercase())
         .unwrap_or_else(|| DEFAULT_UPDATE_SOURCE.to_string());
     match normalized.as_str() {
-        "cnb" => UPDATE_SOURCE_CNB.to_string(),
+        "cloudflare" | "cnb" | "web-hosted" | "s3" => UPDATE_SOURCE_CLOUDFLARE.to_string(),
         "github" => UPDATE_SOURCE_GITHUB.to_string(),
         _ => UPDATE_SOURCE_GITHUB.to_string(),
     }
@@ -486,7 +486,8 @@ mod tests {
     };
 
     use super::{
-        GlobalSettings, RuntimeConfigSnapshot, pick_random_eligible_credential_from_snapshot,
+        GlobalSettings, RuntimeConfigSnapshot, UPDATE_SOURCE_CLOUDFLARE, UPDATE_SOURCE_GITHUB,
+        normalize_update_source, pick_random_eligible_credential_from_snapshot,
     };
 
     #[test]
@@ -528,5 +529,28 @@ mod tests {
         let picked =
             pick_random_eligible_credential_from_snapshot(&snapshot, &states, &channel, None, 0);
         assert_eq!(picked.map(|item| item.id), Some(1));
+    }
+
+    #[test]
+    fn normalize_update_source_maps_legacy_mirrors_to_cloudflare() {
+        for value in ["cloudflare", "cnb", "web-hosted", "s3"] {
+            assert_eq!(
+                normalize_update_source(Some(value)),
+                UPDATE_SOURCE_CLOUDFLARE
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_update_source_defaults_to_github() {
+        assert_eq!(
+            normalize_update_source(Some("github")),
+            UPDATE_SOURCE_GITHUB
+        );
+        assert_eq!(
+            normalize_update_source(Some("unknown")),
+            UPDATE_SOURCE_GITHUB
+        );
+        assert_eq!(normalize_update_source(None), UPDATE_SOURCE_GITHUB);
     }
 }
