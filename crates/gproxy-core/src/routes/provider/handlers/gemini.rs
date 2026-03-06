@@ -37,9 +37,7 @@ fn build_gemini_payload(
         "path": {
             "model": model,
         },
-        "headers": {
-            "extra": collect_passthrough_headers(headers),
-        },
+        "headers": collect_passthrough_headers(headers),
         "body": body,
     });
     if let Some(alt) = alt
@@ -305,4 +303,44 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
         StatusCode::NOT_FOUND,
         format!("unsupported gemini endpoint target: {target}"),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_gemini_payload;
+    use axum::http::{HeaderMap, HeaderValue};
+    use serde_json::json;
+
+    #[test]
+    fn build_gemini_payload_flattens_passthrough_headers_for_typed_decode() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-test", HeaderValue::from_static("value"));
+
+        let payload = build_gemini_payload(
+            "models/gemini-2.5-flash".to_string(),
+            json!({
+                "contents": [
+                    {
+                        "parts": [{"text": "hello"}],
+                        "role": "user"
+                    }
+                ]
+            }),
+            None,
+            &headers,
+            "invalid gemini generateContent request body",
+        )
+        .expect("payload");
+
+        let decoded: serde_json::Value =
+            serde_json::from_slice(payload.as_ref()).expect("payload should be json");
+
+        assert_eq!(
+            decoded
+                .pointer("/headers/x-test")
+                .and_then(serde_json::Value::as_str),
+            Some("value")
+        );
+        assert!(decoded.pointer("/headers/extra").is_none());
+    }
 }

@@ -1365,9 +1365,7 @@ fn build_openai_payload(
             "method": "POST",
             "path": {},
             "query": {},
-            "headers": {
-                "extra": collect_passthrough_headers(headers),
-            },
+            "headers": collect_passthrough_headers(headers),
             "body": body,
         }),
         context,
@@ -1828,17 +1826,19 @@ pub(in crate::routes::provider) async fn v1_model_get_unscoped(
 #[cfg(test)]
 mod tests {
     use super::{
-        join_base_url_and_path_local, openai_ws_headers_from_upgrade_headers,
+        build_openai_payload, join_base_url_and_path_local, openai_ws_headers_from_upgrade_headers,
         prepare_upstream_websocket_request,
     };
     use axum::http::{HeaderMap, HeaderValue};
     use gproxy_middleware::TransformRequest;
     use gproxy_protocol::gemini::live::request::GeminiLiveConnectRequest;
+    use gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest;
     use gproxy_provider::{
         BuiltinChannel, BuiltinChannelCredential, BuiltinChannelSettings, ChannelCredential,
         ChannelId, ChannelSettings, CredentialPickMode, CredentialRef, ProviderCredentialState,
         ProviderDefinition, ProviderDispatchTable,
     };
+    use serde_json::json;
 
     fn build_aistudio_provider(base_url: &str, api_key: &str) -> ProviderDefinition {
         let channel = ChannelId::Builtin(BuiltinChannel::AiStudio);
@@ -1956,5 +1956,29 @@ mod tests {
         assert!(!parsed.extra.contains_key("connection"));
         assert!(!parsed.extra.contains_key("upgrade"));
         assert!(!parsed.extra.contains_key("sec-websocket-key"));
+    }
+
+    #[test]
+    fn build_openai_payload_flattens_passthrough_headers_for_typed_decode() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-test", HeaderValue::from_static("value"));
+
+        let payload = build_openai_payload(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "input": "hello"
+            }),
+            &headers,
+            "invalid openai responses request body",
+        )
+        .expect("payload");
+
+        let decoded: OpenAiCreateResponseRequest =
+            serde_json::from_slice(payload.as_ref()).expect("request should decode");
+
+        assert_eq!(
+            decoded.headers.extra.get("x-test").map(String::as_str),
+            Some("value")
+        );
     }
 }

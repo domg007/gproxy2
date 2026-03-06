@@ -5,7 +5,8 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use gproxy_middleware::{OperationFamily, ProtocolKind, TransformRequestPayload};
-use serde_json::{Value, json};
+use gproxy_protocol::claude::types::{AnthropicBeta, AnthropicVersion};
+use serde_json::{Map, Value, json};
 
 use crate::AppState;
 
@@ -55,17 +56,23 @@ fn encode_json_value(value: &Value, context: &str) -> Result<Bytes, HttpError> {
 
 fn build_claude_payload(
     body: Value,
-    headers: Value,
+    anthropic_version: AnthropicVersion,
+    anthropic_beta: Option<Vec<AnthropicBeta>>,
     passthrough_headers: &HeaderMap,
     context: &str,
 ) -> Result<Bytes, HttpError> {
+    let mut header_map = Map::new();
+    header_map.insert("anthropic-version".to_string(), json!(anthropic_version));
+    if let Some(anthropic_beta) = anthropic_beta {
+        header_map.insert("anthropic-beta".to_string(), json!(anthropic_beta));
+    }
+    for (name, value) in collect_passthrough_headers(passthrough_headers) {
+        header_map.insert(name, Value::String(value));
+    }
+
     encode_json_value(
         &json!({
-            "headers": {
-                "anthropic_version": headers.get("anthropic_version").cloned().unwrap_or(Value::Null),
-                "anthropic_beta": headers.get("anthropic_beta").cloned().unwrap_or(Value::Null),
-                "extra": collect_passthrough_headers(passthrough_headers),
-            },
+            "headers": header_map,
             "body": body,
         }),
         context,
@@ -89,10 +96,8 @@ pub(in crate::routes::provider) async fn claude_messages(
     let (version, beta) = anthropic_headers_from_request(&headers);
     let payload_body = build_claude_payload(
         body,
-        json!({
-            "anthropic_version": version,
-            "anthropic_beta": beta,
-        }),
+        version,
+        beta,
         &headers,
         "invalid claude messages request body",
     )?;
@@ -131,10 +136,8 @@ pub(in crate::routes::provider) async fn claude_messages_unscoped(
     let (version, beta) = anthropic_headers_from_request(&headers);
     let payload_body = build_claude_payload(
         body,
-        json!({
-            "anthropic_version": version,
-            "anthropic_beta": beta,
-        }),
+        version,
+        beta,
         &headers,
         "invalid claude messages request body",
     )?;
@@ -158,10 +161,8 @@ pub(in crate::routes::provider) async fn claude_count_tokens(
     let (version, beta) = anthropic_headers_from_request(&headers);
     let payload_body = build_claude_payload(
         body,
-        json!({
-            "anthropic_version": version,
-            "anthropic_beta": beta,
-        }),
+        version,
+        beta,
         &headers,
         "invalid claude count_tokens request body",
     )?;
@@ -198,10 +199,8 @@ pub(in crate::routes::provider) async fn claude_count_tokens_unscoped(
     let (version, beta) = anthropic_headers_from_request(&headers);
     let payload_body = build_claude_payload(
         body,
-        json!({
-            "anthropic_version": version,
-            "anthropic_beta": beta,
-        }),
+        version,
+        beta,
         &headers,
         "invalid claude count_tokens request body",
     )?;
@@ -214,4 +213,63 @@ pub(in crate::routes::provider) async fn claude_count_tokens_unscoped(
     execute_transform_request_payload(state, channel, provider, auth, payload)
         .await
         .map_err(HttpError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_claude_payload;
+    use axum::http::{HeaderMap, HeaderValue};
+    use gproxy_protocol::claude::types::{AnthropicBeta, AnthropicVersion};
+    use serde_json::json;
+
+    #[test]
+    fn build_claude_payload_flattens_headers_for_typed_decode() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-test", HeaderValue::from_static("value"));
+
+        let payload = build_claude_payload(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 16,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "hello"
+                    }
+                ]
+            }),
+            AnthropicVersion::V20230601,
+            Some(vec![AnthropicBeta::Custom(
+                "context-1m-2025-08-07".to_string(),
+            )]),
+            &headers,
+            "invalid claude messages request body",
+        )
+        .expect("payload");
+
+        let decoded: serde_json::Value =
+            serde_json::from_slice(payload.as_ref()).expect("payload should be json");
+
+        assert_eq!(
+            decoded
+                .pointer("/headers/anthropic-version")
+                .and_then(serde_json::Value::as_str),
+            Some("2023-06-01")
+        );
+        assert_eq!(
+            decoded
+                .pointer("/headers/anthropic-beta/0")
+                .and_then(serde_json::Value::as_str),
+            Some("context-1m-2025-08-07")
+        );
+        assert_eq!(
+            decoded
+                .pointer("/headers/x-test")
+                .and_then(serde_json::Value::as_str),
+            Some("value")
+        );
+        assert!(decoded.pointer("/headers/extra").is_none());
+        assert!(decoded.pointer("/headers/anthropic_version").is_none());
+        assert!(decoded.pointer("/headers/anthropic_beta").is_none());
+    }
 }
