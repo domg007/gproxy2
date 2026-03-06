@@ -251,8 +251,7 @@ async fn execute_antigravity_with_prepared(
 
                 let session_id = session_id_for_kind(
                     &kind,
-                    attempt.credential_id,
-                    attempt.material.project_id.as_str(),
+                    body.as_ref(),
                 );
                 let body_bytes = match build_request_body_bytes(
                     body.as_ref(),
@@ -1548,21 +1547,62 @@ fn make_request_id() -> String {
 
 fn session_id_for_kind(
     kind: &AntigravityRequestKind,
-    credential_id: i64,
-    project_id: &str,
+    body: Option<&Value>,
 ) -> Option<String> {
     match kind {
         AntigravityRequestKind::Forward {
             requires_project: true,
             ..
-        } => Some(stable_session_id(credential_id, project_id)),
+        } => explicit_antigravity_session_id(body).or_else(|| prompt_stable_session_id(body)),
         _ => None,
     }
 }
 
-fn stable_session_id(credential_id: i64, project_id: &str) -> String {
-    let normalized_project = project_id.trim();
-    let seed = format!("antigravity:{credential_id}:{normalized_project}");
+fn explicit_antigravity_session_id(body: Option<&Value>) -> Option<String> {
+    body?
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn prompt_stable_session_id(body: Option<&Value>) -> Option<String> {
+    let body = body?;
+    let mut marker = Map::new();
+
+    if let Some(system_instruction) = body.get("systemInstruction").filter(|value| !value.is_null())
+    {
+        marker.insert("systemInstruction".to_string(), system_instruction.clone());
+    }
+
+    if let Some(first_user_content) = first_user_content(body.get("contents")) {
+        marker.insert("content".to_string(), first_user_content);
+    }
+
+    let marker = (!marker.is_empty())
+        .then(|| serde_json::to_string(&Value::Object(marker)).ok())
+        .flatten()?;
+    Some(stable_session_id_from_seed(
+        format!("antigravity.prompt:{marker}").as_str(),
+    ))
+}
+
+fn first_user_content(contents: Option<&Value>) -> Option<Value> {
+    let contents = contents?.as_array()?;
+    contents
+        .iter()
+        .find(|content| {
+            matches!(
+                content.get("role").and_then(Value::as_str),
+                Some("user")
+            )
+        })
+        .cloned()
+        .or_else(|| contents.first().cloned())
+}
+
+fn stable_session_id_from_seed(seed: &str) -> String {
     let digest = Sha256::digest(seed.as_bytes());
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -1635,4 +1675,73 @@ fn normalize_wrapped_response_ndjson_chunk(chunk: &[u8]) -> Option<Vec<u8>> {
     }
 
     changed.then(|| out.into_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        AntigravityRequestKind, explicit_antigravity_session_id, prompt_stable_session_id,
+        session_id_for_kind,
+    };
+
+    #[test]
+    fn antigravity_session_id_prefers_explicit_request_value() {
+        let body = json!({
+            "sessionId": "sess-explicit",
+            "systemInstruction": {"parts":[{"text":"be concise"}]},
+            "contents": [{"role":"user","parts":[{"text":"hello"}]}]
+        });
+
+        assert_eq!(
+            explicit_antigravity_session_id(Some(&body)).as_deref(),
+            Some("sess-explicit")
+        );
+    }
+
+    #[test]
+    fn antigravity_prompt_session_uses_system_and_first_user_content_only() {
+        let body_a = json!({
+            "systemInstruction": {"parts":[{"text":"be concise"}]},
+            "contents": [
+                {"role":"user","parts":[{"text":"hello"}]},
+                {"role":"model","parts":[{"text":"draft one"}]},
+                {"role":"user","parts":[{"text":"follow up a"}]}
+            ],
+            "generationConfig": {"temperature": 0.2}
+        });
+        let body_b = json!({
+            "systemInstruction": {"parts":[{"text":"be concise"}]},
+            "contents": [
+                {"role":"user","parts":[{"text":"hello"}]},
+                {"role":"model","parts":[{"text":"draft two"}]},
+                {"role":"user","parts":[{"text":"follow up b"}]}
+            ],
+            "generationConfig": {"temperature": 0.9}
+        });
+        let body_c = json!({
+            "systemInstruction": {"parts":[{"text":"be concise"}]},
+            "contents": [
+                {"role":"user","parts":[{"text":"different opener"}]}
+            ]
+        });
+
+        let session_id_a = prompt_stable_session_id(Some(&body_a)).expect("session id a");
+        let session_id_b = prompt_stable_session_id(Some(&body_b)).expect("session id b");
+        let session_id_c = prompt_stable_session_id(Some(&body_c)).expect("session id c");
+
+        assert_eq!(session_id_a, session_id_b);
+        assert_ne!(session_id_a, session_id_c);
+    }
+
+    #[test]
+    fn antigravity_session_id_for_kind_returns_none_without_markers() {
+        let kind = AntigravityRequestKind::Forward {
+            requires_project: true,
+            request_type: None,
+        };
+
+        assert!(session_id_for_kind(&kind, None).is_none());
+    }
 }
