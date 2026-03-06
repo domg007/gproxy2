@@ -12,6 +12,7 @@ use crate::channels::retry::{
 use crate::channels::upstream::{
     UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
     extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+    payload_header_string, payload_header_string_array,
 };
 use crate::channels::utils::{
     anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
@@ -490,22 +491,11 @@ impl ClaudePreparedRequest {
             value: &Value,
         ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
             if let Some(body_value) = value.get("body").cloned() {
-                let version = value
-                    .pointer("/headers/anthropic_version")
-                    .and_then(Value::as_str)
-                    .unwrap_or(ANTHROPIC_DEFAULT_VERSION)
-                    .to_string();
-                let beta = value
-                    .pointer("/headers/anthropic_beta")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    })
-                    .filter(|items| !items.is_empty());
+                let version =
+                    payload_header_string(value, &["anthropic-version", "anthropic_version"])
+                        .unwrap_or_else(|| ANTHROPIC_DEFAULT_VERSION.to_string());
+                let beta =
+                    payload_header_string_array(value, &["anthropic-beta", "anthropic_beta"]);
                 return Ok((body_value, version, beta));
             }
             Ok((value.clone(), ANTHROPIC_DEFAULT_VERSION.to_string(), None))
@@ -641,5 +631,45 @@ mod tests {
             Some("claude-3-7-sonnet-latest")
         );
         assert!(body.get("headers").is_none());
+    }
+
+    #[test]
+    fn payload_wrapper_accepts_canonical_claude_headers_and_flat_extras() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "POST",
+            "path": {},
+            "query": {},
+            "headers": {
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": ["context-management-2025-06-27"],
+                "x-app": "cli",
+                "x-stainless-runtime": "node"
+            },
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = ClaudePreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            &[],
+        )
+        .expect("prepare payload");
+
+        assert!(
+            prepared
+                .extra_headers
+                .iter()
+                .any(|(name, value)| name == "x-app" && value == "cli")
+        );
+        assert!(prepared.request_headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("anthropic-beta")
+                && value.contains("context-management-2025-06-27")
+        }));
     }
 }

@@ -636,4 +636,39 @@ mod tests {
         );
         assert!(body.get("headers").is_none());
     }
+
+    #[test]
+    fn payload_wrapper_accepts_flat_headers() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "POST",
+            "path": {},
+            "query": {},
+            "headers": {
+                "x-codex-turn-metadata": "{\"turn_id\":\"abc\"}",
+                "session_id": "sess-123"
+            },
+            "body": {
+                "model": "gpt-4.1-mini",
+                "input": "hello"
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = OpenAiPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload.as_slice(),
+        )
+        .expect("prepare payload");
+
+        assert!(prepared.extra_headers.iter().any(
+            |(name, value)| name == "x-codex-turn-metadata" && value == "{\"turn_id\":\"abc\"}"
+        ));
+        assert!(
+            prepared
+                .extra_headers
+                .iter()
+                .any(|(name, value)| name == "session_id" && value == "sess-123")
+        );
+    }
 }

@@ -10,6 +10,7 @@ use crate::channels::retry::{
 use crate::channels::upstream::{
     UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
     extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+    payload_header_string, payload_header_string_array,
 };
 use crate::channels::utils::{
     anthropic_header_pairs, claude_model_to_string, count_openai_input_tokens_with_resolution,
@@ -521,22 +522,11 @@ impl DeepseekPreparedRequest {
             const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 
             if let Some(body_value) = value.get("body").cloned() {
-                let version = value
-                    .pointer("/headers/anthropic_version")
-                    .and_then(Value::as_str)
-                    .unwrap_or(DEFAULT_ANTHROPIC_VERSION)
-                    .to_string();
-                let beta = value
-                    .pointer("/headers/anthropic_beta")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    })
-                    .filter(|items| !items.is_empty());
+                let version =
+                    payload_header_string(value, &["anthropic-version", "anthropic_version"])
+                        .unwrap_or_else(|| DEFAULT_ANTHROPIC_VERSION.to_string());
+                let beta =
+                    payload_header_string_array(value, &["anthropic-beta", "anthropic_beta"]);
                 return Ok((body_value, version, beta));
             }
             Ok((value.clone(), DEFAULT_ANTHROPIC_VERSION.to_string(), None))

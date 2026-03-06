@@ -21,7 +21,7 @@ use crate::channels::retry::{
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
     add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
-    merge_extra_headers,
+    merge_extra_headers, payload_header_string, payload_header_string_array,
 };
 use crate::channels::utils::{
     anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
@@ -1194,22 +1194,11 @@ impl ClaudeCodePreparedRequest {
             const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 
             if let Some(body_value) = value.get("body").cloned() {
-                let version = value
-                    .pointer("/headers/anthropic_version")
-                    .and_then(Value::as_str)
-                    .unwrap_or(DEFAULT_ANTHROPIC_VERSION)
-                    .to_string();
-                let beta = value
-                    .pointer("/headers/anthropic_beta")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    })
-                    .filter(|items| !items.is_empty());
+                let version =
+                    payload_header_string(value, &["anthropic-version", "anthropic_version"])
+                        .unwrap_or_else(|| DEFAULT_ANTHROPIC_VERSION.to_string());
+                let beta =
+                    payload_header_string_array(value, &["anthropic-beta", "anthropic_beta"]);
                 return Ok((body_value, version, beta));
             }
             Ok((value.clone(), DEFAULT_ANTHROPIC_VERSION.to_string(), None))
@@ -1221,21 +1210,15 @@ impl ClaudeCodePreparedRequest {
 
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::Claude) => {
-                let version = payload_value
-                    .pointer("/headers/anthropic_version")
-                    .and_then(Value::as_str)
-                    .unwrap_or("2023-06-01")
-                    .to_string();
-                let beta = payload_value
-                    .pointer("/headers/anthropic_beta")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    });
+                let version = payload_header_string(
+                    &payload_value,
+                    &["anthropic-version", "anthropic_version"],
+                )
+                .unwrap_or_else(|| "2023-06-01".to_string());
+                let beta = payload_header_string_array(
+                    &payload_value,
+                    &["anthropic-beta", "anthropic_beta"],
+                );
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
                 ensure_oauth_beta(&mut request_headers, false);
                 let path =
@@ -1262,21 +1245,15 @@ impl ClaudeCodePreparedRequest {
                         "missing path.model_id in claudecode model_get payload".to_string(),
                     ));
                 };
-                let version = payload_value
-                    .pointer("/headers/anthropic_version")
-                    .and_then(Value::as_str)
-                    .unwrap_or("2023-06-01")
-                    .to_string();
-                let beta = payload_value
-                    .pointer("/headers/anthropic_beta")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    });
+                let version = payload_header_string(
+                    &payload_value,
+                    &["anthropic-version", "anthropic_version"],
+                )
+                .unwrap_or_else(|| "2023-06-01".to_string());
+                let beta = payload_header_string_array(
+                    &payload_value,
+                    &["anthropic-beta", "anthropic_beta"],
+                );
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
                 ensure_oauth_beta(&mut request_headers, false);
                 Ok(Self {

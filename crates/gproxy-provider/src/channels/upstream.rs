@@ -255,19 +255,50 @@ pub fn extra_headers_from_transform_request(request: &TransformRequest) -> Vec<(
 }
 
 pub fn extra_headers_from_payload_value(value: &Value) -> Vec<(String, String)> {
-    value
-        .pointer("/headers/extra")
-        .and_then(Value::as_object)
-        .map(|map| {
-            map.iter()
-                .filter_map(|(name, value)| {
-                    value
-                        .as_str()
-                        .map(|value| (name.clone(), value.to_string()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
+    let mut headers = Vec::new();
+    if let Some(map) = value.pointer("/headers/extra").and_then(Value::as_object) {
+        for (name, value) in map {
+            if let Some(value) = value.as_str() {
+                add_or_replace_header(&mut headers, name, value.to_string());
+            }
+        }
+    }
+    if let Some(map) = value.pointer("/headers").and_then(Value::as_object) {
+        for (name, value) in map {
+            if name == "extra" {
+                continue;
+            }
+            if let Some(value) = value.as_str() {
+                add_or_replace_header(&mut headers, name, value.to_string());
+            }
+        }
+    }
+    headers
+}
+
+pub fn payload_header_string(value: &Value, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| {
+        value
+            .pointer(format!("/headers/{name}").as_str())
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+pub fn payload_header_string_array(value: &Value, names: &[&str]) -> Option<Vec<String>> {
+    names.iter().find_map(|name| {
+        value
+            .pointer(format!("/headers/{name}").as_str())
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|items| !items.is_empty())
+    })
 }
 
 pub fn payload_body_value(value: &Value) -> Value {
@@ -541,6 +572,81 @@ impl UpstreamError {
             Self::UnsupportedRequest => 501,
             Self::InvalidBaseUrl | Self::SerializeRequest(_) => 500,
             Self::UpstreamRequest(_) => 502,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        extra_headers_from_payload_value, payload_header_string, payload_header_string_array,
+    };
+
+    #[test]
+    fn extra_headers_support_flat_and_legacy_shapes() {
+        let legacy = json!({
+            "headers": {
+                "extra": {
+                    "x-one": "1"
+                }
+            }
+        });
+        let flat = json!({
+            "headers": {
+                "x-one": "1",
+                "openai-beta": "assistants=v2"
+            }
+        });
+
+        let legacy_headers = extra_headers_from_payload_value(&legacy);
+        let flat_headers = extra_headers_from_payload_value(&flat);
+
+        assert!(
+            legacy_headers
+                .iter()
+                .any(|(name, value)| name == "x-one" && value == "1")
+        );
+        assert!(
+            flat_headers
+                .iter()
+                .any(|(name, value)| name == "x-one" && value == "1")
+        );
+        assert!(
+            flat_headers
+                .iter()
+                .any(|(name, value)| name == "openai-beta" && value == "assistants=v2")
+        );
+    }
+
+    #[test]
+    fn payload_header_helpers_support_legacy_and_canonical_names() {
+        let legacy = json!({
+            "headers": {
+                "anthropic_version": "2023-06-01",
+                "anthropic_beta": ["context-1m-2025-08-07"]
+            }
+        });
+        let canonical = json!({
+            "headers": {
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": ["context-1m-2025-08-07"]
+            }
+        });
+
+        for payload in [&legacy, &canonical] {
+            assert_eq!(
+                payload_header_string(payload, &["anthropic-version", "anthropic_version"])
+                    .as_deref(),
+                Some("2023-06-01")
+            );
+            assert_eq!(
+                payload_header_string_array(payload, &["anthropic-beta", "anthropic_beta"])
+                    .and_then(|items| items.first().cloned())
+                    .as_deref(),
+                Some("context-1m-2025-08-07")
+            );
         }
     }
 }
