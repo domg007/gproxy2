@@ -37,24 +37,63 @@ enum ClaudeBlockState {
     FunctionToolCall {
         item_id: String,
         name: String,
-        arguments: String,
+        arguments: ToolCallPayload,
     },
     CustomToolCall {
         item_id: String,
         name: String,
-        input: String,
+        input: ToolCallPayload,
     },
     McpCall {
         item_id: String,
         name: String,
         server_label: String,
-        arguments: String,
+        arguments: ToolCallPayload,
     },
     Compaction {
         item_id: String,
         encrypted_content: String,
     },
     Ignore,
+}
+
+#[derive(Debug, Clone)]
+struct ToolCallPayload {
+    initial: String,
+    streamed: String,
+}
+
+impl ToolCallPayload {
+    fn new(initial: String) -> Self {
+        Self {
+            initial,
+            streamed: String::new(),
+        }
+    }
+
+    fn in_progress(&self) -> &str {
+        if !self.streamed.is_empty() {
+            &self.streamed
+        } else if self.initial == "{}" {
+            ""
+        } else {
+            &self.initial
+        }
+    }
+
+    fn final_value(&self) -> &str {
+        if self.streamed.is_empty() {
+            &self.initial
+        } else {
+            &self.streamed
+        }
+    }
+
+    fn push_delta(&mut self, delta: &str) {
+        if !delta.is_empty() {
+            self.streamed.push_str(delta);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -331,8 +370,9 @@ impl ClaudeToOpenAiResponseStream {
             BetaContentBlock::ToolUse(block) => {
                 let item_id = block.id;
                 let name = block.name;
-                let arguments =
-                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string());
+                let arguments = ToolCallPayload::new(
+                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string()),
+                );
 
                 let added_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
@@ -341,7 +381,7 @@ impl ClaudeToOpenAiResponseStream {
                         item: function_tool_call_item(
                             item_id.clone(),
                             name.clone(),
-                            arguments.clone(),
+                            arguments.in_progress().to_string(),
                             Some(ot::ResponseItemStatus::InProgress),
                         ),
                         output_index: index,
@@ -349,12 +389,12 @@ impl ClaudeToOpenAiResponseStream {
                     },
                 );
 
-                if !arguments.is_empty() && arguments != "{}" {
+                if !arguments.in_progress().is_empty() {
                     let delta_sequence = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
                         ResponseStreamEvent::FunctionCallArgumentsDelta {
-                            delta: arguments.clone(),
+                            delta: arguments.in_progress().to_string(),
                             item_id: item_id.clone(),
                             output_index: index,
                             sequence_number: delta_sequence,
@@ -375,25 +415,30 @@ impl ClaudeToOpenAiResponseStream {
             BetaContentBlock::ServerToolUse(block) => {
                 let item_id = block.id;
                 let name = server_tool_name(&block.name).to_string();
-                let input =
-                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string());
+                let input = ToolCallPayload::new(
+                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string()),
+                );
 
                 let added_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
                     &mut out,
                     ResponseStreamEvent::OutputItemAdded {
-                        item: custom_tool_call_item(item_id.clone(), name.clone(), input.clone()),
+                        item: custom_tool_call_item(
+                            item_id.clone(),
+                            name.clone(),
+                            input.in_progress().to_string(),
+                        ),
                         output_index: index,
                         sequence_number: added_sequence,
                     },
                 );
 
-                if !input.is_empty() && input != "{}" {
+                if !input.in_progress().is_empty() {
                     let delta_sequence = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
                         ResponseStreamEvent::CustomToolCallInputDelta {
-                            delta: input.clone(),
+                            delta: input.in_progress().to_string(),
                             item_id: item_id.clone(),
                             output_index: index,
                             sequence_number: delta_sequence,
@@ -415,8 +460,9 @@ impl ClaudeToOpenAiResponseStream {
                 let item_id = block.id;
                 let name = block.name;
                 let server_label = block.server_name;
-                let arguments =
-                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string());
+                let arguments = ToolCallPayload::new(
+                    serde_json::to_string(&block.input).unwrap_or_else(|_| "{}".to_string()),
+                );
 
                 let added_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
@@ -426,7 +472,7 @@ impl ClaudeToOpenAiResponseStream {
                             item_id.clone(),
                             name.clone(),
                             server_label.clone(),
-                            arguments.clone(),
+                            arguments.in_progress().to_string(),
                             Some(ot::ResponseToolCallStatus::InProgress),
                             None,
                             None,
@@ -446,12 +492,12 @@ impl ClaudeToOpenAiResponseStream {
                     },
                 );
 
-                if !arguments.is_empty() && arguments != "{}" {
+                if !arguments.in_progress().is_empty() {
                     let delta_sequence = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
                         ResponseStreamEvent::McpCallArgumentsDelta {
-                            delta: arguments.clone(),
+                            delta: arguments.in_progress().to_string(),
                             item_id: item_id.clone(),
                             output_index: index,
                             sequence_number: delta_sequence,
@@ -577,7 +623,7 @@ impl ClaudeToOpenAiResponseStream {
                 BetaRawContentBlockDelta::InputJson(delta),
             ) => {
                 if !delta.partial_json.is_empty() {
-                    arguments.push_str(&delta.partial_json);
+                    arguments.push_delta(&delta.partial_json);
                     let sequence_number = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
@@ -596,7 +642,7 @@ impl ClaudeToOpenAiResponseStream {
                 BetaRawContentBlockDelta::InputJson(delta),
             ) => {
                 if !delta.partial_json.is_empty() {
-                    input.push_str(&delta.partial_json);
+                    input.push_delta(&delta.partial_json);
                     let sequence_number = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
@@ -617,7 +663,7 @@ impl ClaudeToOpenAiResponseStream {
                 BetaRawContentBlockDelta::InputJson(delta),
             ) => {
                 if !delta.partial_json.is_empty() {
-                    arguments.push_str(&delta.partial_json);
+                    arguments.push_delta(&delta.partial_json);
                     let sequence_number = next_sequence_number(&mut self.next_sequence_number);
                     push_stream_event(
                         &mut out,
@@ -830,6 +876,7 @@ impl ClaudeToOpenAiResponseStream {
                 name,
                 arguments,
             } => {
+                let arguments = arguments.final_value().to_string();
                 let arguments_done_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
                     &mut out,
@@ -862,6 +909,7 @@ impl ClaudeToOpenAiResponseStream {
                 name,
                 input,
             } => {
+                let input = input.final_value().to_string();
                 let input_done_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
                     &mut out,
@@ -889,6 +937,7 @@ impl ClaudeToOpenAiResponseStream {
                 server_label,
                 arguments,
             } => {
+                let arguments = arguments.final_value().to_string();
                 let arguments_done_sequence = next_sequence_number(&mut self.next_sequence_number);
                 push_stream_event(
                     &mut out,
@@ -1298,5 +1347,116 @@ fn response_error_code_from_stream_error_code(code: &str) -> rt::ResponseErrorCo
         "invalid_request_error" => rt::ResponseErrorCode::InvalidPrompt,
         "rate_limit_error" => rt::ResponseErrorCode::RateLimitExceeded,
         _ => rt::ResponseErrorCode::ServerError,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::claude::count_tokens::types::{
+        BetaDirectCaller, BetaDirectCallerType, BetaToolCaller, BetaToolUseBlockParam,
+        BetaToolUseBlockType,
+    };
+    use crate::claude::create_message::stream::{BetaInputJsonDelta, BetaInputJsonDeltaType};
+    use crate::openai::create_response::stream::OpenAiCreateResponseSseData;
+    use serde_json::{Value, json};
+
+    fn tool_use_block(input: BTreeMap<String, Value>) -> BetaContentBlock {
+        BetaContentBlock::ToolUse(BetaToolUseBlockParam {
+            id: "toolu_test".to_string(),
+            input,
+            name: "exec_command".to_string(),
+            type_: BetaToolUseBlockType::ToolUse,
+            cache_control: None,
+            caller: Some(BetaToolCaller::Direct(BetaDirectCaller {
+                type_: BetaDirectCallerType::Direct,
+            })),
+        })
+    }
+
+    fn output_item_added_arguments(events: &[OpenAiCreateResponseSseEvent]) -> Option<String> {
+        events.iter().find_map(|event| match &event.data {
+            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::OutputItemAdded {
+                item: rt::ResponseOutputItem::FunctionToolCall(call),
+                ..
+            }) => Some(call.arguments.clone()),
+            _ => None,
+        })
+    }
+
+    fn function_call_arguments_delta(events: &[OpenAiCreateResponseSseEvent]) -> Option<String> {
+        events.iter().find_map(|event| match &event.data {
+            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::FunctionCallArgumentsDelta {
+                delta,
+                ..
+            }) => Some(delta.clone()),
+            _ => None,
+        })
+    }
+
+    fn function_call_arguments_done(events: &[OpenAiCreateResponseSseEvent]) -> Option<String> {
+        events.iter().find_map(|event| match &event.data {
+            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::FunctionCallArgumentsDone {
+                arguments,
+                ..
+            }) => Some(arguments.clone()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn streamed_tool_input_does_not_prepend_empty_object() {
+        let mut converter = ClaudeToOpenAiResponseStream::default();
+
+        let start_events = converter.on_content_block_start(1, tool_use_block(BTreeMap::new()));
+        assert_eq!(output_item_added_arguments(&start_events).as_deref(), Some(""));
+
+        let delta_events = converter.on_content_block_delta(
+            1,
+            BetaRawContentBlockDelta::InputJson(BetaInputJsonDelta {
+                partial_json: r#"{"cmd":"ls -la"}"#.to_string(),
+                type_: BetaInputJsonDeltaType::InputJsonDelta,
+            }),
+        );
+        assert_eq!(
+            function_call_arguments_delta(&delta_events).as_deref(),
+            Some(r#"{"cmd":"ls -la"}"#)
+        );
+
+        let stop_events = converter.on_content_block_stop(1);
+        assert_eq!(
+            function_call_arguments_done(&stop_events).as_deref(),
+            Some(r#"{"cmd":"ls -la"}"#)
+        );
+    }
+
+    #[test]
+    fn empty_object_falls_back_on_done_when_no_delta_arrives() {
+        let mut converter = ClaudeToOpenAiResponseStream::default();
+
+        let start_events = converter.on_content_block_start(1, tool_use_block(BTreeMap::new()));
+        assert_eq!(output_item_added_arguments(&start_events).as_deref(), Some(""));
+
+        let stop_events = converter.on_content_block_stop(1);
+        assert_eq!(function_call_arguments_done(&stop_events).as_deref(), Some("{}"));
+    }
+
+    #[test]
+    fn non_empty_initial_input_is_preserved_without_delta() {
+        let mut converter = ClaudeToOpenAiResponseStream::default();
+        let mut input = BTreeMap::new();
+        input.insert("cmd".to_string(), json!("pwd"));
+
+        let start_events = converter.on_content_block_start(1, tool_use_block(input));
+        assert_eq!(
+            output_item_added_arguments(&start_events).as_deref(),
+            Some(r#"{"cmd":"pwd"}"#)
+        );
+
+        let stop_events = converter.on_content_block_stop(1);
+        assert_eq!(
+            function_call_arguments_done(&stop_events).as_deref(),
+            Some(r#"{"cmd":"pwd"}"#)
+        );
     }
 }
