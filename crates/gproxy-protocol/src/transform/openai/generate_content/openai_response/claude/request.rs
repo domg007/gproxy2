@@ -396,3 +396,40 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::openai::count_tokens::types as ot;
+    use crate::openai::create_response::request as oreq;
+
+    #[test]
+    fn response_custom_tools_serialize_with_type_for_claude() {
+        let request = OpenAiCreateResponseRequest {
+            body: oreq::RequestBody {
+                model: Some("claude-sonnet-4-6".to_string()),
+                tools: Some(vec![ot::ResponseTool::Custom(ot::ResponseCustomTool {
+                    name: "apply_patch".to_string(),
+                    type_: ot::ResponseCustomToolType::Custom,
+                    description: Some("Edit files with a patch".to_string()),
+                    format: Some(ot::ResponseCustomToolInputFormat::Text(
+                        ot::ResponseCustomToolTextFormat {
+                            type_: ot::ResponseCustomToolTextFormatType::Text,
+                        },
+                    )),
+                })]),
+                ..oreq::RequestBody::default()
+            },
+            ..OpenAiCreateResponseRequest::default()
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request)
+            .expect("response request should convert to claude");
+        let encoded = serde_json::to_value(converted).expect("claude request should serialize");
+
+        assert_eq!(encoded["body"]["tools"][0]["type"], json!("custom"));
+        assert!(encoded["body"]["tools"][0].get("type_").is_none());
+    }
+}
