@@ -56,6 +56,8 @@ if ! cargo set-version --help >/dev/null 2>&1; then
 fi
 
 cargo update
+cargo fmt
+cargo clippy --all-targets --all-features -- -D warnings
 cargo set-version "$VERSION"
 cargo check -p gproxy
 
