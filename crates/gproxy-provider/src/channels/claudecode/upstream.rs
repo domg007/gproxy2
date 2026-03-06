@@ -3,7 +3,8 @@ use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::constants::{
-    CLAUDE_CODE_UA, DEFAULT_CLAUDE_AI_BASE_URL, DEFAULT_PLATFORM_BASE_URL, OAUTH_BETA,
+    CLAUDE_CODE_UA, CLAUDECODE_DEFAULT_BETAS, DEFAULT_CLAUDE_AI_BASE_URL,
+    DEFAULT_PLATFORM_BASE_URL, OAUTH_BETA,
 };
 use super::oauth::{
     ClaudeCodeRefreshedToken, claudecode_access_token_from_credential,
@@ -898,24 +899,14 @@ async fn send_claudecode_request(
     request_headers: &[(String, String)],
     body: Option<&Vec<u8>>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
-    let mut beta_values = request_headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-        .map(|(_, value)| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if !beta_values
-        .iter()
-        .any(|value| value.eq_ignore_ascii_case(OAUTH_BETA))
-    {
-        beta_values.push(OAUTH_BETA.to_string());
-    }
+    let beta_values = normalized_claudecode_beta_values(
+        request_headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| parse_anthropic_beta_values(value))
+            .unwrap_or_default(),
+        true,
+    );
 
     let mut sent_headers = Vec::new();
     merge_extra_headers(&mut sent_headers, extra_headers);
@@ -952,6 +943,7 @@ async fn send_claudecode_usage_request(
     access_token: &str,
     user_agent: &str,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
+    let beta_values = normalized_claudecode_beta_values(Vec::new(), true);
     let sent_headers = vec![
         (
             "authorization".to_string(),
@@ -960,7 +952,7 @@ async fn send_claudecode_usage_request(
         ("accept".to_string(), "application/json".to_string()),
         ("content-type".to_string(), "application/json".to_string()),
         ("user-agent".to_string(), user_agent.to_string()),
-        ("anthropic-beta".to_string(), OAUTH_BETA.to_string()),
+        ("anthropic-beta".to_string(), beta_values.join(",")),
     ];
     crate::channels::upstream::tracked_send_request(
         client,
@@ -1362,30 +1354,14 @@ impl ClaudeCodePreparedRequest {
 }
 
 fn ensure_oauth_beta(headers: &mut Vec<(String, String)>, allow_context_1m: bool) {
-    let mut values = headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-        .map(|(_, value)| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    if !allow_context_1m {
-        values.retain(|value| !is_context_1m_beta(value));
-    }
-
-    let oauth_beta = OAUTH_BETA;
-    if !values
-        .iter()
-        .any(|value| value.eq_ignore_ascii_case(oauth_beta))
-    {
-        values.push(oauth_beta.to_string());
-    }
+    let values = normalized_claudecode_beta_values(
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| parse_anthropic_beta_values(value))
+            .unwrap_or_default(),
+        allow_context_1m,
+    );
 
     headers.retain(|(name, _)| !name.eq_ignore_ascii_case("anthropic-beta"));
     headers.push(("anthropic-beta".to_string(), values.join(",")));
@@ -1404,29 +1380,46 @@ fn has_context_1m_beta(headers: &[(String, String)]) -> bool {
 }
 
 fn strip_context_1m_beta(headers: &mut Vec<(String, String)>) {
-    let mut values = headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-        .map(|(_, value)| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|item| !item.is_empty())
-                .filter(|item| !is_context_1m_beta(item))
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    if !values
-        .iter()
-        .any(|value| value.eq_ignore_ascii_case(OAUTH_BETA))
-    {
-        values.push(OAUTH_BETA.to_string());
-    }
+    let values = normalized_claudecode_beta_values(
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| parse_anthropic_beta_values(value))
+            .unwrap_or_default(),
+        false,
+    );
 
     headers.retain(|(name, _)| !name.eq_ignore_ascii_case("anthropic-beta"));
     headers.push(("anthropic-beta".to_string(), values.join(",")));
+}
+
+fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn normalized_claudecode_beta_values(
+    mut values: Vec<String>,
+    allow_context_1m: bool,
+) -> Vec<String> {
+    if !allow_context_1m {
+        values.retain(|value| !is_context_1m_beta(value));
+    }
+
+    for required in std::iter::once(OAUTH_BETA).chain(CLAUDECODE_DEFAULT_BETAS.iter().copied()) {
+        if !values
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(required))
+        {
+            values.push(required.to_string());
+        }
+    }
+
+    values
 }
 
 fn claude_1m_target_for_model(model: &str) -> Option<ClaudeCode1mTarget> {
@@ -1716,9 +1709,11 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        CLAUDECODE_THINKING_BUDGET_TOKENS, extend_model_list_with_thinking_variants,
-        normalize_claudecode_model_and_thinking, normalize_claudecode_unsupported_fields,
+        CLAUDECODE_THINKING_BUDGET_TOKENS, ensure_oauth_beta,
+        extend_model_list_with_thinking_variants, normalize_claudecode_model_and_thinking,
+        normalize_claudecode_unsupported_fields, strip_context_1m_beta,
     };
+    use crate::channels::claudecode::constants::{CLAUDECODE_DEFAULT_BETAS, OAUTH_BETA};
 
     #[test]
     fn thinking_suffix_sets_fixed_budget_and_strips_model_suffix() {
@@ -1846,5 +1841,50 @@ mod tests {
         normalize_claudecode_unsupported_fields(&mut body);
 
         assert!(body.get("context_management").is_none());
+    }
+
+    #[test]
+    fn ensure_oauth_beta_adds_claudecode_default_betas() {
+        let mut headers = vec![(
+            "anthropic-beta".to_string(),
+            "custom-beta,effort-2025-11-24".to_string(),
+        )];
+
+        ensure_oauth_beta(&mut headers, false);
+
+        let mut expected = vec![
+            "custom-beta".to_string(),
+            "effort-2025-11-24".to_string(),
+            OAUTH_BETA.to_string(),
+        ];
+        expected.extend(
+            CLAUDECODE_DEFAULT_BETAS
+                .iter()
+                .filter(|value| **value != "effort-2025-11-24")
+                .map(|value| value.to_string()),
+        );
+
+        assert_eq!(
+            headers,
+            vec![("anthropic-beta".to_string(), expected.join(","))]
+        );
+    }
+
+    #[test]
+    fn strip_context_1m_beta_keeps_claudecode_default_betas() {
+        let mut headers = vec![(
+            "anthropic-beta".to_string(),
+            "context-1m-2025-08-07,custom-beta".to_string(),
+        )];
+
+        strip_context_1m_beta(&mut headers);
+
+        let mut expected = vec!["custom-beta".to_string(), OAUTH_BETA.to_string()];
+        expected.extend(CLAUDECODE_DEFAULT_BETAS.iter().map(|value| value.to_string()));
+
+        assert_eq!(
+            headers,
+            vec![("anthropic-beta".to_string(), expected.join(","))]
+        );
     }
 }
