@@ -4,6 +4,7 @@ use gproxy_middleware::{
     OperationFamily, ProtocolKind, TransformRequest, TransformResponse, TransformRoute,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::constants::{
@@ -39,6 +40,9 @@ enum CodexRequestKind {
     ModelGet { target: String },
     Forward,
 }
+
+const SESSION_ID_HEADER: &str = "session_id";
+const SESSION_ID_ALT_HEADER: &str = "session-id";
 
 #[derive(Debug, Clone)]
 struct CodexPreparedRequest {
@@ -899,6 +903,9 @@ impl CodexPreparedRequest {
             _ => Err(UpstreamError::UnsupportedRequest),
         }?;
         prepared.extra_headers = extra_headers;
+        if matches!(prepared.kind, CodexRequestKind::Forward) {
+            ensure_codex_session_id_header(&mut prepared.extra_headers, prepared.body.as_deref());
+        }
         Ok(prepared)
     }
 
@@ -993,6 +1000,12 @@ impl CodexPreparedRequest {
             }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
+        .map(|mut prepared| {
+            if matches!(prepared.kind, CodexRequestKind::Forward) {
+                ensure_codex_session_id_header(&mut prepared.extra_headers, prepared.body.as_deref());
+            }
+            prepared
+        })
     }
 }
 
@@ -1106,6 +1119,131 @@ fn normalize_codex_response_request_body(body: &mut Value, is_stream: bool) {
             ]),
         );
     }
+}
+
+fn ensure_codex_session_id_header(extra_headers: &mut Vec<(String, String)>, body: Option<&[u8]>) {
+    let session_id = extra_headers
+        .iter()
+        .find(|(name, _)| is_session_id_header(name))
+        .and_then(|(_, value)| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        })
+        .or_else(|| synthesize_codex_session_id(body));
+
+    let Some(session_id) = session_id else {
+        return;
+    };
+
+    extra_headers.retain(|(name, _)| !is_session_id_header(name));
+    extra_headers.push((SESSION_ID_HEADER.to_string(), session_id));
+}
+
+fn is_session_id_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case(SESSION_ID_HEADER) || name.eq_ignore_ascii_case(SESSION_ID_ALT_HEADER)
+}
+
+fn synthesize_codex_session_id(body: Option<&[u8]>) -> Option<String> {
+    let body_json = serde_json::from_slice::<Value>(body?).ok()?;
+    let session_marker = codex_session_marker_from_body(&body_json)
+        .or_else(|| codex_initial_prompt_session_marker(&body_json))?;
+    Some(stable_codex_session_id(session_marker.as_str()))
+}
+
+fn codex_session_marker_from_body(body_json: &Value) -> Option<String> {
+    body_json
+        .get("prompt_cache_key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let conversation = body_json.get("conversation")?;
+            match conversation {
+                Value::String(value) => {
+                    let value = value.trim();
+                    (!value.is_empty()).then(|| value.to_string())
+                }
+                Value::Object(value) => value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(ToOwned::to_owned),
+                _ => None,
+            }
+        })
+        .or_else(|| {
+            body_json
+                .get("previous_response_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
+
+fn codex_initial_prompt_session_marker(body_json: &Value) -> Option<String> {
+    let mut marker = serde_json::Map::new();
+
+    if let Some(instructions) = body_json
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        marker.insert(
+            "instructions".to_string(),
+            Value::String(instructions.to_string()),
+        );
+    }
+
+    if let Some(first_input) = codex_first_input_session_marker(body_json.get("input")) {
+        marker.insert("input".to_string(), first_input);
+    }
+
+    (!marker.is_empty())
+        .then(|| serde_json::to_string(&Value::Object(marker)).ok())
+        .flatten()
+}
+
+fn codex_first_input_session_marker(input: Option<&Value>) -> Option<Value> {
+    match input? {
+        Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| Value::String(text.to_string()))
+        }
+        Value::Array(items) => items.first().cloned(),
+        Value::Null => None,
+        value => Some(value.clone()),
+    }
+}
+
+fn stable_codex_session_id(marker: &str) -> String {
+    let digest = Sha256::digest(format!("gproxy.codex.session:{marker}").as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
 }
 
 fn extract_codex_instructions_from_input_messages(map: &mut serde_json::Map<String, Value>) {
@@ -1463,7 +1601,10 @@ fn codex_credential_update(
 mod tests {
     use serde_json::json;
 
-    use super::{CodexPreparedRequest, WreqMethod, normalize_codex_response_request_body};
+    use super::{
+        CodexPreparedRequest, SESSION_ID_HEADER, WreqMethod, normalize_codex_response_request_body,
+        stable_codex_session_id,
+    };
     use gproxy_middleware::{OperationFamily, ProtocolKind};
 
     #[test]
@@ -1580,5 +1721,152 @@ mod tests {
         assert_eq!(prepared.path, "/responses");
         assert_eq!(prepared.model.as_deref(), Some("codex/gpt-5"));
         assert!(prepared.body.is_some());
+    }
+
+    #[test]
+    fn codex_auto_injects_session_id_from_prompt_cache_key() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "POST",
+            "headers": { "extra": {} },
+            "body": {
+                "model": "gpt-5.3-codex",
+                "prompt_cache_key": "thread-123",
+                "input": [{"role": "user", "content": "hello"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = CodexPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload.as_slice(),
+        )
+        .expect("prepare payload");
+
+        assert!(
+            prepared
+                .extra_headers
+                .iter()
+                .any(|(name, value)| {
+                    name == SESSION_ID_HEADER
+                        && value == stable_codex_session_id("thread-123").as_str()
+                })
+        );
+    }
+
+    #[test]
+    fn codex_fallback_session_id_uses_instructions_and_first_input_only() {
+        let payload_a = serde_json::to_vec(&json!({
+            "method": "POST",
+            "headers": { "extra": {} },
+            "body": {
+                "model": "gpt-5.3-codex",
+                "input": [
+                    {"role": "system", "content": "be concise"},
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "draft one"},
+                    {"role": "user", "content": "follow up a"}
+                ],
+                "tools": [{"type": "function", "name": "ignored_tool"}]
+            }
+        }))
+        .expect("serialize payload a");
+        let payload_b = serde_json::to_vec(&json!({
+            "method": "POST",
+            "headers": { "extra": {} },
+            "body": {
+                "model": "gpt-5.3-codex",
+                "input": [
+                    {"role": "system", "content": "be concise"},
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "draft two"},
+                    {"role": "user", "content": "follow up b"}
+                ],
+                "reasoning": {"effort": "high"}
+            }
+        }))
+        .expect("serialize payload b");
+        let payload_c = serde_json::to_vec(&json!({
+            "method": "POST",
+            "headers": { "extra": {} },
+            "body": {
+                "model": "gpt-5.3-codex",
+                "input": [
+                    {"role": "system", "content": "be concise"},
+                    {"role": "user", "content": "different opener"}
+                ]
+            }
+        }))
+        .expect("serialize payload c");
+
+        let prepared_a = CodexPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload_a.as_slice(),
+        )
+        .expect("prepare payload a");
+        let prepared_b = CodexPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload_b.as_slice(),
+        )
+        .expect("prepare payload b");
+        let prepared_c = CodexPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload_c.as_slice(),
+        )
+        .expect("prepare payload c");
+
+        let session_id_a = prepared_a
+            .extra_headers
+            .iter()
+            .find(|(name, _)| name == SESSION_ID_HEADER)
+            .map(|(_, value)| value.as_str())
+            .expect("session id a");
+        let session_id_b = prepared_b
+            .extra_headers
+            .iter()
+            .find(|(name, _)| name == SESSION_ID_HEADER)
+            .map(|(_, value)| value.as_str())
+            .expect("session id b");
+        let session_id_c = prepared_c
+            .extra_headers
+            .iter()
+            .find(|(name, _)| name == SESSION_ID_HEADER)
+            .map(|(_, value)| value.as_str())
+            .expect("session id c");
+
+        assert_eq!(session_id_a, session_id_b);
+        assert_ne!(session_id_a, session_id_c);
+    }
+
+    #[test]
+    fn codex_normalizes_session_id_header_name() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "POST",
+            "headers": {
+                "extra": {
+                    "session-id": "sess-123"
+                }
+            },
+            "body": {
+                "model": "gpt-5.3-codex",
+                "input": [{"role": "user", "content": "hello"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = CodexPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::OpenAi,
+            payload.as_slice(),
+        )
+        .expect("prepare payload");
+
+        assert_eq!(
+            prepared.extra_headers,
+            vec![(SESSION_ID_HEADER.to_string(), "sess-123".to_string())]
+        );
     }
 }
