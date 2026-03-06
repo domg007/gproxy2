@@ -426,6 +426,97 @@ pub fn openai_tool_choice_to_gemini(
     })
 }
 
+fn openai_reasoning_to_gemini(
+    reasoning: Option<ot::ResponseReasoning>,
+) -> Option<gt::GeminiThinkingConfig> {
+    let effort = reasoning.and_then(|reasoning| reasoning.effort)?;
+    Some(match effort {
+        ot::ResponseReasoningEffort::None => gt::GeminiThinkingConfig {
+            include_thoughts: Some(false),
+            ..gt::GeminiThinkingConfig::default()
+        },
+        ot::ResponseReasoningEffort::Minimal => gt::GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: Some(gt::GeminiThinkingLevel::Minimal),
+            ..gt::GeminiThinkingConfig::default()
+        },
+        ot::ResponseReasoningEffort::Low => gt::GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: Some(gt::GeminiThinkingLevel::Low),
+            ..gt::GeminiThinkingConfig::default()
+        },
+        ot::ResponseReasoningEffort::Medium => gt::GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: Some(gt::GeminiThinkingLevel::Medium),
+            ..gt::GeminiThinkingConfig::default()
+        },
+        ot::ResponseReasoningEffort::High | ot::ResponseReasoningEffort::XHigh => {
+            gt::GeminiThinkingConfig {
+                include_thoughts: Some(true),
+                thinking_level: Some(gt::GeminiThinkingLevel::High),
+                ..gt::GeminiThinkingConfig::default()
+            }
+        }
+    })
+}
+
+pub fn openai_generation_config(
+    reasoning: Option<ot::ResponseReasoning>,
+    text: Option<ot::ResponseTextConfig>,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+    top_logprobs: Option<u32>,
+) -> Option<gt::GeminiGenerationConfig> {
+    let mut config = gt::GeminiGenerationConfig::default();
+    let mut has_config = false;
+
+    if let Some(thinking_config) = openai_reasoning_to_gemini(reasoning) {
+        config.thinking_config = Some(thinking_config);
+        has_config = true;
+    }
+
+    if let Some(text_config) = text
+        && let Some(format) = text_config.format
+    {
+        match format {
+            ot::ResponseTextFormatConfig::JsonSchema(schema) => {
+                config.response_mime_type = Some("application/json".to_string());
+                config.response_json_schema = serde_json::to_value(schema.schema).ok();
+                has_config = true;
+            }
+            ot::ResponseTextFormatConfig::JsonObject(_) => {
+                config.response_mime_type = Some("application/json".to_string());
+                has_config = true;
+            }
+            ot::ResponseTextFormatConfig::Text(_) => {
+                config.response_mime_type = Some("text/plain".to_string());
+                has_config = true;
+            }
+        }
+    }
+
+    if let Some(value) = max_output_tokens {
+        config.max_output_tokens = Some(value.min(u32::MAX as u64) as u32);
+        has_config = true;
+    }
+    if let Some(value) = temperature {
+        config.temperature = Some(value);
+        has_config = true;
+    }
+    if let Some(value) = top_p {
+        config.top_p = Some(value);
+        has_config = true;
+    }
+    if let Some(value) = top_logprobs {
+        config.response_logprobs = Some(true);
+        config.logprobs = Some(value);
+        has_config = true;
+    }
+
+    if has_config { Some(config) } else { None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,95 +636,4 @@ mod tests {
         );
         assert!(second_call.thought_signature.is_none());
     }
-}
-
-fn openai_reasoning_to_gemini(
-    reasoning: Option<ot::ResponseReasoning>,
-) -> Option<gt::GeminiThinkingConfig> {
-    let effort = reasoning.and_then(|reasoning| reasoning.effort)?;
-    Some(match effort {
-        ot::ResponseReasoningEffort::None => gt::GeminiThinkingConfig {
-            include_thoughts: Some(false),
-            ..gt::GeminiThinkingConfig::default()
-        },
-        ot::ResponseReasoningEffort::Minimal => gt::GeminiThinkingConfig {
-            include_thoughts: Some(true),
-            thinking_level: Some(gt::GeminiThinkingLevel::Minimal),
-            ..gt::GeminiThinkingConfig::default()
-        },
-        ot::ResponseReasoningEffort::Low => gt::GeminiThinkingConfig {
-            include_thoughts: Some(true),
-            thinking_level: Some(gt::GeminiThinkingLevel::Low),
-            ..gt::GeminiThinkingConfig::default()
-        },
-        ot::ResponseReasoningEffort::Medium => gt::GeminiThinkingConfig {
-            include_thoughts: Some(true),
-            thinking_level: Some(gt::GeminiThinkingLevel::Medium),
-            ..gt::GeminiThinkingConfig::default()
-        },
-        ot::ResponseReasoningEffort::High | ot::ResponseReasoningEffort::XHigh => {
-            gt::GeminiThinkingConfig {
-                include_thoughts: Some(true),
-                thinking_level: Some(gt::GeminiThinkingLevel::High),
-                ..gt::GeminiThinkingConfig::default()
-            }
-        }
-    })
-}
-
-pub fn openai_generation_config(
-    reasoning: Option<ot::ResponseReasoning>,
-    text: Option<ot::ResponseTextConfig>,
-    max_output_tokens: Option<u64>,
-    temperature: Option<f64>,
-    top_p: Option<f64>,
-    top_logprobs: Option<u32>,
-) -> Option<gt::GeminiGenerationConfig> {
-    let mut config = gt::GeminiGenerationConfig::default();
-    let mut has_config = false;
-
-    if let Some(thinking_config) = openai_reasoning_to_gemini(reasoning) {
-        config.thinking_config = Some(thinking_config);
-        has_config = true;
-    }
-
-    if let Some(text_config) = text
-        && let Some(format) = text_config.format
-    {
-        match format {
-            ot::ResponseTextFormatConfig::JsonSchema(schema) => {
-                config.response_mime_type = Some("application/json".to_string());
-                config.response_json_schema = serde_json::to_value(schema.schema).ok();
-                has_config = true;
-            }
-            ot::ResponseTextFormatConfig::JsonObject(_) => {
-                config.response_mime_type = Some("application/json".to_string());
-                has_config = true;
-            }
-            ot::ResponseTextFormatConfig::Text(_) => {
-                config.response_mime_type = Some("text/plain".to_string());
-                has_config = true;
-            }
-        }
-    }
-
-    if let Some(value) = max_output_tokens {
-        config.max_output_tokens = Some(value.min(u32::MAX as u64) as u32);
-        has_config = true;
-    }
-    if let Some(value) = temperature {
-        config.temperature = Some(value);
-        has_config = true;
-    }
-    if let Some(value) = top_p {
-        config.top_p = Some(value);
-        has_config = true;
-    }
-    if let Some(value) = top_logprobs {
-        config.response_logprobs = Some(true);
-        config.logprobs = Some(value);
-        has_config = true;
-    }
-
-    if has_config { Some(config) } else { None }
 }

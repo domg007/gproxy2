@@ -1135,6 +1135,25 @@ fn reasoning_item(
     })
 }
 
+impl TryFrom<OpenAiChatCompletionsSseStreamBody> for OpenAiCreateResponseSseStreamBody {
+    type Error = TransformError;
+
+    fn try_from(value: OpenAiChatCompletionsSseStreamBody) -> Result<Self, TransformError> {
+        let mut converter = OpenAiChatCompletionsToOpenAiResponseStream::default();
+        let mut events = Vec::new();
+
+        for event in value.events {
+            events.extend(converter.on_event(event)?);
+        }
+
+        if !converter.is_finished() {
+            events.extend(converter.finish());
+        }
+
+        Ok(OpenAiCreateResponseSseStreamBody { events })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1213,24 +1232,5 @@ mod tests {
                 )
             )
         }));
-    }
-}
-
-impl TryFrom<OpenAiChatCompletionsSseStreamBody> for OpenAiCreateResponseSseStreamBody {
-    type Error = TransformError;
-
-    fn try_from(value: OpenAiChatCompletionsSseStreamBody) -> Result<Self, TransformError> {
-        let mut converter = OpenAiChatCompletionsToOpenAiResponseStream::default();
-        let mut events = Vec::new();
-
-        for event in value.events {
-            events.extend(converter.on_event(event)?);
-        }
-
-        if !converter.is_finished() {
-            events.extend(converter.finish());
-        }
-
-        Ok(OpenAiCreateResponseSseStreamBody { events })
     }
 }
