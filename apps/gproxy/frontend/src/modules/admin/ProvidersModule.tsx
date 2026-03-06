@@ -226,7 +226,7 @@ export function ProvidersModule({
   const selectProvider = (row: ProviderQueryRow) => {
     selectProviderData(row);
     setIsCreatingProvider(false);
-    setActiveTab("config");
+    setActiveTab("bulk");
   };
 
   const upsertProvider = async () => {
