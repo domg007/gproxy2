@@ -13,7 +13,8 @@ use serde_json::{Value, json};
 use crate::AppState;
 
 use super::super::{
-    HttpError, authorize_provider_access, bad_request, collect_unscoped_model_ids,
+    HttpError, authorize_provider_access, bad_request, collect_passthrough_headers,
+    collect_unscoped_model_ids,
     execute_transform_request, execute_transform_request_payload, internal_error,
     normalize_gemini_model_path, parse_optional_query_value, resolve_provider,
     response_from_status_headers_and_bytes, split_provider_prefixed_gemini_target,
@@ -30,11 +31,15 @@ fn build_gemini_payload(
     model: String,
     body: Value,
     alt: Option<&str>,
+    headers: &HeaderMap,
     context: &str,
 ) -> Result<Bytes, HttpError> {
     let mut payload = json!({
         "path": {
             "model": model,
+        },
+        "headers": {
+            "extra": collect_passthrough_headers(headers),
         },
         "body": body,
     });
@@ -55,6 +60,7 @@ pub(in crate::routes::provider) async fn v1beta_model_list(
     let auth = authorize_provider_access(&headers, &state)?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let mut request = gemini_model_list_request::GeminiModelListRequest::default();
+    request.headers.extra = collect_passthrough_headers(&headers);
     request.query.page_size = parse_optional_query_value::<u32>(query.as_deref(), "pageSize")?;
     request.query.page_token = parse_query_value(query.as_deref(), "pageToken");
     execute_transform_request(
@@ -104,6 +110,7 @@ pub(in crate::routes::provider) async fn v1beta_model_get(
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let mut request = gemini_model_get_request::GeminiModelGetRequest::default();
     request.path.name = normalize_gemini_model_path(name.as_str())?;
+    request.headers.extra = collect_passthrough_headers(&headers);
     execute_transform_request(
         state,
         channel,
@@ -125,6 +132,7 @@ pub(in crate::routes::provider) async fn v1beta_model_get_unscoped(
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
     let mut request = gemini_model_get_request::GeminiModelGetRequest::default();
     request.path.name = normalize_gemini_model_path(stripped_name.as_str())?;
+    request.headers.extra = collect_passthrough_headers(&headers);
     execute_transform_request(
         state,
         channel,
@@ -200,6 +208,7 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
             normalized_model,
             body,
             None,
+            &headers,
             "invalid gemini generateContent request body",
         )?;
         let payload = TransformRequestPayload::from_bytes(
@@ -235,6 +244,7 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
             normalized_model,
             body,
             payload_alt,
+            &headers,
             "invalid gemini streamGenerateContent request body",
         )?;
         let payload = TransformRequestPayload::from_bytes(
@@ -257,6 +267,7 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
             normalized_model,
             body,
             None,
+            &headers,
             "invalid gemini countTokens request body",
         )?;
         let payload = TransformRequestPayload::from_bytes(
@@ -278,6 +289,7 @@ pub(in crate::routes::provider) async fn handle_gemini_post_target(
             normalized_model,
             body,
             None,
+            &headers,
             "invalid gemini embedContent request body",
         )?;
         let payload = TransformRequestPayload::from_bytes(

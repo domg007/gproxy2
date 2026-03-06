@@ -9,7 +9,10 @@ use crate::channels::retry::{
     cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
     credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+};
 use crate::channels::utils::{
     anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
     claude_model_to_string, default_gproxy_user_agent, is_auth_failure,
@@ -96,6 +99,7 @@ async fn execute_claude_with_prepared(
     let model_template = prepared.model.clone();
     let url_template = url.clone();
     let request_headers_template = prepared.request_headers.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
@@ -136,14 +140,23 @@ async fn execute_claude_with_prepared(
             let model = model_template.clone();
             let url = url_template.clone();
             let request_headers = request_headers_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let user_agent = user_agent_template.clone();
 
             async move {
-                let mut sent_headers = vec![("x-api-key".to_string(), attempt.material.clone())];
-                sent_headers.push(("user-agent".to_string(), user_agent));
-                sent_headers.extend(request_headers.iter().cloned());
+                let mut sent_headers = Vec::new();
+                merge_extra_headers(&mut sent_headers, &extra_headers);
+                add_or_replace_header(&mut sent_headers, "x-api-key", attempt.material.clone());
+                add_or_replace_header(&mut sent_headers, "user-agent", user_agent);
+                for (name, value) in &request_headers {
+                    add_or_replace_header(&mut sent_headers, name, value.clone());
+                }
                 if body.is_some() {
-                    sent_headers.push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut sent_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
 
                 let send = crate::channels::upstream::tracked_send_request(
@@ -275,6 +288,7 @@ struct ClaudePreparedRequest {
     body: Option<Vec<u8>>,
     model: Option<String>,
     request_headers: Vec<(String, String)>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl ClaudePreparedRequest {
@@ -305,6 +319,7 @@ impl ClaudePreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                    extra_headers: extra_headers_from_transform_request(request),
                 })
             }
             gproxy_middleware::TransformRequest::ModelGetClaude(value) => Ok(Self {
@@ -320,6 +335,7 @@ impl ClaudePreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: extra_headers_from_transform_request(request),
             }),
             gproxy_middleware::TransformRequest::CountTokenClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -337,6 +353,7 @@ impl ClaudePreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: extra_headers_from_transform_request(request),
             }),
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
@@ -361,6 +378,7 @@ impl ClaudePreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                    extra_headers: extra_headers_from_transform_request(request),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
@@ -386,6 +404,7 @@ impl ClaudePreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                    extra_headers: extra_headers_from_transform_request(request),
                 })
             }
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
@@ -397,6 +416,7 @@ impl ClaudePreparedRequest {
                     &ANTHROPIC_DEFAULT_VERSION,
                     Option::<&Vec<String>>::None,
                 )?,
+                extra_headers: extra_headers_from_transform_request(request),
             }),
             gproxy_middleware::TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -411,6 +431,7 @@ impl ClaudePreparedRequest {
                     &ANTHROPIC_DEFAULT_VERSION,
                     Option::<&Vec<String>>::None,
                 )?,
+                extra_headers: extra_headers_from_transform_request(request),
             }),
             gproxy_middleware::TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 Ok(Self {
@@ -429,6 +450,7 @@ impl ClaudePreparedRequest {
                         &ANTHROPIC_DEFAULT_VERSION,
                         Option::<&Vec<String>>::None,
                     )?,
+                    extra_headers: extra_headers_from_transform_request(request),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentOpenAiChatCompletions(
@@ -449,6 +471,7 @@ impl ClaudePreparedRequest {
                     &ANTHROPIC_DEFAULT_VERSION,
                     Option::<&Vec<String>>::None,
                 )?,
+                extra_headers: extra_headers_from_transform_request(request),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }
@@ -468,10 +491,8 @@ impl ClaudePreparedRequest {
         }
 
         fn parse_claude_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             if let Some(body_value) = value.get("body").cloned() {
                 let version = value
                     .pointer("/headers/anthropic_version")
@@ -491,12 +512,16 @@ impl ClaudePreparedRequest {
                     .filter(|items| !items.is_empty());
                 return Ok((body_value, version, beta));
             }
-            Ok((value, ANTHROPIC_DEFAULT_VERSION.to_string(), None))
+            Ok((value.clone(), ANTHROPIC_DEFAULT_VERSION.to_string(), None))
         }
+
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
 
         match (operation, protocol) {
             (OperationFamily::CountToken, ProtocolKind::Claude) => {
-                let (body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let (body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: append_query_param_if_missing(
@@ -510,11 +535,12 @@ impl ClaudePreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Claude)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -532,13 +558,13 @@ impl ClaudePreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
-                let model = serde_json::from_slice::<Value>(body)
-                    .ok()
-                    .and_then(|value| json_pointer_string(&value, "/model"));
+                let body_json = payload_body_value(&payload_value);
+                let model = json_pointer_string(&body_json, "/model");
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: append_query_param_if_missing(
@@ -546,15 +572,78 @@ impl ClaudePreparedRequest {
                         BETA_QUERY_KEY,
                         BETA_QUERY_VALUE,
                     ),
-                    body: Some(body.to_vec()),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
                     model,
                     request_headers: anthropic_header_pairs(
                         &ANTHROPIC_DEFAULT_VERSION,
                         Option::<&Vec<String>>::None,
                     )?,
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClaudePreparedRequest;
+    use gproxy_middleware::{OperationFamily, ProtocolKind};
+    use serde_json::json;
+
+    #[test]
+    fn payload_wrapper_preserves_extra_headers_and_anthropic_headers() {
+        let payload = serde_json::to_vec(&json!({
+            "method": "POST",
+            "path": {},
+            "query": {},
+            "headers": {
+                "anthropic_version": "2023-06-01",
+                "anthropic_beta": ["context-management-2025-06-27"],
+                "extra": {
+                    "x-app": "cli",
+                    "x-stainless-runtime": "node"
+                }
+            },
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = ClaudePreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            &[],
+        )
+        .expect("prepare payload");
+
+        assert_eq!(prepared.model.as_deref(), Some("claude-3-7-sonnet-latest"));
+        assert!(
+            prepared
+                .extra_headers
+                .iter()
+                .any(|(name, value)| name == "x-app" && value == "cli")
+        );
+        assert!(prepared.request_headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("anthropic-beta")
+                && value.contains("context-management-2025-06-27")
+        }));
+
+        let body: serde_json::Value =
+            serde_json::from_slice(prepared.body.as_deref().expect("body bytes"))
+                .expect("valid json");
+        assert_eq!(
+            body.get("model").and_then(|value| value.as_str()),
+            Some("claude-3-7-sonnet-latest")
+        );
+        assert!(body.get("headers").is_none());
     }
 }

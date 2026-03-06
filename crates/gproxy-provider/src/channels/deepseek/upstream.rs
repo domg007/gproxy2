@@ -7,7 +7,10 @@ use crate::channels::retry::{
     configured_pick_mode_uses_cache, credential_pick_mode,
     retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+};
 use crate::channels::utils::{
     anthropic_header_pairs, claude_model_to_string, count_openai_input_tokens_with_resolution,
     default_gproxy_user_agent, is_auth_failure, is_transient_server_failure,
@@ -184,6 +187,7 @@ async fn execute_deepseek_with_prepared(
     let url_template = url.clone();
     let auth_template = prepared.auth_scheme;
     let request_headers_template = prepared.request_headers.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let pick_mode =
@@ -214,28 +218,39 @@ async fn execute_deepseek_with_prepared(
             let url = url_template.clone();
             let auth_scheme = auth_template;
             let request_headers = request_headers_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let user_agent = user_agent_template.clone();
 
             async move {
                 let mut sent_headers = Vec::new();
-                sent_headers.push(("user-agent".to_string(), user_agent));
+                merge_extra_headers(&mut sent_headers, &extra_headers);
+                add_or_replace_header(&mut sent_headers, "user-agent", user_agent);
                 match auth_scheme {
                     AuthScheme::Bearer => {
-                        sent_headers.push((
-                            "authorization".to_string(),
+                        add_or_replace_header(
+                            &mut sent_headers,
+                            "authorization",
                             format!("Bearer {}", attempt.material),
-                        ));
+                        );
                     }
                     AuthScheme::XApiKey => {
-                        sent_headers.push(("x-api-key".to_string(), attempt.material.clone()));
+                        add_or_replace_header(
+                            &mut sent_headers,
+                            "x-api-key",
+                            attempt.material.clone(),
+                        );
                     }
                 };
 
                 for (name, value) in &request_headers {
-                    sent_headers.push((name.clone(), value.clone()));
+                    add_or_replace_header(&mut sent_headers, name, value.clone());
                 }
                 if body.is_some() {
-                    sent_headers.push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut sent_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
 
                 let send = crate::channels::upstream::tracked_send_request(
@@ -361,11 +376,13 @@ struct DeepseekPreparedRequest {
     model: Option<String>,
     auth_scheme: AuthScheme,
     request_headers: Vec<(String, String)>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl DeepseekPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/models".to_string(),
@@ -373,6 +390,7 @@ impl DeepseekPreparedRequest {
                 model: None,
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -381,6 +399,7 @@ impl DeepseekPreparedRequest {
                 model: Some(value.path.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 let mut body = value.body.clone();
@@ -403,6 +422,7 @@ impl DeepseekPreparedRequest {
                     model: Some(body.model.clone()),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
@@ -426,6 +446,7 @@ impl DeepseekPreparedRequest {
                     model: Some(body.model.clone()),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentClaude(value) => {
@@ -451,6 +472,7 @@ impl DeepseekPreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentClaude(value) => {
@@ -476,10 +498,13 @@ impl DeepseekPreparedRequest {
                         &value.headers.anthropic_version,
                         value.headers.anthropic_beta.as_ref(),
                     )?,
+                    extra_headers: Vec::new(),
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -495,12 +520,10 @@ impl DeepseekPreparedRequest {
         }
 
         fn parse_claude_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
             const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             if let Some(body_value) = value.get("body").cloned() {
                 let version = value
                     .pointer("/headers/anthropic_version")
@@ -520,8 +543,12 @@ impl DeepseekPreparedRequest {
                     .filter(|items| !items.is_empty());
                 return Ok((body_value, version, beta));
             }
-            Ok((value, DEFAULT_ANTHROPIC_VERSION.to_string(), None))
+            Ok((value.clone(), DEFAULT_ANTHROPIC_VERSION.to_string(), None))
         }
+
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
 
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
@@ -531,11 +558,10 @@ impl DeepseekPreparedRequest {
                 model: None,
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers,
             }),
             (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
-                let value = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let Some(model) = json_pointer_string(&value, "/path/model") else {
+                let Some(model) = json_pointer_string(&payload_value, "/path/model") else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in deepseek model_get payload".to_string(),
                     ));
@@ -547,12 +573,12 @@ impl DeepseekPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
-                let mut body_json = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let mut body_json = payload_body_value(&payload_value);
                 if let Some(map) = body_json.as_object_mut() {
                     if let Some(max_tokens) = map.get("max_tokens").and_then(Value::as_u64) {
                         map.insert("max_tokens".to_string(), Value::from(max_tokens.min(8192)));
@@ -577,11 +603,12 @@ impl DeepseekPreparedRequest {
                     model: json_pointer_string(&body_json, "/model"),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Claude)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
                 let model = json_pointer_string(&body_json, "/model");
                 if let Some(model_value) = model.clone()
                     && let Some(map) = body_json.as_object_mut()
@@ -598,6 +625,7 @@ impl DeepseekPreparedRequest {
                     model,
                     auth_scheme: AuthScheme::XApiKey,
                     request_headers: anthropic_header_pairs(&version, beta.as_ref())?,
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

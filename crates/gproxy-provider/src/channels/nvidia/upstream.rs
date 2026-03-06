@@ -6,7 +6,10 @@ use crate::channels::retry::{
     configured_pick_mode_uses_cache, credential_pick_mode,
     retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+};
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, default_gproxy_user_agent, is_auth_failure,
     is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
@@ -97,8 +100,9 @@ pub async fn execute_nvidia_payload_with_retry(
 ) -> Result<UpstreamResponse, UpstreamError> {
     if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
     {
-        let body_json = serde_json::from_slice::<serde_json::Value>(payload.body)
+        let payload_json = serde_json::from_slice::<serde_json::Value>(payload.body)
             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let body_json = payload_body_value(&payload_json);
         let model = body_json
             .get("model")
             .and_then(serde_json::Value::as_str)
@@ -157,6 +161,7 @@ async fn execute_nvidia_with_prepared(
     let method_template = prepared.method.clone();
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let url_template = url.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
@@ -185,17 +190,24 @@ async fn execute_nvidia_with_prepared(
             let method = method_template.clone();
             let body = body_template.clone();
             let model = model_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let url = url_template.clone();
             let user_agent = user_agent_template.clone();
             async move {
-                let mut request_headers = vec![(
-                    "authorization".to_string(),
+                let mut request_headers = Vec::new();
+                merge_extra_headers(&mut request_headers, &extra_headers);
+                add_or_replace_header(
+                    &mut request_headers,
+                    "authorization",
                     format!("Bearer {}", attempt.material),
-                )];
-                request_headers.push(("user-agent".to_string(), user_agent));
+                );
+                add_or_replace_header(&mut request_headers, "user-agent", user_agent);
                 if body.is_some() {
-                    request_headers
-                        .push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut request_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -312,22 +324,26 @@ struct NvidiaPreparedRequest {
     path: String,
     body: Option<Vec<u8>>,
     model: Option<String>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl NvidiaPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/models".to_string(),
                 body: None,
                 model: None,
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: format!("/v1/models/{}", value.path.model),
                 body: None,
                 model: Some(value.path.model.clone()),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::GenerateContentOpenAiChatCompletions(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -337,6 +353,7 @@ impl NvidiaPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: Some(value.body.model.clone()),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -346,6 +363,7 @@ impl NvidiaPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: Some(value.body.model.clone()),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::EmbeddingOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -355,9 +373,12 @@ impl NvidiaPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: Some(nvidia_embedding_model_to_string(&value.body.model)?),
+                extra_headers: Vec::new(),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -365,16 +386,20 @@ impl NvidiaPreparedRequest {
         protocol: ProtocolKind,
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
-        fn json_pointer_string(body: &[u8], pointer: &str) -> Option<String> {
-            serde_json::from_slice::<serde_json::Value>(body)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .pointer(pointer)
-                        .and_then(serde_json::Value::as_str)
-                        .map(ToOwned::to_owned)
-                })
+        fn json_pointer_string(
+            value: &serde_json::Value,
+            pointer: &str,
+        ) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned)
         }
+
+        let payload_value = serde_json::from_slice::<serde_json::Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+        let body_value = payload_body_value(&payload_value);
 
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
@@ -382,9 +407,10 @@ impl NvidiaPreparedRequest {
                 path: "/v1/models".to_string(),
                 body: None,
                 model: None,
+                extra_headers,
             }),
             (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
-                let Some(model) = json_pointer_string(body, "/path/model") else {
+                let Some(model) = json_pointer_string(&payload_value, "/path/model") else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in nvidia model_get payload".to_string(),
                     ));
@@ -394,6 +420,7 @@ impl NvidiaPreparedRequest {
                     path: format!("/v1/models/{model}"),
                     body: None,
                     model: Some(model),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
@@ -401,15 +428,23 @@ impl NvidiaPreparedRequest {
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: "/v1/chat/completions".to_string(),
-                    body: Some(body.to_vec()),
-                    model: json_pointer_string(body, "/model"),
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: json_pointer_string(&body_value, "/model"),
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(Self {
                 method: WreqMethod::POST,
                 path: "/v1/embeddings".to_string(),
-                body: Some(body.to_vec()),
-                model: json_pointer_string(body, "/model"),
+                body: Some(
+                    serde_json::to_vec(&body_value)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: json_pointer_string(&body_value, "/model"),
+                extra_headers,
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
         }

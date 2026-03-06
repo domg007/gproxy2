@@ -14,6 +14,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
+    add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
+    merge_extra_headers,
 };
 use crate::channels::utils::{
     is_auth_failure, is_transient_server_failure, join_base_url_and_path, retry_after_to_millis,
@@ -48,6 +50,7 @@ struct GeminiCliPreparedRequest {
     body: Option<Value>,
     model: Option<String>,
     kind: GeminiCliRequestKind,
+    extra_headers: Vec<(String, String)>,
 }
 
 pub async fn execute_geminicli_with_retry(
@@ -134,6 +137,7 @@ async fn execute_geminicli_with_prepared(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let base_url_template = base_url.to_string();
     let user_agent_template = provider
         .settings
@@ -165,6 +169,7 @@ async fn execute_geminicli_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let kind = kind_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let base_url = base_url_template.clone();
             let user_agent = user_agent_template.clone();
 
@@ -251,6 +256,7 @@ async fn execute_geminicli_with_prepared(
                     resolved_access_token.access_token.as_str(),
                     user_agent.as_deref(),
                     model.as_deref(),
+                    extra_headers.as_slice(),
                     body_bytes.as_deref(),
                 )
                 .await
@@ -326,6 +332,7 @@ async fn execute_geminicli_with_prepared(
                         refreshed_access_token.access_token.as_str(),
                         user_agent.as_deref(),
                         model.as_deref(),
+                        extra_headers.as_slice(),
                         body_bytes.as_deref(),
                     )
                     .await
@@ -686,6 +693,7 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
                     resolved_access_token.access_token.as_str(),
                     user_agent.as_deref(),
                     None,
+                    &[],
                     Some(usage_body_bytes.as_slice()),
                 )
                 .await;
@@ -801,23 +809,21 @@ async fn send_geminicli_request(
     access_token: &str,
     custom_user_agent: Option<&str>,
     model_for_ua: Option<&str>,
+    extra_headers: &[(String, String)],
     body: Option<&[u8]>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
     let user_agent = custom_user_agent
         .map(str::trim)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| geminicli_user_agent(model_for_ua));
-    let mut headers = vec![
-        ("accept".to_string(), "application/json".to_string()),
-        (
-            "authorization".to_string(),
-            format!("Bearer {access_token}"),
-        ),
-        ("user-agent".to_string(), user_agent),
-        ("accept-encoding".to_string(), "gzip".to_string()),
-    ];
+    let mut headers = Vec::new();
+    merge_extra_headers(&mut headers, extra_headers);
+    add_or_replace_header(&mut headers, "accept", "application/json");
+    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(&mut headers, "user-agent", user_agent);
+    add_or_replace_header(&mut headers, "accept-encoding", "gzip");
     if body.is_some() {
-        headers.push(("content-type".to_string(), "application/json".to_string()));
+        add_or_replace_header(&mut headers, "content-type", "application/json");
     }
     crate::channels::upstream::tracked_send_request(
         client,
@@ -831,7 +837,8 @@ async fn send_geminicli_request(
 
 impl GeminiCliPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: String::new(),
@@ -842,6 +849,7 @@ impl GeminiCliPreparedRequest {
                     page_size: value.query.page_size,
                     page_token: value.query.page_token.clone(),
                 },
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -852,6 +860,7 @@ impl GeminiCliPreparedRequest {
                 kind: GeminiCliRequestKind::LocalModelGet {
                     target: normalize_model_name(value.path.name.as_str()),
                 },
+                extra_headers: Vec::new(),
             }),
             TransformRequest::CountTokenGemini(value) => {
                 let model = normalize_model_id(value.path.model.as_str());
@@ -864,6 +873,7 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: false,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentGemini(value) => {
@@ -880,6 +890,7 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: true,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiSse(value) => {
@@ -896,6 +907,7 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: true,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
@@ -912,6 +924,7 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: true,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::EmbeddingGemini(value) => {
@@ -928,10 +941,13 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: false,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -940,10 +956,8 @@ impl GeminiCliPreparedRequest {
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
         fn parse_gemini_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<ParsedGeminiPayload, UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             let model = value
                 .pointer("/path/model")
                 .or_else(|| value.pointer("/path/name"))
@@ -957,15 +971,17 @@ impl GeminiCliPreparedRequest {
             Ok((model, body_value, alt))
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::Gemini) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let page_size = payload
+                let page_size = payload_value
                     .pointer("/query/page_size")
                     .and_then(Value::as_u64)
                     .map(|value| value as u32);
-                let page_token = payload
+                let page_token = payload_value
                     .pointer("/query/page_token")
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned);
@@ -979,14 +995,13 @@ impl GeminiCliPreparedRequest {
                         page_size,
                         page_token,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::ModelGet, ProtocolKind::Gemini) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let Some(target) = payload
+                let Some(target) = payload_value
                     .pointer("/path/name")
-                    .or_else(|| payload.pointer("/path/model"))
+                    .or_else(|| payload_value.pointer("/path/model"))
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned)
                 else {
@@ -1003,10 +1018,11 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::LocalModelGet {
                         target: normalize_model_name(target.as_str()),
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::CountToken, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in geminicli count_tokens payload".to_string(),
@@ -1027,10 +1043,11 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: false,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in geminicli generate payload".to_string(),
@@ -1051,11 +1068,12 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: true,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in geminicli stream payload".to_string(),
@@ -1077,10 +1095,11 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: true,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in geminicli embedding payload".to_string(),
@@ -1101,6 +1120,7 @@ impl GeminiCliPreparedRequest {
                     kind: GeminiCliRequestKind::Forward {
                         requires_project: false,
                     },
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

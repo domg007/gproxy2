@@ -17,6 +17,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
+    add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
+    merge_extra_headers,
 };
 use crate::channels::utils::{
     gemini_model_list_query_string, is_transient_server_failure, join_base_url_and_path,
@@ -56,6 +58,7 @@ struct AntigravityPreparedRequest {
     body: Option<Value>,
     model: Option<String>,
     kind: AntigravityRequestKind,
+    extra_headers: Vec<(String, String)>,
 }
 
 pub async fn execute_antigravity_with_retry(
@@ -159,6 +162,7 @@ async fn execute_antigravity_with_prepared(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), ANTIGRAVITY_USER_AGENT);
@@ -187,6 +191,7 @@ async fn execute_antigravity_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let kind = kind_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let base_url = base_url_template.clone();
             let user_agent = user_agent_template.clone();
 
@@ -284,6 +289,7 @@ async fn execute_antigravity_with_prepared(
                     user_agent.as_str(),
                     request_type,
                     session_id.as_deref(),
+                    extra_headers.as_slice(),
                     body_bytes.as_deref(),
                     request_id.as_str(),
                 )
@@ -362,6 +368,7 @@ async fn execute_antigravity_with_prepared(
                         user_agent.as_str(),
                         request_type,
                         session_id.as_deref(),
+                        extra_headers.as_slice(),
                         body_bytes.as_deref(),
                         request_id.as_str(),
                     )
@@ -653,6 +660,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
                     user_agent.as_str(),
                     None,
                     None,
+                    &[],
                     Some(usage_body.as_slice()),
                     request_id.as_str(),
                 )
@@ -731,6 +739,7 @@ pub async fn execute_antigravity_upstream_usage_with_retry(
                         user_agent.as_str(),
                         None,
                         None,
+                        &[],
                         Some(usage_body.as_slice()),
                         request_id.as_str(),
                     )
@@ -837,27 +846,25 @@ async fn send_antigravity_request(
     user_agent: &str,
     request_type: Option<&str>,
     session_id: Option<&str>,
+    extra_headers: &[(String, String)],
     body: Option<&[u8]>,
     request_id: &str,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
-    let mut headers = vec![
-        ("accept".to_string(), "application/json".to_string()),
-        (
-            "authorization".to_string(),
-            format!("Bearer {access_token}"),
-        ),
-        ("user-agent".to_string(), user_agent.to_string()),
-        ("accept-encoding".to_string(), "gzip".to_string()),
-        ("requestid".to_string(), request_id.to_string()),
-    ];
+    let mut headers = Vec::new();
+    merge_extra_headers(&mut headers, extra_headers);
+    add_or_replace_header(&mut headers, "accept", "application/json");
+    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(&mut headers, "user-agent", user_agent.to_string());
+    add_or_replace_header(&mut headers, "accept-encoding", "gzip");
+    add_or_replace_header(&mut headers, "requestid", request_id.to_string());
     if let Some(value) = request_type {
-        headers.push(("requesttype".to_string(), value.to_string()));
+        add_or_replace_header(&mut headers, "requesttype", value.to_string());
     }
     if let Some(value) = session_id.map(str::trim).filter(|value| !value.is_empty()) {
-        headers.push(("x-machine-session-id".to_string(), value.to_string()));
+        add_or_replace_header(&mut headers, "x-machine-session-id", value.to_string());
     }
     if body.is_some() {
-        headers.push(("content-type".to_string(), "application/json".to_string()));
+        add_or_replace_header(&mut headers, "content-type", "application/json");
     }
     crate::channels::upstream::tracked_send_request(
         client,
@@ -871,7 +878,8 @@ async fn send_antigravity_request(
 
 impl AntigravityPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: WreqMethod::POST,
                 path: "/v1internal:fetchAvailableModels".to_string(),
@@ -885,6 +893,7 @@ impl AntigravityPreparedRequest {
                     page_size: value.query.page_size,
                     page_token: value.query.page_token.clone(),
                 },
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetGemini(value) => {
                 let target = normalize_model_name(value.path.name.as_str());
@@ -895,6 +904,7 @@ impl AntigravityPreparedRequest {
                     body: Some(json!({})),
                     model: Some(normalize_model_id(value.path.name.as_str())),
                     kind: AntigravityRequestKind::ModelGet { target },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentGemini(value) => {
@@ -912,6 +922,7 @@ impl AntigravityPreparedRequest {
                         requires_project: true,
                         request_type: None,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiSse(value)
@@ -930,6 +941,7 @@ impl AntigravityPreparedRequest {
                         requires_project: true,
                         request_type: None,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::EmbeddingGemini(value) => {
@@ -947,10 +959,13 @@ impl AntigravityPreparedRequest {
                         requires_project: false,
                         request_type: None,
                     },
+                    extra_headers: Vec::new(),
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -959,10 +974,8 @@ impl AntigravityPreparedRequest {
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
         fn parse_gemini_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<ParsedGeminiPayload, UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             let model = value
                 .pointer("/path/model")
                 .or_else(|| value.pointer("/path/name"))
@@ -976,15 +989,17 @@ impl AntigravityPreparedRequest {
             Ok((model, body_value, alt))
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::Gemini) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let page_size = payload
+                let page_size = payload_value
                     .pointer("/query/page_size")
                     .and_then(Value::as_u64)
                     .map(|value| value as u32);
-                let page_token = payload
+                let page_token = payload_value
                     .pointer("/query/page_token")
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned);
@@ -998,14 +1013,13 @@ impl AntigravityPreparedRequest {
                         page_size,
                         page_token,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::ModelGet, ProtocolKind::Gemini) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let Some(target) = payload
+                let Some(target) = payload_value
                     .pointer("/path/name")
-                    .or_else(|| payload.pointer("/path/model"))
+                    .or_else(|| payload_value.pointer("/path/model"))
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned)
                 else {
@@ -1022,10 +1036,11 @@ impl AntigravityPreparedRequest {
                     kind: AntigravityRequestKind::ModelGet {
                         target: normalize_model_name(target.as_str()),
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in antigravity generate payload".to_string(),
@@ -1046,11 +1061,12 @@ impl AntigravityPreparedRequest {
                         requires_project: true,
                         request_type: None,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in antigravity stream payload".to_string(),
@@ -1071,10 +1087,11 @@ impl AntigravityPreparedRequest {
                         requires_project: true,
                         request_type: None,
                     },
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let Some(model) = model else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in antigravity embedding payload".to_string(),
@@ -1096,6 +1113,7 @@ impl AntigravityPreparedRequest {
                         requires_project: false,
                         request_type: None,
                     },
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

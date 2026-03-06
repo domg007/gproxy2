@@ -19,6 +19,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
+    add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
+    merge_extra_headers,
 };
 use crate::channels::utils::{
     anthropic_header_pairs, append_query_param_if_missing, claude_model_list_query_string,
@@ -137,6 +139,7 @@ async fn execute_claudecode_with_prepared(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let request_headers_template = prepared.request_headers.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let context_1m_target_template = prepared.context_1m_target.clone();
     let url_template = url.clone();
     let base_url_template = base_url.to_string();
@@ -168,6 +171,7 @@ async fn execute_claudecode_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let mut request_headers = request_headers_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let context_1m_target = context_1m_target_template.clone();
             let url = url_template.clone();
             let base_url = base_url_template.clone();
@@ -245,6 +249,7 @@ async fn execute_claudecode_with_prepared(
                     url.as_str(),
                     active_access_token.as_str(),
                     request_user_agent.as_str(),
+                    extra_headers.as_slice(),
                     request_headers.as_slice(),
                     body.as_ref(),
                 )
@@ -325,6 +330,7 @@ async fn execute_claudecode_with_prepared(
                         url.as_str(),
                         active_access_token.as_str(),
                         request_user_agent.as_str(),
+                        extra_headers.as_slice(),
                         request_headers.as_slice(),
                         body.as_ref(),
                     )
@@ -380,6 +386,7 @@ async fn execute_claudecode_with_prepared(
                         url.as_str(),
                         active_access_token.as_str(),
                         request_user_agent.as_str(),
+                        extra_headers.as_slice(),
                         retry_headers_without_context.as_slice(),
                         body.as_ref(),
                     )
@@ -887,6 +894,7 @@ async fn send_claudecode_request(
     url: &str,
     access_token: &str,
     user_agent: &str,
+    extra_headers: &[(String, String)],
     request_headers: &[(String, String)],
     body: Option<&Vec<u8>>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
@@ -909,22 +917,23 @@ async fn send_claudecode_request(
         beta_values.push(OAUTH_BETA.to_string());
     }
 
-    let mut sent_headers = vec![
-        (
-            "authorization".to_string(),
-            format!("Bearer {}", access_token),
-        ),
-        ("user-agent".to_string(), user_agent.to_string()),
-        ("anthropic-beta".to_string(), beta_values.join(",")),
-    ];
+    let mut sent_headers = Vec::new();
+    merge_extra_headers(&mut sent_headers, extra_headers);
+    add_or_replace_header(
+        &mut sent_headers,
+        "authorization",
+        format!("Bearer {}", access_token),
+    );
+    add_or_replace_header(&mut sent_headers, "user-agent", user_agent.to_string());
+    add_or_replace_header(&mut sent_headers, "anthropic-beta", beta_values.join(","));
     for (name, value) in request_headers {
         if name.eq_ignore_ascii_case("anthropic-beta") {
             continue;
         }
-        sent_headers.push((name.clone(), value.clone()));
+        add_or_replace_header(&mut sent_headers, name, value.clone());
     }
     if body.is_some() {
-        sent_headers.push(("content-type".to_string(), "application/json".to_string()));
+        add_or_replace_header(&mut sent_headers, "content-type", "application/json");
     }
 
     crate::channels::upstream::tracked_send_request(
@@ -976,6 +985,7 @@ struct ClaudeCodePreparedRequest {
     body: Option<Vec<u8>>,
     model: Option<String>,
     request_headers: Vec<(String, String)>,
+    extra_headers: Vec<(String, String)>,
     context_1m_target: Option<ClaudeCode1mTarget>,
 }
 
@@ -985,7 +995,8 @@ impl ClaudeCodePreparedRequest {
         prelude_text: Option<&str>,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             gproxy_middleware::TransformRequest::ModelListClaude(value) => {
                 let mut path = "/v1/models".to_string();
                 let query = claude_model_list_query_string(
@@ -1012,6 +1023,7 @@ impl ClaudeCodePreparedRequest {
                     body: None,
                     model: None,
                     request_headers,
+                    extra_headers: Vec::new(),
                     context_1m_target: None,
                 })
             }
@@ -1033,6 +1045,7 @@ impl ClaudeCodePreparedRequest {
                     body: None,
                     model: Some(model_id),
                     request_headers,
+                    extra_headers: Vec::new(),
                     context_1m_target: None,
                 })
             }
@@ -1066,6 +1079,7 @@ impl ClaudeCodePreparedRequest {
                     ),
                     model: Some(model),
                     request_headers,
+                    extra_headers: Vec::new(),
                     context_1m_target,
                 })
             }
@@ -1104,6 +1118,7 @@ impl ClaudeCodePreparedRequest {
                     ),
                     model: Some(model),
                     request_headers,
+                    extra_headers: Vec::new(),
                     context_1m_target,
                 })
             }
@@ -1142,11 +1157,14 @@ impl ClaudeCodePreparedRequest {
                     ),
                     model: Some(model),
                     request_headers,
+                    extra_headers: Vec::new(),
                     context_1m_target,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -1164,12 +1182,10 @@ impl ClaudeCodePreparedRequest {
         }
 
         fn parse_claude_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(Value, String, Option<Vec<String>>), UpstreamError> {
             const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             if let Some(body_value) = value.get("body").cloned() {
                 let version = value
                     .pointer("/headers/anthropic_version")
@@ -1189,19 +1205,21 @@ impl ClaudeCodePreparedRequest {
                     .filter(|items| !items.is_empty());
                 return Ok((body_value, version, beta));
             }
-            Ok((value, DEFAULT_ANTHROPIC_VERSION.to_string(), None))
+            Ok((value.clone(), DEFAULT_ANTHROPIC_VERSION.to_string(), None))
         }
+
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
 
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::Claude) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let version = payload
+                let version = payload_value
                     .pointer("/headers/anthropic_version")
                     .and_then(Value::as_str)
                     .unwrap_or("2023-06-01")
                     .to_string();
-                let beta = payload
+                let beta = payload_value
                     .pointer("/headers/anthropic_beta")
                     .and_then(Value::as_array)
                     .map(|items| {
@@ -1221,13 +1239,12 @@ impl ClaudeCodePreparedRequest {
                     body: None,
                     model: None,
                     request_headers,
+                    extra_headers,
                     context_1m_target: None,
                 })
             }
             (OperationFamily::ModelGet, ProtocolKind::Claude) => {
-                let payload = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let Some(model_id) = payload
+                let Some(model_id) = payload_value
                     .pointer("/path/model_id")
                     .and_then(Value::as_str)
                     .map(str::trim)
@@ -1238,12 +1255,12 @@ impl ClaudeCodePreparedRequest {
                         "missing path.model_id in claudecode model_get payload".to_string(),
                     ));
                 };
-                let version = payload
+                let version = payload_value
                     .pointer("/headers/anthropic_version")
                     .and_then(Value::as_str)
                     .unwrap_or("2023-06-01")
                     .to_string();
-                let beta = payload
+                let beta = payload_value
                     .pointer("/headers/anthropic_beta")
                     .and_then(Value::as_array)
                     .map(|items| {
@@ -1265,11 +1282,12 @@ impl ClaudeCodePreparedRequest {
                     body: None,
                     model: Some(model_id),
                     request_headers,
+                    extra_headers,
                     context_1m_target: None,
                 })
             }
             (OperationFamily::CountToken, ProtocolKind::Claude) => {
-                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
                 if let Some(prelude) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude);
                 }
@@ -1296,12 +1314,13 @@ impl ClaudeCodePreparedRequest {
                     ),
                     model: Some(model),
                     request_headers,
+                    extra_headers,
                     context_1m_target,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Claude)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-                let (mut body_json, version, beta) = parse_claude_payload_wrapper(body)?;
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
                 if let Some(prelude) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude);
                 }
@@ -1333,6 +1352,7 @@ impl ClaudeCodePreparedRequest {
                     ),
                     model: Some(model),
                     request_headers,
+                    extra_headers,
                     context_1m_target,
                 })
             }

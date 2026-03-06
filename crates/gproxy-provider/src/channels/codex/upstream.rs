@@ -21,6 +21,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
+    add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
+    merge_extra_headers, payload_body_value,
 };
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, is_auth_failure, is_transient_server_failure,
@@ -45,6 +47,7 @@ struct CodexPreparedRequest {
     body: Option<Vec<u8>>,
     model: Option<String>,
     kind: CodexRequestKind,
+    extra_headers: Vec<(String, String)>,
 }
 
 pub async fn execute_codex_with_retry(
@@ -96,8 +99,9 @@ pub async fn execute_codex_payload_with_retry(
 ) -> Result<UpstreamResponse, UpstreamError> {
     if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
     {
-        let body_json = serde_json::from_slice::<Value>(payload.body)
+        let payload_json = serde_json::from_slice::<Value>(payload.body)
             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let body_json = payload_body_value(&payload_json);
         let model = body_json
             .get("model")
             .and_then(Value::as_str)
@@ -166,6 +170,7 @@ async fn execute_codex_with_prepared(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let kind_template = prepared.kind.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_default(provider.settings.user_agent(), USER_AGENT_VALUE);
@@ -193,6 +198,7 @@ async fn execute_codex_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let kind = kind_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let base_url = base_url_template.clone();
             let user_agent = user_agent_template.clone();
 
@@ -252,6 +258,7 @@ async fn execute_codex_with_prepared(
                     access_token.as_str(),
                     attempt.material.account_id.as_str(),
                     user_agent.as_str(),
+                    extra_headers.as_slice(),
                     body.as_ref(),
                 )
                 .await
@@ -327,6 +334,7 @@ async fn execute_codex_with_prepared(
                         refreshed_token.as_str(),
                         attempt.material.account_id.as_str(),
                         user_agent.as_str(),
+                        extra_headers.as_slice(),
                         body.as_ref(),
                     )
                     .await
@@ -783,19 +791,17 @@ async fn send_codex_request(
     access_token: &str,
     account_id: &str,
     user_agent: &str,
+    extra_headers: &[(String, String)],
     body: Option<&Vec<u8>>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
-    let mut headers = vec![
-        (
-            "authorization".to_string(),
-            format!("Bearer {access_token}"),
-        ),
-        (ACCOUNT_ID_HEADER.to_string(), account_id.to_string()),
-        (ORIGINATOR_HEADER.to_string(), ORIGINATOR_VALUE.to_string()),
-        (USER_AGENT_HEADER.to_string(), user_agent.to_string()),
-    ];
+    let mut headers = Vec::new();
+    merge_extra_headers(&mut headers, extra_headers);
+    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(&mut headers, ACCOUNT_ID_HEADER, account_id.to_string());
+    add_or_replace_header(&mut headers, ORIGINATOR_HEADER, ORIGINATOR_VALUE);
+    add_or_replace_header(&mut headers, USER_AGENT_HEADER, user_agent.to_string());
     if body.is_some() {
-        headers.push(("content-type".to_string(), "application/json".to_string()));
+        add_or_replace_header(&mut headers, "content-type", "application/json");
     }
     crate::channels::upstream::tracked_send_request(client, method, url, headers, body.cloned())
         .await
@@ -824,13 +830,15 @@ async fn send_codex_usage_request(
 
 impl CodexPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: codex_models_path(),
                 body: None,
                 model: None,
                 kind: CodexRequestKind::ModelList,
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetOpenAi(value) => {
                 let target = normalize_model_id(value.path.model.as_str());
@@ -840,6 +848,7 @@ impl CodexPreparedRequest {
                     body: None,
                     model: Some(target.clone()),
                     kind: CodexRequestKind::ModelGet { target },
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentOpenAiResponse(value)
@@ -862,6 +871,7 @@ impl CodexPreparedRequest {
                     ),
                     model: value.body.model.clone(),
                     kind: CodexRequestKind::Forward,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::CompactOpenAi(value) => {
@@ -877,6 +887,7 @@ impl CodexPreparedRequest {
                     ),
                     model: Some(normalize_model_id(value.body.model.as_str())),
                     kind: CodexRequestKind::Forward,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::OpenAiResponseWebSocket(value) => {
@@ -886,7 +897,9 @@ impl CodexPreparedRequest {
                 Self::from_transform_request(&transformed)
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -894,16 +907,16 @@ impl CodexPreparedRequest {
         protocol: ProtocolKind,
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
-        fn json_pointer_string(body: &[u8], pointer: &str) -> Option<String> {
-            serde_json::from_slice::<Value>(body)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .pointer(pointer)
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned)
-                })
+        fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
+            value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
         }
+
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
 
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
@@ -912,9 +925,10 @@ impl CodexPreparedRequest {
                 body: None,
                 model: None,
                 kind: CodexRequestKind::ModelList,
+                extra_headers,
             }),
             (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
-                let Some(target_raw) = json_pointer_string(body, "/path/model") else {
+                let Some(target_raw) = json_pointer_string(&payload_value, "/path/model") else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in codex model_get payload".to_string(),
                     ));
@@ -926,12 +940,12 @@ impl CodexPreparedRequest {
                     body: None,
                     model: Some(target.clone()),
                     kind: CodexRequestKind::ModelGet { target },
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
-                let mut body_json = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let mut body_json = payload_body_value(&payload_value);
                 normalize_codex_response_request_body(
                     &mut body_json,
                     operation == OperationFamily::StreamGenerateContent,
@@ -949,11 +963,11 @@ impl CodexPreparedRequest {
                     ),
                     model,
                     kind: CodexRequestKind::Forward,
+                    extra_headers,
                 })
             }
             (OperationFamily::Compact, ProtocolKind::OpenAi) => {
-                let mut body_json = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let mut body_json = payload_body_value(&payload_value);
                 normalize_codex_compact_request_body(&mut body_json);
                 let model = body_json
                     .get("model")
@@ -968,6 +982,7 @@ impl CodexPreparedRequest {
                     ),
                     model,
                     kind: CodexRequestKind::Forward,
+                    extra_headers,
                 })
             }
             (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {

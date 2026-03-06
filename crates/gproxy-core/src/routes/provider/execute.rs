@@ -180,6 +180,9 @@ fn wrap_payload_for_typed_decode(
                 if let Some(item) = map.get("query") {
                     query = item.clone();
                 }
+                if let Some(item) = map.get("headers") {
+                    headers = item.clone();
+                }
                 map.get("body").cloned().unwrap_or(value)
             } else {
                 value

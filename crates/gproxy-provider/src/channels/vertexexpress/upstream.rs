@@ -8,7 +8,10 @@ use crate::channels::retry::{
     cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
     credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers,
+};
 use crate::channels::utils::{
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
     is_transient_server_failure, resolve_user_agent_or_else, retry_after_to_millis, to_wreq_method,
@@ -91,6 +94,7 @@ async fn execute_vertexexpress_with_prepared(
     let query_template = prepared.query.clone();
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let base_url_template = base_url.to_string();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
@@ -132,6 +136,7 @@ async fn execute_vertexexpress_with_prepared(
             let query = query_template.clone();
             let body = body_template.clone();
             let model = model_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let base_url = base_url_template.clone();
             let user_agent = user_agent_template.clone();
 
@@ -143,11 +148,15 @@ async fn execute_vertexexpress_with_prepared(
                     attempt.material.as_str(),
                 );
                 let mut request_headers = Vec::new();
-                request_headers.push(("user-agent".to_string(), user_agent));
+                merge_extra_headers(&mut request_headers, &extra_headers);
+                add_or_replace_header(&mut request_headers, "user-agent", user_agent);
 
                 if body.is_some() {
-                    request_headers
-                        .push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut request_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -279,11 +288,13 @@ struct VertexExpressPreparedRequest {
     query: Option<String>,
     body: Option<Vec<u8>>,
     model: Option<String>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl VertexExpressPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1beta1/publishers/google/models".to_string(),
@@ -293,6 +304,7 @@ impl VertexExpressPreparedRequest {
                 ),
                 body: None,
                 model: None,
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetGemini(value) => {
                 let model_id = vertexexpress_model_id(value.path.name.as_str());
@@ -302,6 +314,7 @@ impl VertexExpressPreparedRequest {
                     query: None,
                     body: None,
                     model: Some(format!("models/{model_id}")),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::CountTokenGemini(value) => {
@@ -318,6 +331,7 @@ impl VertexExpressPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentGemini(value) => {
@@ -332,6 +346,7 @@ impl VertexExpressPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiSse(value) => {
@@ -348,6 +363,7 @@ impl VertexExpressPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
@@ -364,10 +380,13 @@ impl VertexExpressPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers: Vec::new(),
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -376,10 +395,8 @@ impl VertexExpressPreparedRequest {
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
         fn parse_gemini_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(String, Value, Option<String>), UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             let Some(model) = value
                 .pointer("/path/model")
                 .and_then(Value::as_str)
@@ -401,9 +418,13 @@ impl VertexExpressPreparedRequest {
             Ok((model, body_value, alt))
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::CountToken, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = vertexexpress_model_id(model.as_str());
                 Ok(Self {
                     method: WreqMethod::POST,
@@ -417,10 +438,11 @@ impl VertexExpressPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = vertexexpress_model_id(model.as_str());
                 let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
                 Ok(Self {
@@ -432,11 +454,12 @@ impl VertexExpressPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers,
                 })
             }
             (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = vertexexpress_model_id(model.as_str());
                 let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
                 let query = match protocol {
@@ -455,6 +478,7 @@ impl VertexExpressPreparedRequest {
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                     ),
                     model: Some(format!("models/{model_id}")),
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

@@ -7,7 +7,10 @@ use crate::channels::retry::{
     configured_pick_mode_uses_cache, credential_pick_mode,
     retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_transform_request,
+    merge_extra_headers,
+};
 use crate::channels::utils::{
     anthropic_header_pairs, claude_model_list_query_string, claude_model_to_string,
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
@@ -54,6 +57,7 @@ pub async fn execute_custom_with_retry(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let headers_template = prepared.request_headers.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let auth_template = prepared.auth_scheme;
     let url_template = url.clone();
     let user_agent_template =
@@ -95,36 +99,48 @@ pub async fn execute_custom_with_retry(
             let body = body_template.clone();
             let model = model_template.clone();
             let request_headers = headers_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let auth_scheme = auth_template;
             let url = url_template.clone();
             let user_agent = user_agent_template.clone();
             async move {
                 let mut request_meta_headers = Vec::new();
-                request_meta_headers.push(("user-agent".to_string(), user_agent));
+                merge_extra_headers(&mut request_meta_headers, &extra_headers);
+                add_or_replace_header(&mut request_meta_headers, "user-agent", user_agent);
                 match auth_scheme {
                     AuthScheme::Bearer => {
-                        request_meta_headers.push((
-                            "authorization".to_string(),
+                        add_or_replace_header(
+                            &mut request_meta_headers,
+                            "authorization",
                             format!("Bearer {}", attempt.material),
-                        ));
+                        );
                     }
                     AuthScheme::XApiKey => {
-                        request_meta_headers
-                            .push(("x-api-key".to_string(), attempt.material.clone()));
+                        add_or_replace_header(
+                            &mut request_meta_headers,
+                            "x-api-key",
+                            attempt.material.clone(),
+                        );
                     }
                     AuthScheme::XGoogApiKey => {
-                        request_meta_headers
-                            .push(("x-goog-api-key".to_string(), attempt.material.clone()));
+                        add_or_replace_header(
+                            &mut request_meta_headers,
+                            "x-goog-api-key",
+                            attempt.material.clone(),
+                        );
                     }
                 };
 
                 for (name, value) in &request_headers {
-                    request_meta_headers.push((name.clone(), value.clone()));
+                    add_or_replace_header(&mut request_meta_headers, name, value.clone());
                 }
 
                 if body.is_some() {
-                    request_meta_headers
-                        .push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut request_meta_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -245,6 +261,7 @@ struct CustomPreparedRequest {
     model: Option<String>,
     auth_scheme: AuthScheme,
     request_headers: Vec<(String, String)>,
+    extra_headers: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -258,7 +275,8 @@ impl CustomPreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
     ) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/models".to_string(),
@@ -267,6 +285,7 @@ impl CustomPreparedRequest {
                 model: None,
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -276,6 +295,7 @@ impl CustomPreparedRequest {
                 model: Some(value.path.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::CountTokenOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -288,6 +308,7 @@ impl CustomPreparedRequest {
                 model: value.body.model.clone(),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::GenerateContentOpenAiResponse(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -300,6 +321,7 @@ impl CustomPreparedRequest {
                 model: value.body.model.clone(),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 Ok(Self {
@@ -313,6 +335,7 @@ impl CustomPreparedRequest {
                     model: Some(value.body.model.clone()),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentOpenAiResponse(value) => {
@@ -327,6 +350,7 @@ impl CustomPreparedRequest {
                     model: value.body.model.clone(),
                     auth_scheme: AuthScheme::Bearer,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentOpenAiChatCompletions(
@@ -342,6 +366,7 @@ impl CustomPreparedRequest {
                 model: Some(value.body.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::EmbeddingOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -354,6 +379,7 @@ impl CustomPreparedRequest {
                 model: None,
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::CompactOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -366,6 +392,7 @@ impl CustomPreparedRequest {
                 model: Some(value.body.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelListClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -383,6 +410,7 @@ impl CustomPreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelGetClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -395,6 +423,7 @@ impl CustomPreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::CountTokenClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -410,6 +439,7 @@ impl CustomPreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -425,6 +455,7 @@ impl CustomPreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -440,6 +471,7 @@ impl CustomPreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -452,6 +484,7 @@ impl CustomPreparedRequest {
                 model: None,
                 auth_scheme: AuthScheme::XGoogApiKey,
                 request_headers: Vec::new(),
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelGetGemini(value) => {
                 let name = normalize_gemini_model_name(value.path.name.as_str());
@@ -463,6 +496,7 @@ impl CustomPreparedRequest {
                     model: Some(name),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::CountTokenGemini(value) => {
@@ -478,6 +512,7 @@ impl CustomPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::GenerateContentGemini(value) => {
@@ -493,6 +528,7 @@ impl CustomPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentGeminiSse(value) => {
@@ -513,6 +549,7 @@ impl CustomPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
@@ -528,6 +565,7 @@ impl CustomPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::EmbeddingGemini(value) => {
@@ -543,6 +581,7 @@ impl CustomPreparedRequest {
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
                     request_headers: Vec::new(),
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::OpenAiResponseWebSocket(value) => {
@@ -553,7 +592,9 @@ impl CustomPreparedRequest {
                 let _ = value;
                 Err(UpstreamError::UnsupportedRequest)
             }
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 }
 

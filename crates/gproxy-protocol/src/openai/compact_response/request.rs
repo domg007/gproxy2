@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::openai::compact_response::types::{HttpMethod, ResponseInput};
@@ -39,7 +41,10 @@ pub struct QueryParameters {}
 
 /// Proxy-side request model does not carry auth headers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct RequestHeaders {}
+pub struct RequestHeaders {
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
+}
 
 /// Request body for `POST /responses/compact`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

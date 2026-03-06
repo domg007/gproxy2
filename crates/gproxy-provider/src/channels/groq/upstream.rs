@@ -7,7 +7,10 @@ use crate::channels::retry::{
     configured_pick_mode_uses_cache, credential_pick_mode,
     retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+};
 use crate::channels::utils::{
     count_openai_input_tokens_with_resolution, default_gproxy_user_agent, is_auth_failure,
     is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
@@ -107,8 +110,9 @@ pub async fn execute_groq_payload_with_retry(
 ) -> Result<UpstreamResponse, UpstreamError> {
     if (payload.operation, payload.protocol) == (OperationFamily::CountToken, ProtocolKind::OpenAi)
     {
-        let body_json = serde_json::from_slice::<Value>(payload.body)
+        let payload_json = serde_json::from_slice::<Value>(payload.body)
             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let body_json = payload_body_value(&payload_json);
         let model = body_json
             .get("model")
             .and_then(Value::as_str)
@@ -167,6 +171,7 @@ async fn execute_groq_with_prepared(
     let method_template = prepared.method.clone();
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
+    let extra_headers_template = prepared.extra_headers.clone();
     let url_template = url.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
@@ -195,16 +200,24 @@ async fn execute_groq_with_prepared(
             let method = method_template.clone();
             let body = body_template.clone();
             let model = model_template.clone();
+            let extra_headers = extra_headers_template.clone();
             let url = url_template.clone();
             let user_agent = user_agent_template.clone();
             async move {
-                let mut sent_headers = vec![(
-                    "authorization".to_string(),
+                let mut sent_headers = Vec::new();
+                merge_extra_headers(&mut sent_headers, &extra_headers);
+                add_or_replace_header(
+                    &mut sent_headers,
+                    "authorization",
                     format!("Bearer {}", attempt.material),
-                )];
-                sent_headers.push(("user-agent".to_string(), user_agent));
+                );
+                add_or_replace_header(&mut sent_headers, "user-agent", user_agent);
                 if body.is_some() {
-                    sent_headers.push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut sent_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -321,22 +334,26 @@ struct GroqPreparedRequest {
     path: String,
     body: Option<Vec<u8>>,
     model: Option<String>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl GroqPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/models".to_string(),
                 body: None,
                 model: None,
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: format!("/v1/models/{}", value.path.model),
                 body: None,
                 model: Some(value.path.model.clone()),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::GenerateContentOpenAiResponse(value) => {
                 let raw_body = serde_json::to_vec(&value.body)
@@ -346,6 +363,7 @@ impl GroqPreparedRequest {
                     path: "/v1/responses".to_string(),
                     body: Some(normalize_response_request_body(raw_body)),
                     model: value.body.model.clone(),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
@@ -356,6 +374,7 @@ impl GroqPreparedRequest {
                     path: "/v1/chat/completions".to_string(),
                     body: Some(normalize_chat_completion_request_body(raw_body)),
                     model: Some(value.body.model.clone()),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentOpenAiResponse(value) => {
@@ -366,6 +385,7 @@ impl GroqPreparedRequest {
                     path: "/v1/responses".to_string(),
                     body: Some(normalize_response_request_body(raw_body)),
                     model: value.body.model.clone(),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
@@ -376,6 +396,7 @@ impl GroqPreparedRequest {
                     path: "/v1/chat/completions".to_string(),
                     body: Some(normalize_chat_completion_request_body(raw_body)),
                     model: Some(value.body.model.clone()),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::EmbeddingOpenAi(value) => Ok(Self {
@@ -386,9 +407,12 @@ impl GroqPreparedRequest {
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
                 ),
                 model: None,
+                extra_headers: Vec::new(),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -403,17 +427,21 @@ impl GroqPreparedRequest {
                 .map(ToOwned::to_owned)
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+        let body_value = payload_body_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::ModelList, ProtocolKind::OpenAi) => Ok(Self {
                 method: WreqMethod::GET,
                 path: "/v1/models".to_string(),
                 body: None,
                 model: None,
+                extra_headers,
             }),
             (OperationFamily::ModelGet, ProtocolKind::OpenAi) => {
-                let value = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let Some(model) = json_pointer_string(&value, "/path/model") else {
+                let Some(model) = json_pointer_string(&payload_value, "/path/model") else {
                     return Err(UpstreamError::SerializeRequest(
                         "missing path.model in groq model_get payload".to_string(),
                     ));
@@ -423,38 +451,45 @@ impl GroqPreparedRequest {
                     path: format!("/v1/models/{model}"),
                     body: None,
                     model: Some(model),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
-                let value = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: "/v1/responses".to_string(),
-                    body: Some(normalize_response_request_body(body.to_vec())),
-                    model: json_pointer_string(&value, "/model"),
+                    body: Some(normalize_response_request_body(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    )),
+                    model: json_pointer_string(&body_value, "/model"),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
-                let value = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: "/v1/chat/completions".to_string(),
-                    body: Some(normalize_chat_completion_request_body(body.to_vec())),
-                    model: json_pointer_string(&value, "/model"),
+                    body: Some(normalize_chat_completion_request_body(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    )),
+                    model: json_pointer_string(&body_value, "/model"),
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::OpenAi) => {
-                let value = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: "/v1/embeddings".to_string(),
-                    body: Some(body.to_vec()),
-                    model: json_pointer_string(&value, "/model"),
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: json_pointer_string(&body_value, "/model"),
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

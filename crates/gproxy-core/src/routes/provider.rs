@@ -598,7 +598,9 @@ async fn collect_provider_model_ids(
     headers: &HeaderMap,
 ) -> Vec<String> {
     let channel_prefix = channel.as_str().to_string();
+    let passthrough_headers = collect_passthrough_headers(headers);
     let mut openai = openai_model_list_request::OpenAiModelListRequest::default();
+    openai.headers.extra = passthrough_headers.clone();
 
     let mut claude = claude_model_list_request::ClaudeModelListRequest::default();
     let (version, beta) = anthropic_headers_from_request(headers);
@@ -606,8 +608,10 @@ async fn collect_provider_model_ids(
     if beta.is_some() {
         claude.headers.anthropic_beta = beta;
     }
+    claude.headers.extra = passthrough_headers.clone();
 
-    let gemini = gemini_model_list_request::GeminiModelListRequest::default();
+    let mut gemini = gemini_model_list_request::GeminiModelListRequest::default();
+    gemini.headers.extra = passthrough_headers;
     openai.query = openai_model_list_request::QueryParameters::default();
     let candidates = match model_protocol_preference(headers, None) {
         ModelProtocolPreference::Claude => vec![

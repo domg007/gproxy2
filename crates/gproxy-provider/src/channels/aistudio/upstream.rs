@@ -6,7 +6,10 @@ use crate::channels::retry::{
     cache_affinity_protocol_from_transform_request, configured_pick_mode_uses_cache,
     credential_pick_mode, retry_with_eligible_credentials_with_affinity,
 };
-use crate::channels::upstream::{UpstreamError, UpstreamResponse};
+use crate::channels::upstream::{
+    UpstreamError, UpstreamResponse, add_or_replace_header, extra_headers_from_payload_value,
+    extra_headers_from_transform_request, merge_extra_headers, payload_body_value,
+};
 use crate::channels::utils::{
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
     is_transient_server_failure, join_base_url_and_path, resolve_user_agent_or_else,
@@ -84,6 +87,7 @@ async fn execute_aistudio_with_prepared(
     let url_template = url.clone();
     let model_template = prepared.model.clone();
     let auth_template = prepared.auth_scheme;
+    let extra_headers_template = prepared.extra_headers.clone();
     let user_agent_template =
         resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
@@ -124,28 +128,37 @@ async fn execute_aistudio_with_prepared(
             let model = model_template.clone();
             let url = url_template.clone();
             let auth_scheme = auth_template;
+            let extra_headers = extra_headers_template.clone();
             let user_agent = user_agent_template.clone();
 
             async move {
                 let mut request_headers = Vec::new();
-                request_headers.push(("user-agent".to_string(), user_agent));
+                merge_extra_headers(&mut request_headers, &extra_headers);
+                add_or_replace_header(&mut request_headers, "user-agent", user_agent);
 
                 match auth_scheme {
                     AuthScheme::Bearer => {
-                        request_headers.push((
-                            "authorization".to_string(),
+                        add_or_replace_header(
+                            &mut request_headers,
+                            "authorization",
                             format!("Bearer {}", attempt.material),
-                        ));
+                        );
                     }
                     AuthScheme::XGoogApiKey => {
-                        request_headers
-                            .push(("x-goog-api-key".to_string(), attempt.material.clone()));
+                        add_or_replace_header(
+                            &mut request_headers,
+                            "x-goog-api-key",
+                            attempt.material.clone(),
+                        );
                     }
                 };
 
                 if body.is_some() {
-                    request_headers
-                        .push(("content-type".to_string(), "application/json".to_string()));
+                    add_or_replace_header(
+                        &mut request_headers,
+                        "content-type",
+                        "application/json",
+                    );
                 }
                 let send = crate::channels::upstream::tracked_send_request(
                     client,
@@ -288,13 +301,15 @@ struct AiStudioPreparedRequest {
     body: Option<Vec<u8>>,
     model: Option<String>,
     auth_scheme: AuthScheme,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl AiStudioPreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
     ) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1beta/openai/models".to_string(),
@@ -302,6 +317,7 @@ impl AiStudioPreparedRequest {
                 body: None,
                 model: None,
                 auth_scheme: AuthScheme::Bearer,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -310,6 +326,7 @@ impl AiStudioPreparedRequest {
                 body: None,
                 model: Some(value.path.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -321,6 +338,7 @@ impl AiStudioPreparedRequest {
                 body: None,
                 model: None,
                 auth_scheme: AuthScheme::XGoogApiKey,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::ModelGetGemini(value) => {
                 let name = normalize_gemini_model_name(value.path.name.as_str());
@@ -331,6 +349,7 @@ impl AiStudioPreparedRequest {
                     body: None,
                     model: Some(name),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::CountTokenGemini(value) => {
@@ -345,6 +364,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::GenerateContentGemini(value) => {
@@ -359,6 +379,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentGeminiSse(value) => {
@@ -379,6 +400,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
@@ -394,6 +416,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::EmbeddingGemini(value) => {
@@ -408,6 +431,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
@@ -421,6 +445,7 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(value.body.model.clone()),
                     auth_scheme: AuthScheme::Bearer,
+                    extra_headers: Vec::new(),
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentOpenAiChatCompletions(
@@ -435,6 +460,7 @@ impl AiStudioPreparedRequest {
                 ),
                 model: Some(value.body.model.clone()),
                 auth_scheme: AuthScheme::Bearer,
+                extra_headers: Vec::new(),
             }),
             gproxy_middleware::TransformRequest::GeminiLive(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
@@ -450,9 +476,12 @@ impl AiStudioPreparedRequest {
                     .and_then(gemini_live_setup_model_from_body)
                     .map(|model| normalize_gemini_model_name(model.as_str())),
                 auth_scheme: AuthScheme::XGoogApiKey,
+                extra_headers: Vec::new(),
             }),
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -468,10 +497,8 @@ impl AiStudioPreparedRequest {
         }
 
         fn parse_gemini_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(String, Value, Option<String>), UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             let Some(model) = value
                 .pointer("/path/model")
                 .and_then(Value::as_str)
@@ -493,9 +520,13 @@ impl AiStudioPreparedRequest {
             Ok((model, body_value, alt))
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::CountToken, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model = normalize_gemini_model_name(model.as_str());
                 Ok(Self {
                     method: WreqMethod::POST,
@@ -507,10 +538,11 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model = normalize_gemini_model_name(model.as_str());
                 Ok(Self {
                     method: WreqMethod::POST,
@@ -522,11 +554,12 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers,
                 })
             }
             (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model = normalize_gemini_model_name(model.as_str());
                 let query = match protocol {
                     ProtocolKind::Gemini => {
@@ -545,10 +578,11 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model = normalize_gemini_model_name(model.as_str());
                 Ok(Self {
                     method: WreqMethod::POST,
@@ -560,41 +594,43 @@ impl AiStudioPreparedRequest {
                     ),
                     model: Some(model),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
+                let body_value = payload_body_value(&payload_value);
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: "/v1beta/openai/chat/completions".to_string(),
                     query: None,
-                    body: Some(body.to_vec()),
-                    model: serde_json::from_slice::<Value>(body)
-                        .ok()
-                        .and_then(|value| json_pointer_string(&value, "/model")),
+                    body: Some(
+                        serde_json::to_vec(&body_value)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: json_pointer_string(&body_value, "/model"),
                     auth_scheme: AuthScheme::Bearer,
+                    extra_headers,
                 })
             }
             (OperationFamily::GeminiLive, ProtocolKind::Gemini) => {
-                let request = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-                let method = request
+                let method = payload_value
                     .pointer("/method")
                     .and_then(Value::as_str)
                     .unwrap_or("GET")
                     .to_string();
-                let rpc = request
+                let rpc = payload_value
                     .pointer("/path/rpc")
                     .and_then(Value::as_str)
                     .unwrap_or(
                         "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
                     )
                     .to_string();
-                let key = request.pointer("/query/key").and_then(Value::as_str);
-                let access_token = request
+                let key = payload_value.pointer("/query/key").and_then(Value::as_str);
+                let access_token = payload_value
                     .pointer("/query/access_token")
                     .and_then(Value::as_str);
-                let model = request
+                let model = payload_value
                     .pointer("/body/setup/model")
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned);
@@ -605,6 +641,7 @@ impl AiStudioPreparedRequest {
                     body: None,
                     model: model.map(|model| normalize_gemini_model_name(model.as_str())),
                     auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

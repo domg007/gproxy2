@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gemini::types::HttpMethod;
@@ -53,7 +55,10 @@ pub enum AltQueryParameter {
 
 /// Proxy-side request model does not carry auth headers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct RequestHeaders {}
+pub struct RequestHeaders {
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
+}
 
 /// Stream endpoint shares the same JSON body as `models.generateContent`.
 pub type RequestBody = crate::gemini::generate_content::request::RequestBody;

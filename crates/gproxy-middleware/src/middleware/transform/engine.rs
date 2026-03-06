@@ -119,6 +119,71 @@ pub fn select_response_lane(route: TransformRoute) -> TransformLane {
     }
 }
 
+fn request_extra_headers(input: &TransformRequest) -> std::collections::BTreeMap<String, String> {
+    match input {
+        TransformRequest::ModelListOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::ModelListClaude(value) => value.headers.extra.clone(),
+        TransformRequest::ModelListGemini(value) => value.headers.extra.clone(),
+        TransformRequest::ModelGetOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::ModelGetClaude(value) => value.headers.extra.clone(),
+        TransformRequest::ModelGetGemini(value) => value.headers.extra.clone(),
+        TransformRequest::CountTokenOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::CountTokenClaude(value) => value.headers.extra.clone(),
+        TransformRequest::CountTokenGemini(value) => value.headers.extra.clone(),
+        TransformRequest::GenerateContentOpenAiResponse(value) => value.headers.extra.clone(),
+        TransformRequest::GenerateContentOpenAiChatCompletions(value) => value.headers.extra.clone(),
+        TransformRequest::GenerateContentClaude(value) => value.headers.extra.clone(),
+        TransformRequest::GenerateContentGemini(value) => value.headers.extra.clone(),
+        TransformRequest::StreamGenerateContentOpenAiResponse(value) => value.headers.extra.clone(),
+        TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
+            value.headers.extra.clone()
+        }
+        TransformRequest::StreamGenerateContentClaude(value) => value.headers.extra.clone(),
+        TransformRequest::StreamGenerateContentGeminiSse(value) => value.headers.extra.clone(),
+        TransformRequest::StreamGenerateContentGeminiNdjson(value) => value.headers.extra.clone(),
+        TransformRequest::OpenAiResponseWebSocket(value) => value.headers.extra.clone(),
+        TransformRequest::GeminiLive(value) => value.headers.extra.clone(),
+        TransformRequest::EmbeddingOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::EmbeddingGemini(value) => value.headers.extra.clone(),
+        TransformRequest::CompactOpenAi(value) => value.headers.extra.clone(),
+    }
+}
+
+fn apply_request_extra_headers(
+    request: &mut TransformRequest,
+    extra: std::collections::BTreeMap<String, String>,
+) {
+    match request {
+        TransformRequest::ModelListOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::ModelListClaude(value) => value.headers.extra = extra,
+        TransformRequest::ModelListGemini(value) => value.headers.extra = extra,
+        TransformRequest::ModelGetOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::ModelGetClaude(value) => value.headers.extra = extra,
+        TransformRequest::ModelGetGemini(value) => value.headers.extra = extra,
+        TransformRequest::CountTokenOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::CountTokenClaude(value) => value.headers.extra = extra,
+        TransformRequest::CountTokenGemini(value) => value.headers.extra = extra,
+        TransformRequest::GenerateContentOpenAiResponse(value) => value.headers.extra = extra,
+        TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
+            value.headers.extra = extra
+        }
+        TransformRequest::GenerateContentClaude(value) => value.headers.extra = extra,
+        TransformRequest::GenerateContentGemini(value) => value.headers.extra = extra,
+        TransformRequest::StreamGenerateContentOpenAiResponse(value) => value.headers.extra = extra,
+        TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
+            value.headers.extra = extra
+        }
+        TransformRequest::StreamGenerateContentClaude(value) => value.headers.extra = extra,
+        TransformRequest::StreamGenerateContentGeminiSse(value) => value.headers.extra = extra,
+        TransformRequest::StreamGenerateContentGeminiNdjson(value) => value.headers.extra = extra,
+        TransformRequest::OpenAiResponseWebSocket(value) => value.headers.extra = extra,
+        TransformRequest::GeminiLive(value) => value.headers.extra = extra,
+        TransformRequest::EmbeddingOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::EmbeddingGemini(value) => value.headers.extra = extra,
+        TransformRequest::CompactOpenAi(value) => value.headers.extra = extra,
+    }
+}
+
 fn decode_json<T: DeserializeOwned>(
     kind: &'static str,
     operation: OperationFamily,
@@ -1778,7 +1843,8 @@ pub fn transform_request(
         return Ok(input);
     }
 
-    match route.dst_operation {
+    let extra_headers = request_extra_headers(&input);
+    let mut transformed = match route.dst_operation {
         OperationFamily::ModelList => transform_model_list_request(input, route.dst_protocol),
         OperationFamily::ModelGet => transform_model_get_request(input, route.dst_protocol),
         OperationFamily::CountToken => transform_count_tokens_request(input, route.dst_protocol),
@@ -1793,7 +1859,9 @@ pub fn transform_request(
         }
         OperationFamily::GeminiLive => transform_gemini_live_request(input, route.dst_protocol),
         OperationFamily::Compact => transform_compact_request(input, route.dst_protocol),
-    }
+    }?;
+    apply_request_extra_headers(&mut transformed, extra_headers);
+    Ok(transformed)
 }
 
 pub fn transform_response(

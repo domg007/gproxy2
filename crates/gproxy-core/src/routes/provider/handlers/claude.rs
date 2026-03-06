@@ -11,7 +11,7 @@ use crate::AppState;
 
 use super::super::{
     HttpError, anthropic_headers_from_request, authorize_provider_access, bad_request,
-    execute_transform_request_payload, parse_json_body, resolve_provider,
+    collect_passthrough_headers, execute_transform_request_payload, parse_json_body, resolve_provider,
     split_provider_prefixed_plain_model,
 };
 
@@ -53,10 +53,19 @@ fn encode_json_value(value: &Value, context: &str) -> Result<Bytes, HttpError> {
         .map_err(|err| bad_request(format!("{context}: {err}")))
 }
 
-fn build_claude_payload(body: Value, headers: Value, context: &str) -> Result<Bytes, HttpError> {
+fn build_claude_payload(
+    body: Value,
+    headers: Value,
+    passthrough_headers: &HeaderMap,
+    context: &str,
+) -> Result<Bytes, HttpError> {
     encode_json_value(
         &json!({
-            "headers": headers,
+            "headers": {
+                "anthropic_version": headers.get("anthropic_version").cloned().unwrap_or(Value::Null),
+                "anthropic_beta": headers.get("anthropic_beta").cloned().unwrap_or(Value::Null),
+                "extra": collect_passthrough_headers(passthrough_headers),
+            },
             "body": body,
         }),
         context,
@@ -84,6 +93,7 @@ pub(in crate::routes::provider) async fn claude_messages(
             "anthropic_version": version,
             "anthropic_beta": beta,
         }),
+        &headers,
         "invalid claude messages request body",
     )?;
     let payload =
@@ -125,6 +135,7 @@ pub(in crate::routes::provider) async fn claude_messages_unscoped(
             "anthropic_version": version,
             "anthropic_beta": beta,
         }),
+        &headers,
         "invalid claude messages request body",
     )?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
@@ -151,6 +162,7 @@ pub(in crate::routes::provider) async fn claude_count_tokens(
             "anthropic_version": version,
             "anthropic_beta": beta,
         }),
+        &headers,
         "invalid claude count_tokens request body",
     )?;
     let payload = TransformRequestPayload::from_bytes(
@@ -190,6 +202,7 @@ pub(in crate::routes::provider) async fn claude_count_tokens_unscoped(
             "anthropic_version": version,
             "anthropic_beta": beta,
         }),
+        &headers,
         "invalid claude count_tokens request body",
     )?;
     let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;

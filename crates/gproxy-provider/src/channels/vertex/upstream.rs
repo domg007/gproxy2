@@ -11,6 +11,8 @@ use crate::channels::retry::{
 };
 use crate::channels::upstream::{
     UpstreamCredentialUpdate, UpstreamError, UpstreamRequestMeta, UpstreamResponse,
+    add_or_replace_header, extra_headers_from_payload_value, extra_headers_from_transform_request,
+    merge_extra_headers, payload_body_value,
 };
 use crate::channels::utils::{
     default_gproxy_user_agent, gemini_model_list_query_string, is_auth_failure,
@@ -84,6 +86,7 @@ async fn execute_vertex_with_prepared(
     let body_template = prepared.body.clone();
     let model_template = prepared.model.clone();
     let model_response_kind_template = prepared.model_response_kind;
+    let extra_headers_template = prepared.extra_headers.clone();
     let base_url_template = base_url.to_string();
     let location_template = DEFAULT_LOCATION.to_string();
     let user_agent_template =
@@ -124,6 +127,7 @@ async fn execute_vertex_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let model_response_kind = model_response_kind_template;
+            let extra_headers = extra_headers_template.clone();
             let base_url = base_url_template.clone();
             let location = location_template.clone();
             let user_agent = user_agent_template.clone();
@@ -201,6 +205,7 @@ async fn execute_vertex_with_prepared(
                     url.as_str(),
                     resolved_access_token.access_token.as_str(),
                     user_agent.as_str(),
+                    extra_headers.as_slice(),
                     &body,
                 )
                 .await
@@ -330,6 +335,7 @@ async fn execute_vertex_with_prepared(
                         url.as_str(),
                         refreshed_token.access_token.as_str(),
                         user_agent.as_str(),
+                        extra_headers.as_slice(),
                         &body,
                     )
                     .await
@@ -504,15 +510,15 @@ async fn send_vertex_request(
     url: &str,
     access_token: &str,
     user_agent: &str,
+    extra_headers: &[(String, String)],
     body: &Option<Vec<u8>>,
 ) -> Result<(WreqResponse, UpstreamRequestMeta), wreq::Error> {
-    let mut headers = vec![(
-        "authorization".to_string(),
-        format!("Bearer {access_token}"),
-    )];
-    headers.push(("user-agent".to_string(), user_agent.to_string()));
+    let mut headers = Vec::new();
+    merge_extra_headers(&mut headers, extra_headers);
+    add_or_replace_header(&mut headers, "authorization", format!("Bearer {access_token}"));
+    add_or_replace_header(&mut headers, "user-agent", user_agent.to_string());
     if body.is_some() {
-        headers.push(("content-type".to_string(), "application/json".to_string()));
+        add_or_replace_header(&mut headers, "content-type", "application/json");
     }
     crate::channels::upstream::tracked_send_request(
         client,
@@ -545,11 +551,13 @@ struct VertexPreparedRequest {
     body: Option<Vec<u8>>,
     model: Option<String>,
     model_response_kind: Option<VertexModelResponseKind>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl VertexPreparedRequest {
     fn from_transform_request(request: &TransformRequest) -> Result<Self, UpstreamError> {
-        match request {
+        let extra_headers = extra_headers_from_transform_request(request);
+        let mut prepared = match request {
             TransformRequest::ModelListGemini(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 endpoint: VertexEndpoint::Global("publishers/google/models".to_string()),
@@ -560,6 +568,7 @@ impl VertexPreparedRequest {
                 body: None,
                 model: None,
                 model_response_kind: Some(VertexModelResponseKind::List),
+                extra_headers: Vec::new(),
             }),
             TransformRequest::ModelGetGemini(value) => {
                 let model_id = normalize_vertex_model_name(value.path.name.as_str());
@@ -572,6 +581,7 @@ impl VertexPreparedRequest {
                     body: None,
                     model: Some(model_id),
                     model_response_kind: Some(VertexModelResponseKind::Get),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::CountTokenGemini(value) => {
@@ -589,6 +599,7 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentGemini(value) => {
@@ -606,6 +617,7 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentGeminiSse(value)
@@ -625,6 +637,7 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::EmbeddingGemini(value) => {
@@ -642,6 +655,7 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: Some(VertexModelResponseKind::Embedding),
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
@@ -659,6 +673,7 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(body.model.clone()),
                     model_response_kind: None,
+                    extra_headers: Vec::new(),
                 })
             }
             TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
@@ -676,10 +691,13 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(body.model.clone()),
                     model_response_kind: None,
+                    extra_headers: Vec::new(),
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
-        }
+        }?;
+        prepared.extra_headers = extra_headers;
+        Ok(prepared)
     }
 
     fn from_payload(
@@ -688,10 +706,8 @@ impl VertexPreparedRequest {
         body: &[u8],
     ) -> Result<Self, UpstreamError> {
         fn parse_gemini_payload_wrapper(
-            payload: &[u8],
+            value: &Value,
         ) -> Result<(String, Value, Option<String>), UpstreamError> {
-            let value = serde_json::from_slice::<Value>(payload)
-                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             let Some(model) = value
                 .pointer("/path/model")
                 .and_then(Value::as_str)
@@ -713,9 +729,13 @@ impl VertexPreparedRequest {
             Ok((model, body_value, alt))
         }
 
+        let payload_value = serde_json::from_slice::<Value>(body)
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+        let extra_headers = extra_headers_from_payload_value(&payload_value);
+
         match (operation, protocol) {
             (OperationFamily::CountToken, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = normalize_vertex_model_name(model.as_str());
                 let body = vertex_count_tokens_payload(model_id.as_str(), &body_value)?;
                 Ok(Self {
@@ -730,10 +750,11 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = normalize_vertex_model_name(model.as_str());
                 let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
                 Ok(Self {
@@ -748,11 +769,12 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers,
                 })
             }
             (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-                let (model, body_value, alt) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, alt) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = normalize_vertex_model_name(model.as_str());
                 let body = vertex_generate_payload(model_id.as_str(), &body_value)?;
                 let query = match protocol {
@@ -772,10 +794,11 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: None,
+                    extra_headers,
                 })
             }
             (OperationFamily::Embedding, ProtocolKind::Gemini) => {
-                let (model, body_value, _) = parse_gemini_payload_wrapper(body)?;
+                let (model, body_value, _) = parse_gemini_payload_wrapper(&payload_value)?;
                 let model_id = normalize_vertex_model_name(model.as_str());
                 let body = vertex_embedding_predict_payload(&body_value)?;
                 Ok(Self {
@@ -790,12 +813,12 @@ impl VertexPreparedRequest {
                     ),
                     model: Some(model_id),
                     model_response_kind: Some(VertexModelResponseKind::Embedding),
+                    extra_headers,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion) => {
-                let mut body_json = serde_json::from_slice::<Value>(body)
-                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                let mut body_json = payload_body_value(&payload_value);
                 let mut model: Option<String> = None;
                 if let Some(map) = body_json.as_object_mut()
                     && let Some(raw_model) = map.get("model").and_then(Value::as_str)
@@ -816,6 +839,7 @@ impl VertexPreparedRequest {
                     ),
                     model,
                     model_response_kind: None,
+                    extra_headers,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),

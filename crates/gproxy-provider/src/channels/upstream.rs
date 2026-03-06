@@ -1,8 +1,9 @@
-use gproxy_middleware::TransformResponse;
+use gproxy_middleware::{TransformRequest, TransformResponse};
 use http::Response as HttpResponse;
 use http_body_util::BodyExt as _;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use tokio::task_local;
@@ -190,6 +191,87 @@ pub fn tracked_request_meta(
     body: Option<Vec<u8>>,
 ) -> UpstreamRequestMeta {
     UpstreamRequestMeta::from_url(method, url, headers, body)
+}
+
+pub fn add_or_replace_header(
+    headers: &mut Vec<(String, String)>,
+    name: impl AsRef<str>,
+    value: impl Into<String>,
+) {
+    let name = name.as_ref();
+    let value = value.into();
+    if let Some(existing) = headers
+        .iter_mut()
+        .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
+    {
+        existing.1 = value;
+        return;
+    }
+    headers.push((name.to_string(), value));
+}
+
+pub fn merge_extra_headers(
+    headers: &mut Vec<(String, String)>,
+    extra_headers: &[(String, String)],
+) {
+    for (name, value) in extra_headers {
+        add_or_replace_header(headers, name, value.clone());
+    }
+}
+
+fn header_pairs_from_map(map: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    map.iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
+}
+
+pub fn extra_headers_from_transform_request(request: &TransformRequest) -> Vec<(String, String)> {
+    let extra = match request {
+        TransformRequest::ModelListOpenAi(value) => &value.headers.extra,
+        TransformRequest::ModelListClaude(value) => &value.headers.extra,
+        TransformRequest::ModelListGemini(value) => &value.headers.extra,
+        TransformRequest::ModelGetOpenAi(value) => &value.headers.extra,
+        TransformRequest::ModelGetClaude(value) => &value.headers.extra,
+        TransformRequest::ModelGetGemini(value) => &value.headers.extra,
+        TransformRequest::CountTokenOpenAi(value) => &value.headers.extra,
+        TransformRequest::CountTokenClaude(value) => &value.headers.extra,
+        TransformRequest::CountTokenGemini(value) => &value.headers.extra,
+        TransformRequest::GenerateContentOpenAiResponse(value) => &value.headers.extra,
+        TransformRequest::GenerateContentOpenAiChatCompletions(value) => &value.headers.extra,
+        TransformRequest::GenerateContentClaude(value) => &value.headers.extra,
+        TransformRequest::GenerateContentGemini(value) => &value.headers.extra,
+        TransformRequest::StreamGenerateContentOpenAiResponse(value) => &value.headers.extra,
+        TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {
+            &value.headers.extra
+        }
+        TransformRequest::StreamGenerateContentClaude(value) => &value.headers.extra,
+        TransformRequest::StreamGenerateContentGeminiSse(value) => &value.headers.extra,
+        TransformRequest::StreamGenerateContentGeminiNdjson(value) => &value.headers.extra,
+        TransformRequest::OpenAiResponseWebSocket(value) => &value.headers.extra,
+        TransformRequest::GeminiLive(value) => &value.headers.extra,
+        TransformRequest::EmbeddingOpenAi(value) => &value.headers.extra,
+        TransformRequest::EmbeddingGemini(value) => &value.headers.extra,
+        TransformRequest::CompactOpenAi(value) => &value.headers.extra,
+    };
+    header_pairs_from_map(extra)
+}
+
+pub fn extra_headers_from_payload_value(value: &Value) -> Vec<(String, String)> {
+    value
+        .pointer("/headers/extra")
+        .and_then(Value::as_object)
+        .map(|map| {
+            map.iter()
+                .filter_map(|(name, value)| {
+                    value.as_str().map(|value| (name.clone(), value.to_string()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+pub fn payload_body_value(value: &Value) -> Value {
+    value.get("body").cloned().unwrap_or_else(|| value.clone())
 }
 
 fn push_tracked_http_event(event: TrackedHttpEvent) {

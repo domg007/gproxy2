@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gemini::live::types::{GeminiBidiGenerateContentClientMessage, HttpMethod};
@@ -73,6 +75,8 @@ pub struct RequestHeaders {
         skip_serializing_if = "Option::is_none"
     )]
     pub authorization: Option<String>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
 }
 
 /// A single client message frame sent over the Live WebSocket.

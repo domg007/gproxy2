@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::claude::types::{AnthropicBeta, AnthropicVersion, HttpMethod};
@@ -49,6 +51,8 @@ pub struct RequestHeaders {
         skip_serializing_if = "Option::is_none"
     )]
     pub anthropic_beta: Option<Vec<AnthropicBeta>>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
 }
 
 /// Get model request has no JSON body.
