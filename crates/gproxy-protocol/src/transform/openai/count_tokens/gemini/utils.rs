@@ -186,9 +186,49 @@ pub fn openai_tool_to_gemini(tool: ot::ResponseTool) -> Option<gt::GeminiTool> {
     }
 }
 
+fn openai_tool_uses_gemini_function_calling(tool: &ot::ResponseTool) -> bool {
+    matches!(tool, ot::ResponseTool::Function(_) | ot::ResponseTool::Custom(_))
+}
+
+fn openai_tool_uses_gemini_builtin_search(tool: &ot::ResponseTool) -> bool {
+    matches!(tool, ot::ResponseTool::WebSearch(_) | ot::ResponseTool::WebSearchPreview(_))
+}
+
+pub fn openai_tools_to_gemini(
+    tools: Vec<ot::ResponseTool>,
+) -> (Option<Vec<gt::GeminiTool>>, bool) {
+    let has_function_calling_tools = tools
+        .iter()
+        .any(openai_tool_uses_gemini_function_calling);
+    let has_builtin_search_tools = tools.iter().any(openai_tool_uses_gemini_builtin_search);
+
+    let converted = tools
+        .into_iter()
+        .filter(|tool| {
+            !(has_function_calling_tools
+                && has_builtin_search_tools
+                && openai_tool_uses_gemini_builtin_search(tool))
+        })
+        .filter_map(openai_tool_to_gemini)
+        .collect::<Vec<_>>();
+
+    let converted = if converted.is_empty() {
+        None
+    } else {
+        Some(converted)
+    };
+
+    (converted, has_function_calling_tools)
+}
+
 pub fn openai_tool_choice_to_gemini(
     choice: Option<ot::ResponseToolChoice>,
+    has_function_calling_tools: bool,
 ) -> Option<gt::GeminiToolConfig> {
+    if !has_function_calling_tools {
+        return None;
+    }
+
     let config = match choice {
         Some(ot::ResponseToolChoice::Options(ot::ResponseToolChoiceOptions::Auto)) => {
             Some(gt::GeminiFunctionCallingConfig {
@@ -229,10 +269,7 @@ pub fn openai_tool_choice_to_gemini(
         }),
         Some(ot::ResponseToolChoice::Types(_))
         | Some(ot::ResponseToolChoice::ApplyPatch(_))
-        | Some(ot::ResponseToolChoice::Shell(_)) => Some(gt::GeminiFunctionCallingConfig {
-            mode: Some(gt::GeminiFunctionCallingMode::Any),
-            allowed_function_names: None,
-        }),
+        | Some(ot::ResponseToolChoice::Shell(_)) => None,
         None => None,
     }?;
 
@@ -240,6 +277,55 @@ pub fn openai_tool_choice_to_gemini(
         function_calling_config: Some(config),
         retrieval_config: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn mixed_function_and_web_search_prefers_function_tools() {
+        let (tools, has_function_calling_tools) = openai_tools_to_gemini(vec![
+            ot::ResponseTool::Function(ot::ResponseFunctionTool {
+                name: "exec_command".to_string(),
+                parameters: serde_json::from_value(json!({
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"}
+                    }
+                }))
+                .expect("json object"),
+                strict: Some(true),
+                type_: ot::ResponseFunctionToolType::Function,
+                description: Some("Run a command".to_string()),
+            }),
+            ot::ResponseTool::WebSearch(ot::ResponseWebSearchTool {
+                type_: ot::ResponseWebSearchToolType::WebSearch,
+                filters: None,
+                search_context_size: None,
+                user_location: None,
+            }),
+        ]);
+
+        assert!(has_function_calling_tools);
+        let tools = tools.expect("converted tools");
+        assert_eq!(tools.len(), 1);
+        assert!(tools[0].function_declarations.is_some());
+        assert!(tools[0].google_search.is_none());
+    }
+
+    #[test]
+    fn web_search_only_skips_function_calling_config() {
+        let tool_config = openai_tool_choice_to_gemini(
+            Some(ot::ResponseToolChoice::Options(
+                ot::ResponseToolChoiceOptions::Auto,
+            )),
+            false,
+        );
+
+        assert!(tool_config.is_none());
+    }
 }
 
 fn openai_reasoning_to_gemini(

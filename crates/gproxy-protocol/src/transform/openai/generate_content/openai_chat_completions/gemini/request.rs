@@ -10,7 +10,7 @@ use crate::openai::create_chat_completions::types as oct;
 use crate::transform::gemini::model_get::utils::ensure_models_prefix;
 use crate::transform::openai::count_tokens::gemini::utils::{
     openai_generation_config, openai_message_content_to_gemini_parts, openai_role_to_gemini,
-    openai_tool_choice_to_gemini, openai_tool_to_gemini, output_text_to_json_object,
+    openai_tool_choice_to_gemini, openai_tools_to_gemini, output_text_to_json_object,
 };
 use crate::transform::openai::generate_content::openai_chat_completions::openai::utils::{
     chat_reasoning_to_response_reasoning, chat_response_text_config, chat_stop_to_vec,
@@ -261,19 +261,12 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
             }
         }
 
-        let tools = response_tools.and_then(|tools| {
-            let converted = tools
-                .into_iter()
-                .filter_map(openai_tool_to_gemini)
-                .collect::<Vec<_>>();
-            if converted.is_empty() {
-                None
-            } else {
-                Some(converted)
-            }
-        });
+        let (tools, has_function_calling_tools) = response_tools
+            .map(openai_tools_to_gemini)
+            .unwrap_or((None, false));
 
-        let tool_config = openai_tool_choice_to_gemini(response_tool_choice);
+        let tool_config =
+            openai_tool_choice_to_gemini(response_tool_choice, has_function_calling_tools);
 
         let mut generation_config = openai_generation_config(
             response_reasoning,

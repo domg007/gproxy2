@@ -7,7 +7,7 @@ use crate::openai::count_tokens::types as ot;
 use crate::transform::gemini::model_get::utils::ensure_models_prefix;
 use crate::transform::openai::count_tokens::gemini::utils::{
     openai_generation_config, openai_message_content_to_gemini_parts, openai_role_to_gemini,
-    openai_tool_choice_to_gemini, openai_tool_to_gemini, output_text_to_json_object,
+    openai_tool_choice_to_gemini, openai_tools_to_gemini, output_text_to_json_object,
 };
 use crate::transform::openai::count_tokens::openai::utils::{
     openai_function_call_output_content_to_text, openai_input_to_items,
@@ -120,19 +120,12 @@ impl TryFrom<OpenAiCountTokensRequest> for GeminiCountTokensRequest {
             }
         }
 
-        let tools = body.tools.and_then(|tools| {
-            let converted = tools
-                .into_iter()
-                .filter_map(openai_tool_to_gemini)
-                .collect::<Vec<_>>();
-            if converted.is_empty() {
-                None
-            } else {
-                Some(converted)
-            }
-        });
+        let (tools, has_function_calling_tools) = body
+            .tools
+            .map(openai_tools_to_gemini)
+            .unwrap_or((None, false));
 
-        let tool_config = openai_tool_choice_to_gemini(body.tool_choice);
+        let tool_config = openai_tool_choice_to_gemini(body.tool_choice, has_function_calling_tools);
         let generation_config =
             openai_generation_config(body.reasoning, body.text, None, None, None, None);
         let system_instruction = body.instructions.and_then(|text| {
