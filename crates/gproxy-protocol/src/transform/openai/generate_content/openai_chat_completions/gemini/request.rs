@@ -9,8 +9,9 @@ use crate::openai::create_chat_completions::request::OpenAiChatCompletionsReques
 use crate::openai::create_chat_completions::types as oct;
 use crate::transform::gemini::model_get::utils::ensure_models_prefix;
 use crate::transform::openai::count_tokens::gemini::utils::{
-    openai_generation_config, openai_message_content_to_gemini_parts, openai_role_to_gemini,
-    openai_tool_choice_to_gemini, openai_tools_to_gemini, output_text_to_json_object,
+    GEMINI_SKIP_THOUGHT_SIGNATURE, openai_generation_config,
+    openai_message_content_to_gemini_parts, openai_role_to_gemini, openai_tool_choice_to_gemini,
+    openai_tools_to_gemini, output_text_to_json_object,
 };
 use crate::transform::openai::generate_content::openai_chat_completions::openai::utils::{
     chat_reasoning_to_response_reasoning, chat_response_text_config, chat_stop_to_vec,
@@ -120,13 +121,18 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
                         ..
                     } = message;
                     let mut parts = Vec::new();
+                    let reasoning_signature = reasoning_content
+                        .as_ref()
+                        .filter(|text| !text.is_empty())
+                        .map(|_| pseudo_reasoning_signature(message_index, 0));
+                    let mut first_function_call = true;
 
                     if let Some(reasoning_content) = reasoning_content
                         && !reasoning_content.is_empty()
                     {
                         parts.push(gt::GeminiPart {
                             thought: Some(true),
-                            thought_signature: Some(pseudo_reasoning_signature(message_index, 0)),
+                            thought_signature: reasoning_signature.clone(),
                             text: Some(reasoning_content),
                             ..gt::GeminiPart::default()
                         });
@@ -177,7 +183,18 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
                     }
 
                     if let Some(function_call) = function_call {
+                        let thought_signature = if first_function_call {
+                            first_function_call = false;
+                            Some(
+                                reasoning_signature
+                                    .clone()
+                                    .unwrap_or_else(|| GEMINI_SKIP_THOUGHT_SIGNATURE.to_string()),
+                            )
+                        } else {
+                            None
+                        };
                         parts.push(gt::GeminiPart {
+                            thought_signature,
                             function_call: Some(gt::GeminiFunctionCall {
                                 id: Some(format!("function_call_{}", function_call.name)),
                                 name: function_call.name,
@@ -189,9 +206,19 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
 
                     if let Some(tool_calls) = tool_calls {
                         for call in tool_calls {
+                            let thought_signature =
+                                if first_function_call {
+                                    first_function_call = false;
+                                    Some(reasoning_signature.clone().unwrap_or_else(|| {
+                                        GEMINI_SKIP_THOUGHT_SIGNATURE.to_string()
+                                    }))
+                                } else {
+                                    None
+                                };
                             match call {
                                 oct::ChatCompletionMessageToolCall::Function(call) => {
                                     parts.push(gt::GeminiPart {
+                                        thought_signature,
                                         function_call: Some(gt::GeminiFunctionCall {
                                             id: Some(call.id),
                                             name: call.function.name,
@@ -204,6 +231,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for GeminiGenerateContentRequest {
                                 }
                                 oct::ChatCompletionMessageToolCall::Custom(call) => {
                                     parts.push(gt::GeminiPart {
+                                        thought_signature,
                                         function_call: Some(gt::GeminiFunctionCall {
                                             id: Some(call.id),
                                             name: call.custom.name,
@@ -413,5 +441,49 @@ mod tests {
             Some("gproxy_reasoning_0_0")
         );
         assert_eq!(part.text.as_deref(), Some("reasoning text"));
+    }
+
+    #[test]
+    fn assistant_tool_call_without_reasoning_uses_dummy_signature() {
+        let request = OpenAiChatCompletionsRequest {
+            method: oct::HttpMethod::Post,
+            path: oreq::PathParameters::default(),
+            query: oreq::QueryParameters::default(),
+            headers: oreq::RequestHeaders::default(),
+            body: oreq::RequestBody {
+                model: "gpt-5".to_string(),
+                messages: vec![oct::ChatCompletionMessageParam::Assistant(
+                    oct::ChatCompletionAssistantMessageParam {
+                        role: oct::ChatCompletionAssistantRole::Assistant,
+                        audio: None,
+                        content: None,
+                        reasoning_content: None,
+                        function_call: None,
+                        name: None,
+                        refusal: None,
+                        tool_calls: Some(vec![oct::ChatCompletionMessageToolCall::Function(
+                            oct::ChatCompletionMessageFunctionToolCall {
+                                id: "call_1".to_string(),
+                                function: oct::ChatCompletionFunctionCall {
+                                    name: "exec_command".to_string(),
+                                    arguments: "{\"cmd\":\"ls\"}".to_string(),
+                                },
+                                type_: oct::ChatCompletionMessageFunctionToolCallType::Function,
+                            },
+                        )]),
+                    },
+                )],
+                ..oreq::RequestBody::default()
+            },
+        };
+
+        let converted = GeminiGenerateContentRequest::try_from(request).unwrap();
+        let content = converted.body.contents.first().expect("assistant content");
+        let part = content.parts.first().expect("first part");
+        assert_eq!(
+            part.thought_signature.as_deref(),
+            Some(GEMINI_SKIP_THOUGHT_SIGNATURE)
+        );
+        assert!(part.function_call.is_some());
     }
 }

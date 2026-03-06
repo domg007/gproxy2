@@ -1,5 +1,10 @@
 use crate::gemini::count_tokens::types as gt;
 use crate::openai::count_tokens::types as ot;
+use crate::transform::openai::count_tokens::openai::utils::{
+    openai_function_call_output_content_to_text, openai_reasoning_summary_to_text,
+};
+
+pub const GEMINI_SKIP_THOUGHT_SIGNATURE: &str = "skip_thought_signature_validator";
 
 fn parse_data_url_to_blob(url: &str) -> Option<gt::GeminiBlob> {
     if !url.starts_with("data:") {
@@ -126,6 +131,146 @@ pub fn output_text_to_json_object(text: &str) -> gt::JsonObject {
         serde_json::from_str::<gt::JsonObject>(&format!(r#"{{"output":{escaped}}}"#))
             .unwrap_or_default()
     })
+}
+
+fn thought_signature_or_dummy(signature: Option<String>) -> String {
+    signature.unwrap_or_else(|| GEMINI_SKIP_THOUGHT_SIGNATURE.to_string())
+}
+
+pub fn openai_input_items_to_gemini_contents(
+    items: Vec<ot::ResponseInputItem>,
+) -> Vec<gt::GeminiContent> {
+    let mut contents = Vec::new();
+    let mut pending_function_call_signature = None;
+    let mut model_step_has_function_call = false;
+
+    for item in items {
+        match item {
+            ot::ResponseInputItem::Message(message) => {
+                if !matches!(message.role, ot::ResponseInputMessageRole::Assistant) {
+                    pending_function_call_signature = None;
+                    model_step_has_function_call = false;
+                }
+
+                let parts = openai_message_content_to_gemini_parts(message.content);
+                if !parts.is_empty() {
+                    contents.push(gt::GeminiContent {
+                        parts,
+                        role: Some(openai_role_to_gemini(message.role)),
+                    });
+                }
+            }
+            ot::ResponseInputItem::OutputMessage(message) => {
+                let text = message
+                    .content
+                    .into_iter()
+                    .map(|part| match part {
+                        ot::ResponseOutputContent::Text(text) => text.text,
+                        ot::ResponseOutputContent::Refusal(refusal) => refusal.refusal,
+                    })
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                if !text.is_empty() {
+                    contents.push(gt::GeminiContent {
+                        parts: vec![gt::GeminiPart {
+                            text: Some(text),
+                            ..gt::GeminiPart::default()
+                        }],
+                        role: Some(gt::GeminiContentRole::Model),
+                    });
+                }
+            }
+            ot::ResponseInputItem::FunctionToolCall(tool_call) => {
+                let args = serde_json::from_str::<gt::JsonObject>(&tool_call.arguments)
+                    .unwrap_or_default();
+                let thought_signature = if model_step_has_function_call {
+                    None
+                } else {
+                    Some(thought_signature_or_dummy(
+                        pending_function_call_signature.take(),
+                    ))
+                };
+
+                contents.push(gt::GeminiContent {
+                    parts: vec![gt::GeminiPart {
+                        thought_signature,
+                        function_call: Some(gt::GeminiFunctionCall {
+                            id: Some(tool_call.call_id),
+                            name: tool_call.name,
+                            args: Some(args),
+                        }),
+                        ..gt::GeminiPart::default()
+                    }],
+                    role: Some(gt::GeminiContentRole::Model),
+                });
+
+                model_step_has_function_call = true;
+            }
+            ot::ResponseInputItem::FunctionCallOutput(tool_result) => {
+                let output_text = openai_function_call_output_content_to_text(&tool_result.output);
+                contents.push(gt::GeminiContent {
+                    parts: vec![gt::GeminiPart {
+                        function_response: Some(gt::GeminiFunctionResponse {
+                            id: Some(tool_result.call_id.clone()),
+                            name: tool_result.call_id,
+                            response: output_text_to_json_object(&output_text),
+                            parts: None,
+                            will_continue: None,
+                            scheduling: None,
+                        }),
+                        ..gt::GeminiPart::default()
+                    }],
+                    role: Some(gt::GeminiContentRole::User),
+                });
+
+                pending_function_call_signature = None;
+                model_step_has_function_call = false;
+            }
+            ot::ResponseInputItem::ReasoningItem(reasoning) => {
+                let mut text = openai_reasoning_summary_to_text(&reasoning.summary);
+                if text.is_empty() {
+                    text = reasoning
+                        .encrypted_content
+                        .unwrap_or_else(|| "[reasoning]".to_string());
+                }
+
+                let thought_signature = Some(thought_signature_or_dummy(
+                    reasoning.id.filter(|id| !id.is_empty()),
+                ));
+                pending_function_call_signature = thought_signature.clone();
+                model_step_has_function_call = false;
+
+                contents.push(gt::GeminiContent {
+                    parts: vec![gt::GeminiPart {
+                        thought: Some(true),
+                        thought_signature,
+                        text: Some(text),
+                        ..gt::GeminiPart::default()
+                    }],
+                    role: Some(gt::GeminiContentRole::Model),
+                });
+            }
+            other => {
+                pending_function_call_signature = None;
+                model_step_has_function_call = false;
+
+                let text = format!("{other:?}");
+                if !text.is_empty() {
+                    contents.push(gt::GeminiContent {
+                        parts: vec![gt::GeminiPart {
+                            text: Some(text),
+                            ..gt::GeminiPart::default()
+                        }],
+                        role: Some(gt::GeminiContentRole::User),
+                    });
+                }
+            }
+        }
+    }
+
+    contents
 }
 
 pub fn openai_tool_to_gemini(tool: ot::ResponseTool) -> Option<gt::GeminiTool> {
@@ -327,6 +472,78 @@ mod tests {
         );
 
         assert!(tool_config.is_none());
+    }
+
+    #[test]
+    fn standalone_function_call_gets_dummy_thought_signature() {
+        let contents =
+            openai_input_items_to_gemini_contents(vec![ot::ResponseInputItem::FunctionToolCall(
+                ot::ResponseFunctionToolCall {
+                    arguments: "{\"cmd\":\"ls\"}".to_string(),
+                    call_id: "call_1".to_string(),
+                    name: "exec_command".to_string(),
+                    type_: ot::ResponseFunctionToolCallType::FunctionCall,
+                    id: None,
+                    status: None,
+                },
+            )]);
+
+        let part = contents
+            .first()
+            .and_then(|content| content.parts.first())
+            .expect("function call part");
+        assert_eq!(
+            part.thought_signature.as_deref(),
+            Some(GEMINI_SKIP_THOUGHT_SIGNATURE)
+        );
+    }
+
+    #[test]
+    fn reasoning_signature_is_reused_by_first_function_call() {
+        let contents = openai_input_items_to_gemini_contents(vec![
+            ot::ResponseInputItem::ReasoningItem(ot::ResponseReasoningItem {
+                id: Some("reasoning_sig".to_string()),
+                summary: vec![ot::ResponseSummaryTextContent {
+                    text: "plan".to_string(),
+                    type_: ot::ResponseSummaryTextContentType::SummaryText,
+                }],
+                type_: ot::ResponseReasoningItemType::Reasoning,
+                content: None,
+                encrypted_content: None,
+                status: None,
+            }),
+            ot::ResponseInputItem::FunctionToolCall(ot::ResponseFunctionToolCall {
+                arguments: "{}".to_string(),
+                call_id: "call_1".to_string(),
+                name: "exec_command".to_string(),
+                type_: ot::ResponseFunctionToolCallType::FunctionCall,
+                id: None,
+                status: None,
+            }),
+            ot::ResponseInputItem::FunctionToolCall(ot::ResponseFunctionToolCall {
+                arguments: "{}".to_string(),
+                call_id: "call_2".to_string(),
+                name: "write_stdin".to_string(),
+                type_: ot::ResponseFunctionToolCallType::FunctionCall,
+                id: None,
+                status: None,
+            }),
+        ]);
+
+        let first_call = contents
+            .get(1)
+            .and_then(|content| content.parts.first())
+            .expect("first call part");
+        let second_call = contents
+            .get(2)
+            .and_then(|content| content.parts.first())
+            .expect("second call part");
+
+        assert_eq!(
+            first_call.thought_signature.as_deref(),
+            Some("reasoning_sig")
+        );
+        assert!(second_call.thought_signature.is_none());
     }
 }
 
