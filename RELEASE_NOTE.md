@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.3.26
+
+Just a fix for Geminicli and antigravity
+
 ## v0.3.25
 
 ### English
