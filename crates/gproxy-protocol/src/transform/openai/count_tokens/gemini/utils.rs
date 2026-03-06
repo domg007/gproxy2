@@ -187,19 +187,21 @@ pub fn openai_tool_to_gemini(tool: ot::ResponseTool) -> Option<gt::GeminiTool> {
 }
 
 fn openai_tool_uses_gemini_function_calling(tool: &ot::ResponseTool) -> bool {
-    matches!(tool, ot::ResponseTool::Function(_) | ot::ResponseTool::Custom(_))
+    matches!(
+        tool,
+        ot::ResponseTool::Function(_) | ot::ResponseTool::Custom(_)
+    )
 }
 
 fn openai_tool_uses_gemini_builtin_search(tool: &ot::ResponseTool) -> bool {
-    matches!(tool, ot::ResponseTool::WebSearch(_) | ot::ResponseTool::WebSearchPreview(_))
+    matches!(
+        tool,
+        ot::ResponseTool::WebSearch(_) | ot::ResponseTool::WebSearchPreview(_)
+    )
 }
 
-pub fn openai_tools_to_gemini(
-    tools: Vec<ot::ResponseTool>,
-) -> (Option<Vec<gt::GeminiTool>>, bool) {
-    let has_function_calling_tools = tools
-        .iter()
-        .any(openai_tool_uses_gemini_function_calling);
+pub fn openai_tools_to_gemini(tools: Vec<ot::ResponseTool>) -> (Option<Vec<gt::GeminiTool>>, bool) {
+    let has_function_calling_tools = tools.iter().any(openai_tool_uses_gemini_function_calling);
     let has_builtin_search_tools = tools.iter().any(openai_tool_uses_gemini_builtin_search);
 
     let converted = tools

@@ -125,7 +125,8 @@ impl TryFrom<OpenAiCountTokensRequest> for GeminiCountTokensRequest {
             .map(openai_tools_to_gemini)
             .unwrap_or((None, false));
 
-        let tool_config = openai_tool_choice_to_gemini(body.tool_choice, has_function_calling_tools);
+        let tool_config =
+            openai_tool_choice_to_gemini(body.tool_choice, has_function_calling_tools);
         let generation_config =
             openai_generation_config(body.reasoning, body.text, None, None, None, None);
         let system_instruction = body.instructions.and_then(|text| {
