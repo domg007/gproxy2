@@ -123,6 +123,9 @@ export function useCredentialOAuth({
   const [oauthCallbackQueryByCredential, setOauthCallbackQueryByCredential] = useState<
     Record<number, string>
   >({});
+  const [oauthActiveModeByCredential, setOauthActiveModeByCredential] = useState<
+    Record<number, string>
+  >({});
   const [oauthResultByCredential, setOauthResultByCredential] = useState<Record<number, string>>(
     {}
   );
@@ -130,6 +133,7 @@ export function useCredentialOAuth({
   const resetOAuthState = useCallback(() => {
     setOauthStartQueryByCredential({});
     setOauthCallbackQueryByCredential({});
+    setOauthActiveModeByCredential({});
     setOauthResultByCredential({});
   }, []);
 
@@ -145,6 +149,20 @@ export function useCredentialOAuth({
       }
       try {
         const key = credentialId ?? 0;
+        setOauthActiveModeByCredential((prev) => {
+          if (!mode) {
+            if (!(key in prev)) {
+              return prev;
+            }
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          }
+          return {
+            ...prev,
+            [key]: mode
+          };
+        });
         const query = mergeQueryString(oauthStartQueryByCredential[key] ?? "", {
           ...(queryDefaults ?? {}),
           credential_id: credentialId === undefined ? undefined : String(credentialId),
@@ -229,6 +247,7 @@ export function useCredentialOAuth({
     setOauthStartQueryByCredential,
     oauthCallbackQueryByCredential,
     setOauthCallbackQueryByCredential,
+    oauthActiveModeByCredential,
     oauthResultByCredential,
     runCredentialOAuthStart,
     runCredentialOAuthCallback,

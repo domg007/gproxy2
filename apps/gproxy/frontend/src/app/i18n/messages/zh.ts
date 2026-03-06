@@ -149,6 +149,7 @@ export const zhMessages = {
     "providers.oauth.instructions": "instructions",
     "providers.oauth.openAuthUrl": "打开授权地址",
     "providers.oauth.openCallbackUrl": "打开回调地址",
+    "providers.oauth.selectStartMode": "先点击上方对应的发起按钮，再提交该 OAuth 回调。",
     "providers.oauth.response": "响应",
     "providers.credentials.saved": "凭证已保存",
     "providers.credentials.deleted": "凭证 {id} 已删除",

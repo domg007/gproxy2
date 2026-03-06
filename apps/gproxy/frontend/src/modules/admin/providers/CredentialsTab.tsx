@@ -64,6 +64,7 @@ export type CredentialsTabViewModel = {
   usageErrorByCredential: Record<number, string>;
   oauthStartQueryByCredential: Record<number, string>;
   oauthCallbackQueryByCredential: Record<number, string>;
+  oauthActiveModeByCredential: Record<number, string>;
   oauthResultByCredential: Record<number, string>;
   statusEditorCredentialId: number | null;
   statusForm: StatusFormState;
@@ -191,6 +192,7 @@ export function CredentialsTab({
     usageErrorByCredential,
     oauthStartQueryByCredential,
     oauthCallbackQueryByCredential,
+    oauthActiveModeByCredential,
     oauthResultByCredential,
     statusEditorCredentialId,
     statusForm,
@@ -240,9 +242,6 @@ export function CredentialsTab({
   const oauthUi = getChannelConfig(channel)?.oauthUi;
   const oauthStartButtons = oauthUi?.startButtons ?? [{ labelKey: "providers.oauth.start" }];
   const oauthCallbackButtons = oauthUi?.callbackButtons ?? [{ labelKey: "providers.oauth.callback" }];
-  const oauthCallbackUsesCustomFields = oauthCallbackButtons.some(
-    (button) => Array.isArray(button.fields) && button.fields.length > 0
-  );
   const bulkModes = useMemo(
     () => availableBulkModes(channel, credentialSchema, supportsOAuth),
     [channel, credentialSchema, supportsOAuth]
@@ -269,11 +268,25 @@ export function CredentialsTab({
     () => parseOAuthReadableResult(oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? ""),
     [oauthResultByCredential]
   );
+  const oauthActiveMode = oauthActiveModeByCredential[GLOBAL_OAUTH_SLOT];
   const oauthStartQuery = oauthStartQueryByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthCallbackQuery = oauthCallbackQueryByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthRawResult = oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthOpenUrl = oauthReadableResult?.authUrl ?? oauthReadableResult?.verificationUri;
   const oauthSubmitUrl = readQueryParam(oauthCallbackQuery, "callback_url");
+  const oauthCallbackModeCount = new Set(
+    oauthCallbackButtons.flatMap((button) => (button.mode ? [button.mode] : []))
+  ).size;
+  const oauthRequiresModeSelection = oauthCallbackModeCount > 1;
+  const visibleOauthCallbackButtons =
+    oauthRequiresModeSelection && oauthActiveMode
+      ? oauthCallbackButtons.filter((button) => button.mode === oauthActiveMode)
+      : oauthRequiresModeSelection
+        ? []
+        : oauthCallbackButtons;
+  const oauthVisibleCallbackUsesCustomFields = visibleOauthCallbackButtons.some(
+    (button) => Array.isArray(button.fields) && button.fields.length > 0
+  );
 
   useEffect(() => {
     setBulkMode(defaultBulkMode(channel, credentialSchema, supportsOAuth));
@@ -545,6 +558,20 @@ export function CredentialsTab({
     return field;
   };
 
+  const resolveCallbackFields = (fields?: readonly string[]): readonly string[] => {
+    if (Array.isArray(fields) && fields.length > 0) {
+      return fields;
+    }
+    return oauthUi?.callbackFields ?? [];
+  };
+
+  const callbackButtonUsesCallbackUrl = (fields?: readonly string[]): boolean =>
+    resolveCallbackFields(fields).includes("callback_url");
+
+  const showSharedCallbackUrl =
+    !!oauthSubmitUrl &&
+    visibleOauthCallbackButtons.some((button) => callbackButtonUsesCallbackUrl(button.fields));
+
   const updateQueryParam = (rawQuery: string, key: string, value: string): string => {
     const input = rawQuery.trim();
     const params = new URLSearchParams(input.startsWith("?") ? input.slice(1) : input);
@@ -673,36 +700,46 @@ export function CredentialsTab({
           </a>
         ) : null}
       </div>
-      {!oauthCallbackUsesCustomFields
-        ? oauthUi?.callbackFields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))
-        : null}
-      {!oauthCallbackUsesCustomFields ? (
-        <div className="flex flex-wrap gap-2">
-          {oauthSubmitUrl ? (
-            <a
-              className="btn btn-primary inline-flex"
-              href={oauthSubmitUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {t("providers.oauth.openCallbackUrl")}
-            </a>
+      {!oauthRequiresModeSelection || visibleOauthCallbackButtons.length > 0 ? (
+        <>
+          {!oauthVisibleCallbackUsesCustomFields
+            ? oauthUi?.callbackFields.map((field) =>
+                renderOAuthField("callback", field, oauthCallbackQuery)
+              )
+            : null}
+          {!oauthVisibleCallbackUsesCustomFields ? (
+            <div className="flex flex-wrap gap-2">
+              {showSharedCallbackUrl ? (
+                <a
+                  className="btn btn-primary inline-flex"
+                  href={oauthSubmitUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {t("providers.oauth.openCallbackUrl")}
+                </a>
+              ) : null}
+              {visibleOauthCallbackButtons.map((button) => (
+                <Button
+                  key={button.labelKey}
+                  variant={button.mode ? "neutral" : "primary"}
+                  onClick={() =>
+                    onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)
+                  }
+                >
+                  {t(button.labelKey)}
+                </Button>
+              ))}
+            </div>
           ) : null}
-          {oauthCallbackButtons.map((button) => (
-            <Button
-              key={button.labelKey}
-              variant={button.mode ? "neutral" : "primary"}
-              onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}
-            >
-              {t(button.labelKey)}
-            </Button>
-          ))}
-        </div>
-      ) : null}
-      {oauthCallbackUsesCustomFields ? (
+        </>
+      ) : (
+        <div className="text-sm text-muted">{t("providers.oauth.selectStartMode")}</div>
+      )}
+      {oauthVisibleCallbackUsesCustomFields ? (
         <div className="space-y-2">
-          {oauthCallbackButtons.map((button) => {
-            const fields = button.fields ?? oauthUi?.callbackFields ?? [];
+          {visibleOauthCallbackButtons.map((button) => {
+            const fields = resolveCallbackFields(button.fields);
             return (
               <div
                 key={`callback-${button.labelKey}`}
@@ -713,7 +750,7 @@ export function CredentialsTab({
                 </div>
                 {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
                 <div className="flex flex-wrap gap-2">
-                  {oauthSubmitUrl ? (
+                  {oauthSubmitUrl && callbackButtonUsesCallbackUrl(button.fields) ? (
                     <a
                       className="btn btn-primary inline-flex"
                       href={oauthSubmitUrl}

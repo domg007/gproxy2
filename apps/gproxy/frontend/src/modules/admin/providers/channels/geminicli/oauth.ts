@@ -1,11 +1,9 @@
 import type { ChannelOAuthUi } from "../oauth";
 
 export const OAUTH_UI: ChannelOAuthUi = {
-  startFields: ["redirect_uri"],
+  startFields: [],
   callbackFields: [],
-  startDefaults: {
-    redirect_uri: "https://codeassist.google.com/authcode"
-  },
+  startDefaults: {},
   startButtons: [
     {
       labelKey: "providers.oauth.startUserCode",
@@ -36,8 +34,10 @@ export const OAUTH_UI: ChannelOAuthUi = {
     {
       labelKey: "providers.oauth.callbackAuthorizationCode",
       mode: "authorization_code",
-      fields: ["callback_url", "callback_code"],
+      fields: ["callback_url"],
       queryDefaults: {
+        callback_code: null,
+        code: null,
         user_code: null
       }
     }
