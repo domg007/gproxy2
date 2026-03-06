@@ -1386,20 +1386,18 @@ mod tests {
 
     fn function_call_arguments_delta(events: &[OpenAiCreateResponseSseEvent]) -> Option<String> {
         events.iter().find_map(|event| match &event.data {
-            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::FunctionCallArgumentsDelta {
-                delta,
-                ..
-            }) => Some(delta.clone()),
+            OpenAiCreateResponseSseData::Event(
+                ResponseStreamEvent::FunctionCallArgumentsDelta { delta, .. },
+            ) => Some(delta.clone()),
             _ => None,
         })
     }
 
     fn function_call_arguments_done(events: &[OpenAiCreateResponseSseEvent]) -> Option<String> {
         events.iter().find_map(|event| match &event.data {
-            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::FunctionCallArgumentsDone {
-                arguments,
-                ..
-            }) => Some(arguments.clone()),
+            OpenAiCreateResponseSseData::Event(
+                ResponseStreamEvent::FunctionCallArgumentsDone { arguments, .. },
+            ) => Some(arguments.clone()),
             _ => None,
         })
     }
@@ -1409,7 +1407,10 @@ mod tests {
         let mut converter = ClaudeToOpenAiResponseStream::default();
 
         let start_events = converter.on_content_block_start(1, tool_use_block(BTreeMap::new()));
-        assert_eq!(output_item_added_arguments(&start_events).as_deref(), Some(""));
+        assert_eq!(
+            output_item_added_arguments(&start_events).as_deref(),
+            Some("")
+        );
 
         let delta_events = converter.on_content_block_delta(
             1,
@@ -1435,10 +1436,16 @@ mod tests {
         let mut converter = ClaudeToOpenAiResponseStream::default();
 
         let start_events = converter.on_content_block_start(1, tool_use_block(BTreeMap::new()));
-        assert_eq!(output_item_added_arguments(&start_events).as_deref(), Some(""));
+        assert_eq!(
+            output_item_added_arguments(&start_events).as_deref(),
+            Some("")
+        );
 
         let stop_events = converter.on_content_block_stop(1);
-        assert_eq!(function_call_arguments_done(&stop_events).as_deref(), Some("{}"));
+        assert_eq!(
+            function_call_arguments_done(&stop_events).as_deref(),
+            Some("{}")
+        );
     }
 
     #[test]
