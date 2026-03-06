@@ -13,7 +13,7 @@ RUN corepack enable \
 COPY apps/gproxy/frontend ./apps/gproxy/frontend
 RUN cd apps/gproxy/frontend && pnpm build
 
-FROM --platform=$TARGETPLATFORM rust:1.85-slim-bookworm AS builder
+FROM --platform=$TARGETPLATFORM rust:latest AS builder
 
 WORKDIR /app
 
@@ -45,7 +45,7 @@ RUN libclang_so="$(find /usr/lib -name 'libclang.so*' | head -n 1)" \
     && cp "target/release/gproxy" /tmp/gproxy \
     && file /tmp/gproxy
 
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian13
 
 WORKDIR /app
 
