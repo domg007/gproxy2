@@ -1,5 +1,47 @@
 # Release Notes
 
+## v0.3.25
+
+### English
+
+#### Changed
+
+- Updated provider-route request envelopes for OpenAI, Gemini, and Claude to use flattened header payloads and canonical Claude header names.
+- Updated ClaudeCode, Codex, and Gemini CLI upstream request helpers to use structured request parameters, removing repeated argument-heavy call patterns.
+- Updated the `release-binary` workflow to run `gproxy --help` both before and after UPX compression.
+
+#### Fixed
+
+- Fixed downstream `500` errors on OpenAI-compatible `/responses` and `/chat/completions` paths routed to Claude-family providers when payload headers were serialized in mismatched envelope shapes.
+- Fixed raw payload compatibility across provider channels by accepting both legacy nested `headers.extra` and flattened `headers` passthrough layouts.
+- Fixed Claude-family raw payload parsing to recognize canonical `anthropic-version` and `anthropic-beta` headers.
+- Fixed Claude custom tool serialization to emit `type` instead of `type_`, avoiding `invalid_request_error` failures for custom-tool requests.
+
+#### Compatibility
+
+- Existing raw-payload clients using the older nested header envelope remain supported.
+- Claude-compatible custom-tool requests no longer require downstream workarounds for `tools.*.type_` validation failures.
+
+### 中文
+
+#### 变更
+
+- 调整了 OpenAI、Gemini、Claude 的 provider route 请求封装，统一改为扁平化 `headers` 结构，并对 Claude 使用规范头名。
+- 调整了 ClaudeCode、Codex、Gemini CLI 的上游请求辅助逻辑，改为使用结构化参数，移除了多处参数过多的调用方式。
+- 调整了 `release-binary` 工作流，在 UPX 压缩前后都会执行一次 `gproxy --help` 自检。
+
+#### 修复
+
+- 修复了 Claude 系列 provider 在接收 OpenAI 兼容 `/responses` 和 `/chat/completions` 请求时，因为请求头封装结构不匹配而导致的下游 `500`。
+- 修复了 provider 原始 payload 兼容性问题，现同时兼容旧的嵌套 `headers.extra` 结构和新的扁平 `headers` 透传结构。
+- 修复了 Claude 系列原始 payload 对请求头的解析，现可正确识别规范的 `anthropic-version` 和 `anthropic-beta`。
+- 修复了 Claude 自定义工具序列化字段错误，确保输出 `type` 而不是 `type_`，避免 custom tool 请求触发 `invalid_request_error`。
+
+#### 兼容性说明
+
+- 仍在使用旧版嵌套 header envelope 的 raw-payload 客户端无需立即调整，升级后仍可兼容。
+- Claude 兼容的 custom tool 请求不再需要额外规避 `tools.*.type_` 校验失败问题。
+
 ## v0.3.24
 
 ### English
