@@ -31,6 +31,7 @@ Common overrides:
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
+- `--database-secret-key` / `DATABASE_SECRET_KEY`
 
 ## Bootstrap source mode
 
@@ -68,6 +69,31 @@ dsn = "mysql://user:password@127.0.0.1:3306/gproxy"
 # PostgreSQL
 dsn = "postgres://user:password@127.0.0.1:5432/gproxy"
 ```
+
+## Database at-rest encryption
+
+Configure the database encryption key via CLI or env var:
+
+```bash
+./gproxy --database-secret-key 'replace-with-long-random-string'
+```
+
+```bash
+export DATABASE_SECRET_KEY='replace-with-long-random-string'
+./gproxy
+```
+
+Behavior:
+
+- `DATABASE_SECRET_KEY` unset: sensitive fields are stored and read as plaintext;
+- `DATABASE_SECRET_KEY` set: `credential.secret_json`, user API keys, user passwords, `admin_key`, and `hf_token` are transparently encrypted at rest.
+
+Recommendations:
+
+- set the key before the first database bootstrap and keep it identical on every instance using the same database;
+- on free-tier or shared managed databases, strongly prefer setting the key so sensitive values are not stored in plaintext;
+- inject it through env vars / platform secrets instead of committing it to the repo or checked-in config;
+- once encrypted data exists, do not change the key casually; rotate it only after a migration / re-encryption plan.
 
 ## `global`
 

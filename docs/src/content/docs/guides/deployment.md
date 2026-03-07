@@ -39,10 +39,13 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e DATABASE_SECRET_KEY='replace-with-long-random-string' \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   ghcr.io/leenhawk/gproxy:latest
 ```
+
+> Inject `DATABASE_SECRET_KEY` via Docker secrets, platform secrets, or env vars. Especially on free-tier or shared managed databases, configure it before first bootstrap so sensitive fields are not stored in plaintext.
 
 ## Cloud deployment
 
@@ -59,6 +62,7 @@ Recommended inputs:
 - `admin_key` (default: generated random value)
 - `rust_log` (`info`)
 - `volume_size` (`1`)
+- Configure `DATABASE_SECRET_KEY` through platform secrets
 - Persist volume at `/app/data`
 
 Built-in environment defaults:

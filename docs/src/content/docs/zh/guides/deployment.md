@@ -39,10 +39,13 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e DATABASE_SECRET_KEY='replace-with-long-random-string' \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   ghcr.io/leenhawk/gproxy:latest
 ```
+
+> 建议通过 Docker Secret、平台 Secret 或环境变量注入 `DATABASE_SECRET_KEY`。尤其是使用免费额度或共享型托管数据库时，尽量在首次初始化前就配置好，避免敏感字段明文落库。
 
 ## 云端部署
 
@@ -59,6 +62,7 @@ docker run --rm -p 8787:8787 \
 - `admin_key`（默认自动生成随机值）
 - `rust_log`（默认 `info`）
 - `volume_size`（默认 `1`）
+- 通过平台 Secret 配置 `DATABASE_SECRET_KEY`
 - 将 `/app/data` 挂载为持久化卷
 
 内置环境变量默认值：

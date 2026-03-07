@@ -126,10 +126,13 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e DATABASE_SECRET_KEY='replace-with-long-random-string' \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   ghcr.io/leenhawk/gproxy:latest
 ```
+
+> 建议通过环境变量或平台 Secret 注入 `DATABASE_SECRET_KEY`，不要直接写进仓库。尤其是使用免费额度或共享型托管数据库时，尽量在首次初始化数据库前就设置该值，避免敏感字段明文落库，并在所有实例上保持同一密钥。
 
 ### 云端部署
 
@@ -335,7 +338,15 @@ https://gproxy.leenhawk.com/zh/guides/credential-selection-cache-affinity/
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
 - `--database-secret-key` / `DATABASE_SECRET_KEY`
 
+可通过 `--database-secret-key` 或环境变量 `DATABASE_SECRET_KEY` 设置数据库静态加密密钥。
+
 未设置 `DATABASE_SECRET_KEY` 时，gproxy 会按明文读写数据库；设置后会对 `credential.secret_json`、用户 API Key、用户密码、`admin_key` 与 `hf_token` 做透明静态加密。
+
+建议：
+- 尽量在首次初始化数据库前设置该密钥，并在连接同一数据库的所有实例上保持一致；
+- 使用免费额度或共享型托管数据库时，强烈建议设置该密钥，避免敏感字段明文落库；
+- 通过平台 Secret / 环境变量注入，不要提交到仓库；
+- 已产生密文后不要随意更换该值，否则旧密文会无法解密；如需轮换，请先做数据迁移或重加密。
 
 ### 启动数据来源模式
 

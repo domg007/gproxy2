@@ -31,6 +31,7 @@ description: 多数据库、原生渠道、自定义渠道与 dispatch 转换配
 - `--mask-sensitive-info` / `GPROXY_MASK_SENSITIVE_INFO`
 - `--data-dir` / `GPROXY_DATA_DIR`
 - `--dsn` / `GPROXY_DSN`
+- `--database-secret-key` / `DATABASE_SECRET_KEY`
 
 ## 启动数据来源模式
 
@@ -68,6 +69,31 @@ dsn = "mysql://user:password@127.0.0.1:3306/gproxy"
 # PostgreSQL
 dsn = "postgres://user:password@127.0.0.1:5432/gproxy"
 ```
+
+## 数据库静态加密
+
+可通过 CLI 或环境变量设置数据库静态加密密钥：
+
+```bash
+./gproxy --database-secret-key 'replace-with-long-random-string'
+```
+
+```bash
+export DATABASE_SECRET_KEY='replace-with-long-random-string'
+./gproxy
+```
+
+行为说明：
+
+- 未设置 `DATABASE_SECRET_KEY`：敏感字段按明文读写数据库；
+- 已设置 `DATABASE_SECRET_KEY`：会对 `credential.secret_json`、用户 API Key、用户密码、`admin_key` 与 `hf_token` 做透明静态加密。
+
+使用建议：
+
+- 尽量在首次初始化数据库前就设置该密钥，并在连接同一数据库的所有实例上保持一致；
+- 使用免费额度或共享型托管数据库时，强烈建议设置该密钥，避免敏感字段明文落库；
+- 建议通过平台 Secret / 环境变量注入，不要把密钥写进仓库或公开配置；
+- 如果数据库里已经写入密文，不要直接更换该值；如需轮换，请先做数据迁移或重加密。
 
 ## `global`
 

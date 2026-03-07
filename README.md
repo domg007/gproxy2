@@ -128,10 +128,13 @@ docker run --rm -p 8787:8787 \
   -e GPROXY_HOST=0.0.0.0 \
   -e GPROXY_PORT=8787 \
   -e GPROXY_ADMIN_KEY=your-admin-key \
+  -e DATABASE_SECRET_KEY='replace-with-long-random-string' \
   -e GPROXY_DSN='sqlite:///app/data/gproxy.db?mode=rwc' \
   -v $(pwd)/data:/app/data \
   ghcr.io/leenhawk/gproxy:latest
 ```
+
+> Set `DATABASE_SECRET_KEY` via env vars or your platform secret manager rather than committing it to the repo. Especially on free-tier or shared managed databases, configure it before the first bootstrap so sensitive fields are not stored in plaintext, and keep the same key on every instance using that database.
 
 ### Cloud deployment
 
@@ -337,7 +340,15 @@ Supported overrides:
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
 - `--database-secret-key` / `DATABASE_SECRET_KEY`
 
+Configure the database-at-rest encryption key with `--database-secret-key` or the `DATABASE_SECRET_KEY` environment variable.
+
 When `DATABASE_SECRET_KEY` is unset, gproxy stores and reads DB values as plaintext. When it is set, gproxy transparently encrypts at rest for `credential.secret_json`, user API keys, user passwords, `admin_key`, and `hf_token`.
+
+Recommendations:
+- set the key before the first database bootstrap and keep it identical on every instance using the same database;
+- on free-tier or shared managed databases, strongly prefer setting the key so sensitive values are not stored in plaintext;
+- inject it via env vars / platform secrets instead of committing it to the repo;
+- do not change it casually after encrypted data exists, or older ciphertext will become unreadable without migration / re-encryption.
 
 ### Bootstrap Source Mode
 
