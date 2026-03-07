@@ -1,190 +1,13 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use super::*;
 
-use futures_util::{StreamExt, stream};
-use gproxy_protocol::claude::create_message::response::ClaudeCreateMessageResponse;
-use gproxy_protocol::claude::create_message::stream::{
-    BetaMessageDeltaUsage, ClaudeCreateMessageStreamEvent,
-};
-use gproxy_protocol::claude::create_message::types::{BetaIterationUsage, BetaUsage};
-use gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse;
-use gproxy_protocol::gemini::generate_content::types::GeminiUsageMetadata;
-use gproxy_protocol::openai::create_chat_completions::response::OpenAiChatCompletionsResponse;
-use gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk;
-use gproxy_protocol::openai::create_chat_completions::types::CompletionUsage;
-use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse;
-use gproxy_protocol::openai::create_response::stream::ResponseStreamEvent;
-use gproxy_protocol::openai::create_response::types::ResponseUsage;
-use tower::{Layer, Service};
-
-use crate::middleware::transform::kinds::{OperationFamily, ProtocolKind};
-use crate::middleware::transform::message::{TransformRequestPayload, TransformResponsePayload};
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct UsageSnapshot {
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
-    pub total_tokens: Option<u64>,
-    pub cache_creation_input_tokens: Option<u64>,
-    pub cache_creation_input_tokens_5min: Option<u64>,
-    pub cache_creation_input_tokens_1h: Option<u64>,
-    pub cache_read_input_tokens: Option<u64>,
-    pub reasoning_tokens: Option<u64>,
-    pub thoughts_tokens: Option<u64>,
-    pub tool_use_prompt_tokens: Option<u64>,
-}
-
-impl UsageSnapshot {
-    fn with_derived_totals(mut self) -> Self {
-        if self.total_tokens.is_none()
-            && let (Some(input), Some(output)) = (self.input_tokens, self.output_tokens)
-        {
-            self.total_tokens = Some(input.saturating_add(output));
-        }
-        self
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct UsageHandle {
-    inner: Arc<Mutex<Option<UsageSnapshot>>>,
-}
-
-impl UsageHandle {
-    pub fn latest(&self) -> Option<UsageSnapshot> {
-        self.inner.lock().ok().and_then(|guard| guard.clone())
-    }
-
-    fn set_latest(&self, usage: Option<UsageSnapshot>) {
-        if let Ok(mut guard) = self.inner.lock() {
-            *guard = usage;
-        }
-    }
-}
-
-pub struct UsageExtractedResponse {
-    pub response: TransformResponsePayload,
-    pub usage: UsageHandle,
-}
-
-struct UsageStreamState {
-    input: crate::middleware::transform::message::TransformBodyStream,
-    parser: UsageParser,
-    usage: UsageHandle,
-}
-
-pub fn attach_usage_extractor(payload: TransformResponsePayload) -> UsageExtractedResponse {
-    let usage = UsageHandle::default();
-    let parser = UsageParser::new(payload.operation, payload.protocol);
-    let state = UsageStreamState {
-        input: payload.body,
-        parser,
-        usage: usage.clone(),
-    };
-
-    let body = stream::try_unfold(state, |mut state| async move {
-        match state.input.next().await {
-            Some(Ok(chunk)) => {
-                state.parser.feed(chunk.as_ref());
-                Ok(Some((chunk, state)))
-            }
-            Some(Err(err)) => {
-                state.usage.set_latest(state.parser.snapshot());
-                Err(err)
-            }
-            None => {
-                state.usage.set_latest(state.parser.finish());
-                Ok(None)
-            }
-        }
-    });
-
-    UsageExtractedResponse {
-        response: TransformResponsePayload::new(
-            payload.operation,
-            payload.protocol,
-            Box::pin(body),
-        ),
-        usage,
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ResponseUsageExtractLayer;
-
-impl ResponseUsageExtractLayer {
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl<S> Layer<S> for ResponseUsageExtractLayer {
-    type Service = ResponseUsageExtractService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        ResponseUsageExtractService { inner }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ResponseUsageExtractService<S> {
-    inner: S,
-}
-
-#[derive(Debug)]
-pub enum ResponseUsageExtractServiceError<E> {
-    Inner(E),
-}
-
-impl<E: Display> Display for ResponseUsageExtractServiceError<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Inner(err) => Display::fmt(err, f),
-        }
-    }
-}
-
-impl<E: Error + 'static> Error for ResponseUsageExtractServiceError<E> {}
-
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
-
-impl<S> Service<TransformRequestPayload> for ResponseUsageExtractService<S>
-where
-    S: Service<TransformRequestPayload, Response = TransformResponsePayload> + Send + 'static,
-    S::Future: Send + 'static,
-    S::Error: Send + 'static,
-{
-    type Response = UsageExtractedResponse;
-    type Error = ResponseUsageExtractServiceError<S::Error>;
-    type Future = BoxFuture<Result<Self::Response, Self::Error>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner
-            .poll_ready(cx)
-            .map_err(ResponseUsageExtractServiceError::Inner)
-    }
-
-    fn call(&mut self, request: TransformRequestPayload) -> Self::Future {
-        let fut = self.inner.call(request);
-        Box::pin(async move {
-            let response = fut.await.map_err(ResponseUsageExtractServiceError::Inner)?;
-            Ok(attach_usage_extractor(response))
-        })
-    }
-}
-
-enum NonStreamKind {
+pub(super) enum NonStreamKind {
     OpenAiResponse,
     OpenAiChatCompletions,
     Claude,
     Gemini,
 }
 
-enum UsageParser {
+pub(super) enum UsageParser {
     Unsupported,
     NonStream {
         kind: NonStreamKind,
@@ -214,7 +37,7 @@ enum UsageParser {
 }
 
 impl UsageParser {
-    fn new(operation: OperationFamily, protocol: ProtocolKind) -> Self {
+    pub(super) fn new(operation: OperationFamily, protocol: ProtocolKind) -> Self {
         match (operation, protocol) {
             (OperationFamily::GenerateContent, ProtocolKind::OpenAi) => Self::NonStream {
                 kind: NonStreamKind::OpenAiResponse,
@@ -267,7 +90,7 @@ impl UsageParser {
         }
     }
 
-    fn feed(&mut self, chunk: &[u8]) {
+    pub(super) fn feed(&mut self, chunk: &[u8]) {
         match self {
             Self::Unsupported => {}
             Self::NonStream { buffer, .. } => buffer.extend_from_slice(chunk),
@@ -350,7 +173,7 @@ impl UsageParser {
         }
     }
 
-    fn snapshot(&self) -> Option<UsageSnapshot> {
+    pub(super) fn snapshot(&self) -> Option<UsageSnapshot> {
         match self {
             Self::Unsupported => None,
             Self::NonStream { .. } => None,
@@ -369,7 +192,7 @@ impl UsageParser {
         }
     }
 
-    fn finish(mut self) -> Option<UsageSnapshot> {
+    pub(super) fn finish(mut self) -> Option<UsageSnapshot> {
         match &mut self {
             Self::Unsupported => None,
             Self::NonStream { kind, buffer } => {
