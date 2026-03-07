@@ -1,5 +1,47 @@
 # Release Notes
 
+## v0.3.30
+
+### English
+
+#### Changed
+
+- Added a reusable `Expert Settings` section to the admin provider form. For built-in channels, only the core identity/base fields stay visible by default, while advanced channel-specific settings start collapsed and can be expanded when needed.
+- Updated dispatch-template UX in the provider form: built-in templates are now shown/hidden with an explicit toggle, and related buttons/copy were simplified for a cleaner editing flow.
+- Added optional Anthropic beta header selection to the ClaudeCode channel settings, with one-click multi-select and clear actions based on a built-in reference list.
+- Added matching `prelude_text` and optional Anthropic beta header selection to the Claude channel settings, so Claude and ClaudeCode can now be tuned from the admin UI in a similar way.
+
+#### Fixed
+
+- Fixed ClaudeCode upstream beta handling so `usage`, OAuth, token refresh, cookie exchange, and profile requests keep only the required fixed `oauth-2025-04-20` beta, while extra selected betas apply only to the main ClaudeCode request flow.
+- Improved Anthropic beta merge behavior to keep provider-selected values ordered first, avoid duplicates, and preserve passthrough values when present.
+
+#### Compatibility
+
+- Existing provider settings remain compatible. New `claude_prelude_text`, `claude_extra_beta_headers`, and `claudecode_extra_beta_headers` fields are optional.
+- ClaudeCode OAuth-related flows still retain the fixed `oauth-2025-04-20` beta header automatically.
+- No data migration is required.
+
+### 中文
+
+#### 变更
+
+- 后台 provider 配置页新增了可复用的“专家设置”区域。内置渠道默认只展示核心身份与基础地址等主配置，其余进阶项默认收起，按需展开即可。
+- 调整了分发表模板交互：内置模板区改为“显示内置模板 / 隐藏内置模板”切换，并同步精简了相关按钮与提示文案，让编辑流程更清爽。
+- ClaudeCode 渠道配置新增可选 Anthropic beta 头选择，支持基于内置参考列表一键多选和一键清空。
+- Claude 渠道配置新增 `prelude_text` 和可选 Anthropic beta 头，和 ClaudeCode 一样可以直接在后台完成前置文本与 beta 头调优。
+
+#### 修复
+
+- 修复了 ClaudeCode 的 beta 头附加逻辑：`usage`、OAuth、token refresh、cookie exchange、profile 等请求仅保留固定必需的 `oauth-2025-04-20`，不再混入额外选中的 beta；额外 beta 仅作用于主请求链路。
+- 优化了 Anthropic beta 头合并顺序：provider 中显式选中的 beta 会优先排在前面，同时自动去重并保留已有透传值。
+
+#### 兼容性
+
+- 现有 provider 配置保持兼容；新增的 `claude_prelude_text`、`claude_extra_beta_headers`、`claudecode_extra_beta_headers` 都是可选字段。
+- ClaudeCode 的 OAuth 相关链路仍会自动附带固定的 `oauth-2025-04-20` beta 头。
+- 不需要额外数据迁移。
+
 ## v0.3.29
 
 ### English
