@@ -23,8 +23,23 @@ use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 
 pub fn try_local_vertexexpress_model_response(
+    provider: &ProviderDefinition,
     request: &TransformRequest,
 ) -> Result<Option<TransformResponse>, UpstreamError> {
+    if !matches!(
+        request,
+        TransformRequest::ModelListGemini(_) | TransformRequest::ModelGetGemini(_)
+    ) {
+        return Ok(None);
+    }
+
+    if !has_configured_vertexexpress_credential(provider) {
+        return Err(UpstreamError::NoEligibleCredential {
+            channel: provider.channel.as_str().to_string(),
+            model: local_vertexexpress_request_model(request),
+        });
+    }
+
     let models_doc = load_vertexexpress_models_value()?;
     try_local_gemini_model_response(request, &models_doc)
 }
@@ -36,7 +51,7 @@ pub async fn execute_vertexexpress_with_retry(
     request: &TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    if let Some(local) = try_local_vertexexpress_model_response(request)? {
+    if let Some(local) = try_local_vertexexpress_model_response(provider, request)? {
         return Ok(UpstreamResponse::from_local(local));
     }
 
@@ -634,6 +649,28 @@ fn vertexexpress_model_id(model: &str) -> String {
         .to_string()
 }
 
+fn has_configured_vertexexpress_credential(provider: &ProviderDefinition) -> bool {
+    provider
+        .credentials
+        .credentials
+        .iter()
+        .any(|credential| match &credential.credential {
+            ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(value)) => {
+                value.is_configured()
+            }
+            _ => false,
+        })
+}
+
+fn local_vertexexpress_request_model(request: &TransformRequest) -> Option<String> {
+    match request {
+        TransformRequest::ModelGetGemini(value) => {
+            Some(vertexexpress_model_id(value.path.name.as_str()))
+        }
+        _ => None,
+    }
+}
+
 fn load_vertexexpress_models_value() -> Result<Value, UpstreamError> {
     let parsed: Value = serde_json::from_str(MODELS_GEMINI_JSON)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
@@ -643,4 +680,69 @@ fn load_vertexexpress_models_value() -> Result<Value, UpstreamError> {
         ));
     }
     Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::try_local_vertexexpress_model_response;
+    use crate::CredentialPickMode;
+    use crate::channel::{BuiltinChannel, ChannelId};
+    use crate::channels::{
+        BuiltinChannelCredential, BuiltinChannelSettings, ChannelCredential, ChannelSettings,
+    };
+    use crate::credential::{CredentialRef, ProviderCredentialState};
+    use crate::dispatch::ProviderDispatchTable;
+    use crate::provider::ProviderDefinition;
+    use gproxy_middleware::{TransformRequest, TransformResponse};
+
+    fn build_provider(api_key: &str) -> ProviderDefinition {
+        let channel = ChannelId::Builtin(BuiltinChannel::VertexExpress);
+        let mut credential = BuiltinChannelCredential::blank_for(BuiltinChannel::VertexExpress);
+        if let BuiltinChannelCredential::VertexExpress(value) = &mut credential {
+            value.api_key = api_key.to_string();
+        }
+
+        ProviderDefinition {
+            channel,
+            dispatch: ProviderDispatchTable::default(),
+            settings: ChannelSettings::Builtin(BuiltinChannelSettings::default_for(
+                BuiltinChannel::VertexExpress,
+            )),
+            credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
+            credentials: ProviderCredentialState {
+                credentials: vec![CredentialRef {
+                    id: 1,
+                    label: None,
+                    credential: ChannelCredential::Builtin(credential),
+                }],
+                channel_states: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn local_model_list_requires_configured_credential() {
+        let provider = build_provider("   ");
+        let request = TransformRequest::ModelListGemini(Default::default());
+        let err = try_local_vertexexpress_model_response(&provider, &request).unwrap_err();
+        match err {
+            crate::channels::upstream::UpstreamError::NoEligibleCredential { channel, model } => {
+                assert_eq!(channel, "vertexexpress");
+                assert_eq!(model, None);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn local_model_list_returns_when_credential_is_configured() {
+        let provider = build_provider("test-key");
+        let request = TransformRequest::ModelListGemini(Default::default());
+        let response = try_local_vertexexpress_model_response(&provider, &request).unwrap();
+
+        assert!(matches!(
+            response,
+            Some(TransformResponse::ModelListGemini(_))
+        ));
+    }
 }

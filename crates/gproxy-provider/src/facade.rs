@@ -184,12 +184,12 @@ pub fn normalize_upstream_stream_ndjson_chunk_for_channel(
 }
 
 pub fn try_local_response_for_channel(
-    channel: &ChannelId,
+    provider: &ProviderDefinition,
     request: &TransformRequest,
 ) -> Result<Option<TransformResponse>, UpstreamError> {
-    match channel {
+    match &provider.channel {
         ChannelId::Builtin(BuiltinChannel::VertexExpress) => {
-            try_local_vertexexpress_model_response(request)
+            try_local_vertexexpress_model_response(provider, request)
         }
         _ => Ok(None),
     }

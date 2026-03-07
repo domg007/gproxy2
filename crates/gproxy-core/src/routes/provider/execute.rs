@@ -651,10 +651,10 @@ pub(super) async fn execute_local_count_token_request(
 
 pub(super) async fn execute_local_request(
     state: &AppState,
-    channel: &ChannelId,
+    provider: &ProviderDefinition,
     request: &TransformRequest,
 ) -> Result<UpstreamResponse, UpstreamError> {
-    if let Some(local) = try_local_response_for_channel(channel, request)? {
+    if let Some(local) = try_local_response_for_channel(provider, request)? {
         return Ok(UpstreamResponse::from_local(local));
     }
 
@@ -768,7 +768,7 @@ pub(super) async fn execute_transform_request(
     let upstream_request_context = usage_request_context_from_transform_request(&upstream_request);
     let (upstream_result, tracked_http_events) = if dispatch_local {
         (
-            execute_local_request(state.as_ref(), &channel, &downstream_request).await,
+            execute_local_request(state.as_ref(), &provider, &downstream_request).await,
             Vec::new(),
         )
     } else {
