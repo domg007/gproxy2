@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
-import { formatAtForViewer, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
+import { formatAtForViewer, parseAtToUnixMs, parseDateTimeLocalToUnixMs } from "../../lib/datetime";
 import { parseOptionalI64 } from "../../lib/form";
 import { scopeAll, scopeEq } from "../../lib/scope";
-import type { UsageQueryCount, UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
+import type { UsageQueryRow, UsageSummary, UserKeyQueryRow } from "../../lib/types";
 import { Button, Card, Input, Label, MetricCard, SearchableSelect, Select, Table } from "../../components/ui";
 
 type UsageQuerySnapshot = {
@@ -15,6 +15,11 @@ type UsageQuerySnapshot = {
   fromUnixMs: number | null;
   toUnixMs: number | null;
   maxRows: number | null;
+};
+
+type UsagePageCursor = {
+  atUnixMs: number;
+  traceId: number;
 };
 
 function emptySummary(): UsageSummary {
@@ -63,6 +68,36 @@ function buildUsageBasePayload(snapshot: UsageQuerySnapshot) {
   };
 }
 
+function buildUsageRowsPayload(
+  snapshot: UsageQuerySnapshot,
+  options: {
+    limit: number;
+    cursor: UsagePageCursor | null;
+  }
+) {
+  return {
+    ...buildUsageBasePayload(snapshot),
+    cursor_at_unix_ms: options.cursor?.atUnixMs ?? null,
+    cursor_trace_id: options.cursor?.traceId ?? null,
+    limit: options.limit
+  };
+}
+
+function usageCursorFromRows(rows: UsageQueryRow[]): UsagePageCursor | null {
+  const last = rows.length > 0 ? rows[rows.length - 1] : undefined;
+  if (!last) {
+    return null;
+  }
+  const atUnixMs = parseAtToUnixMs(last.at);
+  if (atUnixMs === null) {
+    return null;
+  }
+  return {
+    atUnixMs,
+    traceId: last.trace_id
+  };
+}
+
 export function MyUsageModule({
   apiKey,
   notify
@@ -76,6 +111,7 @@ export function MyUsageModule({
   const [totalRows, setTotalRows] = useState(0);
   const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
   const [page, setPage] = useState(1);
+  const [pageCursors, setPageCursors] = useState<Array<UsagePageCursor | null>>([null]);
   const [activeQuery, setActiveQuery] = useState<UsageQuerySnapshot | null>(null);
   const [loadingRows, setLoadingRows] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(false);
@@ -193,6 +229,7 @@ export function MyUsageModule({
     const snapshot = buildSnapshot();
     setActiveQuery(snapshot);
     setPage(1);
+    setPageCursors([null]);
     setRows([]);
     setTotalRows(0);
   };
@@ -253,9 +290,11 @@ export function MyUsageModule({
 
   useEffect(() => {
     setPage(1);
+    setPageCursors([null]);
   }, [pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const currentPageCursor = pageCursors[page - 1] ?? null;
 
   useEffect(() => {
     if (page > totalPages) {
@@ -271,20 +310,13 @@ export function MyUsageModule({
     const fetchMeta = async () => {
       try {
         const basePayload = buildUsageBasePayload(activeQuery);
-        const [countResult, summaryResult] = await Promise.all([
-          apiRequest<UsageQueryCount>("/user/usages/count", {
-            apiKey,
-            method: "POST",
-            body: basePayload
-          }),
-          apiRequest<UsageSummary>("/user/usages/summary", {
-            apiKey,
-            method: "POST",
-            body: basePayload
-          })
-        ]);
+        const summaryResult = await apiRequest<UsageSummary>("/user/usages/summary", {
+          apiKey,
+          method: "POST",
+          body: basePayload
+        });
         const maxRows = activeQuery.maxRows;
-        setTotalRows(maxRows === null ? countResult.count : Math.min(countResult.count, maxRows));
+        setTotalRows(maxRows === null ? summaryResult.count : Math.min(summaryResult.count, maxRows));
         setSummary(summaryResult);
       } catch (error) {
         notify("error", formatError(error));
@@ -313,14 +345,21 @@ export function MyUsageModule({
         const data = await apiRequest<UsageQueryRow[]>("/user/usages/query", {
           apiKey,
           method: "POST",
-          body: {
-            ...buildUsageBasePayload(activeQuery),
-            offset,
+          body: buildUsageRowsPayload(activeQuery, {
+            cursor: currentPageCursor,
             limit
-          }
+          })
         });
         setRows(data);
         collectUsageMetadata(data);
+        const nextCursor = usageCursorFromRows(data);
+        setPageCursors((prev) => {
+          const next = prev.slice(0, page);
+          if (nextCursor) {
+            next[page] = nextCursor;
+          }
+          return next;
+        });
       } catch (error) {
         notify("error", formatError(error));
       } finally {
@@ -328,7 +367,9 @@ export function MyUsageModule({
       }
     };
     void fetchRows();
-  }, [activeQuery, apiKey, notify, page, pageSize]);
+  }, [activeQuery, apiKey, currentPageCursor, notify, page, pageSize]);
+
+  const canGoNext = page < totalPages && pageCursors[page] !== undefined;
 
   return (
     <div className="space-y-4">
@@ -449,7 +490,7 @@ export function MyUsageModule({
             <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
             <Button
               variant="neutral"
-              disabled={page >= totalPages || loadingRows || loadingMeta}
+              disabled={!canGoNext || loadingRows || loadingMeta}
               onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             >
               {t("common.pager.next")}

@@ -11,6 +11,8 @@ pub struct UsageQuery {
     pub user_key_id: Scope<i64>,
     pub from_unix_ms: Option<i64>,
     pub to_unix_ms: Option<i64>,
+    pub cursor_at_unix_ms: Option<i64>,
+    pub cursor_trace_id: Option<i64>,
     pub offset: Option<u64>,
     pub limit: Option<u64>,
 }

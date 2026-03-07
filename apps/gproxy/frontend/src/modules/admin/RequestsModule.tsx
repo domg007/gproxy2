@@ -24,6 +24,7 @@ export function RequestsModule({
     setPage,
     totalRows,
     totalPages,
+    canGoNext,
     loadingRows,
     loadingCount,
     clearingPayload,
@@ -84,6 +85,7 @@ export function RequestsModule({
         onPageSizeChange={setPageSize}
         page={page}
         totalPages={totalPages}
+        canGoNext={canGoNext}
         loadingRows={loadingRows}
         loadingCount={loadingCount}
         onPageChange={setPage}

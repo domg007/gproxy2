@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use super::super::SeaOrmStorage;
 use super::super::entities::{downstream_requests, upstream_requests};
-use super::helpers::unix_ms_to_offset_datetime;
+use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 use crate::query::{
     DownstreamRequestQuery, DownstreamRequestQueryRow, RequestQueryCount, Scope,
     UpstreamRequestQuery, UpstreamRequestQueryRow,
@@ -24,6 +24,13 @@ impl SeaOrmStorage {
                 .order_by(upstream_requests::Column::At, Order::Desc)
                 .order_by(upstream_requests::Column::TraceId, Order::Desc);
             stmt = apply_upstream_request_filters(stmt, query);
+            stmt = apply_desc_cursor(
+                stmt,
+                upstream_requests::Column::At,
+                upstream_requests::Column::TraceId,
+                query.cursor_at_unix_ms,
+                query.cursor_trace_id,
+            );
             if let Some(offset) = query.offset
                 && offset > 0
             {
@@ -73,6 +80,13 @@ impl SeaOrmStorage {
             .order_by(upstream_requests::Column::At, Order::Desc)
             .order_by(upstream_requests::Column::TraceId, Order::Desc);
         stmt = apply_upstream_request_filters(stmt, query);
+        stmt = apply_desc_cursor(
+            stmt,
+            upstream_requests::Column::At,
+            upstream_requests::Column::TraceId,
+            query.cursor_at_unix_ms,
+            query.cursor_trace_id,
+        );
         if let Some(offset) = query.offset
             && offset > 0
         {
@@ -100,6 +114,13 @@ impl SeaOrmStorage {
                 .order_by(downstream_requests::Column::At, Order::Desc)
                 .order_by(downstream_requests::Column::TraceId, Order::Desc);
             stmt = apply_downstream_request_filters(stmt, query);
+            stmt = apply_desc_cursor(
+                stmt,
+                downstream_requests::Column::At,
+                downstream_requests::Column::TraceId,
+                query.cursor_at_unix_ms,
+                query.cursor_trace_id,
+            );
             if let Some(offset) = query.offset
                 && offset > 0
             {
@@ -149,6 +170,13 @@ impl SeaOrmStorage {
             .order_by(downstream_requests::Column::At, Order::Desc)
             .order_by(downstream_requests::Column::TraceId, Order::Desc);
         stmt = apply_downstream_request_filters(stmt, query);
+        stmt = apply_desc_cursor(
+            stmt,
+            downstream_requests::Column::At,
+            downstream_requests::Column::TraceId,
+            query.cursor_at_unix_ms,
+            query.cursor_trace_id,
+        );
         if let Some(offset) = query.offset
             && offset > 0
         {

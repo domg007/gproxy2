@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use super::super::SeaOrmStorage;
 use super::super::entities::{providers, usages};
-use super::helpers::unix_ms_to_offset_datetime;
+use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 use crate::query::{Scope, UsageQuery, UsageQueryCount, UsageQueryRow, UsageSummary};
 
 impl SeaOrmStorage {
@@ -36,6 +36,13 @@ impl SeaOrmStorage {
             .order_by(usages::Column::TraceId, Order::Desc);
 
         stmt = apply_usage_filters(stmt, query);
+        stmt = apply_desc_cursor(
+            stmt,
+            usages::Column::At,
+            usages::Column::TraceId,
+            query.cursor_at_unix_ms,
+            query.cursor_trace_id,
+        );
         if let Some(offset) = query.offset
             && offset > 0
         {

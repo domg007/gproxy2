@@ -25,6 +25,7 @@ export function RequestsTable({
   onPageSizeChange,
   page,
   totalPages,
+  canGoNext,
   loadingRows,
   loadingCount,
   onPageChange,
@@ -45,6 +46,7 @@ export function RequestsTable({
   onPageSizeChange: (pageSize: number) => void;
   page: number;
   totalPages: number;
+  canGoNext: boolean;
   loadingRows: boolean;
   loadingCount: boolean;
   onPageChange: (page: number) => void;
@@ -163,7 +165,7 @@ export function RequestsTable({
           <span>{t("common.pager.page", { current: page, total: totalPages })}</span>
           <Button
             variant="neutral"
-            disabled={page >= totalPages || loadingRows || loadingCount}
+            disabled={!canGoNext || loadingRows || loadingCount}
             onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           >
             {t("common.pager.next")}

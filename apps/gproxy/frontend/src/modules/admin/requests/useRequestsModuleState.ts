@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiRequest, formatError } from "../../../lib/api";
-import { parseDateTimeLocalToUnixMs } from "../../../lib/datetime";
+import { parseAtToUnixMs, parseDateTimeLocalToUnixMs } from "../../../lib/datetime";
 import { parseOptionalI64 } from "../../../lib/form";
 import { scopeAll, scopeEq } from "../../../lib/scope";
 import type {
@@ -42,6 +42,11 @@ const DEFAULT_FILTERS: RequestsFilterState = {
   fromAt: "",
   toAt: "",
   limit: "100"
+};
+
+type RequestPageCursor = {
+  atUnixMs: number;
+  traceId: number;
 };
 
 function defaultPageSizeByViewport(): number {
@@ -86,10 +91,10 @@ function buildRequestCountPayload(snapshot: RequestQuerySnapshot) {
 function buildRequestRowsPayload(
   snapshot: RequestQuerySnapshot,
   options: {
-    offset: number;
     limit: number;
     includeBody: boolean;
     traceId?: number;
+    cursor?: RequestPageCursor | null;
   }
 ) {
   if (snapshot.kind === "upstream") {
@@ -101,7 +106,8 @@ function buildRequestRowsPayload(
       request_url_contains: snapshot.pathContains || null,
       from_unix_ms: snapshot.fromUnixMs,
       to_unix_ms: snapshot.toUnixMs,
-      offset: options.offset,
+      cursor_at_unix_ms: options.cursor?.atUnixMs ?? null,
+      cursor_trace_id: options.cursor?.traceId ?? null,
       limit: options.limit,
       include_body: options.includeBody
     };
@@ -114,9 +120,25 @@ function buildRequestRowsPayload(
     request_path_contains: snapshot.pathContains || null,
     from_unix_ms: snapshot.fromUnixMs,
     to_unix_ms: snapshot.toUnixMs,
-    offset: options.offset,
+    cursor_at_unix_ms: options.cursor?.atUnixMs ?? null,
+    cursor_trace_id: options.cursor?.traceId ?? null,
     limit: options.limit,
     include_body: options.includeBody
+  };
+}
+
+function requestCursorFromRows(rows: RequestRow[]): RequestPageCursor | null {
+  const last = rows.length > 0 ? rows[rows.length - 1] : undefined;
+  if (!last) {
+    return null;
+  }
+  const atUnixMs = parseAtToUnixMs(last.at);
+  if (atUnixMs === null) {
+    return null;
+  }
+  return {
+    atUnixMs,
+    traceId: last.trace_id
   };
 }
 
@@ -153,6 +175,7 @@ export function useRequestsModuleState({
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [pageSize, setPageSize] = useState<number>(() => defaultPageSizeByViewport());
   const [page, setPage] = useState(1);
+  const [pageCursors, setPageCursors] = useState<Array<RequestPageCursor | null>>([null]);
   const [totalRows, setTotalRows] = useState(0);
   const [activeQuery, setActiveQuery] = useState<RequestQuerySnapshot | null>(null);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -275,6 +298,7 @@ export function useRequestsModuleState({
     setRows([]);
     setTotalRows(0);
     setPage(1);
+    setPageCursors([null]);
     setKnownRequestPaths([]);
     setBodyByTraceId({});
     setBodyLoadingByTraceId({});
@@ -284,9 +308,11 @@ export function useRequestsModuleState({
 
   useEffect(() => {
     setPage(1);
+    setPageCursors([null]);
   }, [pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const currentPageCursor = pageCursors[page - 1] ?? null;
 
   useEffect(() => {
     if (page > totalPages) {
@@ -320,6 +346,7 @@ export function useRequestsModuleState({
     const snapshot = buildSnapshot();
     setActiveQuery(snapshot);
     setPage(1);
+    setPageCursors([null]);
     setRows([]);
     setTotalRows(0);
     setBodyByTraceId({});
@@ -379,9 +406,9 @@ export function useRequestsModuleState({
           apiKey,
           method: "POST",
           body: buildRequestRowsPayload(activeQuery, {
-            offset,
             limit,
-            includeBody: false
+            includeBody: false,
+            cursor: currentPageCursor
           })
         });
         if (requestId !== rowsRequestSeq.current) {
@@ -400,6 +427,14 @@ export function useRequestsModuleState({
         if (paths.length > 0) {
           setKnownRequestPaths((prev) => Array.from(new Set([...prev, ...paths])).sort());
         }
+        const nextCursor = requestCursorFromRows(data);
+        setPageCursors((prev) => {
+          const next = prev.slice(0, page);
+          if (nextCursor) {
+            next[page] = nextCursor;
+          }
+          return next;
+        });
       } catch (error) {
         notify("error", formatError(error));
       } finally {
@@ -409,7 +444,9 @@ export function useRequestsModuleState({
       }
     };
     void fetchRows();
-  }, [activeQuery, apiKey, notify, page, pageSize]);
+  }, [activeQuery, apiKey, currentPageCursor, notify, page, pageSize]);
+
+  const canGoNext = page < totalPages && pageCursors[page] !== undefined;
 
   const ensureBodyLoaded = useCallback(async (row: RequestRow): Promise<RequestBodyPayload | undefined> => {
     if (!activeQuery) {
@@ -433,7 +470,6 @@ export function useRequestsModuleState({
         method: "POST",
         body: buildRequestRowsPayload(activeQuery, {
           traceId,
-          offset: 0,
           limit: 1,
           includeBody: true
         })
@@ -527,6 +563,7 @@ export function useRequestsModuleState({
     setPage,
     totalRows,
     totalPages,
+    canGoNext,
     loadingRows,
     loadingCount,
     clearingPayload,
