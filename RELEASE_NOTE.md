@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.3.29
+
+### English
+
+#### Changed
+
+- Added backend-specific storage optimization modules for SQLite, MySQL, and PostgreSQL, with shared SeaORM/SeaQuery-managed index setup and per-backend connection tuning.
+- Switched admin/user usage queries and admin request-log queries to cursor-based pagination in the frontend, using `(at, trace_id)` seek semantics instead of relying on deep offset scans.
+- Reused usage summary `count` in the usage pages to avoid the extra `/count` round-trip and duplicate aggregate scans.
+- Optimized usage summary/count queries to join `providers` only when channel filtering is requested.
+- Added builtin `xxx-like` dispatch-table templates in the admin provider config, so new or existing channels can quickly reuse any builtin channel mapping and then fine-tune it manually.
+
+#### Fixed
+
+- Reduced large-table scan pressure on `usages`, `upstream_requests`, and `downstream_requests` by adding composite indexes aligned with the main filter/sort patterns.
+- Improved pagination stability under concurrent inserts by using deterministic `(at DESC, trace_id DESC)` cursors, reducing duplicate or skipped rows that are more likely with offset pagination.
+- Fixed request/usage pagination state handling in the frontend so per-page cursors are reset correctly when filters or page size change.
+
+#### Compatibility
+
+- Existing request/usage query APIs remain compatible: `offset` is still accepted, while `cursor_at_unix_ms` and `cursor_trace_id` are added as optional fields.
+- Existing SQLite, MySQL, and PostgreSQL deployments remain supported; optimization DDL is generated through SeaQuery and applied after schema sync.
+- No data migration is required.
+
+### 中文
+
+#### 变更
+
+- 新增了面向 SQLite、MySQL、PostgreSQL 的存储优化模块，通用索引通过 SeaORM/SeaQuery 统一管理，并按后端应用各自的连接调优参数。
+- 管理后台/用户侧 usage 查询，以及管理后台请求日志查询，前端已切换为基于 `(at, trace_id)` 的 cursor 分页，不再依赖深页 `offset` 扫描。
+- usage 页面改为直接复用 summary 返回的 `count`，避免额外的 `/count` 请求和重复聚合扫描。
+- usage 的 summary/count 查询现在仅在按 `channel` 过滤时才关联 `providers` 表。
+- 后台渠道配置新增内置 `xxx-like` 分发表模板，新增渠道或编辑已有渠道时都可以一键套用任意内置渠道的分发表，再继续手动微调。
+
+#### 修复
+
+- 为 `usages`、`upstream_requests`、`downstream_requests` 增加了与主过滤/排序模式匹配的复合索引，降低大表扫描压力。
+- 使用确定性的 `(at DESC, trace_id DESC)` 游标后，分页在并发写入场景下更稳定，减少了 offset 分页更容易出现的重复行或漏行问题。
+- 修复了前端 request/usage 分页状态管理，在筛选条件或每页数量变化时会正确重置分页面游标。
+
+#### 兼容性
+
+- 现有 request/usage 查询 API 保持兼容：`offset` 仍可继续使用，同时新增可选字段 `cursor_at_unix_ms` 与 `cursor_trace_id`。
+- 现有 SQLite、MySQL、PostgreSQL 部署均可继续使用；优化索引 DDL 通过 SeaQuery 生成，并在 schema sync 后自动应用。
+- 不需要额外数据迁移。
+
 ## v0.3.28
 
 ### English
