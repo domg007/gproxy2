@@ -3,6 +3,12 @@ import { useEffect, useState, type Dispatch, type DragEvent, type SetStateAction
 import { Badge, Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import { BUILTIN_CHANNELS } from "./channels/registry";
 import {
+  CLAUDECODE_OAUTH_BETA_HEADER,
+  CLAUDECODE_REFERENCE_BETA_HEADERS,
+  claudecodeExtraBetaHeadersDraftToList,
+  claudecodeExtraBetaHeadersDraftToString
+} from "./channels/claudecode/settings";
+import {
   BUILD_UA_ARCH,
   BUILD_UA_OS,
   DEFAULT_GPROXY_USER_AGENT_DRAFT,
@@ -89,6 +95,47 @@ export function ConfigTab({
     }
   ] as const;
   const dispatchTemplateChannels = BUILTIN_CHANNELS;
+  const claudecodeExtraBetaHeaders = claudecodeExtraBetaHeadersDraftToList(
+    providerForm.settings.claudecode_extra_beta_headers ?? ""
+  );
+  const orderedClaudecodeReferenceBetas = [
+    ...CLAUDECODE_REFERENCE_BETA_HEADERS.filter((beta) =>
+      claudecodeExtraBetaHeaders.some((value) => value.toLowerCase() === beta.toLowerCase())
+    ),
+    ...CLAUDECODE_REFERENCE_BETA_HEADERS.filter(
+      (beta) => !claudecodeExtraBetaHeaders.some((value) => value.toLowerCase() === beta.toLowerCase())
+    )
+  ];
+
+  const setClaudecodeExtraBetaHeaders = (value: unknown) => {
+    setProviderForm((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        claudecode_extra_beta_headers: claudecodeExtraBetaHeadersDraftToString(value)
+      }
+    }));
+  };
+
+  const toggleClaudecodeReferenceBeta = (beta: string) => {
+    const current = claudecodeExtraBetaHeadersDraftToList(
+      providerForm.settings.claudecode_extra_beta_headers ?? ""
+    );
+    const exists = current.some((value) => value.toLowerCase() === beta.toLowerCase());
+    const next = exists
+      ? current.filter((value) => value.toLowerCase() !== beta.toLowerCase())
+      : [beta, ...current.filter((value) => value.toLowerCase() !== beta.toLowerCase())];
+    const selectedRefs = CLAUDECODE_REFERENCE_BETA_HEADERS.filter((candidate) =>
+      next.some((value) => value.toLowerCase() === candidate.toLowerCase())
+    );
+    const customValues = next.filter(
+      (value) =>
+        !CLAUDECODE_REFERENCE_BETA_HEADERS.some(
+          (candidate) => candidate.toLowerCase() === value.toLowerCase()
+        )
+    );
+    setClaudecodeExtraBetaHeaders([...selectedRefs, ...customValues]);
+  };
 
   const applyDispatchTemplate = (channel: string) => {
     setProviderForm((prev) => ({
@@ -543,6 +590,34 @@ export function ConfigTab({
                   }))
                 }
               />
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label>{t("field.claudecode_extra_beta_headers")}</Label>
+                <Badge active>
+                  {t("providers.claudecode.betaRequired", { beta: CLAUDECODE_OAUTH_BETA_HEADER })}
+                </Badge>
+                <Button variant="neutral" onClick={() => setClaudecodeExtraBetaHeaders("")}>
+                  {t("providers.cacheBreakpoints.clear")}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted">{t("providers.claudecode.betaHint")}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {orderedClaudecodeReferenceBetas.map((beta) => {
+                  const selected = claudecodeExtraBetaHeaders.some(
+                    (value) => value.toLowerCase() === beta.toLowerCase()
+                  );
+                  return (
+                    <Button
+                      key={beta}
+                      variant={selected ? "primary" : "neutral"}
+                      onClick={() => toggleClaudecodeReferenceBeta(beta)}
+                    >
+                      {beta}
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
             <div className="md:col-span-2">
               <Label>{t("field.claudecode_prelude_text")}</Label>

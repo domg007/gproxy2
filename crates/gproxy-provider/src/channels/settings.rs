@@ -169,6 +169,15 @@ impl ChannelSettings {
         }
     }
 
+    pub fn claudecode_extra_beta_headers(&self) -> &[String] {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
+                &value.extra_beta_headers
+            }
+            _ => &[],
+        }
+    }
+
     pub fn cache_breakpoints(&self) -> &[CacheBreakpointRule] {
         match self {
             Self::Builtin(BuiltinChannelSettings::Claude(value)) => &value.cache_breakpoints,

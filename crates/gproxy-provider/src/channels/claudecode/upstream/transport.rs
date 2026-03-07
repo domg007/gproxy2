@@ -5,6 +5,7 @@ pub(super) async fn send_claudecode_request(
     params: ClaudeCodeRequestParams<'_>,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
     let beta_values = normalized_claudecode_beta_values(
+        &[],
         params
             .request_headers
             .iter()
@@ -53,7 +54,6 @@ pub(super) async fn send_claudecode_usage_request(
     access_token: &str,
     user_agent: &str,
 ) -> Result<(wreq::Response, UpstreamRequestMeta), wreq::Error> {
-    let beta_values = normalized_claudecode_beta_values(Vec::new(), true);
     let sent_headers = vec![
         (
             "authorization".to_string(),
@@ -62,7 +62,7 @@ pub(super) async fn send_claudecode_usage_request(
         ("accept".to_string(), "application/json".to_string()),
         ("content-type".to_string(), "application/json".to_string()),
         ("user-agent".to_string(), user_agent.to_string()),
-        ("anthropic-beta".to_string(), beta_values.join(",")),
+        ("anthropic-beta".to_string(), OAUTH_BETA.to_string()),
     ];
     crate::channels::upstream::tracked_send_request(
         client,

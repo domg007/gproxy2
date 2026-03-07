@@ -1,7 +1,16 @@
 use super::*;
 
 pub(super) fn ensure_oauth_beta(headers: &mut Vec<(String, String)>, allow_context_1m: bool) {
+    merge_claudecode_beta_headers(headers, &[], allow_context_1m);
+}
+
+pub(super) fn merge_claudecode_beta_headers(
+    headers: &mut Vec<(String, String)>,
+    preferred: &[String],
+    allow_context_1m: bool,
+) {
     let values = normalized_claudecode_beta_values(
+        preferred,
         headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
@@ -27,17 +36,7 @@ pub(super) fn has_context_1m_beta(headers: &[(String, String)]) -> bool {
 }
 
 pub(super) fn strip_context_1m_beta(headers: &mut Vec<(String, String)>) {
-    let values = normalized_claudecode_beta_values(
-        headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-            .map(|(_, value)| parse_anthropic_beta_values(value))
-            .unwrap_or_default(),
-        false,
-    );
-
-    headers.retain(|(name, _)| !name.eq_ignore_ascii_case("anthropic-beta"));
-    headers.push(("anthropic-beta".to_string(), values.join(",")));
+    merge_claudecode_beta_headers(headers, &[], false);
 }
 
 pub(super) fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
@@ -50,23 +49,36 @@ pub(super) fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
 }
 
 pub(super) fn normalized_claudecode_beta_values(
-    mut values: Vec<String>,
+    preferred: &[String],
+    values: Vec<String>,
     allow_context_1m: bool,
 ) -> Vec<String> {
-    if !allow_context_1m {
-        values.retain(|value| !is_context_1m_beta(value));
-    }
+    let mut merged = Vec::new();
 
-    for required in std::iter::once(OAUTH_BETA).chain(CLAUDECODE_DEFAULT_BETAS.iter().copied()) {
-        if !values
+    for raw in preferred.iter().map(String::as_str).chain(values.iter().map(String::as_str)) {
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if !allow_context_1m && is_context_1m_beta(value) {
+            continue;
+        }
+        if !merged
             .iter()
-            .any(|value| value.eq_ignore_ascii_case(required))
+            .any(|existing: &String| existing.eq_ignore_ascii_case(value))
         {
-            values.push(required.to_string());
+            merged.push(value.to_string());
         }
     }
 
-    values
+    if !merged
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case(OAUTH_BETA))
+    {
+        merged.push(OAUTH_BETA.to_string());
+    }
+
+    merged
 }
 
 pub(super) fn claude_1m_target_for_model(model: &str) -> Option<ClaudeCode1mTarget> {

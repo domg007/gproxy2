@@ -278,6 +278,18 @@ pub fn provider_settings_to_json_value_with_routing(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
+            if !value.extra_beta_headers.is_empty() {
+                root.insert(
+                    "claudecode_extra_beta_headers".to_string(),
+                    serde_json::Value::Array(
+                        value
+                            .extra_beta_headers
+                            .iter()
+                            .map(|item| serde_json::Value::String(item.clone()))
+                            .collect(),
+                    ),
+                );
+            }
             if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints)
             {
                 root.insert("cache_breakpoints".to_string(), rules);
