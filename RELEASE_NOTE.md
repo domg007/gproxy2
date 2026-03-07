@@ -1,5 +1,33 @@
 # Release Notes
 
+## v0.3.31
+
+### English
+
+#### Changed
+
+- Added independent `beta=true` query toggles for the Claude and ClaudeCode channels in both admin UI and provider settings.
+- Claude and ClaudeCode upstream requests no longer force the `?beta=true` query parameter by default; it now applies only when explicitly enabled.
+
+#### Compatibility
+
+- Existing Anthropic beta header settings remain unchanged; this update only controls the separate query parameter behavior.
+- New optional settings `claude_append_beta_query` and `claudecode_append_beta_query` default to `false`.
+- No data migration is required.
+
+### 中文
+
+#### 变更
+
+- 为 Claude 和 ClaudeCode 渠道新增了独立的 `beta=true` query 开关，后台管理页和 provider 配置都可以直接控制。
+- Claude 和 ClaudeCode 的上游请求不再默认强制附加 `?beta=true`；只有在显式开启时才会追加该 query 参数。
+
+#### 兼容性
+
+- 现有的 Anthropic beta 头配置保持不变；本次调整只影响独立的 query 参数行为。
+- 新增的 `claude_append_beta_query` 和 `claudecode_append_beta_query` 都是可选字段，默认值为 `false`。
+- 不需要额外数据迁移。
+
 ## v0.3.30
 
 ### English
