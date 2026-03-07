@@ -1,8 +1,71 @@
-use anyhow::Result;
-use gproxy_admin::{MemoryUser, MemoryUserKey};
-use gproxy_core::GlobalSettings;
+use super::storage_seed::seed_global_settings;
+use super::*;
+
+pub(super) struct PrincipalCache {
+    pub(super) users: Vec<MemoryUser>,
+    pub(super) keys: HashMap<String, MemoryUserKey>,
+}
+
+pub(super) async fn load_principal_cache(storage: &SeaOrmStorage) -> Result<PrincipalCache> {
+    let users = storage
+        .list_users(&UserQuery {
+            id: Scope::All,
+            name: Scope::All,
+        })
+        .await
+        .context("load users into memory")?
+        .into_iter()
+        .map(|row| MemoryUser {
+            id: row.id,
+            name: row.name,
+            password: row.password,
+            enabled: row.enabled,
+        })
+        .collect::<Vec<_>>();
+    let keys_rows = storage
+        .list_user_keys_for_memory(&UserKeyQuery {
+            id: Scope::All,
+            user_id: Scope::All,
+            api_key: Scope::All,
+        })
+        .await
+        .context("load user_keys into memory")?;
+    let keys = keys_rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.api_key.clone(),
+                MemoryUserKey {
+                    id: row.id,
+                    user_id: row.user_id,
+                    api_key: row.api_key,
+                    enabled: row.enabled,
+                },
+            )
+        })
+        .collect();
+
+    Ok(PrincipalCache { users, keys })
+}
+
+pub(super) async fn seed_bootstrap_state(
+    storage: &SeaOrmStorage,
+    mut global: GlobalSettings,
+    principals: &mut PrincipalCache,
+) -> Result<GlobalSettings> {
+    let (admin_user_write, admin_key_write) =
+        ensure_admin_principal(&mut global, &mut principals.users, &mut principals.keys)?;
+    seed_admin_principal(storage, admin_user_write, admin_key_write)
+        .await
+        .context("seed admin principal into storage")?;
+    seed_global_settings(storage, &global)
+        .await
+        .context("seed global settings into storage")?;
+    Ok(global)
+}
+
 use gproxy_storage::{
-    SeaOrmStorage, StorageWriteBatch, StorageWriteEvent, StorageWriteSink, UserKeyWrite, UserWrite,
+    StorageWriteBatch, StorageWriteEvent, StorageWriteSink, UserKeyWrite, UserWrite,
 };
 use rand::RngExt as _;
 

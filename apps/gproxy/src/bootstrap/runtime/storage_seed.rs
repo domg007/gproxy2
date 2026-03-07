@@ -14,7 +14,7 @@ use gproxy_storage::{
     StorageWriteEvent, StorageWriteSink,
 };
 
-use super::resolve_provider_settings;
+use super::registry::resolve_provider_settings;
 
 const BUILTIN_PROVIDER_ID_OPENAI: i64 = 1;
 const BUILTIN_PROVIDER_ID_CLAUDE: i64 = 2;
