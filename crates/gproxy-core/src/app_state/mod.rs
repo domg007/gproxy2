@@ -134,8 +134,9 @@ mod tests {
     use gproxy_provider::ChannelSettings;
     use gproxy_provider::{
         ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialPickMode,
-        CredentialRef, CustomChannelCredential, LocalTokenizerStore, ProviderCredentialState,
-        ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
+        CredentialRef, CustomChannelCredential, DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+        LocalTokenizerStore, ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
+        ProviderRegistry,
     };
     use gproxy_storage::{SeaOrmStorage, storage_write_channel};
     use tokio::runtime::Builder;
@@ -155,6 +156,7 @@ mod tests {
             dispatch: ProviderDispatchTable::default(),
             settings: ChannelSettings::default(),
             credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
+            cache_affinity_max_keys: DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
             credentials: ProviderCredentialState {
                 credentials: vec![CredentialRef {
                     id: 1,

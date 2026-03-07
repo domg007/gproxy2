@@ -6,6 +6,8 @@ type CredentialRoutingFlags = {
   cacheAffinityEnabled: boolean;
 };
 
+export const DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS = 4096;
+
 const DEFAULT_CREDENTIAL_ROUTING_FLAGS: CredentialRoutingFlags = {
   roundRobinEnabled: true,
   cacheAffinityEnabled: true
@@ -74,6 +76,20 @@ export function parseCredentialRoutingFlagsFromSettings(
     }
   }
   return DEFAULT_CREDENTIAL_ROUTING_FLAGS;
+}
+
+export function parseCredentialCacheAffinityMaxKeysFromSettings(
+  value: unknown
+): number {
+  if (!isObject(value)) {
+    return DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS;
+  }
+
+  const raw = value.credential_cache_affinity_max_keys;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    return DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS;
+  }
+  return raw;
 }
 
 export function normalizeChannel(channel: string): string {

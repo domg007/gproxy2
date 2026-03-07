@@ -8,8 +8,8 @@ use gproxy_protocol::gemini::live::request::GeminiLiveConnectRequest;
 use gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest;
 use gproxy_provider::{
     BuiltinChannel, BuiltinChannelCredential, BuiltinChannelSettings, ChannelCredential, ChannelId,
-    ChannelSettings, CredentialPickMode, CredentialRef, ProviderCredentialState,
-    ProviderDefinition, ProviderDispatchTable,
+    ChannelSettings, CredentialPickMode, CredentialRef, DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+    ProviderCredentialState, ProviderDefinition, ProviderDispatchTable,
 };
 use serde_json::json;
 
@@ -32,6 +32,7 @@ fn build_aistudio_provider(base_url: &str, api_key: &str) -> ProviderDefinition 
         dispatch: ProviderDispatchTable::default(),
         settings,
         credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
+        cache_affinity_max_keys: DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
         credentials: ProviderCredentialState {
             credentials: vec![CredentialRef {
                 id: 1,

@@ -26,6 +26,7 @@ impl AppState {
         settings: ChannelSettings,
         dispatch: ProviderDispatchTable,
         credential_pick_mode: CredentialPickMode,
+        cache_affinity_max_keys: usize,
         enabled: bool,
     ) {
         let mut snapshot = (*self.runtime.config.load_full()).clone();
@@ -34,12 +35,14 @@ impl AppState {
                 existing.settings = settings;
                 existing.dispatch = dispatch;
                 existing.credential_pick_mode = credential_pick_mode;
+                existing.cache_affinity_max_keys = cache_affinity_max_keys;
             } else {
                 snapshot.providers.upsert(ProviderDefinition {
                     channel: channel.clone(),
                     dispatch,
                     settings,
                     credential_pick_mode,
+                    cache_affinity_max_keys,
                     credentials: ProviderCredentialState::default(),
                 });
             }

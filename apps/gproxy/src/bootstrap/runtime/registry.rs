@@ -1,5 +1,9 @@
 use super::storage_seed::{seed_registry_credentials_and_statuses, seed_registry_providers};
 use super::*;
+use gproxy_provider::{
+    DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+    parse_credential_cache_affinity_max_keys_from_provider_settings_value,
+};
 
 pub(super) async fn build_seeded_provider_registry(
     storage: &SeaOrmStorage,
@@ -27,6 +31,18 @@ fn build_provider_registry(config: &BootstrapConfig) -> ProviderRegistry {
         let settings = resolve_provider_settings(&channel, &channel_cfg.settings);
         let credential_pick_mode =
             parse_credential_pick_mode_from_provider_settings_value(&channel_cfg.settings);
+        let cache_affinity_max_keys =
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                &channel_cfg.settings,
+            )
+            .unwrap_or_else(|err| {
+                eprintln!(
+                    "bootstrap: invalid cache affinity max keys for channel={} ({err}), fallback to default {}",
+                    channel_cfg.id,
+                    DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS
+                );
+                DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS
+            });
         let (credentials, channel_states) = dedupe_credentials(&channel, channel_cfg);
 
         let dispatch = channel_cfg
@@ -41,6 +57,7 @@ fn build_provider_registry(config: &BootstrapConfig) -> ProviderRegistry {
             dispatch,
             settings,
             credential_pick_mode,
+            cache_affinity_max_keys,
             credentials: ProviderCredentialState {
                 credentials,
                 channel_states,

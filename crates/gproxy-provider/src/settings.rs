@@ -8,6 +8,8 @@ use crate::channels::{
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
 pub const CREDENTIAL_ROUND_ROBIN_ENABLED_KEY: &str = "credential_round_robin_enabled";
 pub const CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY: &str = "credential_cache_affinity_enabled";
+pub const CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY: &str = "credential_cache_affinity_max_keys";
+pub const DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS: usize = 4096;
 
 pub fn parse_credential_pick_mode_from_provider_settings_value(
     value: &serde_json::Value,
@@ -35,6 +37,28 @@ pub fn parse_credential_pick_mode_from_provider_settings_value(
     }
 
     CredentialPickMode::RoundRobinWithCache
+}
+
+pub fn parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+    value: &serde_json::Value,
+) -> Result<usize, String> {
+    let Some(raw) = value.get(CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY) else {
+        return Ok(DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS);
+    };
+
+    let Some(parsed) = raw.as_u64() else {
+        return Err(format!(
+            "{CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY} must be a positive integer"
+        ));
+    };
+    if parsed == 0 {
+        return Err(format!(
+            "{CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY} must be at least 1"
+        ));
+    }
+    usize::try_from(parsed).map_err(|_| {
+        format!("{CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY} is too large for this platform")
+    })
 }
 
 fn parse_credential_pick_mode_from_str(value: &str) -> Option<CredentialPickMode> {
@@ -158,9 +182,10 @@ pub fn parse_provider_settings_value_for_channel(
     })
 }
 
-pub fn provider_settings_to_json_value_with_credential_pick_mode(
+pub fn provider_settings_to_json_value_with_routing(
     settings: &ChannelSettings,
     credential_pick_mode: CredentialPickMode,
+    cache_affinity_max_keys: usize,
 ) -> serde_json::Value {
     let mut root = serde_json::Map::new();
     root.insert(
@@ -278,6 +303,10 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
         CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY.to_string(),
         serde_json::Value::Bool(cache_affinity_enabled),
     );
+    root.insert(
+        CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY.to_string(),
+        serde_json::Value::from(cache_affinity_max_keys as u64),
+    );
     // Keep for backward compatibility with older readers.
     root.insert(
         CREDENTIAL_PICK_MODE_KEY.to_string(),
@@ -285,6 +314,17 @@ pub fn provider_settings_to_json_value_with_credential_pick_mode(
     );
 
     serde_json::Value::Object(root)
+}
+
+pub fn provider_settings_to_json_value_with_credential_pick_mode(
+    settings: &ChannelSettings,
+    credential_pick_mode: CredentialPickMode,
+) -> serde_json::Value {
+    provider_settings_to_json_value_with_routing(
+        settings,
+        credential_pick_mode,
+        DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+    )
 }
 
 pub fn provider_settings_to_json_value(settings: &ChannelSettings) -> serde_json::Value {
@@ -301,6 +341,18 @@ pub fn provider_settings_to_json_string_with_credential_pick_mode(
     serde_json::to_string(&provider_settings_to_json_value_with_credential_pick_mode(
         settings,
         credential_pick_mode,
+    ))
+}
+
+pub fn provider_settings_to_json_string_with_routing(
+    settings: &ChannelSettings,
+    credential_pick_mode: CredentialPickMode,
+    cache_affinity_max_keys: usize,
+) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&provider_settings_to_json_value_with_routing(
+        settings,
+        credential_pick_mode,
+        cache_affinity_max_keys,
     ))
 }
 
@@ -352,10 +404,13 @@ fn clean_opt(value: Option<&str>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY, CREDENTIAL_PICK_MODE_KEY,
-        CREDENTIAL_ROUND_ROBIN_ENABLED_KEY,
+        CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY, CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY,
+        CREDENTIAL_PICK_MODE_KEY, CREDENTIAL_ROUND_ROBIN_ENABLED_KEY,
+        DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+        parse_credential_cache_affinity_max_keys_from_provider_settings_value,
         parse_credential_pick_mode_from_provider_settings_value,
         provider_settings_to_json_value_with_credential_pick_mode,
+        provider_settings_to_json_value_with_routing,
     };
     use crate::channels::cache_control::{
         CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
@@ -418,10 +473,45 @@ mod tests {
     }
 
     #[test]
+    fn credential_cache_affinity_max_keys_defaults_to_4096() {
+        assert_eq!(
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                &serde_json::json!({})
+            )
+            .expect("default max keys"),
+            DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS
+        );
+    }
+
+    #[test]
+    fn parse_credential_cache_affinity_max_keys_requires_positive_integer() {
+        assert_eq!(
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                &serde_json::json!({ "credential_cache_affinity_max_keys": 1024 })
+            )
+            .expect("explicit max keys"),
+            1024
+        );
+        assert!(
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                &serde_json::json!({ "credential_cache_affinity_max_keys": 0 })
+            )
+            .is_err()
+        );
+        assert!(
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                &serde_json::json!({ "credential_cache_affinity_max_keys": "4096" })
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn serialize_settings_includes_pick_mode() {
-        let value = provider_settings_to_json_value_with_credential_pick_mode(
+        let value = provider_settings_to_json_value_with_routing(
             &ChannelSettings::default(),
             CredentialPickMode::RoundRobinNoCache,
+            2048,
         );
         assert_eq!(
             value
@@ -440,6 +530,12 @@ mod tests {
                 .get(CREDENTIAL_CACHE_AFFINITY_ENABLED_KEY)
                 .and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+        assert_eq!(
+            value
+                .get(CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY)
+                .and_then(serde_json::Value::as_u64),
+            Some(2048)
         );
     }
 

@@ -18,6 +18,7 @@ Configure these fields in `channels.settings`:
 
 - `credential_round_robin_enabled` (default `true`)
 - `credential_cache_affinity_enabled` (default `true`)
+- `credential_cache_affinity_max_keys` (default `4096`)
 
 Effective modes:
 
@@ -40,6 +41,7 @@ GPROXY keeps a process-local map:
 - key: `"{channel}::{affinity_key}"`
 - value: `{ credential_id, expires_at }`
 - store: `DashMap<String, CacheAffinityRecord>`
+- each channel retains at most `credential_cache_affinity_max_keys` keys; before inserting a new key, expired keys are pruned first, then the earliest-expiring keys are evicted if the limit is still exceeded
 
 This is still the v1 pool format (no v2 namespace, no storage schema change).
 

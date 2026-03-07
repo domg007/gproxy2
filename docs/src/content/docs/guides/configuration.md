@@ -236,6 +236,7 @@ In `channels.settings`, you can control multi-credential routing with:
 
 - `credential_round_robin_enabled`
 - `credential_cache_affinity_enabled`
+- `credential_cache_affinity_max_keys`
 
 For full behavior matrix, internal affinity-pool design, hit judgment, and upstream OpenAI/Claude/Gemini cache strategy guidance, see:
 

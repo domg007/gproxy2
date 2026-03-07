@@ -47,8 +47,10 @@ import {
 } from "./constants";
 import {
   buildChannelSettingsJson,
+  DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
   defaultChannelSettingsDraft,
   normalizeChannel,
+  parseCredentialCacheAffinityMaxKeysFromSettings,
   parseCredentialRoutingFlagsFromSettings,
   parseChannelSettingsDraft
 } from "./settings";
@@ -76,6 +78,7 @@ export {
   PROTOCOL_OPTIONS,
   getChannelSelectOptions,
   buildChannelSettingsJson,
+  DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
   buildCredentialSecretJson,
   credentialDefaultNameFromSecretJson,
   credentialDefaultNameFromSecretValues,
@@ -91,6 +94,7 @@ export {
   defaultDispatchRulesForChannel,
   isCustomChannel,
   normalizeChannel,
+  parseCredentialCacheAffinityMaxKeysFromSettings,
   normalizeDispatchRules,
   parseCredentialRoutingFlagsFromSettings,
   parseBulkCredentialText,
@@ -128,6 +132,9 @@ export function createEmptyProviderFormState(): ProviderFormState {
     channel,
     credentialRoundRobinEnabled: true,
     credentialCacheAffinityEnabled: true,
+    credentialCacheAffinityMaxKeys: String(
+      DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS
+    ),
     settings: defaultChannelSettingsDraft(channel),
     dispatchRules: defaultDispatchRulesForChannel(channel),
     enabled: true
@@ -144,6 +151,9 @@ export function toProviderFormState(row: ProviderQueryRow): ProviderFormState {
     channel: row.channel,
     credentialRoundRobinEnabled: credentialRoutingFlags.roundRobinEnabled,
     credentialCacheAffinityEnabled: credentialRoutingFlags.cacheAffinityEnabled,
+    credentialCacheAffinityMaxKeys: String(
+      parseCredentialCacheAffinityMaxKeysFromSettings(row.settings_json)
+    ),
     settings: parseChannelSettingsDraft(row.channel, row.settings_json),
     dispatchRules: resolveProviderDispatchRules(row.channel, row.dispatch_json),
     enabled: row.enabled

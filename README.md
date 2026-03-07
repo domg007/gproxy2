@@ -281,6 +281,7 @@ Provider credential routing is controlled by two settings in `channels.settings`
 
 - `credential_round_robin_enabled` (default `true`)
 - `credential_cache_affinity_enabled` (default `true`, only effective when round-robin is enabled)
+- `credential_cache_affinity_max_keys` (default `4096`, max retained affinity keys per channel)
 
 Effective behavior:
 
@@ -306,6 +307,7 @@ enabled = true
 base_url = "https://api.openai.com"
 credential_round_robin_enabled = true
 credential_cache_affinity_enabled = true
+credential_cache_affinity_max_keys = 4096
 ```
 
 Legacy compatibility:

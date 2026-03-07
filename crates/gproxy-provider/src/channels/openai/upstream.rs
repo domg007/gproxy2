@@ -101,12 +101,14 @@ async fn execute_openai_with_prepared(
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
     retry_with_eligible_credentials_with_affinity(
-        provider,
-        credential_states,
-        model_for_selection.as_deref(),
-        now_unix_ms,
-        pick_mode,
-        cache_affinity_hint,
+        crate::channels::retry::CredentialRetryContext {
+            provider,
+            credential_states,
+            model: model_for_selection.as_deref(),
+            now_unix_ms,
+            pick_mode,
+            cache_affinity_hint,
+        },
         |credential| {
             match &credential.credential {
                 ChannelCredential::Builtin(BuiltinChannelCredential::OpenAi(value)) => {

@@ -279,6 +279,7 @@ Provider 的凭证选择由 `channels.settings` 里的两个开关控制：
 
 - `credential_round_robin_enabled`（默认 `true`）
 - `credential_cache_affinity_enabled`（默认 `true`，仅在启用轮询时生效）
+- `credential_cache_affinity_max_keys`（默认 `4096`，每个渠道最多保留多少个亲和键）
 
 最终行为：
 
@@ -304,6 +305,7 @@ enabled = true
 base_url = "https://api.openai.com"
 credential_round_robin_enabled = true
 credential_cache_affinity_enabled = true
+credential_cache_affinity_max_keys = 4096
 ```
 
 兼容性说明：

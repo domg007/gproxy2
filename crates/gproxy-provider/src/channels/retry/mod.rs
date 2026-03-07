@@ -37,8 +37,9 @@ pub struct CacheAffinityHint {
     pub bind: CacheAffinityCandidate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CacheAffinityRecord {
+    channel: String,
     credential_id: i64,
     expires_at_unix_ms: u64,
 }
@@ -95,6 +96,15 @@ pub struct CredentialAttempt<Material> {
     pub credential_id: i64,
     pub material: Material,
     pub attempts: usize,
+}
+
+pub struct CredentialRetryContext<'a> {
+    pub provider: &'a ProviderDefinition,
+    pub credential_states: &'a ChannelCredentialStateStore,
+    pub model: Option<&'a str>,
+    pub now_unix_ms: u64,
+    pub pick_mode: CredentialPickMode,
+    pub cache_affinity_hint: Option<CacheAffinityHint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -7,6 +7,7 @@ pub struct ProviderDefinition {
     pub dispatch: ProviderDispatchTable,
     pub settings: ChannelSettings,
     pub credential_pick_mode: CredentialPickMode,
+    pub cache_affinity_max_keys: usize,
     pub credentials: ProviderCredentialState,
 }
 

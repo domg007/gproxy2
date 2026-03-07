@@ -6,11 +6,15 @@ use super::affinity::{
     cache_affinity_hint_for_openai_chat, cache_affinity_hint_for_openai_responses, hash_str_to_hex,
     non_claude_candidate_indices, openai_chat_cache_blocks,
 };
-use super::selection::{bind_affinity, clear_affinity, pick_candidate_index};
+use super::selection::{
+    bind_affinity, clear_affinity, get_affinity_credential_id, pick_candidate_index,
+};
 use super::{
     CredentialCandidate, CredentialPickMode, OPENAI_24H_CACHE_AFFINITY_TTL_MS,
     ScopedAffinityCandidate,
 };
+
+const DEFAULT_MAX_AFFINITY_KEYS: usize = 4096;
 
 #[test]
 fn openai_chat_ignores_stream_and_sampling_for_affinity() {
@@ -266,9 +270,30 @@ fn round_robin_with_cache_uses_sum_of_hit_key_lengths() {
     let key_2 = "test::sum-hit::key2";
     let key_3 = "test::sum-hit::key3";
 
-    bind_affinity(key_1, 101, now_unix_ms + 60_000);
-    bind_affinity(key_2, 101, now_unix_ms + 60_000);
-    bind_affinity(key_3, 202, now_unix_ms + 60_000);
+    bind_affinity(
+        "test",
+        key_1,
+        101,
+        now_unix_ms + 60_000,
+        now_unix_ms,
+        DEFAULT_MAX_AFFINITY_KEYS,
+    );
+    bind_affinity(
+        "test",
+        key_2,
+        101,
+        now_unix_ms + 60_000,
+        now_unix_ms,
+        DEFAULT_MAX_AFFINITY_KEYS,
+    );
+    bind_affinity(
+        "test",
+        key_3,
+        202,
+        now_unix_ms + 60_000,
+        now_unix_ms,
+        DEFAULT_MAX_AFFINITY_KEYS,
+    );
 
     let remaining = vec![
         CredentialCandidate {
@@ -321,8 +346,22 @@ fn round_robin_with_cache_scans_candidates_after_miss() {
     let key_3 = "test::ordered::key3";
 
     // key_1 and key_3 exist, key_2 is intentionally missing.
-    bind_affinity(key_1, 101, now_unix_ms + 60_000);
-    bind_affinity(key_3, 202, now_unix_ms + 60_000);
+    bind_affinity(
+        "test",
+        key_1,
+        101,
+        now_unix_ms + 60_000,
+        now_unix_ms,
+        DEFAULT_MAX_AFFINITY_KEYS,
+    );
+    bind_affinity(
+        "test",
+        key_3,
+        202,
+        now_unix_ms + 60_000,
+        now_unix_ms,
+        DEFAULT_MAX_AFFINITY_KEYS,
+    );
 
     let remaining = vec![
         CredentialCandidate {
@@ -364,5 +403,46 @@ fn round_robin_with_cache_scans_candidates_after_miss() {
     assert_eq!(matched_idx, Some(2));
 
     clear_affinity(key_1);
+    clear_affinity(key_3);
+}
+
+#[test]
+fn bind_affinity_enforces_per_channel_key_limit() {
+    let now_unix_ms = 3_000_000u64;
+    let key_1 = "limit-channel::affinity::key1";
+    let key_2 = "limit-channel::affinity::key2";
+    let key_3 = "limit-channel::affinity::key3";
+
+    bind_affinity(
+        "limit-channel",
+        key_1,
+        101,
+        now_unix_ms + 10_000,
+        now_unix_ms,
+        2,
+    );
+    bind_affinity(
+        "limit-channel",
+        key_2,
+        202,
+        now_unix_ms + 20_000,
+        now_unix_ms,
+        2,
+    );
+    bind_affinity(
+        "limit-channel",
+        key_3,
+        303,
+        now_unix_ms + 30_000,
+        now_unix_ms,
+        2,
+    );
+
+    assert_eq!(get_affinity_credential_id(key_1, now_unix_ms), None);
+    assert_eq!(get_affinity_credential_id(key_2, now_unix_ms), Some(202));
+    assert_eq!(get_affinity_credential_id(key_3, now_unix_ms), Some(303));
+
+    clear_affinity(key_1);
+    clear_affinity(key_2);
     clear_affinity(key_3);
 }

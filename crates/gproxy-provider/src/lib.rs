@@ -41,12 +41,17 @@ pub use provider::{
 };
 pub use registry::{BUILTIN_CHANNEL_REGISTRY, BuiltinChannelRegistration};
 pub use settings::{
-    CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
+    CREDENTIAL_CACHE_AFFINITY_MAX_KEYS_KEY, CREDENTIAL_PICK_MODE_KEY,
+    DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+    parse_credential_cache_affinity_max_keys_from_provider_settings_value,
+    parse_credential_pick_mode_from_provider_settings_value,
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,
     provider_settings_to_json_string, provider_settings_to_json_string_with_cache_affinity,
-    provider_settings_to_json_string_with_credential_pick_mode, provider_settings_to_json_value,
+    provider_settings_to_json_string_with_credential_pick_mode,
+    provider_settings_to_json_string_with_routing, provider_settings_to_json_value,
     provider_settings_to_json_value_with_cache_affinity,
     provider_settings_to_json_value_with_credential_pick_mode,
+    provider_settings_to_json_value_with_routing,
 };
 pub use storage_codec::{
     credential_health_from_storage, credential_health_to_storage, credential_kind_for_storage,

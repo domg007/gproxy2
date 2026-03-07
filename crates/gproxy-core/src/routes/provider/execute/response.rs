@@ -103,12 +103,14 @@ async fn handle_http_upstream_response(
         return handle_typed_http_upstream_response(
             context,
             dispatch,
-            upstream_credential_id,
-            upstream_request_meta,
-            response,
-            response_status,
-            response_headers,
-            route,
+            TypedHttpUpstreamResponse {
+                upstream_credential_id,
+                upstream_request_meta,
+                response,
+                response_status,
+                response_headers,
+                route,
+            },
         )
         .await;
     }
@@ -184,16 +186,28 @@ async fn handle_http_upstream_response(
     response_from_status_headers_and_bytes(status, headers_for_client.as_slice(), normalized_body)
 }
 
-async fn handle_typed_http_upstream_response(
-    context: &ExecuteRequestContext,
-    dispatch: &PreparedDispatch,
+struct TypedHttpUpstreamResponse {
     upstream_credential_id: Option<i64>,
     upstream_request_meta: Option<UpstreamRequestMeta>,
     response: wreq::Response,
     response_status: u16,
     response_headers: Vec<(String, String)>,
     route: gproxy_middleware::TransformRoute,
+}
+
+async fn handle_typed_http_upstream_response(
+    context: &ExecuteRequestContext,
+    dispatch: &PreparedDispatch,
+    typed_response: TypedHttpUpstreamResponse,
 ) -> Result<Response, UpstreamError> {
+    let TypedHttpUpstreamResponse {
+        upstream_credential_id,
+        upstream_request_meta,
+        response,
+        response_status,
+        response_headers,
+        route,
+    } = typed_response;
     if !response.status().is_success() {
         let stream_record_context = build_stream_record_context(
             context,

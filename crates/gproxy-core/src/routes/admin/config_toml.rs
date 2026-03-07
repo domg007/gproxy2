@@ -10,6 +10,7 @@ use gproxy_provider::{
     BuiltinChannelCredential, ChannelCredential, ChannelCredentialState, ChannelId,
     CredentialHealth, CredentialRef, ProviderDispatchTable, credential_health_from_storage,
     credential_health_to_storage, credential_kind_for_storage,
+    parse_credential_cache_affinity_max_keys_from_provider_settings_value,
     parse_credential_pick_mode_from_provider_settings_value,
 };
 use gproxy_storage::Scope;
@@ -385,21 +386,29 @@ pub(super) async fn apply_imported_channels(
                 })?;
         let credential_pick_mode =
             parse_credential_pick_mode_from_provider_settings_value(&item.settings);
+        let cache_affinity_max_keys =
+            parse_credential_cache_affinity_max_keys_from_provider_settings_value(&item.settings)
+                .map_err(|err| {
+                HttpError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid cache affinity max keys for {channel_name}: {err}"),
+                )
+            })?;
         let dispatch = item.dispatch.clone().unwrap_or_else(|| match channel {
             ChannelId::Builtin(builtin) => ProviderDispatchTable::default_for_builtin(builtin),
             ChannelId::Custom(_) => ProviderDispatchTable::default_for_custom(),
         });
-        let settings_json =
-            gproxy_provider::provider_settings_to_json_string_with_credential_pick_mode(
-                &settings,
-                credential_pick_mode,
+        let settings_json = gproxy_provider::provider_settings_to_json_string_with_routing(
+            &settings,
+            credential_pick_mode,
+            cache_affinity_max_keys,
+        )
+        .map_err(|err| {
+            HttpError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize provider settings failed for {channel_name}: {err}"),
             )
-            .map_err(|err| {
-                HttpError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("serialize provider settings failed for {channel_name}: {err}"),
-                )
-            })?;
+        })?;
         let dispatch_json = serde_json::to_string(&dispatch).map_err(|err| {
             HttpError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -445,6 +454,7 @@ pub(super) async fn apply_imported_channels(
             settings.clone(),
             dispatch.clone(),
             credential_pick_mode,
+            cache_affinity_max_keys,
             item.enabled,
         );
 

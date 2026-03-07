@@ -4,7 +4,9 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use gproxy_provider::{
-    BUILTIN_CHANNEL_REGISTRY, ChannelId, parse_credential_pick_mode_from_provider_settings_value,
+    BUILTIN_CHANNEL_REGISTRY, ChannelId,
+    parse_credential_cache_affinity_max_keys_from_provider_settings_value,
+    parse_credential_pick_mode_from_provider_settings_value,
 };
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +78,9 @@ pub(super) async fn upsert_provider(
         .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err.to_string()))?;
     let credential_pick_mode =
         parse_credential_pick_mode_from_provider_settings_value(&settings_value);
+    let cache_affinity_max_keys =
+        parse_credential_cache_affinity_max_keys_from_provider_settings_value(&settings_value)
+            .map_err(|err| HttpError::new(StatusCode::BAD_REQUEST, err))?;
     let dispatch = serde_json::from_str::<gproxy_provider::ProviderDispatchTable>(
         payload.dispatch_json.as_str(),
     )
@@ -118,6 +123,7 @@ pub(super) async fn upsert_provider(
         settings,
         dispatch,
         credential_pick_mode,
+        cache_affinity_max_keys,
         payload.enabled,
     );
     Ok(Json(UpsertEntityAck { ok: true, id }))

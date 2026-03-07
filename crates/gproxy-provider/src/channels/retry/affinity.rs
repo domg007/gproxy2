@@ -153,8 +153,6 @@ pub fn configured_pick_mode_uses_cache(configured_pick_mode: CredentialPickMode)
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-
 pub(super) fn cache_affinity_hint_for_openai_responses(
     body_json: Value,
 ) -> Option<CacheAffinityHint> {

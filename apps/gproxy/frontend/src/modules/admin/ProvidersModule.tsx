@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../app/i18n";
 import { apiRequest, formatError } from "../../lib/api";
 import { copyTextToClipboard } from "../../lib/clipboard";
-import { parseRequiredI64 } from "../../lib/form";
+import { parseRequiredI64, parseRequiredPositiveInteger } from "../../lib/form";
 import type {
   CredentialQueryRow,
   CredentialStatusQueryRow,
@@ -244,6 +244,11 @@ export function ProvidersModule({
       settingsPayload.credential_cache_affinity_enabled =
         providerForm.credentialRoundRobinEnabled &&
         providerForm.credentialCacheAffinityEnabled;
+      settingsPayload.credential_cache_affinity_max_keys =
+        parseRequiredPositiveInteger(
+          providerForm.credentialCacheAffinityMaxKeys,
+          "credential_cache_affinity_max_keys"
+        );
       const saved = await apiRequest<UpsertEntityAck>("/admin/providers/upsert", {
         apiKey,
         method: "POST",

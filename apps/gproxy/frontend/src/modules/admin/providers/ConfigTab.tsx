@@ -511,6 +511,18 @@ export function ConfigTab({
             disabled={!providerForm.credentialRoundRobinEnabled}
           />
         </div>
+        <div>
+          <Label>{t("field.credential_cache_affinity_max_keys")}</Label>
+          <Input
+            value={providerForm.credentialCacheAffinityMaxKeys}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                credentialCacheAffinityMaxKeys: value
+              }))
+            }
+          />
+        </div>
         <div className="md:col-span-2">
           <Label>{t("field.base_url")}</Label>
           <Input

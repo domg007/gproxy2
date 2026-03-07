@@ -22,6 +22,7 @@ export type ProviderFormState = {
   channel: string;
   credentialRoundRobinEnabled: boolean;
   credentialCacheAffinityEnabled: boolean;
+  credentialCacheAffinityMaxKeys: string;
   settings: ChannelSettingsDraft;
   dispatchRules: DispatchRuleDraft[];
   enabled: boolean;

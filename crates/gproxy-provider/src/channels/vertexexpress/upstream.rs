@@ -128,12 +128,14 @@ async fn execute_vertexexpress_with_prepared(
         credential_pick_mode(provider.credential_pick_mode, cache_affinity_hint.as_ref());
 
     retry_with_eligible_credentials_with_affinity(
-        provider,
-        credential_states,
-        prepared.model.as_deref(),
-        now_unix_ms,
-        pick_mode,
-        cache_affinity_hint,
+        crate::channels::retry::CredentialRetryContext {
+            provider,
+            credential_states,
+            model: prepared.model.as_deref(),
+            now_unix_ms,
+            pick_mode,
+            cache_affinity_hint,
+        },
         |credential| {
             match &credential.credential {
                 ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(value)) => {
@@ -709,6 +711,7 @@ mod tests {
                 BuiltinChannel::VertexExpress,
             )),
             credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
+            cache_affinity_max_keys: crate::settings::DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
             credentials: ProviderCredentialState {
                 credentials: vec![CredentialRef {
                     id: 1,

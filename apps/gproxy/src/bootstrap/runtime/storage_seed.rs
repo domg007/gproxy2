@@ -2,11 +2,12 @@ use anyhow::{Context, Result};
 use gproxy_core::GlobalSettings;
 use gproxy_provider::{
     BUILTIN_CHANNELS, BuiltinChannel, ChannelCredential, ChannelCredentialState, ChannelId,
-    CredentialPickMode, CredentialRef, ProviderCredentialState, ProviderDefinition,
-    ProviderDispatchTable, ProviderRegistry, credential_health_from_storage,
-    credential_health_to_storage, credential_kind_for_storage,
+    CredentialPickMode, CredentialRef, DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
+    ProviderCredentialState, ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
+    credential_health_from_storage, credential_health_to_storage, credential_kind_for_storage,
+    parse_credential_cache_affinity_max_keys_from_provider_settings_value,
     parse_credential_pick_mode_from_provider_settings_value,
-    provider_settings_to_json_string_with_credential_pick_mode,
+    provider_settings_to_json_string_with_routing,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialStatusQuery, CredentialStatusWrite, CredentialWrite,
@@ -112,6 +113,11 @@ pub(super) async fn seed_registry_providers(
                 credential_pick_mode: parse_credential_pick_mode_from_provider_settings_value(
                     &row.settings_json,
                 ),
+                cache_affinity_max_keys:
+                    parse_credential_cache_affinity_max_keys_from_provider_settings_value(
+                        &row.settings_json,
+                    )
+                    .unwrap_or(DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS),
                 credentials: ProviderCredentialState::default(),
             },
         );
@@ -127,6 +133,7 @@ pub(super) async fn seed_registry_providers(
                 dispatch: ProviderDispatchTable::default_for_builtin(builtin),
                 settings: resolve_provider_settings(&channel_id, &serde_json::json!({})),
                 credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
+                cache_affinity_max_keys: DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
                 credentials: ProviderCredentialState::default(),
             });
     }
@@ -162,9 +169,10 @@ pub(super) async fn seed_registry_providers(
             id
         };
 
-        let settings_json = provider_settings_to_json_string_with_credential_pick_mode(
+        let settings_json = provider_settings_to_json_string_with_routing(
             &provider.settings,
             provider.credential_pick_mode,
+            provider.cache_affinity_max_keys,
         )
         .context("serialize provider settings for bootstrap seed")?;
         let dispatch_json = serde_json::to_string(&provider.dispatch)

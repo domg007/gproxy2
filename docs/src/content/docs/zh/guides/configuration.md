@@ -236,6 +236,7 @@ secret = "custom-provider-api-key"
 
 - `credential_round_robin_enabled`
 - `credential_cache_affinity_enabled`
+- `credential_cache_affinity_max_keys`
 
 完整行为矩阵、内部亲和池设计、命中判定机制，以及 OpenAI/Claude/Gemini 上游缓存命中建议，见：
 

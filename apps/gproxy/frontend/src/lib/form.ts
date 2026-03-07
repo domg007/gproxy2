@@ -27,9 +27,20 @@ export function parseOptionalJsonObject(
 }
 
 export function parseRequiredI64(value: string, field: string): number {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) {
+        throw new Error(`${field} must be an integer`);
+    }
+    return parsed;
+}
+
+export function parseRequiredPositiveInteger(value: string, field: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
     throw new Error(`${field} must be an integer`);
+  }
+  if (parsed < 1) {
+    throw new Error(`${field} must be at least 1`);
   }
   return parsed;
 }
