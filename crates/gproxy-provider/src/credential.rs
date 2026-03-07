@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn partial_state_blocks_only_target_model_before_until() {
         let state = ChannelCredentialState {
-            channel: ChannelId::Builtin(BuiltinChannel::Claude),
+            channel: ChannelId::Builtin(BuiltinChannel::Anthropic),
             credential_id: 1,
             health: CredentialHealth::Partial {
                 models: vec![ModelCooldown {
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn dead_state_is_unavailable() {
         let state = ChannelCredentialState {
-            channel: ChannelId::Builtin(BuiltinChannel::Claude),
+            channel: ChannelId::Builtin(BuiltinChannel::Anthropic),
             credential_id: 1,
             health: CredentialHealth::Dead,
             checked_at_unix_ms: None,
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn pool_crud_and_model_aware_selection_work() {
-        let channel = ChannelId::Builtin(BuiltinChannel::Claude);
+        let channel = ChannelId::Builtin(BuiltinChannel::Anthropic);
         let mut pool = ProviderCredentialState::default();
         assert!(pool.create_credential(CredentialRef {
             id: 1,
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn dashmap_store_model_list_and_model_level_selection() {
-        let channel = ChannelId::Builtin(BuiltinChannel::Claude);
+        let channel = ChannelId::Builtin(BuiltinChannel::Anthropic);
         let store = ChannelCredentialStateStore::new();
         let credentials = vec![
             CredentialRef {

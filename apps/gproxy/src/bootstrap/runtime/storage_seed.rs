@@ -18,7 +18,7 @@ use gproxy_storage::{
 use super::registry::resolve_provider_settings;
 
 const BUILTIN_PROVIDER_ID_OPENAI: i64 = 1;
-const BUILTIN_PROVIDER_ID_CLAUDE: i64 = 2;
+const BUILTIN_PROVIDER_ID_ANTHROPIC: i64 = 2;
 const BUILTIN_PROVIDER_ID_AISTUDIO: i64 = 3;
 const BUILTIN_PROVIDER_ID_VERTEXEXPRESS: i64 = 4;
 const BUILTIN_PROVIDER_ID_VERTEX: i64 = 5;
@@ -34,7 +34,7 @@ const CUSTOM_PROVIDER_ID_START: i64 = 1000;
 fn default_builtin_provider_id(channel: BuiltinChannel) -> i64 {
     match channel {
         BuiltinChannel::OpenAi => BUILTIN_PROVIDER_ID_OPENAI,
-        BuiltinChannel::Claude => BUILTIN_PROVIDER_ID_CLAUDE,
+        BuiltinChannel::Anthropic => BUILTIN_PROVIDER_ID_ANTHROPIC,
         BuiltinChannel::AiStudio => BUILTIN_PROVIDER_ID_AISTUDIO,
         BuiltinChannel::VertexExpress => BUILTIN_PROVIDER_ID_VERTEXEXPRESS,
         BuiltinChannel::Vertex => BUILTIN_PROVIDER_ID_VERTEX,

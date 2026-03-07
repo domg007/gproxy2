@@ -12,7 +12,7 @@
 #### Compatibility
 
 - Existing Anthropic beta header settings remain unchanged; this update only controls the separate query parameter behavior.
-- New optional settings `claude_append_beta_query` and `claudecode_append_beta_query` default to `false`.
+- New optional settings `anthropic_append_beta_query` and `claudecode_append_beta_query` default to `false`.
 - No data migration is required.
 
 ### 中文
@@ -25,7 +25,7 @@
 #### 兼容性
 
 - 现有的 Anthropic beta 头配置保持不变；本次调整只影响独立的 query 参数行为。
-- 新增的 `claude_append_beta_query` 和 `claudecode_append_beta_query` 都是可选字段，默认值为 `false`。
+- 新增的 `anthropic_append_beta_query` 和 `claudecode_append_beta_query` 都是可选字段，默认值为 `false`。
 - 不需要额外数据迁移。
 
 ## v0.3.30
@@ -46,7 +46,7 @@
 
 #### Compatibility
 
-- Existing provider settings remain compatible. New `claude_prelude_text`, `claude_extra_beta_headers`, and `claudecode_extra_beta_headers` fields are optional.
+- Provider settings use `anthropic_prelude_text`, `anthropic_extra_beta_headers`, and `claudecode_extra_beta_headers` as optional fields.
 - ClaudeCode OAuth-related flows still retain the fixed `oauth-2025-04-20` beta header automatically.
 - No data migration is required.
 
@@ -66,7 +66,7 @@
 
 #### 兼容性
 
-- 现有 provider 配置保持兼容；新增的 `claude_prelude_text`、`claude_extra_beta_headers`、`claudecode_extra_beta_headers` 都是可选字段。
+- provider 配置使用 `anthropic_prelude_text`、`anthropic_extra_beta_headers`、`claudecode_extra_beta_headers` 这些可选字段。
 - ClaudeCode 的 OAuth 相关链路仍会自动附带固定的 `oauth-2025-04-20` beta 头。
 - 不需要额外数据迁移。
 

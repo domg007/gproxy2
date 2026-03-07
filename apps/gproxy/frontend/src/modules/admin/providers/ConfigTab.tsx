@@ -97,9 +97,9 @@ export function ConfigTab({
     }
   ] as const;
   const dispatchTemplateChannels = BUILTIN_CHANNELS;
-  const showClaudeSettings = providerFormChannel === "claude";
-  const claudeExtraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
-    providerForm.settings.claude_extra_beta_headers ?? ""
+  const showAnthropicSettings = providerFormChannel === "anthropic";
+  const anthropicExtraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
+    providerForm.settings.anthropic_extra_beta_headers ?? ""
   );
   const claudecodeExtraBetaHeaders = claudecodeExtraBetaHeadersDraftToList(
     providerForm.settings.claudecode_extra_beta_headers ?? ""
@@ -114,9 +114,9 @@ export function ConfigTab({
     )
   ];
 
-  const orderedClaudeReferenceBetas = orderAnthropicReferenceBetas(claudeExtraBetaHeaders);
+  const orderedAnthropicReferenceBetas = orderAnthropicReferenceBetas(anthropicExtraBetaHeaders);
   const orderedClaudecodeReferenceBetas = orderAnthropicReferenceBetas(claudecodeExtraBetaHeaders);
-  const claudeAppendBetaQuery = (providerForm.settings.claude_append_beta_query ?? "false") === "true";
+  const anthropicAppendBetaQuery = (providerForm.settings.anthropic_append_beta_query ?? "false") === "true";
   const claudecodeAppendBetaQuery =
     (providerForm.settings.claudecode_append_beta_query ?? "false") === "true";
 
@@ -141,12 +141,12 @@ export function ConfigTab({
     return [...selectedRefs, ...customValues];
   };
 
-  const setClaudeExtraBetaHeaders = (value: unknown) => {
+  const setAnthropicExtraBetaHeaders = (value: unknown) => {
     setProviderForm((prev) => ({
       ...prev,
       settings: {
         ...prev.settings,
-        claude_extra_beta_headers: anthropicExtraBetaHeadersDraftToString(value)
+        anthropic_extra_beta_headers: anthropicExtraBetaHeadersDraftToString(value)
       }
     }));
   };
@@ -161,8 +161,8 @@ export function ConfigTab({
     }));
   };
 
-  const toggleClaudeReferenceBeta = (beta: string) => {
-    setClaudeExtraBetaHeaders(buildNextAnthropicReferenceBetas(claudeExtraBetaHeaders, beta));
+  const toggleAnthropicReferenceBeta = (beta: string) => {
+    setAnthropicExtraBetaHeaders(buildNextAnthropicReferenceBetas(anthropicExtraBetaHeaders, beta));
   };
 
   const toggleClaudecodeReferenceBeta = (beta: string) => {
@@ -599,52 +599,52 @@ export function ConfigTab({
           />
         </div>
       ) : null}
-      {showClaudeSettings ? (
+      {showAnthropicSettings ? (
         <div className="md:col-span-2 rounded-lg border border-border p-3">
           <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-            claude
+            anthropic
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2">
                 <input
-                  id="claude-append-beta-query"
+                  id="anthropic-append-beta-query"
                   type="checkbox"
-                  checked={claudeAppendBetaQuery}
+                  checked={anthropicAppendBetaQuery}
                   onChange={(event) =>
                     setProviderForm((prev) => ({
                       ...prev,
                       settings: {
                         ...prev.settings,
-                        claude_append_beta_query: event.target.checked ? "true" : "false"
+                        anthropic_append_beta_query: event.target.checked ? "true" : "false"
                       }
                     }))
                   }
                 />
-                <label htmlFor="claude-append-beta-query" className="text-sm text-muted">
-                  {t("field.claude_append_beta_query")}
+                <label htmlFor="anthropic-append-beta-query" className="text-sm text-muted">
+                  {t("field.anthropic_append_beta_query")}
                 </label>
               </div>
-              <p className="mt-2 text-xs text-muted">{t("providers.claude.betaQueryHint")}</p>
+              <p className="mt-2 text-xs text-muted">{t("providers.anthropic.betaQueryHint")}</p>
             </div>
             <div className="md:col-span-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Label>{t("field.claude_extra_beta_headers")}</Label>
-                <Button variant="neutral" onClick={() => setClaudeExtraBetaHeaders("")}>
+                <Label>{t("field.anthropic_extra_beta_headers")}</Label>
+                <Button variant="neutral" onClick={() => setAnthropicExtraBetaHeaders("")}>
                   {t("providers.cacheBreakpoints.clear")}
                 </Button>
               </div>
-              <p className="mt-2 text-xs text-muted">{t("providers.claude.betaHint")}</p>
+              <p className="mt-2 text-xs text-muted">{t("providers.anthropic.betaHint")}</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {orderedClaudeReferenceBetas.map((beta) => {
-                  const selected = claudeExtraBetaHeaders.some(
+                {orderedAnthropicReferenceBetas.map((beta) => {
+                  const selected = anthropicExtraBetaHeaders.some(
                     (value) => value.toLowerCase() === beta.toLowerCase()
                   );
                   return (
                     <Button
                       key={beta}
                       variant={selected ? "primary" : "neutral"}
-                      onClick={() => toggleClaudeReferenceBeta(beta)}
+                      onClick={() => toggleAnthropicReferenceBeta(beta)}
                     >
                       {beta}
                     </Button>
@@ -653,14 +653,14 @@ export function ConfigTab({
               </div>
             </div>
             <div className="md:col-span-2">
-              <Label>{t("field.claude_prelude_text")}</Label>
+              <Label>{t("field.anthropic_prelude_text")}</Label>
               <TextArea
                 rows={4}
-                value={providerForm.settings.claude_prelude_text ?? ""}
+                value={providerForm.settings.anthropic_prelude_text ?? ""}
                 onChange={(value) =>
                   setProviderForm((prev) => ({
                     ...prev,
-                    settings: { ...prev.settings, claude_prelude_text: value }
+                    settings: { ...prev.settings, anthropic_prelude_text: value }
                   }))
                 }
               />

@@ -648,7 +648,7 @@ pub(super) fn split_export_credential(
         ChannelCredential::Custom(value) => (Some(value.api_key), None),
         ChannelCredential::Builtin(value) => match value {
             BuiltinChannelCredential::OpenAi(item) => (Some(item.api_key), None),
-            BuiltinChannelCredential::Claude(item) => (Some(item.api_key), None),
+            BuiltinChannelCredential::Anthropic(item) => (Some(item.api_key), None),
             BuiltinChannelCredential::AiStudio(item) => (Some(item.api_key), None),
             BuiltinChannelCredential::VertexExpress(item) => (Some(item.api_key), None),
             BuiltinChannelCredential::Nvidia(item) => (Some(item.api_key), None),

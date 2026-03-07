@@ -185,7 +185,7 @@ mod tests {
         tx.enqueue(StorageWriteEvent::UpsertProvider(ProviderWrite {
             id,
             name: "p".to_string(),
-            channel: "claude".to_string(),
+            channel: "anthropic".to_string(),
             settings_json: "{}".to_string(),
             dispatch_json: "{\"rules\":[]}".to_string(),
             enabled: true,
@@ -220,7 +220,7 @@ mod tests {
 
         let status_id = next_test_id();
         let credential_id = next_test_id();
-        let channel = "claude".to_string();
+        let channel = "anthropic".to_string();
         tx.enqueue(StorageWriteEvent::UpsertCredentialStatus(
             CredentialStatusWrite {
                 id: Some(status_id),

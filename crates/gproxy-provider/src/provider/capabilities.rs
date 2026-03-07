@@ -140,8 +140,8 @@ define_execute_handler!(
     standard
 );
 define_execute_handler!(
-    execute_claude_capability,
-    execute_claude_with_retry,
+    execute_anthropic_capability,
+    execute_anthropic_with_retry,
     standard
 );
 define_execute_handler!(
@@ -203,7 +203,7 @@ define_payload_handler!(
 );
 define_payload_handler!(
     payload_claude_capability,
-    execute_claude_payload_with_retry,
+    execute_anthropic_payload_with_retry,
     split
 );
 define_payload_handler!(
@@ -318,8 +318,8 @@ pub(super) fn channel_capabilities(channel: &ChannelId) -> ProviderChannelCapabi
             oauth_callback: None,
             upstream_usage: None,
         },
-        ChannelId::Builtin(BuiltinChannel::Claude) => ProviderChannelCapabilities {
-            execute: execute_claude_capability,
+        ChannelId::Builtin(BuiltinChannel::Anthropic) => ProviderChannelCapabilities {
+            execute: execute_anthropic_capability,
             payload: Some(payload_claude_capability),
             oauth_start: None,
             oauth_callback: None,

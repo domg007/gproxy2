@@ -1,10 +1,10 @@
 import type { ChannelCredentialSchema } from "../../types";
 
 export const CREDENTIAL_SCHEMA: ChannelCredentialSchema = {
-  "channel": "claude",
-  "kind": "builtin/claude",
+  "channel": "anthropic",
+  "kind": "builtin/anthropic",
   "wrapper": "Builtin",
-  "builtinVariant": "Claude",
+  "builtinVariant": "Anthropic",
   "fields": [
     {
       "key": "api_key",

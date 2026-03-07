@@ -13,9 +13,9 @@ import {
 const DEFAULTS = {
   base_url: "https://api.anthropic.com",
   user_agent: DEFAULT_GPROXY_USER_AGENT_DRAFT,
-  claude_append_beta_query: "false",
-  claude_prelude_text: "",
-  claude_extra_beta_headers: "",
+  anthropic_append_beta_query: "false",
+  anthropic_prelude_text: "",
+  anthropic_extra_beta_headers: "",
   cache_breakpoints: "[]"
 } as const;
 
@@ -48,15 +48,15 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.user_agent === "string") {
     out.user_agent = value.user_agent;
   }
-  if ("claude_append_beta_query" in value) {
-    out.claude_append_beta_query = normalizeBooleanDraft(value.claude_append_beta_query);
+  if ("anthropic_append_beta_query" in value) {
+    out.anthropic_append_beta_query = normalizeBooleanDraft(value.anthropic_append_beta_query);
   }
-  if (typeof value.claude_prelude_text === "string") {
-    out.claude_prelude_text = value.claude_prelude_text;
+  if (typeof value.anthropic_prelude_text === "string") {
+    out.anthropic_prelude_text = value.anthropic_prelude_text;
   }
-  if ("claude_extra_beta_headers" in value) {
-    out.claude_extra_beta_headers = anthropicExtraBetaHeadersDraftToString(
-      value.claude_extra_beta_headers
+  if ("anthropic_extra_beta_headers" in value) {
+    out.anthropic_extra_beta_headers = anthropicExtraBetaHeadersDraftToString(
+      value.anthropic_extra_beta_headers
     );
   }
   if ("cache_breakpoints" in value) {
@@ -77,20 +77,20 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
     payload.user_agent = userAgent;
   }
 
-  if ((settings.claude_append_beta_query ?? DEFAULTS.claude_append_beta_query) === "true") {
-    payload.claude_append_beta_query = true;
+  if ((settings.anthropic_append_beta_query ?? DEFAULTS.anthropic_append_beta_query) === "true") {
+    payload.anthropic_append_beta_query = true;
   }
 
-  const preludeText = (settings.claude_prelude_text ?? DEFAULTS.claude_prelude_text).trim();
+  const preludeText = (settings.anthropic_prelude_text ?? DEFAULTS.anthropic_prelude_text).trim();
   if (preludeText) {
-    payload.claude_prelude_text = preludeText;
+    payload.anthropic_prelude_text = preludeText;
   }
 
   const extraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
-    settings.claude_extra_beta_headers ?? DEFAULTS.claude_extra_beta_headers
+    settings.anthropic_extra_beta_headers ?? DEFAULTS.anthropic_extra_beta_headers
   );
   if (extraBetaHeaders.length > 0) {
-    payload.claude_extra_beta_headers = extraBetaHeaders;
+    payload.anthropic_extra_beta_headers = extraBetaHeaders;
   }
 
   const cacheBreakpointRules = cacheBreakpointRulesDraftToSettingsValue(

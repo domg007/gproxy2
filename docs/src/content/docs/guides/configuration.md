@@ -148,7 +148,7 @@ secret = "sk-replace-me"
 | Channel | `id` | OAuth | `/v1/usage` | `secret` credential |
 |---|---|---|---|---|
 | OpenAI | `openai` | No | No | Yes |
-| Claude | `claude` | No | No | Yes |
+| Anthropic | `anthropic` | No | No | Yes |
 | AiStudio | `aistudio` | No | No | Yes |
 | VertexExpress | `vertexexpress` | No | No | Yes |
 | Vertex | `vertex` | No | No | No (service account) |
@@ -162,7 +162,7 @@ secret = "sk-replace-me"
 
 ## Claude / ClaudeCode cache rewrite (`cache_breakpoints`)
 
-`claude` and `claudecode` use `channels.settings.cache_breakpoints` for cache-control rewrite.
+`anthropic` and `claudecode` use `channels.settings.cache_breakpoints` for cache-control rewrite.
 
 Rule model:
 
@@ -198,7 +198,7 @@ Example:
 
 ```toml
 [[channels]]
-id = "claude"
+id = "anthropic"
 enabled = true
 
 [channels.settings]

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::openai::create_image_edit::types::{
     HttpMethod, OpenAiImageBackground, OpenAiImageEditInputFidelity, OpenAiImageEditInputImage,
-    OpenAiImageEditModel, OpenAiImageEditModelKnown, OpenAiImageEditQuality, OpenAiImageEditSize,
-    OpenAiImageModeration, OpenAiImageOutputFormat,
+    OpenAiImageEditModel, OpenAiImageEditQuality, OpenAiImageEditSize, OpenAiImageModeration,
+    OpenAiImageOutputFormat,
 };
 
 /// Request descriptor for OpenAI `images.edit` endpoint.
@@ -101,6 +101,7 @@ pub struct RequestBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openai::create_image_edit::types::OpenAiImageEditModelKnown;
 
     #[test]
     fn request_body_supports_documented_edit_fields() {

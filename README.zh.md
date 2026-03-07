@@ -19,7 +19,7 @@
 | Channel ID | 默认上游 | 认证方式 |
 |---|---|---|
 | `openai` | `https://api.openai.com` | API Key |
-| `claude` | `https://api.anthropic.com` | API Key |
+| `anthropic` | `https://api.anthropic.com` | API Key |
 | `aistudio` | `https://generativelanguage.googleapis.com` | API Key |
 | `vertexexpress` | `https://aiplatform.googleapis.com` | API Key |
 | `vertex` | `https://aiplatform.googleapis.com` | GCP Service Account（builtin 对象） |
@@ -219,9 +219,9 @@ cargo run -p gproxy
 - `dispatch`: 可选；不填则用该通道默认 dispatch
 - `credentials`: 凭证列表（支持多凭证轮询/回退）
 
-### Claude/ClaudeCode 缓存改写（`cache_breakpoints`）
+### Anthropic/ClaudeCode 缓存改写（`cache_breakpoints`）
 
-`claude` 与 `claudecode` 通过以下配置控制 cache-control 改写：
+`anthropic` 与 `claudecode` 通过以下配置控制 cache-control 改写：
 
 - 配置键：`channels.settings.cache_breakpoints`
 - 最多 4 条规则
@@ -232,14 +232,14 @@ cargo run -p gproxy
 无 ttl 的默认值说明：
 
 - `claudecode`：上游默认 `1h`
-- `claude`：上游默认 `5m`
+- `anthropic`：上游默认 `5m`
 - 需要确定性行为时请显式设置 ttl
 
 示例：
 
 ```toml
 [[channels]]
-id = "claude"
+id = "anthropic"
 enabled = true
 
 [channels.settings]
@@ -385,7 +385,7 @@ https://gproxy.leenhawk.com/zh/guides/credential-selection-cache-affinity/
 带 provider 前缀路径，示例：
 
 - `POST /openai/v1/chat/completions`
-- `POST /claude/v1/messages`
+- `POST /anthropic/v1/messages`
 - `POST /aistudio/v1beta/models/{model}:generateContent`
 
 #### 2) Unscoped（统一入口）
@@ -471,7 +471,7 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
   }'
 ```
 
-### Claude/ClaudeCode Prompt Cache 快速验证（4 条 curl）
+### Anthropic/ClaudeCode Prompt Cache 快速验证（4 条 curl）
 
 先确认这两个 provider 至少配置了一条 `cache_breakpoints`（例如 `{ target = "top_level", ttl = "auto" }`）。
 
@@ -483,7 +483,7 @@ SYS="$(for i in $(seq 1 1800); do printf 'cache-prefix-%04d ' "$i"; done)"
 
 ```bash
 # 1) Claude 第一次请求（写缓存）
-curl -sS "$BASE/claude/v1/messages" \
+curl -sS "$BASE/anthropic/v1/messages" \
   -H "x-api-key: $KEY" \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \
@@ -502,7 +502,7 @@ JSON
 
 ```bash
 # 2) Claude 第二次请求（读缓存）
-curl -sS "$BASE/claude/v1/messages" \
+curl -sS "$BASE/anthropic/v1/messages" \
   -H "x-api-key: $KEY" \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \

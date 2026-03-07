@@ -2,14 +2,14 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, cache_control::CacheBreakpointRule, claude, claudecode, codex, custom,
-    deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
+    aistudio, anthropic, antigravity, cache_control::CacheBreakpointRule, claudecode, codex,
+    custom, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinChannelSettings {
     OpenAi(openai::OpenAiSettings),
-    Claude(claude::ClaudeSettings),
+    Anthropic(anthropic::AnthropicSettings),
     AiStudio(aistudio::AiStudioSettings),
     VertexExpress(vertexexpress::VertexExpressSettings),
     Vertex(vertex::VertexSettings),
@@ -26,7 +26,7 @@ impl BuiltinChannelSettings {
     pub fn default_for(channel: BuiltinChannel) -> Self {
         match channel {
             BuiltinChannel::OpenAi => Self::OpenAi(Default::default()),
-            BuiltinChannel::Claude => Self::Claude(Default::default()),
+            BuiltinChannel::Anthropic => Self::Anthropic(Default::default()),
             BuiltinChannel::AiStudio => Self::AiStudio(Default::default()),
             BuiltinChannel::VertexExpress => Self::VertexExpress(Default::default()),
             BuiltinChannel::Vertex => Self::Vertex(Default::default()),
@@ -57,7 +57,7 @@ impl ChannelSettings {
     pub fn base_url(&self) -> &str {
         match self {
             Self::Builtin(BuiltinChannelSettings::OpenAi(value)) => value.base_url.as_str(),
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.base_url.as_str(),
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::AiStudio(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::VertexExpress(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::Vertex(value)) => value.base_url.as_str(),
@@ -75,7 +75,7 @@ impl ChannelSettings {
     pub fn user_agent(&self) -> Option<&str> {
         match self {
             Self::Builtin(BuiltinChannelSettings::OpenAi(value)) => value.user_agent.as_deref(),
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.user_agent.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::AiStudio(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::VertexExpress(value)) => {
                 value.user_agent.as_deref()
@@ -160,23 +160,25 @@ impl ChannelSettings {
         }
     }
 
-    pub fn claude_prelude_text(&self) -> Option<&str> {
+    pub fn anthropic_prelude_text(&self) -> Option<&str> {
         match self {
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.prelude_text.as_deref(),
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => {
+                value.prelude_text.as_deref()
+            }
             _ => None,
         }
     }
 
-    pub fn claude_extra_beta_headers(&self) -> &[String] {
+    pub fn anthropic_extra_beta_headers(&self) -> &[String] {
         match self {
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => &value.extra_beta_headers,
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => &value.extra_beta_headers,
             _ => &[],
         }
     }
 
-    pub fn claude_append_beta_query(&self) -> bool {
+    pub fn anthropic_append_beta_query(&self) -> bool {
         match self {
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.append_beta_query,
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => value.append_beta_query,
             _ => false,
         }
     }
@@ -206,7 +208,7 @@ impl ChannelSettings {
 
     pub fn cache_breakpoints(&self) -> &[CacheBreakpointRule] {
         match self {
-            Self::Builtin(BuiltinChannelSettings::Claude(value)) => &value.cache_breakpoints,
+            Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => &value.cache_breakpoints,
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => &value.cache_breakpoints,
             _ => &[],
         }

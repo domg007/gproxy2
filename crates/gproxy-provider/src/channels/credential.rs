@@ -2,14 +2,14 @@ use crate::channel::BuiltinChannel;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    aistudio, antigravity, claude, claudecode, codex, custom, deepseek, geminicli, groq, nvidia,
+    aistudio, anthropic, antigravity, claudecode, codex, custom, deepseek, geminicli, groq, nvidia,
     openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinChannelCredential {
     OpenAi(openai::OpenAiCredential),
-    Claude(claude::ClaudeCredential),
+    Anthropic(anthropic::AnthropicCredential),
     AiStudio(aistudio::AiStudioCredential),
     VertexExpress(vertexexpress::VertexExpressCredential),
     Vertex(Box<vertex::VertexServiceAccountCredential>),
@@ -26,7 +26,7 @@ impl BuiltinChannelCredential {
     pub fn blank_for(channel: BuiltinChannel) -> Self {
         match channel {
             BuiltinChannel::OpenAi => Self::OpenAi(Default::default()),
-            BuiltinChannel::Claude => Self::Claude(Default::default()),
+            BuiltinChannel::Anthropic => Self::Anthropic(Default::default()),
             BuiltinChannel::AiStudio => Self::AiStudio(Default::default()),
             BuiltinChannel::VertexExpress => Self::VertexExpress(Default::default()),
             BuiltinChannel::Vertex => {

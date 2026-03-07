@@ -2,7 +2,7 @@ import type { ChannelCredentialSchema, ChannelSettingsDraft, TemplateRoute } fro
 import type { ChannelOAuthUi } from "./oauth";
 import { CHANNEL_CONFIG as customConfig } from "./custom";
 import { CHANNEL_CONFIG as openaiConfig } from "./openai";
-import { CHANNEL_CONFIG as claudeConfig } from "./claude";
+import { CHANNEL_CONFIG as anthropicConfig } from "./anthropic";
 import { CHANNEL_CONFIG as aistudioConfig } from "./aistudio";
 import { CHANNEL_CONFIG as vertexConfig } from "./vertex";
 import { CHANNEL_CONFIG as vertexexpressConfig } from "./vertexexpress";
@@ -27,7 +27,7 @@ export type ChannelConfig = {
 const CHANNEL_REGISTRY: readonly ChannelConfig[] = [
   customConfig,
   openaiConfig,
-  claudeConfig,
+  anthropicConfig,
   aistudioConfig,
   vertexConfig,
   vertexexpressConfig,

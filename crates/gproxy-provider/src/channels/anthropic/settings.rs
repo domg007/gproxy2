@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::channels::cache_control::{CacheBreakpointRule, parse_cache_breakpoint_rules};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClaudeSettings {
+pub struct AnthropicSettings {
     pub base_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
@@ -18,7 +18,7 @@ pub struct ClaudeSettings {
     pub cache_breakpoints: Vec<CacheBreakpointRule>,
 }
 
-impl Default for ClaudeSettings {
+impl Default for AnthropicSettings {
     fn default() -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -31,7 +31,7 @@ impl Default for ClaudeSettings {
     }
 }
 
-impl ClaudeSettings {
+impl AnthropicSettings {
     pub fn from_provider_settings_value(
         value: &serde_json::Value,
     ) -> Result<Self, serde_json::Error> {
@@ -40,7 +40,7 @@ impl ClaudeSettings {
         struct ProviderSettingsPatch {
             base_url: String,
             user_agent: Option<String>,
-            claude_prelude_text: Option<String>,
+            anthropic_prelude_text: Option<String>,
         }
 
         let patch = serde_json::from_value::<ProviderSettingsPatch>(value.clone())?;
@@ -50,10 +50,10 @@ impl ClaudeSettings {
         }
         settings.user_agent = patch.user_agent.map(|value| value.trim().to_string());
         settings.prelude_text =
-            clean_opt(patch.claude_prelude_text.as_deref()).map(ToOwned::to_owned);
-        settings.append_beta_query = parse_bool_flag(value.get("claude_append_beta_query"));
+            clean_opt(patch.anthropic_prelude_text.as_deref()).map(ToOwned::to_owned);
+        settings.append_beta_query = parse_bool_flag(value.get("anthropic_append_beta_query"));
         settings.extra_beta_headers =
-            parse_extra_beta_headers(value.get("claude_extra_beta_headers"));
+            parse_extra_beta_headers(value.get("anthropic_extra_beta_headers"));
         settings.cache_breakpoints = parse_cache_breakpoint_rules(value.get("cache_breakpoints"));
         Ok(settings)
     }

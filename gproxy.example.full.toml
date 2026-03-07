@@ -53,16 +53,16 @@ checked_at_unix_ms = 1767225600000
 kind = "healthy"
 
 [[channels]]
-id = "claude"
+id = "anthropic"
 enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
-# Optional: append ?beta=true to Claude upstream paths.
-claude_append_beta_query = false
+# Optional: append ?beta=true to Anthropic upstream paths.
+anthropic_append_beta_query = false
 # Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
 # Note: no-ttl upstream default differs by channel:
-# - claude: 5m
+# - anthropic: 5m
 # - claudecode: 1h
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
@@ -71,7 +71,7 @@ cache_breakpoints = [
 ]
 
 [[channels.credentials]]
-id = "claude-main"
+id = "anthropic-main"
 label = "primary"
 secret = "sk-ant-replace-me"
 

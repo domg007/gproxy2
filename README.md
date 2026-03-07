@@ -21,7 +21,7 @@ If you want to look at the full docs, click [here](https://gproxy.leenhawk.com/)
 | Channel ID | Default Upstream | Auth Type |
 |---|---|---|
 | `openai` | `https://api.openai.com` | API Key |
-| `claude` | `https://api.anthropic.com` | API Key |
+| `anthropic` | `https://api.anthropic.com` | API Key |
 | `aistudio` | `https://generativelanguage.googleapis.com` | API Key |
 | `vertexexpress` | `https://aiplatform.googleapis.com` | API Key |
 | `vertex` | `https://aiplatform.googleapis.com` | GCP service account (builtin object) |
@@ -221,9 +221,9 @@ Each channel is declared with `[[channels]]`:
 - `dispatch`: optional; defaults to channel-specific dispatch table when omitted
 - `credentials`: credential list (supports multi-credential retry/fallback)
 
-### Claude/ClaudeCode Cache Rewrite (`cache_breakpoints`)
+### Anthropic/ClaudeCode Cache Rewrite (`cache_breakpoints`)
 
-For `claude` and `claudecode`, configure cache-control rewrite with:
+For `anthropic` and `claudecode`, configure cache-control rewrite with:
 
 - setting key: `channels.settings.cache_breakpoints`
 - max 4 rules
@@ -234,14 +234,14 @@ For `claude` and `claudecode`, configure cache-control rewrite with:
 No-ttl default note:
 
 - `claudecode`: upstream default is `1h`
-- `claude`: upstream default is `5m`
+- `anthropic`: upstream default is `5m`
 - use explicit ttl when you need deterministic behavior
 
 Example:
 
 ```toml
 [[channels]]
-id = "claude"
+id = "anthropic"
 enabled = true
 
 [channels.settings]
@@ -387,7 +387,7 @@ All errors return:
 Provider is explicit in path, examples:
 
 - `POST /openai/v1/chat/completions`
-- `POST /claude/v1/messages`
+- `POST /anthropic/v1/messages`
 - `POST /aistudio/v1beta/models/{model}:generateContent`
 
 #### 2) Unscoped (single unified entry)
@@ -473,7 +473,7 @@ curl -sS "http://127.0.0.1:8787/aistudio/v1beta/models/gemini-2.5-flash:generate
   }'
 ```
 
-### Claude/ClaudeCode Prompt Cache Quick Check (4 curls)
+### Anthropic/ClaudeCode Prompt Cache Quick Check (4 curls)
 
 Make sure both providers have at least one `cache_breakpoints` rule (for example `{ target = "top_level", ttl = "auto" }`).
 
@@ -485,7 +485,7 @@ SYS="$(for i in $(seq 1 1800); do printf 'cache-prefix-%04d ' "$i"; done)"
 
 ```bash
 # 1) Claude first request (cache write)
-curl -sS "$BASE/claude/v1/messages" \
+curl -sS "$BASE/anthropic/v1/messages" \
   -H "x-api-key: $KEY" \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \
@@ -504,7 +504,7 @@ JSON
 
 ```bash
 # 2) Claude second request (cache read)
-curl -sS "$BASE/claude/v1/messages" \
+curl -sS "$BASE/anthropic/v1/messages" \
   -H "x-api-key: $KEY" \
   -H "content-type: application/json" \
   -H "anthropic-version: 2023-06-01" \

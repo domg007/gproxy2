@@ -1,7 +1,7 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 use crate::channels::{
-    BuiltinChannelSettings, ChannelSettings, aistudio, claude, custom, deepseek, groq, nvidia,
+    BuiltinChannelSettings, ChannelSettings, aistudio, anthropic, custom, deepseek, groq, nvidia,
     openai, retry::CredentialPickMode, vertexexpress,
 };
 
@@ -119,9 +119,9 @@ pub fn parse_provider_settings_value_for_channel(
                 openai::OpenAiSettings::from_provider_settings_value(value)?,
             ))
         }
-        ChannelId::Builtin(BuiltinChannel::Claude) => {
-            ChannelSettings::Builtin(BuiltinChannelSettings::Claude(
-                claude::ClaudeSettings::from_provider_settings_value(value)?,
+        ChannelId::Builtin(BuiltinChannel::Anthropic) => {
+            ChannelSettings::Builtin(BuiltinChannelSettings::Anthropic(
+                anthropic::AnthropicSettings::from_provider_settings_value(value)?,
             ))
         }
         ChannelId::Builtin(BuiltinChannel::AiStudio) => {
@@ -200,7 +200,7 @@ pub fn provider_settings_to_json_value_with_routing(
     }
 
     match settings {
-        ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
+        ChannelSettings::Builtin(BuiltinChannelSettings::Anthropic(value)) => {
             let prelude = value
                 .prelude_text
                 .as_deref()
@@ -208,19 +208,19 @@ pub fn provider_settings_to_json_value_with_routing(
                 .unwrap_or_default();
             if !prelude.is_empty() {
                 root.insert(
-                    "claude_prelude_text".to_string(),
+                    "anthropic_prelude_text".to_string(),
                     serde_json::Value::String(prelude.to_string()),
                 );
             }
             if value.append_beta_query {
                 root.insert(
-                    "claude_append_beta_query".to_string(),
+                    "anthropic_append_beta_query".to_string(),
                     serde_json::Value::Bool(true),
                 );
             }
             if !value.extra_beta_headers.is_empty() {
                 root.insert(
-                    "claude_extra_beta_headers".to_string(),
+                    "anthropic_extra_beta_headers".to_string(),
                     serde_json::Value::Array(
                         value
                             .extra_beta_headers
@@ -464,7 +464,7 @@ mod tests {
     };
     use crate::channels::retry::CredentialPickMode;
     use crate::channels::settings::{BuiltinChannelSettings, ChannelSettings};
-    use crate::channels::{claude, claudecode};
+    use crate::channels::{anthropic, claudecode};
 
     #[test]
     fn credential_pick_mode_defaults_round_robin_with_cache() {
@@ -587,9 +587,9 @@ mod tests {
     }
 
     #[test]
-    fn serialize_claude_settings_includes_cache_breakpoints() {
-        let settings =
-            ChannelSettings::Builtin(BuiltinChannelSettings::Claude(claude::ClaudeSettings {
+    fn serialize_anthropic_settings_includes_cache_breakpoints() {
+        let settings = ChannelSettings::Builtin(BuiltinChannelSettings::Anthropic(
+            anthropic::AnthropicSettings {
                 append_beta_query: true,
                 cache_breakpoints: vec![
                     CacheBreakpointRule {
@@ -606,7 +606,8 @@ mod tests {
                     },
                 ],
                 ..Default::default()
-            }));
+            },
+        ));
 
         let value = provider_settings_to_json_value_with_credential_pick_mode(
             &settings,
@@ -621,7 +622,7 @@ mod tests {
         );
         assert_eq!(
             value
-                .get("claude_append_beta_query")
+                .get("anthropic_append_beta_query")
                 .and_then(serde_json::Value::as_bool),
             Some(true)
         );

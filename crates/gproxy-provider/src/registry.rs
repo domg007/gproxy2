@@ -1,7 +1,7 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::{
-    BuiltinChannelCredential, ChannelCredential, aistudio, antigravity, claude, claudecode, codex,
-    deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
+    BuiltinChannelCredential, ChannelCredential, aistudio, anthropic, antigravity, claudecode,
+    codex, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 use crate::dispatch::ProviderDispatchTable;
 
@@ -16,7 +16,7 @@ pub struct BuiltinChannelRegistration {
 
 pub const BUILTIN_CHANNELS: [BuiltinChannel; 12] = [
     BuiltinChannel::OpenAi,
-    BuiltinChannel::Claude,
+    BuiltinChannel::Anthropic,
     BuiltinChannel::AiStudio,
     BuiltinChannel::VertexExpress,
     BuiltinChannel::Vertex,
@@ -38,8 +38,8 @@ pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 12] = [
         supports_secret_credential: true,
     },
     BuiltinChannelRegistration {
-        channel: BuiltinChannel::Claude,
-        id: "claude",
+        channel: BuiltinChannel::Anthropic,
+        id: "anthropic",
         supports_oauth: false,
         supports_upstream_usage: false,
         supports_secret_credential: true,
@@ -126,7 +126,7 @@ pub fn parse_builtin_channel(value: &str) -> Option<BuiltinChannel> {
 pub fn default_dispatch_table_for_builtin(channel: BuiltinChannel) -> ProviderDispatchTable {
     match channel {
         BuiltinChannel::OpenAi => openai::default_dispatch_table(),
-        BuiltinChannel::Claude => claude::default_dispatch_table(),
+        BuiltinChannel::Anthropic => anthropic::default_dispatch_table(),
         BuiltinChannel::AiStudio => aistudio::default_dispatch_table(),
         BuiltinChannel::VertexExpress => vertexexpress::default_dispatch_table(),
         BuiltinChannel::Vertex => vertex::default_dispatch_table(),
@@ -159,8 +159,8 @@ pub fn credential_from_secret(channel: &ChannelId, secret: &str) -> Option<Chann
                         api_key: secret.to_string(),
                     }),
                 ),
-                BuiltinChannel::Claude => ChannelCredential::Builtin(
-                    BuiltinChannelCredential::Claude(claude::ClaudeCredential {
+                BuiltinChannel::Anthropic => ChannelCredential::Builtin(
+                    BuiltinChannelCredential::Anthropic(anthropic::AnthropicCredential {
                         api_key: secret.to_string(),
                     }),
                 ),

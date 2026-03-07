@@ -1,7 +1,7 @@
 pub mod aistudio;
+pub mod anthropic;
 pub mod antigravity;
 pub mod cache_control;
-pub mod claude;
 pub mod claudecode;
 pub mod codex;
 pub mod credential;

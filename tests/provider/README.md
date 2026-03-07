@@ -18,7 +18,7 @@ This folder contains curl-based smoke tests for provider upstream access.
 
 ## Parameters
 
-- `--provider`: provider id (for example `openai`, `claude`, `aistudio`, `vertexexpress`, `vertex`, `geminicli`, `claudecode`, `codex`, `antigravity`, `nvidia`, `deepseek`, or custom channel id)
+- `--provider`: provider id (for example `openai`, `anthropic`, `aistudio`, `vertexexpress`, `vertex`, `geminicli`, `claudecode`, `codex`, `antigravity`, `nvidia`, `deepseek`, or custom channel id)
 - `--method`: test method (see list below)
 - `--model`: model name (required for content/model_get methods)
 - `--prompt`: optional content prompt
@@ -71,7 +71,7 @@ API_KEY='your-key' tests/provider/curl_provider.sh \
 ```bash
 # Claude messages
 API_KEY='your-key' tests/provider/curl_provider.sh \
-  --provider claude \
+  --provider anthropic \
   --method claude_messages \
   --model claude-3-5-sonnet-20241022
 ```
@@ -111,7 +111,7 @@ API_KEY='your-key' tests/provider/curl_provider.sh \
 ```bash
 # Claude messages stream
 API_KEY='your-key' tests/provider/curl_provider.sh \
-  --provider claude \
+  --provider anthropic \
   --method claude_messages_stream \
   --model claude-3-5-sonnet-20241022
 ```

@@ -5,12 +5,14 @@ use std::pin::Pin;
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::ChannelSettings;
 use crate::channels::aistudio::{execute_aistudio_payload_with_retry, execute_aistudio_with_retry};
+use crate::channels::anthropic::{
+    execute_anthropic_payload_with_retry, execute_anthropic_with_retry,
+};
 use crate::channels::antigravity::{
     execute_antigravity_oauth_callback, execute_antigravity_oauth_start,
     execute_antigravity_payload_with_retry, execute_antigravity_upstream_usage_with_retry,
     execute_antigravity_with_retry,
 };
-use crate::channels::claude::{execute_claude_payload_with_retry, execute_claude_with_retry};
 use crate::channels::claudecode::credential::ClaudeCodeTokenRefresh;
 use crate::channels::claudecode::{
     execute_claudecode_oauth_callback, execute_claudecode_oauth_start,

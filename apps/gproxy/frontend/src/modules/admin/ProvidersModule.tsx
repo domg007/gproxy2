@@ -180,7 +180,7 @@ export function ProvidersModule({
   const showVertexOAuthToken = providerFormChannel === "vertex";
   const showClaudeCodeSettings = providerFormChannel === "claudecode";
   const showClaudeTopLevelCacheControl =
-    providerFormChannel === "claude" || providerFormChannel === "claudecode";
+    providerFormChannel === "anthropic" || providerFormChannel === "claudecode";
   const showCustomMaskTable = isCustomChannel(providerFormChannel);
 
   const channelOptions = useMemo(() => {

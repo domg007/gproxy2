@@ -148,7 +148,7 @@ secret = "sk-replace-me"
 | 渠道 | `id` | OAuth | `/v1/usage` | `secret` 凭证 |
 |---|---|---|---|---|
 | OpenAI | `openai` | 否 | 否 | 是 |
-| Claude | `claude` | 否 | 否 | 是 |
+| Anthropic | `anthropic` | 否 | 否 | 是 |
 | AiStudio | `aistudio` | 否 | 否 | 是 |
 | VertexExpress | `vertexexpress` | 否 | 否 | 是 |
 | Vertex | `vertex` | 否 | 否 | 否（service account） |
@@ -162,7 +162,7 @@ secret = "sk-replace-me"
 
 ## Claude / ClaudeCode 缓存改写（`cache_breakpoints`）
 
-`claude` 与 `claudecode` 通过 `channels.settings.cache_breakpoints` 控制 cache-control 改写。
+`anthropic` 与 `claudecode` 通过 `channels.settings.cache_breakpoints` 控制 cache-control 改写。
 
 规则模型：
 
@@ -198,7 +198,7 @@ secret = "sk-replace-me"
 
 ```toml
 [[channels]]
-id = "claude"
+id = "anthropic"
 enabled = true
 
 [channels.settings]
