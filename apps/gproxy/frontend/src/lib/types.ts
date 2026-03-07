@@ -30,6 +30,13 @@ export interface ProviderQueryRow {
   updated_at: string;
 }
 
+export interface ProviderChannelCatalogRow {
+  channel: string;
+  supports_oauth: boolean;
+  supports_upstream_usage: boolean;
+  supports_secret_credential: boolean;
+}
+
 export interface CredentialQueryRow {
   id: number;
   provider_id: number;

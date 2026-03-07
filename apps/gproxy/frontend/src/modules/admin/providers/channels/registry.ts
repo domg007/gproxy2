@@ -16,8 +16,6 @@ import { CHANNEL_CONFIG as groqConfig } from "./groq";
 
 export type ChannelConfig = {
   channel: string;
-  supportsOAuth: boolean;
-  supportsUpstreamUsage: boolean;
   defaultSettingsDraft: () => ChannelSettingsDraft;
   parseSettingsDraft: (value: unknown) => ChannelSettingsDraft;
   buildSettingsJson: (settings: ChannelSettingsDraft) => Record<string, unknown>;
@@ -26,35 +24,24 @@ export type ChannelConfig = {
   dispatchTemplateRoutes: readonly TemplateRoute[];
 };
 
-type ChannelBaseConfig = Omit<ChannelConfig, "supportsOAuth" | "supportsUpstreamUsage">;
-
-type ChannelRegistryEntry = {
-  config: ChannelBaseConfig;
-  supportsOAuth: boolean;
-  supportsUpstreamUsage: boolean;
-};
-
-const CHANNEL_REGISTRY: readonly ChannelRegistryEntry[] = [
-  { config: customConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: openaiConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: claudeConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: aistudioConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: vertexConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: vertexexpressConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: geminicliConfig, supportsOAuth: true, supportsUpstreamUsage: true },
-  { config: antigravityConfig, supportsOAuth: true, supportsUpstreamUsage: true },
-  { config: claudecodeConfig, supportsOAuth: true, supportsUpstreamUsage: true },
-  { config: codexConfig, supportsOAuth: true, supportsUpstreamUsage: true },
-  { config: nvidiaConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: deepseekConfig, supportsOAuth: false, supportsUpstreamUsage: false },
-  { config: groqConfig, supportsOAuth: false, supportsUpstreamUsage: false },
+const CHANNEL_REGISTRY: readonly ChannelConfig[] = [
+  customConfig,
+  openaiConfig,
+  claudeConfig,
+  aistudioConfig,
+  vertexConfig,
+  vertexexpressConfig,
+  geminicliConfig,
+  antigravityConfig,
+  claudecodeConfig,
+  codexConfig,
+  nvidiaConfig,
+  deepseekConfig,
+  groqConfig
 ];
 
 export const CHANNEL_CONFIGS: Record<string, ChannelConfig> = Object.fromEntries(
-  CHANNEL_REGISTRY.map(({ config, supportsOAuth, supportsUpstreamUsage }) => [
-    config.channel,
-    { ...config, supportsOAuth, supportsUpstreamUsage },
-  ])
+  CHANNEL_REGISTRY.map((config) => [config.channel, config])
 ) as Record<string, ChannelConfig>;
 
 export function getChannelConfig(channel: string): ChannelConfig | null {
@@ -65,4 +52,6 @@ export function getChannelConfig(channel: string): ChannelConfig | null {
   return CHANNEL_CONFIGS[normalized] ?? null;
 }
 
-export const BUILTIN_CHANNELS = CHANNEL_REGISTRY.map(({ config }) => config.channel);
+export const BUILTIN_CHANNELS = CHANNEL_REGISTRY.map((config) => config.channel).filter(
+  (channel) => channel !== "custom"
+);

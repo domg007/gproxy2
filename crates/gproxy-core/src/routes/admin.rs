@@ -220,6 +220,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/system/latest_release", get(system_latest_release))
         .route("/config/export-toml", get(export_config_toml))
         .route("/config/import-toml", post(import_config_toml))
+        .route("/providers/catalog", get(get_provider_channel_catalog))
         .route("/providers/query", post(query_providers))
         .route("/providers/upsert", post(upsert_provider))
         .route("/providers/delete", post(delete_provider))

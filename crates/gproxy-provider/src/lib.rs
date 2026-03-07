@@ -39,6 +39,7 @@ pub use facade::{
 pub use provider::{
     ProviderDefinition, ProviderRegistry, RetryWithPayloadRequest, TokenizerResolutionContext,
 };
+pub use registry::{BUILTIN_CHANNEL_REGISTRY, BuiltinChannelRegistration};
 pub use settings::{
     CREDENTIAL_PICK_MODE_KEY, parse_credential_pick_mode_from_provider_settings_value,
     parse_provider_settings_json_for_channel, parse_provider_settings_value_for_channel,

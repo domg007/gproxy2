@@ -1,4 +1,4 @@
-import type { ProviderQueryRow } from "../../../lib/types";
+import type { ProviderChannelCatalogRow, ProviderQueryRow } from "../../../lib/types";
 import { getChannelConfig } from "./channels/registry";
 import {
   buildCredentialSecretJson,
@@ -38,11 +38,12 @@ import {
   CHANNEL_SELECT_OPTIONS,
   CLAUDE_AGENT_SDK_PRELUDE_TEXT,
   CLAUDE_CODE_SYSTEM_PRELUDE_TEXT,
-  LIVE_USAGE_CHANNELS,
-  OAUTH_CHANNELS,
   OPERATION_OPTIONS,
   PROTOCOL_OPTIONS,
-  isCustomChannel
+  getChannelSelectOptions,
+  isCustomChannel,
+  supportsOAuthInCatalog,
+  supportsUpstreamUsageInCatalog
 } from "./constants";
 import {
   buildChannelSettingsJson,
@@ -71,10 +72,9 @@ export {
   CHANNEL_SELECT_OPTIONS,
   CLAUDE_AGENT_SDK_PRELUDE_TEXT,
   CLAUDE_CODE_SYSTEM_PRELUDE_TEXT,
-  LIVE_USAGE_CHANNELS,
-  OAUTH_CHANNELS,
   OPERATION_OPTIONS,
   PROTOCOL_OPTIONS,
+  getChannelSelectOptions,
   buildChannelSettingsJson,
   buildCredentialSecretJson,
   credentialDefaultNameFromSecretJson,
@@ -185,12 +185,24 @@ export function mergeQueryString(
   return query ? `?${query}` : "";
 }
 
-export function supportsOAuth(channel: string): boolean {
-  return OAUTH_CHANNELS.has(normalizeChannel(channel));
+export function supportsOAuth(
+  channel: string,
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): boolean {
+  return supportsOAuthInCatalog(normalizeChannel(channel), channelCatalog);
 }
 
-export function supportsUpstreamUsage(channel: string): boolean {
-  return LIVE_USAGE_CHANNELS.has(normalizeChannel(channel));
+export function supportsUpstreamUsage(
+  channel: string,
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): boolean {
+  return supportsUpstreamUsageInCatalog(normalizeChannel(channel), channelCatalog);
+}
+
+export function getProviderChannelSelectOptions(
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): Array<{ value: string; label: string }> {
+  return getChannelSelectOptions(channelCatalog);
 }
 
 export { availableBulkModes };

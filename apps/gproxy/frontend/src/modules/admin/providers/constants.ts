@@ -1,3 +1,10 @@
+import type { ProviderChannelCatalogRow } from "../../../lib/types";
+
+import {
+  buildChannelSelectOptions,
+  channelSupportsOAuth,
+  channelSupportsUpstreamUsage
+} from "./channels/catalog";
 import { CHANNEL_CONFIGS } from "./channels/registry";
 
 export const OPERATION_OPTIONS = [
@@ -25,24 +32,27 @@ export const CLAUDE_CODE_SYSTEM_PRELUDE_TEXT =
 export const CLAUDE_AGENT_SDK_PRELUDE_TEXT =
   "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 
-const BUILTIN_CHANNELS = Object.keys(CHANNEL_CONFIGS).filter((channel) => channel !== "custom");
+export const CHANNEL_SELECT_OPTIONS = buildChannelSelectOptions();
 
-export const CHANNEL_SELECT_OPTIONS = [
-  { value: "custom", label: "custom" },
-  ...BUILTIN_CHANNELS.map((channel) => ({ value: channel, label: channel }))
-];
+export function getChannelSelectOptions(
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): Array<{ value: string; label: string }> {
+  return buildChannelSelectOptions(channelCatalog);
+}
 
-export const OAUTH_CHANNELS = new Set(
-  Object.values(CHANNEL_CONFIGS)
-    .filter((config) => config.supportsOAuth)
-    .map((config) => config.channel)
-);
+export function supportsOAuthInCatalog(
+  channel: string,
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): boolean {
+  return channelSupportsOAuth(channel, channelCatalog);
+}
 
-export const LIVE_USAGE_CHANNELS = new Set(
-  Object.values(CHANNEL_CONFIGS)
-    .filter((config) => config.supportsUpstreamUsage)
-    .map((config) => config.channel)
-);
+export function supportsUpstreamUsageInCatalog(
+  channel: string,
+  channelCatalog?: ProviderChannelCatalogRow[] | null
+): boolean {
+  return channelSupportsUpstreamUsage(channel, channelCatalog);
+}
 
 export function isCustomChannel(channel: string): boolean {
   const normalized = channel.trim().toLowerCase();

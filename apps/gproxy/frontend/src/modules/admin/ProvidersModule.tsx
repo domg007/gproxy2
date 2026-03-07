@@ -18,7 +18,6 @@ import { useCredentialStatus } from "./providers/hooks/useCredentialStatus";
 import { useCredentialUsage } from "./providers/hooks/useCredentialUsage";
 import { useProviderData } from "./providers/hooks/useProviderData";
 import {
-  CHANNEL_SELECT_OPTIONS,
   type BulkCredentialImportEntry,
   type DispatchRuleDraft,
   type WorkspaceTab,
@@ -30,6 +29,7 @@ import {
   createDefaultDispatchRule,
   credentialFormFromRow,
   credentialSchemaForChannel,
+  getProviderChannelSelectOptions,
   isCustomChannel,
   normalizeChannel,
   normalizeDispatchRules,
@@ -62,6 +62,7 @@ export function ProvidersModule({
     setProviderRows,
     selectedProviderId,
     setSelectedProviderId,
+    channelCatalogRows,
     providerForm,
     setProviderForm,
     credentialRows,
@@ -165,10 +166,10 @@ export function ProvidersModule({
     selectedProvider?.channel ?? providerForm.channel
   );
   const providerSupportsOAuth = selectedProvider
-    ? supportsOAuth(selectedProvider.channel)
+    ? supportsOAuth(selectedProvider.channel, channelCatalogRows)
     : false;
   const providerSupportsUpstreamUsage = selectedProvider
-    ? supportsUpstreamUsage(selectedProvider.channel)
+    ? supportsUpstreamUsage(selectedProvider.channel, channelCatalogRows)
     : false;
   const showWorkspace = isCreatingProvider || selectedProvider !== null;
 
@@ -183,13 +184,13 @@ export function ProvidersModule({
   const showCustomMaskTable = isCustomChannel(providerFormChannel);
 
   const channelOptions = useMemo(() => {
-    const options = [...CHANNEL_SELECT_OPTIONS];
+    const options = [...getProviderChannelSelectOptions(channelCatalogRows)];
     const current = providerForm.channel.trim();
     if (current && !options.some((item) => item.value === current)) {
       options.push({ value: current, label: `${current} (custom)` });
     }
     return options;
-  }, [providerForm.channel]);
+  }, [channelCatalogRows, providerForm.channel]);
 
   useEffect(() => {
     if (!showWorkspace && activeTab !== "config") {

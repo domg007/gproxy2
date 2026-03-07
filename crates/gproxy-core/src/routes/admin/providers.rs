@@ -3,7 +3,9 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use gproxy_provider::{ChannelId, parse_credential_pick_mode_from_provider_settings_value};
+use gproxy_provider::{
+    BUILTIN_CHANNEL_REGISTRY, ChannelId, parse_credential_pick_mode_from_provider_settings_value,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -38,6 +40,24 @@ pub(super) async fn query_providers(
     authorize_admin(&headers, &state)?;
     let storage = state.load_storage();
     Ok(Json(gproxy_admin::query_providers(&storage, query).await?))
+}
+
+pub(super) async fn get_provider_channel_catalog(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ProviderChannelCatalogEntry>>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    Ok(Json(
+        BUILTIN_CHANNEL_REGISTRY
+            .iter()
+            .map(|entry| ProviderChannelCatalogEntry {
+                channel: entry.id.to_string(),
+                supports_oauth: entry.supports_oauth,
+                supports_upstream_usage: entry.supports_upstream_usage,
+                supports_secret_credential: entry.supports_secret_credential,
+            })
+            .collect(),
+    ))
 }
 
 pub(super) async fn upsert_provider(
@@ -114,6 +134,14 @@ pub(super) async fn delete_provider(
     }
     gproxy_admin::delete_provider(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ProviderChannelCatalogEntry {
+    pub channel: String,
+    pub supports_oauth: bool,
+    pub supports_upstream_usage: bool,
+    pub supports_secret_credential: bool,
 }
 
 #[derive(Debug, Deserialize)]

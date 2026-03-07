@@ -5,6 +5,7 @@ import { scopeAll, scopeEq } from "../../../../lib/scope";
 import type {
   CredentialQueryRow,
   CredentialStatusQueryRow,
+  ProviderChannelCatalogRow,
   ProviderQueryRow
 } from "../../../../lib/types";
 import { createEmptyProviderFormState, toProviderFormState } from "../index";
@@ -19,6 +20,7 @@ export function useProviderData({
   notify: NotifyFn;
 }) {
   const [providerRows, setProviderRows] = useState<ProviderQueryRow[]>([]);
+  const [channelCatalogRows, setChannelCatalogRows] = useState<ProviderChannelCatalogRow[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
   const [providerForm, setProviderForm] = useState(createEmptyProviderFormState);
   const [credentialRows, setCredentialRows] = useState<CredentialQueryRow[]>([]);
@@ -51,6 +53,19 @@ export function useProviderData({
     }
     return map;
   }, [scopedStatusRows]);
+
+  const loadChannelCatalog = useCallback(async () => {
+    try {
+      const data = await apiRequest<ProviderChannelCatalogRow[]>("/admin/providers/catalog", {
+        apiKey
+      });
+      setChannelCatalogRows(data);
+      return data;
+    } catch (error) {
+      notify("error", formatError(error));
+      return [];
+    }
+  }, [apiKey, notify]);
 
   const loadProviders = useCallback(async () => {
     try {
@@ -122,8 +137,9 @@ export function useProviderData({
   );
 
   useEffect(() => {
+    void loadChannelCatalog();
     void loadProviders();
-  }, [loadProviders]);
+  }, [loadChannelCatalog, loadProviders]);
 
   const beginCreateProvider = useCallback(() => {
     setProviderForm(createEmptyProviderFormState());
@@ -138,6 +154,7 @@ export function useProviderData({
   return {
     providerRows,
     setProviderRows,
+    channelCatalogRows,
     selectedProviderId,
     setSelectedProviderId,
     providerForm,
