@@ -885,7 +885,7 @@ export function ConfigTab({
             options={channelOptions}
           />
         </div>
-        <div className="md:col-span-2">
+        <div>
           <Label>{t("field.base_url")}</Label>
           <Input
             value={providerForm.settings.base_url ?? ""}
