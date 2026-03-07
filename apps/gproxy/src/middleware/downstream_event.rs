@@ -196,7 +196,7 @@ pub async fn middleware(
 ) -> Response {
     let trace_id = next_trace_id();
     let at_unix_ms = now_unix_ms();
-    let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
+    let mask_sensitive_info = state.load_config().global.mask_sensitive_info;
 
     let (request_parts, request_body_stream) = request.into_parts();
     let method = request_parts.method.to_string();

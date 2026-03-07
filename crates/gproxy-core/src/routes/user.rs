@@ -116,7 +116,7 @@ async fn delete_my_key(
     let api_key = api_key_from_headers(&headers)?;
     let users = state.load_users();
     let keys = state.load_keys();
-    gproxy_admin::delete_my_user_key(&state.storage_writes, api_key, &users, &keys, payload.id)
+    gproxy_admin::delete_my_user_key(state.storage_writes(), api_key, &users, &keys, payload.id)
         .await?;
     state.delete_user_key_in_memory(payload.id);
     Ok(Json(Ack { ok: true }))
@@ -153,7 +153,7 @@ async fn change_my_password(
         enabled: user.enabled,
     };
     state.upsert_user_in_memory(write.clone());
-    gproxy_admin::upsert_user(&state.storage_writes, write).await?;
+    gproxy_admin::upsert_user(state.storage_writes(), write).await?;
     Ok(Json(Ack { ok: true }))
 }
 

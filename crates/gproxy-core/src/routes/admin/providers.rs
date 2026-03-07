@@ -68,7 +68,7 @@ pub(super) async fn upsert_provider(
             ));
         }
         gproxy_admin::upsert_provider(
-            &state.storage_writes,
+            state.storage_writes(),
             gproxy_storage::ProviderWrite {
                 id,
                 name: payload.name.clone(),
@@ -112,7 +112,7 @@ pub(super) async fn delete_provider(
     if let Some(channel) = resolve_provider_channel_by_id(&state, payload.id).await? {
         state.delete_provider_in_memory(&channel);
     }
-    gproxy_admin::delete_provider(&state.storage_writes, payload.id).await?;
+    gproxy_admin::delete_provider(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
 }
 

@@ -44,7 +44,7 @@ pub(super) async fn upsert_user(
             )));
         }
         gproxy_admin::upsert_user(
-            &state.storage_writes,
+            state.storage_writes(),
             gproxy_storage::UserWrite {
                 id,
                 name: name.to_string(),
@@ -78,7 +78,7 @@ pub(super) async fn delete_user(
 ) -> Result<Json<Ack>, HttpError> {
     authorize_admin(&headers, &state)?;
     state.delete_user_in_memory(payload.id);
-    gproxy_admin::delete_user(&state.storage_writes, payload.id).await?;
+    gproxy_admin::delete_user(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
 }
 

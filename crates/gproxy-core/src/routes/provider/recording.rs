@@ -90,7 +90,7 @@ pub(super) async fn enqueue_credential_status_updates_for_request(
     request_now_unix_ms: u64,
 ) {
     for credential in provider.credentials.list_credentials() {
-        let Some(state_row) = state.credential_states.get(channel, credential.id) else {
+        let Some(state_row) = state.credential_states().get(channel, credential.id) else {
             continue;
         };
         if state_row.checked_at_unix_ms != Some(request_now_unix_ms) {
@@ -585,13 +585,13 @@ pub(super) async fn estimate_tokens_with_channel_count(
         )
         .then(|| context.state.load_spoof_http());
         let tokenizers = context.state.tokenizers();
-        let global = context.state.config.load().global.clone();
+        let global = context.state.load_config().global.clone();
         let Ok(upstream) = context
             .provider
             .execute_with_retry_with_spoof(
                 http.as_ref(),
                 spoof_http.as_deref(),
-                &context.state.credential_states,
+                context.state.credential_states(),
                 &upstream_request,
                 now,
                 TokenizerResolutionContext {
@@ -1129,7 +1129,7 @@ pub(super) async fn enqueue_upstream_and_usage_event(
     let request_model = normalize_usage_model(request.model.clone());
     let now_unix_ms = now_unix_ms_i64();
     let extracted_usage = local_response.and_then(extract_usage_from_local_response);
-    let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
+    let mask_sensitive_info = state.load_config().global.mask_sensitive_info;
     let persisted_request_body = if mask_sensitive_info {
         None
     } else {
@@ -1232,7 +1232,7 @@ pub(super) async fn enqueue_upstream_request_event_from_meta(
     let Some(meta) = request_meta else {
         return;
     };
-    let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
+    let mask_sensitive_info = state.load_config().global.mask_sensitive_info;
     let upstream_event = UpstreamRequestWrite {
         downstream_trace_id,
         at_unix_ms: now_unix_ms_i64(),
@@ -1274,7 +1274,7 @@ pub(super) async fn enqueue_internal_tracked_http_events(
     if events.is_empty() {
         return;
     }
-    let mask_sensitive_info = state.config.load().global.mask_sensitive_info;
+    let mask_sensitive_info = state.load_config().global.mask_sensitive_info;
     for event in events {
         if let Some(primary_meta) = primary_request_meta
             && tracked_http_event_matches_primary_request(event, primary_meta)

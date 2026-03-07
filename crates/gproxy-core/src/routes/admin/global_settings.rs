@@ -60,8 +60,8 @@ pub(super) async fn upsert_global_settings(
             })?,
     );
 
-    gproxy_admin::upsert_global_settings(&state.storage_writes, payload).await?;
-    let mut snapshot = (*state.config.load_full()).clone();
+    gproxy_admin::upsert_global_settings(state.storage_writes(), payload).await?;
+    let mut snapshot = (*state.load_config()).clone();
     snapshot.global = global;
     state.replace_config(snapshot);
     state.replace_http_clients(http, spoof_http);

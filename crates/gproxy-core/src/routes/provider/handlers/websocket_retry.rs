@@ -35,7 +35,7 @@ where
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
     let state_manager = CredentialStateManager::new(now_unix_ms);
-    let eligible = state.credential_states.eligible_credentials(
+    let eligible = state.credential_states().eligible_credentials(
         channel,
         provider.credentials.list_credentials(),
         model_hint.as_deref(),
@@ -62,7 +62,7 @@ where
         };
         match connect_websocket_once(prepared.0.as_str(), prepared.1).await {
             Ok(socket) => {
-                state_manager.mark_success(&state.credential_states, channel, credential.id);
+                state_manager.mark_success(state.credential_states(), channel, credential.id);
                 return Ok(socket);
             }
             Err(err) => {
@@ -74,7 +74,7 @@ where
                 match classify_ws_failure(err.status) {
                     WsFailureKind::AuthDead => {
                         state_manager.mark_auth_dead(
-                            &state.credential_states,
+                            state.credential_states(),
                             channel,
                             credential.id,
                             Some(message),
@@ -83,7 +83,7 @@ where
                     }
                     WsFailureKind::RateLimited => {
                         state_manager.mark_rate_limited(
-                            &state.credential_states,
+                            state.credential_states(),
                             channel,
                             credential.id,
                             model_hint.as_deref(),
@@ -94,7 +94,7 @@ where
                     }
                     WsFailureKind::Transient => {
                         state_manager.mark_transient_failure(
-                            &state.credential_states,
+                            state.credential_states(),
                             channel,
                             credential.id,
                             model_hint.as_deref(),

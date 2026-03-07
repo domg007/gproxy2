@@ -261,7 +261,7 @@ pub(in crate::routes::provider) async fn upstream_usage(
             .execute_upstream_usage_with_retry_with_spoof(
                 http.as_ref(),
                 spoof_http.as_deref(),
-                &state.credential_states,
+                state.credential_states(),
                 credential_id,
                 now,
             )

@@ -39,7 +39,7 @@ pub(super) async fn upsert_credential_status(
         checked_at_unix_ms,
         last_error: payload.last_error.clone(),
     });
-    gproxy_admin::upsert_credential_status(&state.storage_writes, payload).await?;
+    gproxy_admin::upsert_credential_status(state.storage_writes(), payload).await?;
     Ok(Json(Ack { ok: true }))
 }
 
@@ -65,10 +65,10 @@ pub(super) async fn delete_credential_status(
     .next()
     {
         state
-            .credential_states
+            .credential_states()
             .remove(&ChannelId::parse(row.channel.as_str()), row.credential_id);
     }
-    gproxy_admin::delete_credential_status(&state.storage_writes, payload.id).await?;
+    gproxy_admin::delete_credential_status(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
 }
 

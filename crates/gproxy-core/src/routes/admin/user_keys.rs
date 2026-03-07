@@ -94,6 +94,6 @@ pub(super) async fn delete_user_key(
 ) -> Result<Json<Ack>, HttpError> {
     authorize_admin(&headers, &state)?;
     state.delete_user_key_in_memory(payload.id);
-    gproxy_admin::delete_user_key(&state.storage_writes, payload.id).await?;
+    gproxy_admin::delete_user_key(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
 }

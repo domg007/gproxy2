@@ -32,7 +32,7 @@ pub(super) async fn export_config_toml(
 ) -> Result<Response, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    let snapshot = state.config.load();
+    let snapshot = state.load_config();
     let storage = state.load_storage();
     let mut providers = gproxy_admin::query_providers(
         &storage,
@@ -208,7 +208,7 @@ pub(super) async fn apply_imported_global(
     state: &Arc<AppState>,
     imported: &ImportGlobalConfig,
 ) -> Result<(), HttpError> {
-    let mut global = state.config.load().global.clone();
+    let mut global = state.load_config().global.clone();
 
     if let Some(host) = imported.host.as_ref() {
         global.host = host.clone();
@@ -273,7 +273,7 @@ pub(super) async fn apply_imported_global(
     );
 
     gproxy_admin::upsert_global_settings(
-        &state.storage_writes,
+        state.storage_writes(),
         gproxy_storage::GlobalSettingsWrite {
             host: global.host.clone(),
             port: global.port,
@@ -290,7 +290,7 @@ pub(super) async fn apply_imported_global(
     )
     .await?;
 
-    let mut snapshot = (*state.config.load_full()).clone();
+    let mut snapshot = (*state.load_config()).clone();
     snapshot.global = global;
     state.replace_config(snapshot);
     state.replace_http_clients(http, spoof_http);
@@ -409,7 +409,7 @@ pub(super) async fn apply_imported_channels(
         let provider_id = if let Some(existing) = provider_id_by_channel.get(channel_name).copied()
         {
             gproxy_admin::upsert_provider(
-                &state.storage_writes,
+                state.storage_writes(),
                 gproxy_storage::ProviderWrite {
                     id: existing,
                     name: channel_name_owned.clone(),
@@ -484,7 +484,7 @@ pub(super) async fn apply_imported_channels(
                 });
             let credential_id = if let Some(existing_id) = existing_id {
                 gproxy_admin::upsert_credential(
-                    &state.storage_writes,
+                    state.storage_writes(),
                     gproxy_storage::CredentialWrite {
                         id: existing_id,
                         provider_id,
@@ -541,7 +541,7 @@ pub(super) async fn apply_imported_channels(
                     last_error: status.last_error.clone(),
                 });
                 gproxy_admin::upsert_credential_status(
-                    &state.storage_writes,
+                    state.storage_writes(),
                     gproxy_storage::CredentialStatusWrite {
                         id: status_id_by_credential_channel.get(&status_key).copied(),
                         credential_id,

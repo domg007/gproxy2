@@ -81,18 +81,30 @@ pub struct RuntimeConfigSnapshot {
     pub providers: ProviderRegistry,
 }
 
-pub struct AppState {
-    pub storage: Arc<ArcSwap<SeaOrmStorage>>,
-    pub storage_writes: StorageWriteSender,
+pub struct AppInfraState {
+    storage: Arc<ArcSwap<SeaOrmStorage>>,
+    storage_writes: StorageWriteSender,
     /// Standard/spoof upstream HTTP clients.
     ///
     /// The spoof client is dedicated to ClaudeCode OAuth/session cookie flow.
-    pub http_clients: UpstreamHttpClients,
-    pub config: Arc<ArcSwap<RuntimeConfigSnapshot>>,
-    pub credential_states: Arc<ChannelCredentialStateStore>,
-    pub tokenizers: Arc<LocalTokenizerStore>,
-    pub users: Arc<ArcSwap<Vec<MemoryUser>>>,
-    pub keys: Arc<ArcSwap<HashMap<String, MemoryUserKey>>>,
+    http_clients: UpstreamHttpClients,
+}
+
+pub struct AppRuntimeState {
+    config: Arc<ArcSwap<RuntimeConfigSnapshot>>,
+    credential_states: Arc<ChannelCredentialStateStore>,
+    tokenizers: Arc<LocalTokenizerStore>,
+}
+
+pub struct AppPrincipalState {
+    users: Arc<ArcSwap<Vec<MemoryUser>>>,
+    keys: Arc<ArcSwap<HashMap<String, MemoryUserKey>>>,
+}
+
+pub struct AppState {
+    pub infra: AppInfraState,
+    pub runtime: AppRuntimeState,
+    pub principals: AppPrincipalState,
 }
 
 pub struct AppStateInit {
@@ -129,47 +141,65 @@ impl AppState {
                 .flat_map(|provider| provider.credentials.channel_states.iter().cloned()),
         ));
         Self {
-            storage: Arc::new(ArcSwap::from(storage)),
-            storage_writes,
-            http_clients: UpstreamHttpClients::new(http, spoof_http),
-            config: Arc::new(ArcSwap::from_pointee(snapshot)),
-            credential_states,
-            tokenizers,
-            users: Arc::new(ArcSwap::from_pointee(users)),
-            keys: Arc::new(ArcSwap::from_pointee(keys)),
+            infra: AppInfraState {
+                storage: Arc::new(ArcSwap::from(storage)),
+                storage_writes,
+                http_clients: UpstreamHttpClients::new(http, spoof_http),
+            },
+            runtime: AppRuntimeState {
+                config: Arc::new(ArcSwap::from_pointee(snapshot)),
+                credential_states,
+                tokenizers,
+            },
+            principals: AppPrincipalState {
+                users: Arc::new(ArcSwap::from_pointee(users)),
+                keys: Arc::new(ArcSwap::from_pointee(keys)),
+            },
         }
     }
 
+    pub fn load_config(&self) -> Arc<RuntimeConfigSnapshot> {
+        self.runtime.config.load_full()
+    }
+
+    pub fn storage_writes(&self) -> &StorageWriteSender {
+        &self.infra.storage_writes
+    }
+
+    pub fn credential_states(&self) -> &ChannelCredentialStateStore {
+        self.runtime.credential_states.as_ref()
+    }
+
     pub fn load_storage(&self) -> Arc<SeaOrmStorage> {
-        self.storage.load_full()
+        self.infra.storage.load_full()
     }
 
     pub fn replace_storage(&self, storage: Arc<SeaOrmStorage>) {
-        self.storage.store(storage);
+        self.infra.storage.store(storage);
     }
 
     pub fn load_http(&self) -> Arc<WreqClient> {
-        self.http_clients.load_standard()
+        self.infra.http_clients.load_standard()
     }
 
     pub fn replace_http(&self, http: Arc<WreqClient>) {
-        self.http_clients.replace_standard(http);
+        self.infra.http_clients.replace_standard(http);
     }
 
     pub fn load_spoof_http(&self) -> Arc<WreqClient> {
-        self.http_clients.load_spoof()
+        self.infra.http_clients.load_spoof()
     }
 
     pub fn replace_spoof_http(&self, spoof_http: Arc<WreqClient>) {
-        self.http_clients.replace_spoof(spoof_http);
+        self.infra.http_clients.replace_spoof(spoof_http);
     }
 
     pub fn replace_http_clients(&self, http: Arc<WreqClient>, spoof_http: Arc<WreqClient>) {
-        self.http_clients.replace_all(http, spoof_http);
+        self.infra.http_clients.replace_all(http, spoof_http);
     }
 
     pub fn tokenizers(&self) -> Arc<LocalTokenizerStore> {
-        self.tokenizers.clone()
+        self.runtime.tokenizers.clone()
     }
 
     pub fn upsert_tokenizer_vocab_in_memory(
@@ -177,7 +207,8 @@ impl AppState {
         model: impl Into<String>,
         tokenizer_json: Vec<u8>,
     ) -> Result<(), LocalTokenizerError> {
-        self.tokenizers
+        self.runtime
+            .tokenizers
             .upsert_memory_tokenizer_bytes(model, tokenizer_json)
     }
 
@@ -187,8 +218,9 @@ impl AppState {
         text: &str,
     ) -> Result<LocalTokenCount, LocalTokenizerError> {
         let http = self.load_http();
-        let global = self.config.load().global.clone();
-        self.tokenizers
+        let global = self.load_config().global.clone();
+        self.runtime
+            .tokenizers
             .count_text_tokens(
                 http.as_ref(),
                 global.hf_token.as_deref(),
@@ -203,38 +235,38 @@ impl AppState {
         &self,
         event: StorageWriteEvent,
     ) -> Result<(), StorageWriteQueueError> {
-        self.storage_writes.enqueue(event).await
+        self.infra.storage_writes.enqueue(event).await
     }
 
     pub fn replace_config(&self, snapshot: RuntimeConfigSnapshot) {
-        self.credential_states.replace_from_states(
+        self.runtime.credential_states.replace_from_states(
             snapshot
                 .providers
                 .providers
                 .iter()
                 .flat_map(|provider| provider.credentials.channel_states.iter().cloned()),
         );
-        self.config.store(Arc::new(snapshot));
+        self.runtime.config.store(Arc::new(snapshot));
     }
 
     pub fn load_users(&self) -> Arc<Vec<MemoryUser>> {
-        self.users.load_full()
+        self.principals.users.load_full()
     }
 
     pub fn replace_users(&self, users: Vec<MemoryUser>) {
-        self.users.store(Arc::new(users));
+        self.principals.users.store(Arc::new(users));
     }
 
     pub fn load_keys(&self) -> Arc<HashMap<String, MemoryUserKey>> {
-        self.keys.load_full()
+        self.principals.keys.load_full()
     }
 
     pub fn replace_keys(&self, keys: HashMap<String, MemoryUserKey>) {
-        self.keys.store(Arc::new(keys));
+        self.principals.keys.store(Arc::new(keys));
     }
 
     pub fn query_users_in_memory(&self, query: &UserQuery) -> Vec<MemoryUser> {
-        let mut rows: Vec<_> = self.users.load().iter().cloned().collect();
+        let mut rows: Vec<_> = self.principals.users.load().iter().cloned().collect();
         if let Scope::Eq(id) = query.id {
             rows.retain(|row| row.id == id);
         }
@@ -245,7 +277,7 @@ impl AppState {
     }
 
     pub fn query_user_keys_in_memory(&self, query: &UserKeyQuery) -> Vec<MemoryUserKey> {
-        let mut rows: Vec<_> = self.keys.load().values().cloned().collect();
+        let mut rows: Vec<_> = self.principals.keys.load().values().cloned().collect();
         if let Scope::Eq(id) = query.id {
             rows.retain(|row| row.id == id);
         }
@@ -259,62 +291,50 @@ impl AppState {
     }
 
     pub fn authenticate_api_key_in_memory(&self, api_key: &str) -> Option<MemoryUserKey> {
-        let key = self.keys.load().get(api_key).cloned()?;
-        if !key.enabled {
-            return None;
-        }
-        let users = self.users.load();
-        let user = users.iter().find(|row| row.id == key.user_id)?;
-        if !user.enabled {
-            return None;
-        }
-        Some(key)
+        self.principals.keys.load().get(api_key).cloned()
     }
 
     pub fn upsert_user_in_memory(&self, payload: UserWrite) {
-        self.users.rcu(move |current| {
-            let mut rows = (**current).clone();
-            if let Some(existing) = rows.iter_mut().find(|row| row.id == payload.id) {
+        self.principals.users.rcu(|users| {
+            let mut next = users.as_ref().clone();
+            if let Some(existing) = next.iter_mut().find(|row| row.id == payload.id) {
                 existing.name = payload.name.clone();
                 existing.password = payload.password.clone();
                 existing.enabled = payload.enabled;
-                return Arc::new(rows);
+            } else {
+                next.push(MemoryUser {
+                    id: payload.id,
+                    name: payload.name.clone(),
+                    password: payload.password.clone(),
+                    enabled: payload.enabled,
+                });
             }
-            rows.push(MemoryUser {
-                id: payload.id,
-                name: payload.name.clone(),
-                password: payload.password.clone(),
-                enabled: payload.enabled,
-            });
-            Arc::new(rows)
+            next.sort_by_key(|row| row.id);
+            Arc::new(next)
         });
     }
 
     pub fn delete_user_in_memory(&self, id: i64) {
-        self.users.rcu(move |current| {
-            let mut rows = (**current).clone();
-            rows.retain(|row| row.id != id);
-            Arc::new(rows)
+        self.principals.users.rcu(|users| {
+            let mut next = users.as_ref().clone();
+            next.retain(|row| row.id != id);
+            Arc::new(next)
         });
-        self.keys.rcu(move |current| {
-            let mut keys = (**current).clone();
-            keys.retain(|_, row| row.user_id != id);
-            Arc::new(keys)
+        self.principals.keys.rcu(|keys| {
+            let filtered = keys
+                .iter()
+                .filter(|(_, row)| row.user_id != id)
+                .map(|(api_key, row)| (api_key.clone(), row.clone()))
+                .collect::<HashMap<_, _>>();
+            Arc::new(filtered)
         });
     }
 
     pub fn upsert_user_key_in_memory(&self, payload: UserKeyWrite) {
-        self.keys.rcu(move |current| {
-            let mut keys = (**current).clone();
-            let existing_key = keys
-                .iter()
-                .find_map(|(api_key, row)| (row.id == payload.id).then(|| api_key.clone()));
-            if let Some(api_key) = existing_key
-                && api_key != payload.api_key
-            {
-                keys.remove(&api_key);
-            }
-            keys.insert(
+        self.principals.keys.rcu(|keys| {
+            let mut next = keys.as_ref().clone();
+            next.retain(|_, row| row.id != payload.id && row.api_key != payload.api_key);
+            next.insert(
                 payload.api_key.clone(),
                 MemoryUserKey {
                     id: payload.id,
@@ -323,25 +343,20 @@ impl AppState {
                     enabled: payload.enabled,
                 },
             );
-            Arc::new(keys)
+            Arc::new(next)
         });
     }
 
     pub fn delete_user_key_in_memory(&self, id: i64) {
-        self.keys.rcu(move |current| {
-            let mut keys = (**current).clone();
-            let old_key = keys
-                .iter()
-                .find_map(|(api_key, row)| (row.id == id).then(|| api_key.clone()));
-            if let Some(api_key) = old_key {
-                keys.remove(&api_key);
-            }
-            Arc::new(keys)
+        self.principals.keys.rcu(|keys| {
+            let mut next = keys.as_ref().clone();
+            next.retain(|_, row| row.id != id);
+            Arc::new(next)
         });
     }
 
     pub fn upsert_credential_state(&self, state: gproxy_provider::ChannelCredentialState) {
-        self.credential_states.upsert(state);
+        self.runtime.credential_states.upsert(state);
     }
 
     pub fn apply_upstream_credential_update_in_memory(
@@ -349,12 +364,12 @@ impl AppState {
         channel: &ChannelId,
         update: &UpstreamCredentialUpdate,
     ) -> bool {
-        let mut snapshot = (*self.config.load_full()).clone();
+        let mut snapshot = (*self.runtime.config.load_full()).clone();
         let applied = snapshot
             .providers
             .apply_upstream_credential_update(channel, update);
         if applied {
-            self.config.store(Arc::new(snapshot));
+            self.runtime.config.store(Arc::new(snapshot));
         }
         applied
     }
@@ -367,7 +382,7 @@ impl AppState {
         credential_pick_mode: CredentialPickMode,
         enabled: bool,
     ) {
-        let mut snapshot = (*self.config.load_full()).clone();
+        let mut snapshot = (*self.runtime.config.load_full()).clone();
         if enabled {
             if let Some(existing) = snapshot.providers.get_mut(&channel) {
                 existing.settings = settings;
@@ -388,16 +403,16 @@ impl AppState {
                 .providers
                 .retain(|item| item.channel != channel);
         }
-        self.config.store(Arc::new(snapshot));
+        self.runtime.config.store(Arc::new(snapshot));
     }
 
     pub fn delete_provider_in_memory(&self, channel: &ChannelId) {
-        let mut snapshot = (*self.config.load_full()).clone();
+        let mut snapshot = (*self.runtime.config.load_full()).clone();
         snapshot
             .providers
             .providers
             .retain(|item| &item.channel != channel);
-        self.config.store(Arc::new(snapshot));
+        self.runtime.config.store(Arc::new(snapshot));
     }
 
     pub fn upsert_provider_credential_in_memory(
@@ -405,10 +420,10 @@ impl AppState {
         channel: &ChannelId,
         credential: CredentialRef,
     ) -> bool {
-        let mut snapshot = (*self.config.load_full()).clone();
+        let mut snapshot = (*self.runtime.config.load_full()).clone();
         let applied = snapshot.providers.upsert_credential(channel, credential);
         if applied {
-            self.config.store(Arc::new(snapshot));
+            self.runtime.config.store(Arc::new(snapshot));
         }
         applied
     }
@@ -418,14 +433,16 @@ impl AppState {
         channel: &ChannelId,
         credential_id: i64,
     ) -> bool {
-        let mut snapshot = (*self.config.load_full()).clone();
+        let mut snapshot = (*self.runtime.config.load_full()).clone();
         let Some(provider) = snapshot.providers.get_mut(channel) else {
             return false;
         };
         let removed = provider.delete_credential(credential_id).is_some();
         if removed {
-            self.credential_states.remove(channel, credential_id);
-            self.config.store(Arc::new(snapshot));
+            self.runtime
+                .credential_states
+                .remove(channel, credential_id);
+            self.runtime.config.store(Arc::new(snapshot));
         }
         removed
     }
@@ -435,7 +452,8 @@ impl AppState {
         channel: &ChannelId,
         credential_id: i64,
     ) -> Option<CredentialRef> {
-        self.config
+        self.runtime
+            .config
             .load()
             .providers
             .get(channel)
@@ -448,10 +466,10 @@ impl AppState {
         model: Option<&str>,
         now_unix_ms: u64,
     ) -> Option<CredentialRef> {
-        let config = self.config.load();
+        let config = self.runtime.config.load();
         pick_random_eligible_credential_from_snapshot(
             &config,
-            &self.credential_states,
+            &self.runtime.credential_states,
             channel,
             model,
             now_unix_ms,
@@ -478,16 +496,23 @@ fn pick_random_eligible_credential_from_snapshot(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use gproxy_provider::ChannelSettings;
     use gproxy_provider::{
-        ChannelCredential, ChannelCredentialState, ChannelCredentialStateStore, ChannelId,
-        CredentialHealth, CredentialPickMode, CredentialRef, CustomChannelCredential,
-        ProviderCredentialState, ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
+        ChannelCredential, ChannelCredentialState, ChannelId, CredentialHealth, CredentialPickMode,
+        CredentialRef, CustomChannelCredential, LocalTokenizerStore, ProviderCredentialState,
+        ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
     };
+    use gproxy_storage::{SeaOrmStorage, storage_write_channel};
+    use tokio::runtime::Builder;
+    use wreq::Client as WreqClient;
 
     use super::{
-        GlobalSettings, RuntimeConfigSnapshot, UPDATE_SOURCE_CLOUDFLARE, UPDATE_SOURCE_GITHUB,
-        normalize_update_source, pick_random_eligible_credential_from_snapshot,
+        AppState, AppStateInit, GlobalSettings, RuntimeConfigSnapshot, UPDATE_SOURCE_CLOUDFLARE,
+        UPDATE_SOURCE_GITHUB, normalize_update_source,
+        pick_random_eligible_credential_from_snapshot,
     };
 
     #[test]
@@ -519,7 +544,7 @@ mod tests {
             global: GlobalSettings::default(),
             providers: registry,
         };
-        let states = ChannelCredentialStateStore::from_states(
+        let states = gproxy_provider::ChannelCredentialStateStore::from_states(
             snapshot
                 .providers
                 .providers
@@ -532,17 +557,23 @@ mod tests {
     }
 
     #[test]
-    fn normalize_update_source_maps_legacy_mirrors_to_cloudflare() {
-        for value in ["cloudflare", "cnb", "web-hosted", "s3"] {
-            assert_eq!(
-                normalize_update_source(Some(value)),
-                UPDATE_SOURCE_CLOUDFLARE
-            );
-        }
-    }
-
-    #[test]
-    fn normalize_update_source_defaults_to_github() {
+    fn normalize_update_source_maps_legacy_aliases() {
+        assert_eq!(
+            normalize_update_source(Some("cloudflare")),
+            UPDATE_SOURCE_CLOUDFLARE
+        );
+        assert_eq!(
+            normalize_update_source(Some("CNB")),
+            UPDATE_SOURCE_CLOUDFLARE
+        );
+        assert_eq!(
+            normalize_update_source(Some("web-hosted")),
+            UPDATE_SOURCE_CLOUDFLARE
+        );
+        assert_eq!(
+            normalize_update_source(Some("s3")),
+            UPDATE_SOURCE_CLOUDFLARE
+        );
         assert_eq!(
             normalize_update_source(Some("github")),
             UPDATE_SOURCE_GITHUB
@@ -552,5 +583,32 @@ mod tests {
             UPDATE_SOURCE_GITHUB
         );
         assert_eq!(normalize_update_source(None), UPDATE_SOURCE_GITHUB);
+    }
+
+    #[test]
+    fn app_state_groups_infra_runtime_and_principals() {
+        let (storage_writes, _rx) = storage_write_channel(4);
+        let app_state = AppState::new(AppStateInit {
+            storage: Arc::new(
+                Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("runtime should build")
+                    .block_on(SeaOrmStorage::connect("sqlite::memory:"))
+                    .expect("memory storage should connect"),
+            ),
+            storage_writes,
+            http: Arc::new(WreqClient::new()),
+            spoof_http: Arc::new(WreqClient::new()),
+            global: GlobalSettings::default(),
+            providers: ProviderRegistry::default(),
+            tokenizers: Arc::new(LocalTokenizerStore::new(std::path::PathBuf::from("/tmp"))),
+            users: Vec::new(),
+            keys: HashMap::new(),
+        });
+
+        let _ = app_state.load_config();
+        let _ = app_state.storage_writes();
+        let _ = app_state.credential_states();
     }
 }

@@ -776,14 +776,14 @@ pub(super) async fn execute_transform_request(
         let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
             .then(|| state.load_spoof_http());
         let tokenizers = state.tokenizers();
-        let global = state.config.load().global.clone();
+        let global = state.load_config().global.clone();
 
         capture_tracked_http_events(async {
             provider
                 .execute_with_retry_with_spoof(
                     http.as_ref(),
                     spoof_http.as_deref(),
-                    &state.credential_states,
+                    state.credential_states(),
                     &upstream_request,
                     now,
                     TokenizerResolutionContext {
@@ -1246,14 +1246,14 @@ async fn execute_passthrough_payload_request(
     let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
         .then(|| state.load_spoof_http());
     let tokenizers = state.tokenizers();
-    let global = state.config.load().global.clone();
+    let global = state.load_config().global.clone();
 
     let (upstream_result, tracked_http_events) = capture_tracked_http_events(async {
         provider
             .execute_payload_with_retry_with_spoof(
                 http.as_ref(),
                 spoof_http.as_deref(),
-                &state.credential_states,
+                state.credential_states(),
                 RetryWithPayloadRequest {
                     operation,
                     protocol,

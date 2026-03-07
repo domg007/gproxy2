@@ -36,7 +36,7 @@ pub(super) async fn system_self_update(
     Query(query): Query<UpdateChannelQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let snapshot = state.config.load();
+    let snapshot = state.load_config();
     let proxy = snapshot.global.proxy.clone();
     let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
     drop(snapshot);
@@ -79,7 +79,7 @@ pub(super) async fn system_latest_release(
     Query(query): Query<UpdateChannelQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let snapshot = state.config.load();
+    let snapshot = state.load_config();
     let proxy = snapshot.global.proxy.clone();
     let update_source = normalize_update_source(Some(snapshot.global.update_source.as_str()));
     drop(snapshot);

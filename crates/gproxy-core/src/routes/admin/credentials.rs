@@ -60,7 +60,7 @@ pub(super) async fn upsert_credential(
             ));
         }
         gproxy_admin::upsert_credential(
-            &state.storage_writes,
+            state.storage_writes(),
             gproxy_storage::CredentialWrite {
                 id,
                 provider_id: payload.provider_id,
@@ -109,7 +109,7 @@ pub(super) async fn maybe_detect_and_fill_project_id(
     channel: &ChannelId,
     credential: &mut gproxy_provider::ChannelCredential,
 ) -> Result<(), HttpError> {
-    let settings = if let Some(provider) = state.config.load().providers.get(channel) {
+    let settings = if let Some(provider) = state.load_config().providers.get(channel) {
         provider.settings.clone()
     } else {
         gproxy_provider::parse_provider_settings_json_for_channel(channel, "{}")
@@ -151,7 +151,7 @@ pub(super) async fn delete_credential(
     {
         let _ = state.delete_provider_credential_in_memory(&channel, payload.id);
     }
-    gproxy_admin::delete_credential(&state.storage_writes, payload.id).await?;
+    gproxy_admin::delete_credential(state.storage_writes(), payload.id).await?;
     Ok(Json(Ack { ok: true }))
 }
 

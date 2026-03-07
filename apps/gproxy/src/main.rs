@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
         .init();
 
     let boot = bootstrap::bootstrap_from_env().await?;
-    let config = boot.state.config.load();
+    let config = boot.state.load_config();
     let host = config.global.host.clone();
     let port = config.global.port;
     let username = boot

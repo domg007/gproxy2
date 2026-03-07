@@ -98,7 +98,7 @@ pub(super) fn resolve_provider(
     provider_name: &str,
 ) -> Result<(ChannelId, ProviderDefinition), HttpError> {
     let channel = ChannelId::parse(provider_name);
-    let snapshot = state.config.load();
+    let snapshot = state.load_config();
     let Some(provider) = snapshot.providers.get(&channel).cloned() else {
         return Err(HttpError::new(
             StatusCode::NOT_FOUND,
