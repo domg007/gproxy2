@@ -3,8 +3,7 @@ use serde_json::{Value, json};
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use super::constants::{
-    CLAUDE_CODE_UA, DEFAULT_CLAUDE_AI_BASE_URL,
-    DEFAULT_PLATFORM_BASE_URL, OAUTH_BETA,
+    CLAUDE_CODE_UA, DEFAULT_CLAUDE_AI_BASE_URL, DEFAULT_PLATFORM_BASE_URL, OAUTH_BETA,
 };
 use super::oauth::{
     ClaudeCodeRefreshedToken, claudecode_access_token_from_credential,

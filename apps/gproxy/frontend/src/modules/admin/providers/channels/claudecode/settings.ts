@@ -6,7 +6,7 @@ import {
 } from "../shared";
 
 export const CLAUDECODE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
-export const CLAUDECODE_REFERENCE_BETA_HEADERS = [
+export const ANTHROPIC_REFERENCE_BETA_HEADERS = [
   "message-batches-2024-09-24",
   "prompt-caching-2024-07-31",
   "computer-use-2024-10-22",
@@ -45,7 +45,7 @@ const DEFAULTS = {
 } as const;
 
 
-function normalizeExtraBetaHeaders(value: unknown): string[] {
+function normalizeExtraBetaHeaders(value: unknown, excluded: string[] = []): string[] {
   const rawValues = Array.isArray(value)
     ? value
     : typeof value === "string"
@@ -58,7 +58,7 @@ function normalizeExtraBetaHeaders(value: unknown): string[] {
       continue;
     }
     const trimmed = item.trim();
-    if (!trimmed || trimmed.toLowerCase() === CLAUDECODE_OAUTH_BETA_HEADER.toLowerCase()) {
+    if (!trimmed || excluded.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
       continue;
     }
     if (!out.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
@@ -68,12 +68,22 @@ function normalizeExtraBetaHeaders(value: unknown): string[] {
   return out;
 }
 
+export function anthropicExtraBetaHeadersDraftToList(value: unknown, excluded: string[] = []): string[] {
+  return normalizeExtraBetaHeaders(value, excluded);
+}
+
+export function anthropicExtraBetaHeadersDraftToString(value: unknown, excluded: string[] = []): string {
+  return normalizeExtraBetaHeaders(value, excluded).join(", ");
+}
+
+export const CLAUDECODE_REFERENCE_BETA_HEADERS = ANTHROPIC_REFERENCE_BETA_HEADERS;
+
 export function claudecodeExtraBetaHeadersDraftToList(value: unknown): string[] {
-  return normalizeExtraBetaHeaders(value);
+  return anthropicExtraBetaHeadersDraftToList(value, [CLAUDECODE_OAUTH_BETA_HEADER]);
 }
 
 export function claudecodeExtraBetaHeadersDraftToString(value: unknown): string {
-  return normalizeExtraBetaHeaders(value).join(", ");
+  return anthropicExtraBetaHeadersDraftToString(value, [CLAUDECODE_OAUTH_BETA_HEADER]);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

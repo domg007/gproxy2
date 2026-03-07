@@ -15,7 +15,7 @@ pub const CLAUDE_CODE_UA: &str = "claude-code/2.1.62";
 pub const OAUTH_STATE_TTL_MS: u64 = 600_000;
 pub const TOKEN_REFRESH_SKEW_MS: u64 = 60_000;
 
-#[test]
+#[cfg(test)]
 pub const CLAUDECODE_REFERENCE_BETAS: &[&str] = &[
     "message-batches-2024-09-24",
     "prompt-caching-2024-07-31",

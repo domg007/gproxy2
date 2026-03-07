@@ -1,4 +1,8 @@
 import type { ChannelSettingsDraft } from "../../types";
+import {
+  anthropicExtraBetaHeadersDraftToList,
+  anthropicExtraBetaHeadersDraftToString
+} from "../claudecode/settings";
 import { DEFAULT_GPROXY_USER_AGENT_DRAFT } from "../shared";
 import {
   cacheBreakpointRulesDraftToSettingsValue,
@@ -9,6 +13,8 @@ import {
 const DEFAULTS = {
   base_url: "https://api.anthropic.com",
   user_agent: DEFAULT_GPROXY_USER_AGENT_DRAFT,
+  claude_prelude_text: "",
+  claude_extra_beta_headers: "",
   cache_breakpoints: "[]"
 } as const;
 
@@ -31,6 +37,14 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.user_agent === "string") {
     out.user_agent = value.user_agent;
   }
+  if (typeof value.claude_prelude_text === "string") {
+    out.claude_prelude_text = value.claude_prelude_text;
+  }
+  if ("claude_extra_beta_headers" in value) {
+    out.claude_extra_beta_headers = anthropicExtraBetaHeadersDraftToString(
+      value.claude_extra_beta_headers
+    );
+  }
   if ("cache_breakpoints" in value) {
     out.cache_breakpoints = cacheBreakpointRulesDraftToStoredString(
       normalizeCacheBreakpointRulesDraft(value.cache_breakpoints)
@@ -47,6 +61,18 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
   const defaultUserAgent = DEFAULTS.user_agent.trim();
   if (userAgent !== defaultUserAgent) {
     payload.user_agent = userAgent;
+  }
+
+  const preludeText = (settings.claude_prelude_text ?? DEFAULTS.claude_prelude_text).trim();
+  if (preludeText) {
+    payload.claude_prelude_text = preludeText;
+  }
+
+  const extraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
+    settings.claude_extra_beta_headers ?? DEFAULTS.claude_extra_beta_headers
+  );
+  if (extraBetaHeaders.length > 0) {
+    payload.claude_extra_beta_headers = extraBetaHeaders;
   }
 
   const cacheBreakpointRules = cacheBreakpointRulesDraftToSettingsValue(

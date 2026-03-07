@@ -5,7 +5,7 @@ use super::{
     merge_claudecode_beta_headers, normalize_claudecode_model_and_thinking,
     normalize_claudecode_unsupported_fields, strip_context_1m_beta,
 };
-use crate::channels::claudecode::constants::{OAUTH_BETA, CLAUDECODE_REFERENCE_BETAS};
+use crate::channels::claudecode::constants::{CLAUDECODE_REFERENCE_BETAS, OAUTH_BETA};
 
 #[test]
 fn thinking_suffix_sets_fixed_budget_and_strips_model_suffix() {

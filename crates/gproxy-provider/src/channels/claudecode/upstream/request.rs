@@ -67,7 +67,8 @@ pub(super) async fn execute_claudecode_with_prepared(
             let base_url = base_url_template.clone();
             let claude_ai_base_url = claude_ai_base_url_template.clone();
             let request_user_agent = request_user_agent_template.clone();
-            let configured_beta_headers = provider.settings.claudecode_extra_beta_headers().to_vec();
+            let configured_beta_headers =
+                provider.settings.claudecode_extra_beta_headers().to_vec();
 
             async move {
                 let active_client = if attempt.material.has_cookie() {

@@ -160,6 +160,20 @@ impl ChannelSettings {
         }
     }
 
+    pub fn claude_prelude_text(&self) -> Option<&str> {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.prelude_text.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn claude_extra_beta_headers(&self) -> &[String] {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => &value.extra_beta_headers,
+            _ => &[],
+        }
+    }
+
     pub fn claudecode_prelude_text(&self) -> Option<&str> {
         match self {
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
@@ -171,9 +185,7 @@ impl ChannelSettings {
 
     pub fn claudecode_extra_beta_headers(&self) -> &[String] {
         match self {
-            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
-                &value.extra_beta_headers
-            }
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => &value.extra_beta_headers,
             _ => &[],
         }
     }

@@ -62,7 +62,8 @@ impl ClaudeCodeSettings {
         }
         settings.prelude_text =
             clean_opt(patch.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
-        settings.extra_beta_headers = parse_extra_beta_headers(value.get("claudecode_extra_beta_headers"));
+        settings.extra_beta_headers =
+            parse_extra_beta_headers(value.get("claudecode_extra_beta_headers"));
         settings.cache_breakpoints = parse_cache_breakpoint_rules(value.get("cache_breakpoints"));
         Ok(settings)
     }
@@ -71,7 +72,6 @@ impl ClaudeCodeSettings {
 fn clean_opt(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
-
 
 fn parse_extra_beta_headers(value: Option<&serde_json::Value>) -> Vec<String> {
     let mut out = Vec::new();
@@ -102,7 +102,10 @@ fn collect_beta_values<'a>(values: impl IntoIterator<Item = &'a str>, out: &mut 
         if value.is_empty() || value.eq_ignore_ascii_case(OAUTH_BETA) {
             continue;
         }
-        if !out.iter().any(|existing| existing.eq_ignore_ascii_case(value)) {
+        if !out
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(value))
+        {
             out.push(value.to_string());
         }
     }

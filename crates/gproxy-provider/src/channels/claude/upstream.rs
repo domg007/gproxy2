@@ -40,6 +40,11 @@ pub async fn execute_claude_with_retry(
     let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = ClaudePreparedRequest::from_transform_request(
         request,
+        provider
+            .settings
+            .claude_prelude_text()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
         provider.settings.cache_breakpoints(),
     )?;
     execute_claude_with_prepared(
@@ -66,6 +71,11 @@ pub async fn execute_claude_payload_with_retry(
         operation,
         protocol,
         body,
+        provider
+            .settings
+            .claude_prelude_text()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
         provider.settings.cache_breakpoints(),
     )?;
     let cache_protocol = cache_affinity_protocol_from_operation_protocol(operation, protocol);
@@ -142,11 +152,16 @@ async fn execute_claude_with_prepared(
             let body = body_template.clone();
             let model = model_template.clone();
             let url = url_template.clone();
-            let request_headers = request_headers_template.clone();
+            let mut request_headers = request_headers_template.clone();
             let extra_headers = extra_headers_template.clone();
             let user_agent = user_agent_template.clone();
+            let configured_beta_headers = provider.settings.claude_extra_beta_headers().to_vec();
 
             async move {
+                merge_anthropic_beta_headers(
+                    &mut request_headers,
+                    configured_beta_headers.as_slice(),
+                );
                 let mut sent_headers = Vec::new();
                 merge_extra_headers(&mut sent_headers, &extra_headers);
                 add_or_replace_header(&mut sent_headers, "x-api-key", attempt.material.clone());
@@ -293,6 +308,7 @@ struct ClaudePreparedRequest {
 impl ClaudePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
+        prelude_text: Option<&str>,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
         match request {
@@ -336,27 +352,37 @@ impl ClaudePreparedRequest {
                 )?,
                 extra_headers: extra_headers_from_transform_request(request),
             }),
-            gproxy_middleware::TransformRequest::CountTokenClaude(value) => Ok(Self {
-                method: to_wreq_method(&value.method)?,
-                path: append_query_param_if_missing(
-                    "/v1/messages/count_tokens",
-                    BETA_QUERY_KEY,
-                    BETA_QUERY_VALUE,
-                ),
-                body: Some(
-                    serde_json::to_vec(&value.body)
-                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
-                ),
-                model: Some(claude_model_to_string(&value.body.model)?),
-                request_headers: anthropic_header_pairs(
-                    &value.headers.anthropic_version,
-                    value.headers.anthropic_beta.as_ref(),
-                )?,
-                extra_headers: extra_headers_from_transform_request(request),
-            }),
+            gproxy_middleware::TransformRequest::CountTokenClaude(value) => {
+                let mut body_json = serde_json::to_value(&value.body)
+                    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if let Some(prelude_text) = prelude_text {
+                    apply_claude_system_prelude(&mut body_json, prelude_text);
+                }
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    path: append_query_param_if_missing(
+                        "/v1/messages/count_tokens",
+                        BETA_QUERY_KEY,
+                        BETA_QUERY_VALUE,
+                    ),
+                    body: Some(
+                        serde_json::to_vec(&body_json)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(claude_model_to_string(&value.body.model)?),
+                    request_headers: anthropic_header_pairs(
+                        &value.headers.anthropic_version,
+                        value.headers.anthropic_beta.as_ref(),
+                    )?,
+                    extra_headers: extra_headers_from_transform_request(request),
+                })
+            }
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if let Some(prelude_text) = prelude_text {
+                    apply_claude_system_prelude(&mut body_json, prelude_text);
+                }
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -383,6 +409,9 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
                 let mut body_json = serde_json::to_value(&value.body)
                     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+                if let Some(prelude_text) = prelude_text {
+                    apply_claude_system_prelude(&mut body_json, prelude_text);
+                }
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -480,6 +509,7 @@ impl ClaudePreparedRequest {
         operation: OperationFamily,
         protocol: ProtocolKind,
         body: &[u8],
+        prelude_text: Option<&str>,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
         fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
@@ -509,7 +539,10 @@ impl ClaudePreparedRequest {
 
         match (operation, protocol) {
             (OperationFamily::CountToken, ProtocolKind::Claude) => {
-                let (body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
+                let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
+                if let Some(prelude_text) = prelude_text {
+                    apply_claude_system_prelude(&mut body_json, prelude_text);
+                }
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: append_query_param_if_missing(
@@ -529,6 +562,9 @@ impl ClaudePreparedRequest {
             (OperationFamily::GenerateContent, ProtocolKind::Claude)
             | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
                 let (mut body_json, version, beta) = parse_claude_payload_wrapper(&payload_value)?;
+                if let Some(prelude_text) = prelude_text {
+                    apply_claude_system_prelude(&mut body_json, prelude_text);
+                }
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -577,9 +613,112 @@ impl ClaudePreparedRequest {
     }
 }
 
+fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn normalized_anthropic_beta_values(preferred: &[String], current: Vec<String>) -> Vec<String> {
+    let mut merged = Vec::new();
+    for raw in preferred
+        .iter()
+        .map(String::as_str)
+        .chain(current.iter().map(String::as_str))
+    {
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if !merged
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(value))
+        {
+            merged.push(value.to_string());
+        }
+    }
+    merged
+}
+
+fn merge_anthropic_beta_headers(headers: &mut Vec<(String, String)>, preferred: &[String]) {
+    let values = normalized_anthropic_beta_values(
+        preferred,
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
+            .map(|(_, value)| parse_anthropic_beta_values(value))
+            .unwrap_or_default(),
+    );
+
+    headers.retain(|(name, _)| !name.eq_ignore_ascii_case("anthropic-beta"));
+    if !values.is_empty() {
+        headers.push(("anthropic-beta".to_string(), values.join(",")));
+    }
+}
+
+fn json_text_block(text: &str) -> Value {
+    serde_json::json!({
+        "type": "text",
+        "text": text,
+    })
+}
+
+fn system_has_prelude(system: Option<&Value>, prelude_text: &str) -> bool {
+    let Some(system) = system else {
+        return false;
+    };
+    let target = prelude_text.trim();
+    if target.is_empty() {
+        return true;
+    }
+
+    match system {
+        Value::String(text) => text.trim() == target,
+        Value::Array(blocks) => blocks.iter().any(|block| {
+            block
+                .get("text")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.trim() == target)
+        }),
+        _ => false,
+    }
+}
+
+fn apply_claude_system_prelude(body: &mut Value, prelude_text: &str) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    if system_has_prelude(map.get("system"), prelude_text) {
+        return;
+    }
+
+    let prelude_block = json_text_block(prelude_text);
+    match map.remove("system") {
+        Some(Value::String(text)) => {
+            map.insert(
+                "system".to_string(),
+                Value::Array(vec![prelude_block, json_text_block(text.as_str())]),
+            );
+        }
+        Some(Value::Array(mut blocks)) => {
+            blocks.insert(0, prelude_block);
+            map.insert("system".to_string(), Value::Array(blocks));
+        }
+        Some(value) => {
+            map.insert("system".to_string(), value);
+        }
+        None => {
+            map.insert("system".to_string(), Value::Array(vec![prelude_block]));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ClaudePreparedRequest;
+    use super::{ClaudePreparedRequest, merge_anthropic_beta_headers};
     use gproxy_middleware::{OperationFamily, ProtocolKind};
     use serde_json::json;
 
@@ -609,6 +748,7 @@ mod tests {
             OperationFamily::GenerateContent,
             ProtocolKind::Claude,
             payload.as_slice(),
+            None,
             &[],
         )
         .expect("prepare payload");
@@ -636,6 +776,61 @@ mod tests {
     }
 
     #[test]
+    fn payload_wrapper_applies_claude_prelude_text() {
+        let payload = serde_json::to_vec(&json!({
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = ClaudePreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            Some("system prelude"),
+            &[],
+        )
+        .expect("prepare payload");
+
+        let body: serde_json::Value =
+            serde_json::from_slice(prepared.body.as_deref().expect("body bytes"))
+                .expect("valid json");
+        assert_eq!(body["system"][0]["text"], json!("system prelude"));
+    }
+
+    #[test]
+    fn merge_anthropic_beta_headers_puts_provider_betas_first() {
+        let mut headers = vec![(
+            "anthropic-beta".to_string(),
+            "context-management-2025-06-27,custom-beta".to_string(),
+        )];
+
+        merge_anthropic_beta_headers(
+            &mut headers,
+            &[
+                "message-batches-2024-09-24".to_string(),
+                "context-management-2025-06-27".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            headers,
+            vec![(
+                "anthropic-beta".to_string(),
+                [
+                    "message-batches-2024-09-24",
+                    "context-management-2025-06-27",
+                    "custom-beta",
+                ]
+                .join(","),
+            )]
+        );
+    }
+
+    #[test]
     fn payload_wrapper_accepts_canonical_claude_headers_and_flat_extras() {
         let payload = serde_json::to_vec(&json!({
             "method": "POST",
@@ -659,6 +854,7 @@ mod tests {
             OperationFamily::GenerateContent,
             ProtocolKind::Claude,
             payload.as_slice(),
+            None,
             &[],
         )
         .expect("prepare payload");

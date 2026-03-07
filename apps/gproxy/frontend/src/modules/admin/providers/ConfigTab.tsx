@@ -3,8 +3,10 @@ import { useEffect, useState, type Dispatch, type DragEvent, type SetStateAction
 import { Badge, Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import { BUILTIN_CHANNELS } from "./channels/registry";
 import {
+  ANTHROPIC_REFERENCE_BETA_HEADERS,
   CLAUDECODE_OAUTH_BETA_HEADER,
-  CLAUDECODE_REFERENCE_BETA_HEADERS,
+  anthropicExtraBetaHeadersDraftToList,
+  anthropicExtraBetaHeadersDraftToString,
   claudecodeExtraBetaHeadersDraftToList,
   claudecodeExtraBetaHeadersDraftToString
 } from "./channels/claudecode/settings";
@@ -95,17 +97,56 @@ export function ConfigTab({
     }
   ] as const;
   const dispatchTemplateChannels = BUILTIN_CHANNELS;
+  const showClaudeSettings = providerFormChannel === "claude";
+  const claudeExtraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
+    providerForm.settings.claude_extra_beta_headers ?? ""
+  );
   const claudecodeExtraBetaHeaders = claudecodeExtraBetaHeadersDraftToList(
     providerForm.settings.claudecode_extra_beta_headers ?? ""
   );
-  const orderedClaudecodeReferenceBetas = [
-    ...CLAUDECODE_REFERENCE_BETA_HEADERS.filter((beta) =>
-      claudecodeExtraBetaHeaders.some((value) => value.toLowerCase() === beta.toLowerCase())
+
+  const orderAnthropicReferenceBetas = (selected: string[]) => [
+    ...ANTHROPIC_REFERENCE_BETA_HEADERS.filter((beta) =>
+      selected.some((value) => value.toLowerCase() === beta.toLowerCase())
     ),
-    ...CLAUDECODE_REFERENCE_BETA_HEADERS.filter(
-      (beta) => !claudecodeExtraBetaHeaders.some((value) => value.toLowerCase() === beta.toLowerCase())
+    ...ANTHROPIC_REFERENCE_BETA_HEADERS.filter(
+      (beta) => !selected.some((value) => value.toLowerCase() === beta.toLowerCase())
     )
   ];
+
+  const orderedClaudeReferenceBetas = orderAnthropicReferenceBetas(claudeExtraBetaHeaders);
+  const orderedClaudecodeReferenceBetas = orderAnthropicReferenceBetas(claudecodeExtraBetaHeaders);
+
+  const buildNextAnthropicReferenceBetas = (
+    current: string[],
+    beta: string,
+    excluded: string[] = []
+  ) => {
+    const exists = current.some((value) => value.toLowerCase() === beta.toLowerCase());
+    const next = exists
+      ? current.filter((value) => value.toLowerCase() !== beta.toLowerCase())
+      : [beta, ...current.filter((value) => value.toLowerCase() !== beta.toLowerCase())];
+    const selectedRefs = ANTHROPIC_REFERENCE_BETA_HEADERS.filter((candidate) =>
+      next.some((value) => value.toLowerCase() === candidate.toLowerCase())
+    );
+    const customValues = next.filter(
+      (value) =>
+        !ANTHROPIC_REFERENCE_BETA_HEADERS.some(
+          (candidate) => candidate.toLowerCase() === value.toLowerCase()
+        ) && !excluded.some((candidate) => candidate.toLowerCase() === value.toLowerCase())
+    );
+    return [...selectedRefs, ...customValues];
+  };
+
+  const setClaudeExtraBetaHeaders = (value: unknown) => {
+    setProviderForm((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        claude_extra_beta_headers: anthropicExtraBetaHeadersDraftToString(value)
+      }
+    }));
+  };
 
   const setClaudecodeExtraBetaHeaders = (value: unknown) => {
     setProviderForm((prev) => ({
@@ -117,24 +158,18 @@ export function ConfigTab({
     }));
   };
 
+  const toggleClaudeReferenceBeta = (beta: string) => {
+    setClaudeExtraBetaHeaders(buildNextAnthropicReferenceBetas(claudeExtraBetaHeaders, beta));
+  };
+
   const toggleClaudecodeReferenceBeta = (beta: string) => {
-    const current = claudecodeExtraBetaHeadersDraftToList(
-      providerForm.settings.claudecode_extra_beta_headers ?? ""
+    setClaudecodeExtraBetaHeaders(
+      buildNextAnthropicReferenceBetas(
+        claudecodeExtraBetaHeaders,
+        beta,
+        [CLAUDECODE_OAUTH_BETA_HEADER]
+      )
     );
-    const exists = current.some((value) => value.toLowerCase() === beta.toLowerCase());
-    const next = exists
-      ? current.filter((value) => value.toLowerCase() !== beta.toLowerCase())
-      : [beta, ...current.filter((value) => value.toLowerCase() !== beta.toLowerCase())];
-    const selectedRefs = CLAUDECODE_REFERENCE_BETA_HEADERS.filter((candidate) =>
-      next.some((value) => value.toLowerCase() === candidate.toLowerCase())
-    );
-    const customValues = next.filter(
-      (value) =>
-        !CLAUDECODE_REFERENCE_BETA_HEADERS.some(
-          (candidate) => candidate.toLowerCase() === value.toLowerCase()
-        )
-    );
-    setClaudecodeExtraBetaHeaders([...selectedRefs, ...customValues]);
   };
 
   const applyDispatchTemplate = (channel: string) => {
@@ -559,6 +594,53 @@ export function ConfigTab({
               }))
             }
           />
+        </div>
+      ) : null}
+      {showClaudeSettings ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            claude
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label>{t("field.claude_extra_beta_headers")}</Label>
+                <Button variant="neutral" onClick={() => setClaudeExtraBetaHeaders("")}>
+                  {t("providers.cacheBreakpoints.clear")}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted">{t("providers.claude.betaHint")}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {orderedClaudeReferenceBetas.map((beta) => {
+                  const selected = claudeExtraBetaHeaders.some(
+                    (value) => value.toLowerCase() === beta.toLowerCase()
+                  );
+                  return (
+                    <Button
+                      key={beta}
+                      variant={selected ? "primary" : "neutral"}
+                      onClick={() => toggleClaudeReferenceBeta(beta)}
+                    >
+                      {beta}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <Label>{t("field.claude_prelude_text")}</Label>
+              <TextArea
+                rows={4}
+                value={providerForm.settings.claude_prelude_text ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, claude_prelude_text: value }
+                  }))
+                }
+              />
+            </div>
+          </div>
         </div>
       ) : null}
       {showClaudeCodeSettings ? (

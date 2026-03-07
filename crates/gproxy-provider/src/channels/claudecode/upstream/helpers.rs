@@ -55,7 +55,11 @@ pub(super) fn normalized_claudecode_beta_values(
 ) -> Vec<String> {
     let mut merged = Vec::new();
 
-    for raw in preferred.iter().map(String::as_str).chain(values.iter().map(String::as_str)) {
+    for raw in preferred
+        .iter()
+        .map(String::as_str)
+        .chain(values.iter().map(String::as_str))
+    {
         let value = raw.trim();
         if value.is_empty() {
             continue;

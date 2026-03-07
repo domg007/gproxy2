@@ -201,6 +201,29 @@ pub fn provider_settings_to_json_value_with_routing(
 
     match settings {
         ChannelSettings::Builtin(BuiltinChannelSettings::Claude(value)) => {
+            let prelude = value
+                .prelude_text
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or_default();
+            if !prelude.is_empty() {
+                root.insert(
+                    "claude_prelude_text".to_string(),
+                    serde_json::Value::String(prelude.to_string()),
+                );
+            }
+            if !value.extra_beta_headers.is_empty() {
+                root.insert(
+                    "claude_extra_beta_headers".to_string(),
+                    serde_json::Value::Array(
+                        value
+                            .extra_beta_headers
+                            .iter()
+                            .map(|item| serde_json::Value::String(item.clone()))
+                            .collect(),
+                    ),
+                );
+            }
             if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints)
             {
                 root.insert("cache_breakpoints".to_string(), rules);
