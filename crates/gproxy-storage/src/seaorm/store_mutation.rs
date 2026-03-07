@@ -6,10 +6,10 @@ use sea_orm::{
 use serde_json::Value as JsonValue;
 use time::OffsetDateTime;
 
-use super::{DatabaseCipher, SeaOrmStorage};
 use super::entities::{
     credentials, downstream_requests, providers, upstream_requests, user_keys, users,
 };
+use super::{DatabaseCipher, SeaOrmStorage};
 
 fn parse_json(field: &str, raw: &str) -> Result<JsonValue, DbErr> {
     serde_json::from_str(raw)
@@ -38,7 +38,8 @@ fn encrypt_optional_string_field(
     field: &str,
     raw: Option<&str>,
 ) -> Result<Option<String>, DbErr> {
-    raw.map(|value| encrypt_string_field(cipher, field, value)).transpose()
+    raw.map(|value| encrypt_string_field(cipher, field, value))
+        .transpose()
 }
 
 fn encrypt_json_field(
@@ -148,7 +149,11 @@ impl SeaOrmStorage {
         let model = user_keys::ActiveModel {
             id: NotSet,
             user_id: Set(user_id),
-            api_key: Set(encrypt_string_field(self.cipher(), "user_key.api_key", api_key)?),
+            api_key: Set(encrypt_string_field(
+                self.cipher(),
+                "user_key.api_key",
+                api_key,
+            )?),
             label: Set(label.map(str::to_string)),
             enabled: Set(enabled),
             created_at: Set(now),

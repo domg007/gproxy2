@@ -1,10 +1,10 @@
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value as JsonValue;
 
-use super::super::{DatabaseCipher, SeaOrmStorage};
 use super::super::entities::{
     credential_statuses, credentials, global_settings, providers, user_keys, users,
 };
+use super::super::{DatabaseCipher, SeaOrmStorage};
 use crate::query::{
     CredentialQuery, CredentialQueryRow, CredentialStatusQuery, CredentialStatusQueryRow,
     GlobalSettingsRow, ProviderQuery, ProviderQueryRow, Scope, UserKeyMemoryRow, UserKeyQuery,
@@ -64,8 +64,16 @@ impl SeaOrmStorage {
                 id: row.id,
                 host: row.host,
                 port: row.port,
-                admin_key: decrypt_string_field(cipher, "global_settings.admin_key", row.admin_key)?,
-                hf_token: decrypt_optional_string_field(cipher, "global_settings.hf_token", row.hf_token)?,
+                admin_key: decrypt_string_field(
+                    cipher,
+                    "global_settings.admin_key",
+                    row.admin_key,
+                )?,
+                hf_token: decrypt_optional_string_field(
+                    cipher,
+                    "global_settings.hf_token",
+                    row.hf_token,
+                )?,
                 hf_url: row.hf_url,
                 proxy: row.proxy,
                 spoof_emulation: row.spoof_emulation,
@@ -145,7 +153,11 @@ impl SeaOrmStorage {
                     name: row.name,
                     kind: row.kind,
                     settings_json: row.settings_json,
-                    secret_json: decrypt_json_field(cipher, "credential.secret_json", row.secret_json)?,
+                    secret_json: decrypt_json_field(
+                        cipher,
+                        "credential.secret_json",
+                        row.secret_json,
+                    )?,
                     enabled: row.enabled,
                     created_at: row.created_at,
                     updated_at: row.updated_at,

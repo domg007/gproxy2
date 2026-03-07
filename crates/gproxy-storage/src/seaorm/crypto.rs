@@ -116,7 +116,10 @@ impl DatabaseCipher {
         Ok(serde_json::from_slice(&plaintext)?)
     }
 
-    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<([u8; NONCE_LEN], Vec<u8>), DatabaseCipherError> {
+    fn encrypt_bytes(
+        &self,
+        plaintext: &[u8],
+    ) -> Result<([u8; NONCE_LEN], Vec<u8>), DatabaseCipherError> {
         let mut nonce = [0_u8; NONCE_LEN];
         rand::rng().fill_bytes(&mut nonce);
         let ciphertext = self
@@ -151,7 +154,10 @@ mod tests {
         let encrypted = cipher.encrypt_string("hello").expect("encrypt");
         assert_ne!(encrypted, "hello");
         assert_eq!(cipher.decrypt_string(&encrypted).expect("decrypt"), "hello");
-        assert_eq!(cipher.decrypt_string("plain-text").expect("passthrough"), "plain-text");
+        assert_eq!(
+            cipher.decrypt_string("plain-text").expect("passthrough"),
+            "plain-text"
+        );
     }
 
     #[test]
@@ -160,8 +166,16 @@ mod tests {
         let payload = json!({"api_key": "abc", "nested": {"x": 1}});
         let encrypted = cipher.encrypt_json(&payload).expect("encrypt json");
         assert_ne!(encrypted, payload);
-        assert_eq!(cipher.decrypt_json(encrypted).expect("decrypt json"), payload);
+        assert_eq!(
+            cipher.decrypt_json(encrypted).expect("decrypt json"),
+            payload
+        );
         let plain = json!({"plain": true});
-        assert_eq!(cipher.decrypt_json(plain.clone()).expect("json passthrough"), plain);
+        assert_eq!(
+            cipher
+                .decrypt_json(plain.clone())
+                .expect("json passthrough"),
+            plain
+        );
     }
 }
