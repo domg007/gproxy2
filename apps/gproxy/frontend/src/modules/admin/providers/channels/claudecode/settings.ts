@@ -39,10 +39,21 @@ const DEFAULTS = {
   user_agent: "claude-code/2.1.62",
   claudecode_ai_base_url: "https://claude.ai",
   claudecode_platform_base_url: "https://platform.claude.com",
+  claudecode_append_beta_query: "false",
   claudecode_prelude_text: "",
   claudecode_extra_beta_headers: "",
   cache_breakpoints: "[]"
 } as const;
+
+function normalizeBooleanDraft(value: unknown, fallback: "true" | "false" = "false"): "true" | "false" {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "string") {
+    return value.trim().toLowerCase() === "true" ? "true" : "false";
+  }
+  return fallback;
+}
 
 
 function normalizeExtraBetaHeaders(value: unknown, excluded: string[] = []): string[] {
@@ -112,6 +123,9 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.claudecode_platform_base_url === "string") {
     out.claudecode_platform_base_url = value.claudecode_platform_base_url;
   }
+  if ("claudecode_append_beta_query" in value) {
+    out.claudecode_append_beta_query = normalizeBooleanDraft(value.claudecode_append_beta_query);
+  }
   if (typeof value.claudecode_prelude_text === "string") {
     out.claudecode_prelude_text = value.claudecode_prelude_text;
   }
@@ -149,6 +163,12 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
   ).trim();
   if (platformBaseUrl && platformBaseUrl !== DEFAULTS.claudecode_platform_base_url.trim()) {
     payload.claudecode_platform_base_url = platformBaseUrl;
+  }
+
+  if (
+    (settings.claudecode_append_beta_query ?? DEFAULTS.claudecode_append_beta_query) === "true"
+  ) {
+    payload.claudecode_append_beta_query = true;
   }
 
   const preludeText = (settings.claudecode_prelude_text ?? DEFAULTS.claudecode_prelude_text).trim();

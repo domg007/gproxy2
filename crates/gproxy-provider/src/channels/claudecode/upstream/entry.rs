@@ -15,6 +15,7 @@ pub async fn execute_claudecode_with_retry(
         .filter(|value| !value.is_empty());
     let prepared = ClaudeCodePreparedRequest::from_transform_request(
         request,
+        provider.settings.claudecode_append_beta_query(),
         prelude_text,
         provider.settings.cache_breakpoints(),
     )?;
@@ -59,6 +60,7 @@ pub async fn execute_claudecode_payload_with_retry(
         payload.operation,
         payload.protocol,
         payload.body,
+        provider.settings.claudecode_append_beta_query(),
         prelude_text,
         provider.settings.cache_breakpoints(),
     )?;

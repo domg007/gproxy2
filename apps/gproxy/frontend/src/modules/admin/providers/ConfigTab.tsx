@@ -116,6 +116,9 @@ export function ConfigTab({
 
   const orderedClaudeReferenceBetas = orderAnthropicReferenceBetas(claudeExtraBetaHeaders);
   const orderedClaudecodeReferenceBetas = orderAnthropicReferenceBetas(claudecodeExtraBetaHeaders);
+  const claudeAppendBetaQuery = (providerForm.settings.claude_append_beta_query ?? "false") === "true";
+  const claudecodeAppendBetaQuery =
+    (providerForm.settings.claudecode_append_beta_query ?? "false") === "true";
 
   const buildNextAnthropicReferenceBetas = (
     current: string[],
@@ -603,6 +606,28 @@ export function ConfigTab({
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="md:col-span-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="claude-append-beta-query"
+                  type="checkbox"
+                  checked={claudeAppendBetaQuery}
+                  onChange={(event) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: {
+                        ...prev.settings,
+                        claude_append_beta_query: event.target.checked ? "true" : "false"
+                      }
+                    }))
+                  }
+                />
+                <label htmlFor="claude-append-beta-query" className="text-sm text-muted">
+                  {t("field.claude_append_beta_query")}
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-muted">{t("providers.claude.betaQueryHint")}</p>
+            </div>
+            <div className="md:col-span-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Label>{t("field.claude_extra_beta_headers")}</Label>
                 <Button variant="neutral" onClick={() => setClaudeExtraBetaHeaders("")}>
@@ -672,6 +697,28 @@ export function ConfigTab({
                   }))
                 }
               />
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="claudecode-append-beta-query"
+                  type="checkbox"
+                  checked={claudecodeAppendBetaQuery}
+                  onChange={(event) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: {
+                        ...prev.settings,
+                        claudecode_append_beta_query: event.target.checked ? "true" : "false"
+                      }
+                    }))
+                  }
+                />
+                <label htmlFor="claudecode-append-beta-query" className="text-sm text-muted">
+                  {t("field.claudecode_append_beta_query")}
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-muted">{t("providers.claudecode.betaQueryHint")}</p>
             </div>
             <div className="md:col-span-2">
               <div className="flex flex-wrap items-center gap-2">

@@ -48,6 +48,14 @@ struct ClaudeCodeRequestParams<'a> {
     body: Option<&'a [u8]>,
 }
 
+fn path_with_optional_beta_query(path: &str, append_beta_query: bool) -> String {
+    if append_beta_query {
+        append_query_param_if_missing(path, BETA_QUERY_KEY, BETA_QUERY_VALUE)
+    } else {
+        path.to_string()
+    }
+}
+
 mod entry;
 pub use entry::{execute_claudecode_payload_with_retry, execute_claudecode_with_retry};
 mod helpers;

@@ -15,6 +15,8 @@ pub struct ClaudeCodeSettings {
     pub platform_base_url: String,
     pub prelude_text: Option<String>,
     #[serde(default)]
+    pub append_beta_query: bool,
+    #[serde(default)]
     pub extra_beta_headers: Vec<String>,
     #[serde(default)]
     pub cache_breakpoints: Vec<CacheBreakpointRule>,
@@ -28,6 +30,7 @@ impl Default for ClaudeCodeSettings {
             claude_ai_base_url: DEFAULT_CLAUDE_AI_BASE_URL.to_string(),
             platform_base_url: DEFAULT_PLATFORM_BASE_URL.to_string(),
             prelude_text: None,
+            append_beta_query: false,
             extra_beta_headers: Vec::new(),
             cache_breakpoints: Vec::new(),
         }
@@ -62,6 +65,7 @@ impl ClaudeCodeSettings {
         }
         settings.prelude_text =
             clean_opt(patch.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
+        settings.append_beta_query = parse_bool_flag(value.get("claudecode_append_beta_query"));
         settings.extra_beta_headers =
             parse_extra_beta_headers(value.get("claudecode_extra_beta_headers"));
         settings.cache_breakpoints = parse_cache_breakpoint_rules(value.get("cache_breakpoints"));
@@ -71,6 +75,14 @@ impl ClaudeCodeSettings {
 
 fn clean_opt(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn parse_bool_flag(value: Option<&serde_json::Value>) -> bool {
+    match value {
+        Some(serde_json::Value::Bool(value)) => *value,
+        Some(serde_json::Value::String(value)) => value.trim().eq_ignore_ascii_case("true"),
+        _ => false,
+    }
 }
 
 fn parse_extra_beta_headers(value: Option<&serde_json::Value>) -> Vec<String> {

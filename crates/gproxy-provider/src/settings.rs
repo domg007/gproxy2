@@ -212,6 +212,12 @@ pub fn provider_settings_to_json_value_with_routing(
                     serde_json::Value::String(prelude.to_string()),
                 );
             }
+            if value.append_beta_query {
+                root.insert(
+                    "claude_append_beta_query".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
             if !value.extra_beta_headers.is_empty() {
                 root.insert(
                     "claude_extra_beta_headers".to_string(),
@@ -301,6 +307,12 @@ pub fn provider_settings_to_json_value_with_routing(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
+            if value.append_beta_query {
+                root.insert(
+                    "claudecode_append_beta_query".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
             if !value.extra_beta_headers.is_empty() {
                 root.insert(
                     "claudecode_extra_beta_headers".to_string(),
@@ -578,6 +590,7 @@ mod tests {
     fn serialize_claude_settings_includes_cache_breakpoints() {
         let settings =
             ChannelSettings::Builtin(BuiltinChannelSettings::Claude(claude::ClaudeSettings {
+                append_beta_query: true,
                 cache_breakpoints: vec![
                     CacheBreakpointRule {
                         target: CacheBreakpointTarget::TopLevel,
@@ -606,12 +619,19 @@ mod tests {
                 .map(|items| items.len()),
             Some(2)
         );
+        assert_eq!(
+            value
+                .get("claude_append_beta_query")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]
     fn serialize_claudecode_settings_includes_cache_breakpoints() {
         let settings = ChannelSettings::Builtin(BuiltinChannelSettings::ClaudeCode(
             claudecode::ClaudeCodeSettings {
+                append_beta_query: true,
                 cache_breakpoints: vec![CacheBreakpointRule {
                     target: CacheBreakpointTarget::System,
                     position: CacheBreakpointPositionKind::Nth,
@@ -632,6 +652,12 @@ mod tests {
                 .and_then(serde_json::Value::as_array)
                 .map(|items| items.len()),
             Some(1)
+        );
+        assert_eq!(
+            value
+                .get("claudecode_append_beta_query")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
         );
     }
 }

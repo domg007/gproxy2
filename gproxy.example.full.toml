@@ -58,6 +58,8 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
+# Optional: append ?beta=true to Claude upstream paths.
+claude_append_beta_query = false
 # Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
 # Note: no-ttl upstream default differs by channel:
 # - claude: 5m
@@ -181,6 +183,8 @@ enabled = true
 base_url = "https://api.anthropic.com"
 claudecode_ai_base_url = "https://claude.ai"
 claudecode_platform_base_url = "https://platform.claude.com"
+# Optional: append ?beta=true to ClaudeCode upstream paths.
+claudecode_append_beta_query = false
 # Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },

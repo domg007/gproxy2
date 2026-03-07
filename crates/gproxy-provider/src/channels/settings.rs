@@ -174,6 +174,13 @@ impl ChannelSettings {
         }
     }
 
+    pub fn claude_append_beta_query(&self) -> bool {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::Claude(value)) => value.append_beta_query,
+            _ => false,
+        }
+    }
+
     pub fn claudecode_prelude_text(&self) -> Option<&str> {
         match self {
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
@@ -187,6 +194,13 @@ impl ChannelSettings {
         match self {
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => &value.extra_beta_headers,
             _ => &[],
+        }
+    }
+
+    pub fn claudecode_append_beta_query(&self) -> bool {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => value.append_beta_query,
+            _ => false,
         }
     }
 

@@ -40,6 +40,7 @@ pub async fn execute_claude_with_retry(
     let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = ClaudePreparedRequest::from_transform_request(
         request,
+        provider.settings.claude_append_beta_query(),
         provider
             .settings
             .claude_prelude_text()
@@ -71,6 +72,7 @@ pub async fn execute_claude_payload_with_retry(
         operation,
         protocol,
         body,
+        provider.settings.claude_append_beta_query(),
         provider
             .settings
             .claude_prelude_text()
@@ -308,6 +310,7 @@ struct ClaudePreparedRequest {
 impl ClaudePreparedRequest {
     fn from_transform_request(
         request: &gproxy_middleware::TransformRequest,
+        append_beta_query: bool,
         prelude_text: Option<&str>,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
@@ -323,8 +326,7 @@ impl ClaudePreparedRequest {
                     path.push('?');
                     path.push_str(&query);
                 }
-                path =
-                    append_query_param_if_missing(path.as_str(), BETA_QUERY_KEY, BETA_QUERY_VALUE);
+                path = path_with_optional_beta_query(path.as_str(), append_beta_query);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path,
@@ -339,10 +341,9 @@ impl ClaudePreparedRequest {
             }
             gproxy_middleware::TransformRequest::ModelGetClaude(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: append_query_param_if_missing(
+                path: path_with_optional_beta_query(
                     format!("/v1/models/{}", value.path.model_id).as_str(),
-                    BETA_QUERY_KEY,
-                    BETA_QUERY_VALUE,
+                    append_beta_query,
                 ),
                 body: None,
                 model: Some(value.path.model_id.clone()),
@@ -360,10 +361,9 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: append_query_param_if_missing(
+                    path: path_with_optional_beta_query(
                         "/v1/messages/count_tokens",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
+                        append_beta_query,
                     ),
                     body: Some(
                         serde_json::to_vec(&body_json)
@@ -389,11 +389,7 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: append_query_param_if_missing(
-                        "/v1/messages",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
-                    ),
+                    path: path_with_optional_beta_query("/v1/messages", append_beta_query),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -418,11 +414,7 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: append_query_param_if_missing(
-                        "/v1/messages",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
-                    ),
+                    path: path_with_optional_beta_query("/v1/messages", append_beta_query),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -437,7 +429,7 @@ impl ClaudePreparedRequest {
             }
             gproxy_middleware::TransformRequest::ModelListOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: append_query_param_if_missing("/v1/models", BETA_QUERY_KEY, BETA_QUERY_VALUE),
+                path: path_with_optional_beta_query("/v1/models", append_beta_query),
                 body: None,
                 model: None,
                 request_headers: anthropic_header_pairs(
@@ -448,10 +440,9 @@ impl ClaudePreparedRequest {
             }),
             gproxy_middleware::TransformRequest::ModelGetOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: append_query_param_if_missing(
+                path: path_with_optional_beta_query(
                     format!("/v1/models/{}", value.path.model).as_str(),
-                    BETA_QUERY_KEY,
-                    BETA_QUERY_VALUE,
+                    append_beta_query,
                 ),
                 body: None,
                 model: Some(value.path.model.clone()),
@@ -464,11 +455,7 @@ impl ClaudePreparedRequest {
             gproxy_middleware::TransformRequest::GenerateContentOpenAiChatCompletions(value) => {
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
-                    path: append_query_param_if_missing(
-                        "/v1/chat/completions",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
-                    ),
+                    path: path_with_optional_beta_query("/v1/chat/completions", append_beta_query),
                     body: Some(
                         serde_json::to_vec(&value.body)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -485,11 +472,7 @@ impl ClaudePreparedRequest {
                 value,
             ) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
-                path: append_query_param_if_missing(
-                    "/v1/chat/completions",
-                    BETA_QUERY_KEY,
-                    BETA_QUERY_VALUE,
-                ),
+                path: path_with_optional_beta_query("/v1/chat/completions", append_beta_query),
                 body: Some(
                     serde_json::to_vec(&value.body)
                         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -509,6 +492,7 @@ impl ClaudePreparedRequest {
         operation: OperationFamily,
         protocol: ProtocolKind,
         body: &[u8],
+        append_beta_query: bool,
         prelude_text: Option<&str>,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
@@ -545,10 +529,9 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: WreqMethod::POST,
-                    path: append_query_param_if_missing(
+                    path: path_with_optional_beta_query(
                         "/v1/messages/count_tokens",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
+                        append_beta_query,
                     ),
                     model: json_pointer_string(&body_json, "/model"),
                     body: Some(
@@ -571,11 +554,7 @@ impl ClaudePreparedRequest {
                 }
                 Ok(Self {
                     method: WreqMethod::POST,
-                    path: append_query_param_if_missing(
-                        "/v1/messages",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
-                    ),
+                    path: path_with_optional_beta_query("/v1/messages", append_beta_query),
                     model: json_pointer_string(&body_json, "/model"),
                     body: Some(
                         serde_json::to_vec(&body_json)
@@ -591,11 +570,7 @@ impl ClaudePreparedRequest {
                 let model = json_pointer_string(&body_json, "/model");
                 Ok(Self {
                     method: WreqMethod::POST,
-                    path: append_query_param_if_missing(
-                        "/v1/chat/completions",
-                        BETA_QUERY_KEY,
-                        BETA_QUERY_VALUE,
-                    ),
+                    path: path_with_optional_beta_query("/v1/chat/completions", append_beta_query),
                     body: Some(
                         serde_json::to_vec(&body_json)
                             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
@@ -610,6 +585,14 @@ impl ClaudePreparedRequest {
             }
             _ => Err(UpstreamError::UnsupportedRequest),
         }
+    }
+}
+
+fn path_with_optional_beta_query(path: &str, append_beta_query: bool) -> String {
+    if append_beta_query {
+        append_query_param_if_missing(path, BETA_QUERY_KEY, BETA_QUERY_VALUE)
+    } else {
+        path.to_string()
     }
 }
 
@@ -748,6 +731,7 @@ mod tests {
             OperationFamily::GenerateContent,
             ProtocolKind::Claude,
             payload.as_slice(),
+            false,
             None,
             &[],
         )
@@ -790,6 +774,7 @@ mod tests {
             OperationFamily::GenerateContent,
             ProtocolKind::Claude,
             payload.as_slice(),
+            false,
             Some("system prelude"),
             &[],
         )
@@ -854,6 +839,7 @@ mod tests {
             OperationFamily::GenerateContent,
             ProtocolKind::Claude,
             payload.as_slice(),
+            false,
             None,
             &[],
         )
@@ -869,5 +855,53 @@ mod tests {
             name.eq_ignore_ascii_case("anthropic-beta")
                 && value.contains("context-management-2025-06-27")
         }));
+    }
+
+    #[test]
+    fn payload_wrapper_skips_beta_query_when_disabled() {
+        let payload = serde_json::to_vec(&json!({
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = ClaudePreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            false,
+            None,
+            &[],
+        )
+        .expect("prepare payload");
+
+        assert_eq!(prepared.path, "/v1/messages");
+    }
+
+    #[test]
+    fn payload_wrapper_appends_beta_query_when_enabled() {
+        let payload = serde_json::to_vec(&json!({
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "messages": [{"role": "user", "content": "hi"}]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = ClaudePreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            true,
+            None,
+            &[],
+        )
+        .expect("prepare payload");
+
+        assert_eq!(prepared.path, "/v1/messages?beta=true");
     }
 }

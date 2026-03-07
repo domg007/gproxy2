@@ -13,10 +13,21 @@ import {
 const DEFAULTS = {
   base_url: "https://api.anthropic.com",
   user_agent: DEFAULT_GPROXY_USER_AGENT_DRAFT,
+  claude_append_beta_query: "false",
   claude_prelude_text: "",
   claude_extra_beta_headers: "",
   cache_breakpoints: "[]"
 } as const;
+
+function normalizeBooleanDraft(value: unknown, fallback: "true" | "false" = "false"): "true" | "false" {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "string") {
+    return value.trim().toLowerCase() === "true" ? "true" : "false";
+  }
+  return fallback;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -36,6 +47,9 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   }
   if (typeof value.user_agent === "string") {
     out.user_agent = value.user_agent;
+  }
+  if ("claude_append_beta_query" in value) {
+    out.claude_append_beta_query = normalizeBooleanDraft(value.claude_append_beta_query);
   }
   if (typeof value.claude_prelude_text === "string") {
     out.claude_prelude_text = value.claude_prelude_text;
@@ -61,6 +75,10 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
   const defaultUserAgent = DEFAULTS.user_agent.trim();
   if (userAgent !== defaultUserAgent) {
     payload.user_agent = userAgent;
+  }
+
+  if ((settings.claude_append_beta_query ?? DEFAULTS.claude_append_beta_query) === "true") {
+    payload.claude_append_beta_query = true;
   }
 
   const preludeText = (settings.claude_prelude_text ?? DEFAULTS.claude_prelude_text).trim();

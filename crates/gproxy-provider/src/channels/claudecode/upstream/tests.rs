@@ -1,9 +1,11 @@
+use gproxy_middleware::{OperationFamily, ProtocolKind};
 use serde_json::json;
 
 use super::{
     CLAUDECODE_THINKING_BUDGET_TOKENS, ensure_oauth_beta, extend_model_list_with_thinking_variants,
     merge_claudecode_beta_headers, normalize_claudecode_model_and_thinking,
-    normalize_claudecode_unsupported_fields, strip_context_1m_beta,
+    normalize_claudecode_unsupported_fields, prepared::ClaudeCodePreparedRequest,
+    strip_context_1m_beta,
 };
 use crate::channels::claudecode::constants::{CLAUDECODE_REFERENCE_BETAS, OAUTH_BETA};
 
@@ -199,4 +201,52 @@ fn strip_context_1m_beta_keeps_custom_beta_and_oauth() {
             ["custom-beta", OAUTH_BETA].join(","),
         )]
     );
+}
+
+#[test]
+fn prepared_request_skips_beta_query_when_disabled() {
+    let payload = serde_json::to_vec(&json!({
+        "body": {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "hi"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    assert_eq!(prepared.path, "/v1/messages");
+}
+
+#[test]
+fn prepared_request_appends_beta_query_when_enabled() {
+    let payload = serde_json::to_vec(&json!({
+        "body": {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "hi"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        true,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    assert_eq!(prepared.path, "/v1/messages?beta=true");
 }
