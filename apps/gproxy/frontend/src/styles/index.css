@@ -343,6 +343,90 @@ body {
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.09);
 }
 
+.expert-settings-shell {
+  border-radius: 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent) 8%, var(--bg-surface-strong)),
+    color-mix(in srgb, var(--bg-surface) 95%, transparent)
+  );
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.expert-settings-shell-open {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.expert-settings-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  transition: background-color 0.18s ease;
+}
+
+.expert-settings-toggle:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.expert-settings-toggle-main {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.expert-settings-toggle-copy {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.expert-settings-toggle-icon {
+  display: inline-flex;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface));
+  color: color-mix(in srgb, var(--accent-strong) 86%, var(--text));
+}
+
+.expert-settings-toggle-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.expert-settings-chevron {
+  width: 1rem;
+  height: 1rem;
+  transition: transform 0.18s ease;
+}
+
+.expert-settings-chevron-open {
+  transform: rotate(180deg);
+}
+
+.expert-settings-content {
+  border-top: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  padding: 1rem;
+}
+
 .cache-breakpoints-panel {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-surface) 92%, transparent);

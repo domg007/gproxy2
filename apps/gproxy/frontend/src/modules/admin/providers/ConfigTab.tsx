@@ -1,6 +1,6 @@
-import { useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
 
-import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
+import { Badge, Button, Input, Label, Select, TextArea } from "../../../components/ui";
 import { BUILTIN_CHANNELS } from "./channels/registry";
 import {
   BUILD_UA_ARCH,
@@ -62,7 +62,9 @@ export function ConfigTab({
   const [dispatchExpanded, setDispatchExpanded] = useState(false);
   const [dispatchTemplatesExpanded, setDispatchTemplatesExpanded] = useState(false);
   const [cacheBreakpointsExpanded, setCacheBreakpointsExpanded] = useState(false);
+  const [expertSettingsExpanded, setExpertSettingsExpanded] = useState(false);
   const maxDispatchRowsWhenCollapsed = 3;
+  const providerFormChannel = providerForm.channel.trim().toLowerCase();
   const hasMoreDispatchRules =
     providerForm.dispatchRules.length > maxDispatchRowsWhenCollapsed;
   const visibleDispatchRules =
@@ -135,6 +137,10 @@ export function ConfigTab({
     (_, idx) => cacheBreakpointRules[idx] ?? null
   );
   const cacheRuleDragMime = "application/x-gproxy-cache-rule";
+
+  useEffect(() => {
+    setExpertSettingsExpanded(false);
+  }, [providerForm.id, providerFormChannel]);
 
   const setCacheBreakpointRules = (nextRules: CacheBreakpointRuleDraft[]) => {
     setProviderForm((prev) => ({
@@ -306,6 +312,393 @@ export function ConfigTab({
     </svg>
   );
 
+  const renderExpertSettingsIcon = () => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      className="h-5 w-5"
+      aria-hidden="true"
+    >
+      <path d="M4 7h10" />
+      <path d="M4 12h16" />
+      <path d="M10 17h10" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="8" cy="17" r="2" />
+    </svg>
+  );
+
+  const advancedSettingsFields = (
+    <>
+      <div>
+        <Label>{t("field.credential_round_robin_enabled")}</Label>
+        <Select
+          value={providerForm.credentialRoundRobinEnabled ? "true" : "false"}
+          onChange={(value) =>
+            setProviderForm((prev) => {
+              const roundRobinEnabled = value === "true";
+              return {
+                ...prev,
+                credentialRoundRobinEnabled: roundRobinEnabled,
+                credentialCacheAffinityEnabled: roundRobinEnabled
+                  ? prev.credentialCacheAffinityEnabled
+                  : false
+              };
+            })
+          }
+          options={[
+            { value: "false", label: t("common.disabled") },
+            { value: "true", label: t("common.enabled") }
+          ]}
+        />
+      </div>
+      <div>
+        <Label>{t("field.credential_cache_affinity_enabled")}</Label>
+        <Select
+          value={
+            providerForm.credentialRoundRobinEnabled &&
+            providerForm.credentialCacheAffinityEnabled
+              ? "true"
+              : "false"
+          }
+          onChange={(value) =>
+            setProviderForm((prev) => ({
+              ...prev,
+              credentialCacheAffinityEnabled:
+                prev.credentialRoundRobinEnabled && value === "true"
+            }))
+          }
+          options={[
+            { value: "false", label: t("common.disabled") },
+            { value: "true", label: t("common.enabled") }
+          ]}
+          disabled={!providerForm.credentialRoundRobinEnabled}
+        />
+      </div>
+      <div>
+        <Label>{t("field.credential_cache_affinity_max_keys")}</Label>
+        <Input
+          value={providerForm.credentialCacheAffinityMaxKeys}
+          onChange={(value) =>
+            setProviderForm((prev) => ({
+              ...prev,
+              credentialCacheAffinityMaxKeys: value
+            }))
+          }
+        />
+      </div>
+      <div className="md:col-span-2 rounded-lg border border-border p-3">
+        <Label>{t("field.user_agent")}</Label>
+        <div className="space-y-2">
+          <Select
+            value=""
+            onChange={(value) => {
+              if (!value) {
+                return;
+              }
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, user_agent: value }
+              }));
+            }}
+            options={userAgentTemplateOptions}
+          />
+          <Input
+            value={providerForm.settings.user_agent ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, user_agent: value }
+              }))
+            }
+          />
+        </div>
+      </div>
+      {showCustomMaskTable ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            custom
+          </div>
+          <Label>{t("field.custom_mask_table")}</Label>
+          <TextArea
+            rows={8}
+            value={providerForm.settings.mask_table ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, mask_table: value }
+              }))
+            }
+          />
+          <p className="mt-2 text-xs text-muted">{t("providers.custom.maskHint")}</p>
+        </div>
+      ) : null}
+      {showCodexOAuthIssuer ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            {t("providers.section.oauth")}
+          </div>
+          <Label>{t("field.oauth_issuer_url")}</Label>
+          <Input
+            value={providerForm.settings.oauth_issuer_url ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, oauth_issuer_url: value }
+              }))
+            }
+          />
+        </div>
+      ) : null}
+      {showOAuthTriplet ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            {t("providers.section.oauth")}
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <Label>{t("field.oauth_authorize_url")}</Label>
+              <Input
+                value={providerForm.settings.oauth_authorize_url ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, oauth_authorize_url: value }
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>{t("field.oauth_token_url")}</Label>
+              <Input
+                value={providerForm.settings.oauth_token_url ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, oauth_token_url: value }
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>{t("field.oauth_userinfo_url")}</Label>
+              <Input
+                value={providerForm.settings.oauth_userinfo_url ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, oauth_userinfo_url: value }
+                  }))
+                }
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showVertexOAuthToken ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            {t("providers.section.oauth")}
+          </div>
+          <Label>{t("field.oauth_token_url")}</Label>
+          <Input
+            value={providerForm.settings.oauth_token_url ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, oauth_token_url: value }
+              }))
+            }
+          />
+        </div>
+      ) : null}
+      {showClaudeCodeSettings ? (
+        <div className="md:col-span-2 rounded-lg border border-border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+            claudecode
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <Label>{t("field.claudecode_ai_base_url")}</Label>
+              <Input
+                value={providerForm.settings.claudecode_ai_base_url ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, claudecode_ai_base_url: value }
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>{t("field.claudecode_platform_base_url")}</Label>
+              <Input
+                value={providerForm.settings.claudecode_platform_base_url ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, claudecode_platform_base_url: value }
+                  }))
+                }
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label>{t("field.claudecode_prelude_text")}</Label>
+              <TextArea
+                rows={4}
+                value={providerForm.settings.claudecode_prelude_text ?? ""}
+                onChange={(value) =>
+                  setProviderForm((prev) => ({
+                    ...prev,
+                    settings: { ...prev.settings, claudecode_prelude_text: value }
+                  }))
+                }
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {preludeTemplates.map((template) => (
+                  <Button
+                    key={template.key}
+                    variant={
+                      (providerForm.settings.claudecode_prelude_text ?? "") === template.value
+                        ? "primary"
+                        : "neutral"
+                    }
+                    onClick={() =>
+                      setProviderForm((prev) => ({
+                        ...prev,
+                        settings: {
+                          ...prev.settings,
+                          claudecode_prelude_text: template.value
+                        }
+                      }))
+                    }
+                  >
+                    {template.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted">{t("providers.prelude.hint")}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+
+  const dispatchRulesSection = (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <Label>{t("field.dispatch_rules")}</Label>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="neutral"
+            onClick={() => setDispatchTemplatesExpanded((value) => !value)}
+          >
+            {dispatchTemplatesExpanded
+              ? t("providers.dispatch.hideTemplates")
+              : t("providers.dispatch.showTemplates")}
+          </Button>
+          {hasMoreDispatchRules ? (
+            <Button variant="neutral" onClick={() => setDispatchExpanded((value) => !value)}>
+              {dispatchExpanded
+                ? t("providers.dispatch.collapse")
+                : t("providers.dispatch.expand")}
+            </Button>
+          ) : null}
+          <Button variant="neutral" onClick={addDispatchRule}>
+            {t("providers.addRule")}
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {dispatchTemplatesExpanded ? (
+          <div className="provider-card space-y-2">
+            <div className="flex flex-wrap gap-2">
+              {dispatchTemplateChannels.map((templateChannel) => (
+                <Button
+                  key={templateChannel}
+                  variant="neutral"
+                  onClick={() => applyDispatchTemplate(templateChannel)}
+                >
+                  {t("providers.dispatch.templateOption", { channel: templateChannel })}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted">{t("providers.dispatch.templateHint")}</p>
+          </div>
+        ) : null}
+        {visibleDispatchRules.map((rule) => (
+          <div key={rule.id} className="provider-card space-y-2">
+            <div className="grid gap-2 md:grid-cols-6">
+              <div>
+                <Label>{t("field.src_op")}</Label>
+                <Select
+                  value={rule.srcOperation}
+                  onChange={(value) => updateDispatchRule(rule.id, { srcOperation: value })}
+                  options={OPERATION_OPTIONS.map((item) => ({ value: item, label: item }))}
+                />
+              </div>
+              <div>
+                <Label>{t("field.src_proto")}</Label>
+                <Select
+                  value={rule.srcProtocol}
+                  onChange={(value) => updateDispatchRule(rule.id, { srcProtocol: value })}
+                  options={PROTOCOL_OPTIONS.map((item) => ({ value: item, label: item }))}
+                />
+              </div>
+              <div>
+                <Label>{t("field.mode")}</Label>
+                <Select
+                  value={rule.mode}
+                  onChange={(value) => updateDispatchRule(rule.id, { mode: value as DispatchMode })}
+                  options={[
+                    { value: "passthrough", label: t("providers.mode.passthrough") },
+                    { value: "transform", label: t("providers.mode.transform") },
+                    { value: "local", label: t("providers.mode.local") },
+                    { value: "unsupported", label: t("providers.mode.unsupported") }
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>{t("field.dst_op")}</Label>
+                <Select
+                  value={rule.dstOperation}
+                  onChange={(value) => updateDispatchRule(rule.id, { dstOperation: value })}
+                  options={OPERATION_OPTIONS.map((item) => ({ value: item, label: item }))}
+                  disabled={rule.mode !== "transform"}
+                />
+              </div>
+              <div>
+                <Label>{t("field.dst_proto")}</Label>
+                <Select
+                  value={rule.dstProtocol}
+                  onChange={(value) => updateDispatchRule(rule.id, { dstProtocol: value })}
+                  options={PROTOCOL_OPTIONS.map((item) => ({ value: item, label: item }))}
+                  disabled={rule.mode !== "transform"}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button variant="danger" onClick={() => removeDispatchRule(rule.id)}>
+                  {t("common.delete")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {providerForm.dispatchRules.length > visibleDispatchRules.length ? (
+          <p className="text-xs text-muted">
+            {t("providers.dispatch.visibleHint", {
+              shown: visibleDispatchRules.length,
+              total: providerForm.dispatchRules.length
+            })}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
@@ -333,6 +726,18 @@ export function ConfigTab({
               }))
             }
             options={channelOptions}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <Label>{t("field.base_url")}</Label>
+          <Input
+            value={providerForm.settings.base_url ?? ""}
+            onChange={(value) =>
+              setProviderForm((prev) => ({
+                ...prev,
+                settings: { ...prev.settings, base_url: value }
+              }))
+            }
           />
         </div>
         {showClaudeTopLevelCacheControl ? (
@@ -477,383 +882,55 @@ export function ConfigTab({
             )}
           </div>
         ) : null}
-        <div>
-          <Label>{t("field.credential_round_robin_enabled")}</Label>
-          <Select
-            value={providerForm.credentialRoundRobinEnabled ? "true" : "false"}
-            onChange={(value) =>
-              setProviderForm((prev) => {
-                const roundRobinEnabled = value === "true";
-                return {
-                  ...prev,
-                  credentialRoundRobinEnabled: roundRobinEnabled,
-                  credentialCacheAffinityEnabled: roundRobinEnabled
-                    ? prev.credentialCacheAffinityEnabled
-                    : false
-                };
-              })
-            }
-            options={[
-              { value: "false", label: t("common.disabled") },
-              { value: "true", label: t("common.enabled") }
-            ]}
-          />
-        </div>
-        <div>
-          <Label>{t("field.credential_cache_affinity_enabled")}</Label>
-          <Select
-            value={
-              providerForm.credentialRoundRobinEnabled &&
-              providerForm.credentialCacheAffinityEnabled
-                ? "true"
-                : "false"
-            }
-            onChange={(value) =>
-              setProviderForm((prev) => ({
-                ...prev,
-                credentialCacheAffinityEnabled:
-                  prev.credentialRoundRobinEnabled && value === "true"
-              }))
-            }
-            options={[
-              { value: "false", label: t("common.disabled") },
-              { value: "true", label: t("common.enabled") }
-            ]}
-            disabled={!providerForm.credentialRoundRobinEnabled}
-          />
-        </div>
-        <div>
-          <Label>{t("field.credential_cache_affinity_max_keys")}</Label>
-          <Input
-            value={providerForm.credentialCacheAffinityMaxKeys}
-            onChange={(value) =>
-              setProviderForm((prev) => ({
-                ...prev,
-                credentialCacheAffinityMaxKeys: value
-              }))
-            }
-          />
-        </div>
-        <div className="md:col-span-2">
-          <Label>{t("field.base_url")}</Label>
-          <Input
-            value={providerForm.settings.base_url ?? ""}
-            onChange={(value) =>
-              setProviderForm((prev) => ({
-                ...prev,
-                settings: { ...prev.settings, base_url: value }
-              }))
-            }
-          />
-        </div>
-        <div className="md:col-span-2 rounded-lg border border-border p-3">
-          <Label>{t("field.user_agent")}</Label>
-          <div className="space-y-2">
-            <Select
-              value=""
-              onChange={(value) => {
-                if (!value) {
-                  return;
-                }
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: { ...prev.settings, user_agent: value }
-                }));
-              }}
-              options={userAgentTemplateOptions}
-            />
-            <Input
-              value={providerForm.settings.user_agent ?? ""}
-              onChange={(value) =>
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: { ...prev.settings, user_agent: value }
-                }))
-              }
-            />
-          </div>
-        </div>
-        {showCustomMaskTable ? (
-          <div className="md:col-span-2 rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              custom
-            </div>
-            <Label>{t("field.custom_mask_table")}</Label>
-            <TextArea
-              rows={8}
-              value={providerForm.settings.mask_table ?? ""}
-              onChange={(value) =>
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: { ...prev.settings, mask_table: value }
-                }))
-              }
-            />
-            <p className="mt-2 text-xs text-muted">{t("providers.custom.maskHint")}</p>
-          </div>
-        ) : null}
-        {showCodexOAuthIssuer ? (
-          <div className="md:col-span-2 rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {t("providers.section.oauth")}
-            </div>
-            <Label>{t("field.oauth_issuer_url")}</Label>
-            <Input
-              value={providerForm.settings.oauth_issuer_url ?? ""}
-              onChange={(value) =>
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: { ...prev.settings, oauth_issuer_url: value }
-                }))
-              }
-            />
-          </div>
-        ) : null}
-        {showOAuthTriplet ? (
-          <div className="md:col-span-2 rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {t("providers.section.oauth")}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <Label>{t("field.oauth_authorize_url")}</Label>
-                <Input
-                  value={providerForm.settings.oauth_authorize_url ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, oauth_authorize_url: value }
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>{t("field.oauth_token_url")}</Label>
-                <Input
-                  value={providerForm.settings.oauth_token_url ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, oauth_token_url: value }
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>{t("field.oauth_userinfo_url")}</Label>
-                <Input
-                  value={providerForm.settings.oauth_userinfo_url ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, oauth_userinfo_url: value }
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
-        {showVertexOAuthToken ? (
-          <div className="md:col-span-2 rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              {t("providers.section.oauth")}
-            </div>
-            <Label>{t("field.oauth_token_url")}</Label>
-            <Input
-              value={providerForm.settings.oauth_token_url ?? ""}
-              onChange={(value) =>
-                setProviderForm((prev) => ({
-                  ...prev,
-                  settings: { ...prev.settings, oauth_token_url: value }
-                }))
-              }
-            />
-          </div>
-        ) : null}
-        {showClaudeCodeSettings ? (
-          <div className="md:col-span-2 rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-              claudecode
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <Label>{t("field.claudecode_ai_base_url")}</Label>
-                <Input
-                  value={providerForm.settings.claudecode_ai_base_url ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, claudecode_ai_base_url: value }
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <Label>{t("field.claudecode_platform_base_url")}</Label>
-                <Input
-                  value={providerForm.settings.claudecode_platform_base_url ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, claudecode_platform_base_url: value }
-                    }))
-                  }
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Label>{t("field.claudecode_prelude_text")}</Label>
-                <TextArea
-                  rows={4}
-                  value={providerForm.settings.claudecode_prelude_text ?? ""}
-                  onChange={(value) =>
-                    setProviderForm((prev) => ({
-                      ...prev,
-                      settings: { ...prev.settings, claudecode_prelude_text: value }
-                    }))
-                  }
-                />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {preludeTemplates.map((template) => (
-                    <Button
-                      key={template.key}
-                      variant={
-                        (providerForm.settings.claudecode_prelude_text ?? "") === template.value
-                          ? "primary"
-                          : "neutral"
-                      }
-                      onClick={() =>
-                        setProviderForm((prev) => ({
-                          ...prev,
-                          settings: {
-                            ...prev.settings,
-                            claudecode_prelude_text: template.value
-                          }
-                        }))
-                      }
-                    >
-                      {template.label}
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-muted">{t("providers.prelude.hint")}</p>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Label>{t("field.dispatch_rules")}</Label>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="neutral"
-              onClick={() => setDispatchTemplatesExpanded((value) => !value)}
+      <section className={`expert-settings-shell ${expertSettingsExpanded ? "expert-settings-shell-open" : ""}`}>
+        <button
+          type="button"
+          className="expert-settings-toggle"
+          onClick={() => setExpertSettingsExpanded((value) => !value)}
+          aria-expanded={expertSettingsExpanded}
+        >
+          <span className="expert-settings-toggle-main">
+            <span className="expert-settings-toggle-icon">{renderExpertSettingsIcon()}</span>
+            <span className="expert-settings-toggle-copy">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-text">
+                  {t("providers.expertSettings.title")}
+                </span>
+                <Badge active>{t("providers.expertSettings.badge")}</Badge>
+              </span>
+              <span className="mt-1 block text-xs text-muted">
+                {t("providers.expertSettings.summary")}
+              </span>
+            </span>
+          </span>
+          <span className="expert-settings-toggle-action">
+            <span>
+              {expertSettingsExpanded
+                ? t("providers.expertSettings.hide")
+                : t("providers.expertSettings.show")}
+            </span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className={`expert-settings-chevron ${expertSettingsExpanded ? "expert-settings-chevron-open" : ""}`}
+              aria-hidden="true"
             >
-              {dispatchTemplatesExpanded
-                ? t("providers.dispatch.hideTemplates")
-                : t("providers.dispatch.showTemplates")}
-            </Button>
-            {hasMoreDispatchRules ? (
-              <Button variant="neutral" onClick={() => setDispatchExpanded((value) => !value)}>
-                {dispatchExpanded
-                  ? t("providers.dispatch.collapse")
-                  : t("providers.dispatch.expand")}
-              </Button>
-            ) : null}
-            <Button variant="neutral" onClick={addDispatchRule}>
-              {t("providers.addRule")}
-            </Button>
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </button>
+        {expertSettingsExpanded ? (
+          <div className="expert-settings-content space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">{advancedSettingsFields}</div>
+            {dispatchRulesSection}
           </div>
-        </div>
-        <div className="space-y-3">
-          {dispatchTemplatesExpanded ? (
-            <div className="provider-card space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {dispatchTemplateChannels.map((templateChannel) => (
-                  <Button
-                    key={templateChannel}
-                    variant="neutral"
-                    onClick={() => applyDispatchTemplate(templateChannel)}
-                  >
-                    {t("providers.dispatch.templateOption", { channel: templateChannel })}
-                  </Button>
-                ))}
-              </div>
-              <p className="text-xs text-muted">{t("providers.dispatch.templateHint")}</p>
-            </div>
-          ) : null}
-          {visibleDispatchRules.map((rule) => (
-            <div key={rule.id} className="provider-card space-y-2">
-              <div className="grid gap-2 md:grid-cols-6">
-                <div>
-                  <Label>{t("field.src_op")}</Label>
-                  <Select
-                    value={rule.srcOperation}
-                    onChange={(value) => updateDispatchRule(rule.id, { srcOperation: value })}
-                    options={OPERATION_OPTIONS.map((item) => ({ value: item, label: item }))}
-                  />
-                </div>
-                <div>
-                  <Label>{t("field.src_proto")}</Label>
-                  <Select
-                    value={rule.srcProtocol}
-                    onChange={(value) => updateDispatchRule(rule.id, { srcProtocol: value })}
-                    options={PROTOCOL_OPTIONS.map((item) => ({ value: item, label: item }))}
-                  />
-                </div>
-                <div>
-                  <Label>{t("field.mode")}</Label>
-                  <Select
-                    value={rule.mode}
-                    onChange={(value) =>
-                      updateDispatchRule(rule.id, { mode: value as DispatchMode })
-                    }
-                    options={[
-                      { value: "passthrough", label: t("providers.mode.passthrough") },
-                      { value: "transform", label: t("providers.mode.transform") },
-                      { value: "local", label: t("providers.mode.local") },
-                      { value: "unsupported", label: t("providers.mode.unsupported") }
-                    ]}
-                  />
-                </div>
-                <div>
-                  <Label>{t("field.dst_op")}</Label>
-                  <Select
-                    value={rule.dstOperation}
-                    onChange={(value) => updateDispatchRule(rule.id, { dstOperation: value })}
-                    options={OPERATION_OPTIONS.map((item) => ({ value: item, label: item }))}
-                    disabled={rule.mode !== "transform"}
-                  />
-                </div>
-                <div>
-                  <Label>{t("field.dst_proto")}</Label>
-                  <Select
-                    value={rule.dstProtocol}
-                    onChange={(value) => updateDispatchRule(rule.id, { dstProtocol: value })}
-                    options={PROTOCOL_OPTIONS.map((item) => ({ value: item, label: item }))}
-                    disabled={rule.mode !== "transform"}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button variant="danger" onClick={() => removeDispatchRule(rule.id)}>
-                    {t("common.delete")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {providerForm.dispatchRules.length > visibleDispatchRules.length ? (
-            <p className="text-xs text-muted">
-              {t("providers.dispatch.visibleHint", {
-                shown: visibleDispatchRules.length,
-                total: providerForm.dispatchRules.length
-              })}
-            </p>
-          ) : null}
-        </div>
-      </div>
+        ) : null}
+      </section>
 
       <div className="flex flex-wrap gap-2">
         <Button onClick={onSave}>{t("providers.save")}</Button>
