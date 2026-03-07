@@ -9,7 +9,7 @@ import type {
   CredentialStatusQueryRow,
   ProviderQueryRow
 } from "../../lib/types";
-import { Button, Card } from "../../components/ui";
+import { Button, Card, ConfirmDialog } from "../../components/ui";
 import { ConfigTab } from "./providers/ConfigTab";
 import { CredentialsTab } from "./providers/CredentialsTab";
 import { ProviderList } from "./providers/ProviderList";
@@ -53,6 +53,8 @@ export function ProvidersModule({
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("config");
   const [isCreatingProvider, setIsCreatingProvider] = useState(false);
+  const [deleteTargetProvider, setDeleteTargetProvider] = useState<ProviderQueryRow | null>(null);
+  const [deletingProvider, setDeletingProvider] = useState(false);
   const [credentialForm, setCredentialForm] = useState(createEmptyCredentialFormState("custom"));
 
   const {
@@ -276,6 +278,24 @@ export function ProvidersModule({
       await loadProviders();
     } catch (error) {
       notify("error", formatError(error));
+    }
+  };
+
+  const requestRemoveProvider = (row: ProviderQueryRow) => {
+    setDeleteTargetProvider(row);
+  };
+
+  const confirmAndRemoveProvider = async () => {
+    if (!deleteTargetProvider) {
+      return;
+    }
+
+    setDeletingProvider(true);
+    try {
+      await removeProvider(deleteTargetProvider.id);
+      setDeleteTargetProvider(null);
+    } finally {
+      setDeletingProvider(false);
     }
   };
 
@@ -723,7 +743,7 @@ export function ProvidersModule({
             onSelectProvider={selectProvider}
             onToggleEnabled={(row) => void toggleProviderEnabled(row)}
             onEdit={editProvider}
-            onDelete={(id) => void removeProvider(id)}
+            onDelete={requestRemoveProvider}
             t={t}
           />
 
@@ -813,6 +833,27 @@ export function ProvidersModule({
           )}
         </div>
       </Card>
+      <ConfirmDialog
+        open={deleteTargetProvider !== null}
+        title={t("providers.deleteConfirmTitle")}
+        description={
+          deleteTargetProvider
+            ? t("providers.deleteConfirm", {
+                id: deleteTargetProvider.id,
+                name: deleteTargetProvider.name
+              })
+            : ""
+        }
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("common.delete")}
+        busy={deletingProvider}
+        onClose={() => {
+          if (!deletingProvider) {
+            setDeleteTargetProvider(null);
+          }
+        }}
+        onConfirm={() => void confirmAndRemoveProvider()}
+      />
     </div>
   );
 }

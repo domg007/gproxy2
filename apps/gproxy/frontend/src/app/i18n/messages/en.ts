@@ -128,6 +128,8 @@ export const enMessages = {
       "JSON object. Example: {\"rules\":[{\"path\":\"/v1/chat/completions\",\"remove_fields\":[\"metadata\",\"safety_identifier\"]}]}",
     "providers.save": "Save Provider",
     "providers.saved": "Provider saved",
+    "providers.deleteConfirmTitle": "Delete Provider",
+    "providers.deleteConfirm": "Delete provider {name} (#{id})?",
     "providers.deleted": "Provider {id} deleted",
     "providers.enabledChanged": "Provider {id} set to {state}",
     "providers.oauth.unsupported": "This channel does not support OAuth (only codex/claudecode/geminicli/antigravity support).",

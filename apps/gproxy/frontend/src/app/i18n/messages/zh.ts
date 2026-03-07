@@ -128,6 +128,8 @@ export const zhMessages = {
       "JSON 对象示例：{\"rules\":[{\"path\":\"/v1/chat/completions\",\"remove_fields\":[\"metadata\",\"safety_identifier\"]}]}",
     "providers.save": "保存渠道",
     "providers.saved": "渠道已保存",
+    "providers.deleteConfirmTitle": "删除渠道",
+    "providers.deleteConfirm": "确认删除渠道 {name}（#{id}）吗？",
     "providers.deleted": "渠道 {id} 已删除",
     "providers.enabledChanged": "渠道 {id} 状态已切换为 {state}",
     "providers.oauth.unsupported": "当前渠道不支持 OAuth（仅 codex/claudecode/geminicli/antigravity 支持）。",

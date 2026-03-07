@@ -37,7 +37,7 @@ export function ProviderList({
   onSelectProvider: (row: ProviderQueryRow) => void;
   onToggleEnabled: (row: ProviderQueryRow) => void;
   onEdit: (row: ProviderQueryRow) => void;
-  onDelete: (id: number) => void;
+  onDelete: (row: ProviderQueryRow) => void;
   t: TranslateFn;
 }) {
   const [searchMode, setSearchMode] = useState<ProviderSearchMode>("name");
@@ -164,7 +164,7 @@ export function ProviderList({
                       variant="danger"
                       onClick={(event) => {
                         event.stopPropagation();
-                        onDelete(row.id);
+                        onDelete(row);
                       }}
                     >
                       {t("providers.delete")}

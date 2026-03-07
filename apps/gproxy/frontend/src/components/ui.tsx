@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEventHandler, type MouseEventHandler, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEventHandler,
+  type MouseEventHandler,
+  type ReactNode
+} from "react";
 
 export function Card({
   title,
@@ -300,4 +309,81 @@ export function Badge({
   active?: boolean;
 }) {
   return <span className={`badge ${active ? "badge-active" : ""}`}>{children}</span>;
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel,
+  cancelLabel,
+  confirmVariant = "danger",
+  busy = false,
+  onConfirm,
+  onClose
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  confirmVariant?: "primary" | "neutral" | "danger" | "secondary";
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={busy ? undefined : onClose}>
+      <div
+        className="dialog-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <h3 id={titleId} className="dialog-title">
+            {title}
+          </h3>
+        </div>
+        <p className="dialog-description">{description}</p>
+        <div className="dialog-actions">
+          <Button variant="neutral" onClick={onClose} disabled={busy}>
+            {cancelLabel}
+          </Button>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={busy}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
