@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,31 +41,102 @@ pub struct Bootstrap {
     pub storage_write_worker: tokio::task::JoinHandle<Result<(), StorageWriteSinkError>>,
 }
 
+struct LoadedBootstrapConfig {
+    config_path: std::path::PathBuf,
+    config: BootstrapConfig,
+    global: GlobalSettings,
+}
+
+struct RuntimeStorage {
+    storage: Arc<SeaOrmStorage>,
+    tokenizer_cache_dir: std::path::PathBuf,
+}
+
+struct StoragePreference {
+    global: GlobalSettings,
+    config_for_providers: BootstrapConfig,
+}
+
+struct PrincipalCache {
+    users: Vec<MemoryUser>,
+    keys: HashMap<String, MemoryUserKey>,
+}
+
 pub async fn bootstrap_from_env() -> Result<Bootstrap> {
     let args = CliArgs::parse();
     bootstrap(args).await
 }
 
 pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
+    let LoadedBootstrapConfig {
+        config_path,
+        config,
+        global,
+    } = load_bootstrap_config(&args)?;
+    let RuntimeStorage {
+        storage,
+        tokenizer_cache_dir,
+    } = init_runtime_storage(&global).await?;
+    let StoragePreference {
+        mut global,
+        config_for_providers,
+    } = resolve_storage_preference(storage.as_ref(), &args, &config, global).await?;
+    let (write_tx, write_worker) = spawn_storage_writer(&config, storage.clone());
+    let registry = build_seeded_provider_registry(storage.as_ref(), &config_for_providers).await?;
+    let mut principals = load_principal_cache(storage.as_ref()).await?;
+    global = seed_bootstrap_state(storage.as_ref(), global, &mut principals).await?;
+    let state = build_app_state(
+        storage.clone(),
+        write_tx,
+        global,
+        registry,
+        tokenizer_cache_dir,
+        principals,
+    )?;
+
+    Ok(Bootstrap {
+        config_path,
+        config,
+        storage,
+        state,
+        storage_write_worker: write_worker,
+    })
+}
+
+fn load_bootstrap_config(args: &CliArgs) -> Result<LoadedBootstrapConfig> {
     let config_path = args.config.clone();
     let use_in_memory_defaults =
         !config_path.exists() && config_path == std::path::Path::new(DEFAULT_CONFIG_PATH);
     let mut config = BootstrapConfig::load(&config_path)?;
-    apply_cli_env_overrides(&mut config, &args);
+    apply_cli_env_overrides(&mut config, args);
     if use_in_memory_defaults {
         eprintln!(
             "bootstrap: {} not found, using in-memory defaults",
             DEFAULT_CONFIG_PATH
         );
     }
-    let mut global = merge_global_settings(&config);
+
+    let global = merge_global_settings(&config);
+    validate_global_settings(&global)?;
+
+    Ok(LoadedBootstrapConfig {
+        config_path,
+        config,
+        global,
+    })
+}
+
+fn validate_global_settings(global: &GlobalSettings) -> Result<()> {
     if global.data_dir.trim().is_empty() {
         return Err(anyhow::anyhow!("global.data_dir cannot be empty"));
     }
     if global.dsn.trim().is_empty() {
         return Err(anyhow::anyhow!("global.dsn cannot be empty"));
     }
+    Ok(())
+}
 
+fn ensure_runtime_directories(global: &GlobalSettings) -> Result<std::path::PathBuf> {
     std::fs::create_dir_all(&global.data_dir)
         .with_context(|| format!("create data dir {}", global.data_dir))?;
     let tokenizer_cache_dir = std::path::Path::new(&global.data_dir).join("tokenizers");
@@ -75,19 +146,36 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
             tokenizer_cache_dir.to_string_lossy()
         )
     })?;
+    Ok(tokenizer_cache_dir)
+}
 
+async fn init_runtime_storage(global: &GlobalSettings) -> Result<RuntimeStorage> {
+    let tokenizer_cache_dir = ensure_runtime_directories(global)?;
     let storage = Arc::new(
         SeaOrmStorage::connect(&global.dsn)
             .await
             .with_context(|| format!("connect storage dsn={}", global.dsn))?,
     );
     storage.sync().await.context("sync storage schema")?;
+    Ok(RuntimeStorage {
+        storage,
+        tokenizer_cache_dir,
+    })
+}
 
+async fn resolve_storage_preference(
+    storage: &SeaOrmStorage,
+    args: &CliArgs,
+    config: &BootstrapConfig,
+    mut global: GlobalSettings,
+) -> Result<StoragePreference> {
     let bootstrap_force_config = args.bootstrap_force_config.unwrap_or(false);
     let should_prefer_storage = !bootstrap_force_config
-        && storage_has_bootstrap_state(storage.as_ref())
+        && storage_has_bootstrap_state(storage)
             .await
             .context("check bootstrap storage state")?;
+
+    let mut config_for_providers = config.clone();
     if should_prefer_storage {
         if let Some(stored_global) = storage
             .get_global_settings()
@@ -102,14 +190,28 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
                 .filter(|value| !value.is_empty());
             global = merge_global_settings_from_storage(global, &stored_global, admin_key_override);
         }
+        config_for_providers.channels.clear();
         eprintln!(
             "bootstrap: storage is initialized; skip config-file channel/provider import (except admin_key override)"
         );
     }
 
+    Ok(StoragePreference {
+        global,
+        config_for_providers,
+    })
+}
+
+fn spawn_storage_writer(
+    config: &BootstrapConfig,
+    storage: Arc<SeaOrmStorage>,
+) -> (
+    gproxy_storage::StorageWriteSender,
+    tokio::task::JoinHandle<Result<(), StorageWriteSinkError>>,
+) {
     let (write_tx, write_rx) = storage_write_channel(config.runtime.storage_write_queue_capacity);
-    let write_worker = spawn_storage_write_worker(
-        storage.clone(),
+    let worker = spawn_storage_write_worker(
+        storage,
         write_rx,
         StorageWriteWorkerConfig {
             max_batch_size: config.runtime.storage_write_max_batch_size,
@@ -118,20 +220,25 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
             ),
         },
     );
+    (write_tx, worker)
+}
 
-    let mut config_for_providers = config.clone();
-    if should_prefer_storage {
-        config_for_providers.channels.clear();
-    }
-
-    let mut registry = build_provider_registry(&config_for_providers);
-    let provider_ids = seed_registry_providers(&storage, &mut registry)
+async fn build_seeded_provider_registry(
+    storage: &SeaOrmStorage,
+    config_for_providers: &BootstrapConfig,
+) -> Result<ProviderRegistry> {
+    let mut registry = build_provider_registry(config_for_providers);
+    let provider_ids = seed_registry_providers(storage, &mut registry)
         .await
         .context("seed provider registry into storage")?;
-    seed_registry_credentials_and_statuses(&storage, &mut registry, &provider_ids)
+    seed_registry_credentials_and_statuses(storage, &mut registry, &provider_ids)
         .await
         .context("seed registry credentials and statuses into storage")?;
-    let mut users = storage
+    Ok(registry)
+}
+
+async fn load_principal_cache(storage: &SeaOrmStorage) -> Result<PrincipalCache> {
+    let users = storage
         .list_users(&UserQuery {
             id: Scope::All,
             name: Scope::All,
@@ -154,7 +261,7 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
         })
         .await
         .context("load user_keys into memory")?;
-    let mut keys: std::collections::HashMap<String, MemoryUserKey> = keys_rows
+    let keys = keys_rows
         .into_iter()
         .map(|row| {
             (
@@ -168,15 +275,34 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
             )
         })
         .collect();
+
+    Ok(PrincipalCache { users, keys })
+}
+
+async fn seed_bootstrap_state(
+    storage: &SeaOrmStorage,
+    mut global: GlobalSettings,
+    principals: &mut PrincipalCache,
+) -> Result<GlobalSettings> {
     let (admin_user_write, admin_key_write) =
-        ensure_admin_principal(&mut global, &mut users, &mut keys)?;
-    seed_admin_principal(&storage, admin_user_write, admin_key_write)
+        ensure_admin_principal(&mut global, &mut principals.users, &mut principals.keys)?;
+    seed_admin_principal(storage, admin_user_write, admin_key_write)
         .await
         .context("seed admin principal into storage")?;
-    seed_global_settings(&storage, &global)
+    seed_global_settings(storage, &global)
         .await
         .context("seed global settings into storage")?;
+    Ok(global)
+}
 
+fn build_app_state(
+    storage: Arc<SeaOrmStorage>,
+    storage_writes: gproxy_storage::StorageWriteSender,
+    global: GlobalSettings,
+    providers: ProviderRegistry,
+    tokenizer_cache_dir: std::path::PathBuf,
+    principals: PrincipalCache,
+) -> Result<Arc<AppState>> {
     let http_client = build_http_client(global.proxy.as_deref())
         .context("build standard upstream http client")?;
     let spoof_http_client =
@@ -187,25 +313,17 @@ pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
         eprintln!("bootstrap: preload deepseek fallback tokenizer failed: {err}");
     }
 
-    let state = Arc::new(AppState::new(AppStateInit {
-        storage: storage.clone(),
-        storage_writes: write_tx,
+    Ok(Arc::new(AppState::new(AppStateInit {
+        storage,
+        storage_writes,
         http: Arc::new(http_client),
         spoof_http: Arc::new(spoof_http_client),
         global,
-        providers: registry,
+        providers,
         tokenizers: tokenizer_store,
-        users,
-        keys,
-    }));
-
-    Ok(Bootstrap {
-        config_path,
-        config,
-        storage,
-        state,
-        storage_write_worker: write_worker,
-    })
+        users: principals.users,
+        keys: principals.keys,
+    })))
 }
 
 fn merge_global_settings(config: &BootstrapConfig) -> GlobalSettings {
