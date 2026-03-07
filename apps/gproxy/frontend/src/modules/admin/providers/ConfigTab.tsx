@@ -1,6 +1,7 @@
 import { useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
 
 import { Button, Input, Label, Select, TextArea } from "../../../components/ui";
+import { BUILTIN_CHANNELS } from "./channels/registry";
 import {
   BUILD_UA_ARCH,
   BUILD_UA_OS,
@@ -59,6 +60,7 @@ export function ConfigTab({
   t: TranslateFn;
 }) {
   const [dispatchExpanded, setDispatchExpanded] = useState(false);
+  const [dispatchTemplatesExpanded, setDispatchTemplatesExpanded] = useState(false);
   const [cacheBreakpointsExpanded, setCacheBreakpointsExpanded] = useState(false);
   const maxDispatchRowsWhenCollapsed = 3;
   const hasMoreDispatchRules =
@@ -84,6 +86,15 @@ export function ConfigTab({
       value: CLAUDE_AGENT_SDK_PRELUDE_TEXT
     }
   ] as const;
+  const dispatchTemplateChannels = BUILTIN_CHANNELS;
+
+  const applyDispatchTemplate = (channel: string) => {
+    setProviderForm((prev) => ({
+      ...prev,
+      dispatchRules: defaultDispatchRulesForChannel(channel)
+    }));
+  };
+
   const geminiCliTemplate = `GeminiCLI/0.30.0/gemini-2.5-pro (${BUILD_UA_OS}; ${BUILD_UA_ARCH})`;
   const userAgentTemplateOptions = [
     { value: "", label: t("providers.uaTemplate.placeholder") },
@@ -736,6 +747,12 @@ export function ConfigTab({
         <div className="flex items-center justify-between">
           <Label>{t("field.dispatch_rules")}</Label>
           <div className="flex items-center gap-2">
+            <Button
+              variant="neutral"
+              onClick={() => setDispatchTemplatesExpanded((value) => !value)}
+            >
+              {t("providers.dispatch.templates")}
+            </Button>
             {hasMoreDispatchRules ? (
               <Button variant="neutral" onClick={() => setDispatchExpanded((value) => !value)}>
                 {dispatchExpanded
@@ -749,6 +766,22 @@ export function ConfigTab({
           </div>
         </div>
         <div className="space-y-3">
+          {dispatchTemplatesExpanded ? (
+            <div className="provider-card space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {dispatchTemplateChannels.map((templateChannel) => (
+                  <Button
+                    key={templateChannel}
+                    variant="neutral"
+                    onClick={() => applyDispatchTemplate(templateChannel)}
+                  >
+                    {t("providers.dispatch.templateOption", { channel: templateChannel })}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted">{t("providers.dispatch.templateHint")}</p>
+            </div>
+          ) : null}
           {visibleDispatchRules.map((rule) => (
             <div key={rule.id} className="provider-card space-y-2">
               <div className="grid gap-2 md:grid-cols-6">
