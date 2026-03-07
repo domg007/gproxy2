@@ -135,6 +135,8 @@ docker run --rm -p 8787:8787 \
 
 #### ClawCloud Run
 
+[![Run on ClawCloud](https://raw.githubusercontent.com/ClawCloud/Run-Template/refs/heads/main/Run-on-ClawCloud.svg)](https://template.run.claw.cloud/?openapp=system-fastdeploy%3FtemplateName%3Dgproxy)
+
 - 模板文件：[`claw.yaml`](./claw.yaml)
 - 可在 ClawCloud Run 的 App Store -> My Apps -> Debugging 中将 `claw.yaml` 作为自定义模板使用。
 - 关键输入项：`admin_key`（默认自动生成）、`proxy_url`、`rust_log`、`volume_size`
