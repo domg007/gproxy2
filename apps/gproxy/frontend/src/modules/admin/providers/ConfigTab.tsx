@@ -751,7 +751,9 @@ export function ConfigTab({
               variant="neutral"
               onClick={() => setDispatchTemplatesExpanded((value) => !value)}
             >
-              {t("providers.dispatch.templates")}
+              {dispatchTemplatesExpanded
+                ? t("providers.dispatch.hideTemplates")
+                : t("providers.dispatch.showTemplates")}
             </Button>
             {hasMoreDispatchRules ? (
               <Button variant="neutral" onClick={() => setDispatchExpanded((value) => !value)}>
