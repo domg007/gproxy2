@@ -55,9 +55,11 @@ impl SeaOrmStorage {
     }
 
     pub async fn summarize_usages(&self, query: &UsageQuery) -> Result<UsageSummary, DbErr> {
-        let mut stmt = usages::Entity::find()
-            .join(JoinType::LeftJoin, usages::Relation::Providers.def())
-            .select_only()
+        let mut stmt = usages::Entity::find().select_only();
+        if usage_query_needs_provider_join(query) {
+            stmt = stmt.join(JoinType::LeftJoin, usages::Relation::Providers.def());
+        }
+        stmt = stmt
             .column_as(Expr::col(usages::Column::TraceId).count(), "count")
             .column_as(Expr::col(usages::Column::InputTokens).sum(), "input_tokens")
             .column_as(
@@ -103,12 +105,18 @@ impl SeaOrmStorage {
     }
 
     pub async fn count_usages(&self, query: &UsageQuery) -> Result<UsageQueryCount, DbErr> {
-        let mut stmt =
-            usages::Entity::find().join(JoinType::LeftJoin, usages::Relation::Providers.def());
+        let mut stmt = usages::Entity::find();
+        if usage_query_needs_provider_join(query) {
+            stmt = stmt.join(JoinType::LeftJoin, usages::Relation::Providers.def());
+        }
         stmt = apply_usage_filters(stmt, query);
         let count = stmt.count(self.connection()).await?;
         Ok(UsageQueryCount { count })
     }
+}
+
+fn usage_query_needs_provider_join(query: &UsageQuery) -> bool {
+    matches!(query.channel, Scope::Eq(_))
 }
 
 fn apply_usage_filters<S>(stmt: S, query: &UsageQuery) -> S

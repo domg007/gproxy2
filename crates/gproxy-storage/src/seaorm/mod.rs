@@ -1,10 +1,11 @@
 mod crypto;
 pub mod entities;
+mod optimize;
 mod store_mutation;
 mod store_query;
 mod write_sink;
 
-use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, DbErr};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
 
 pub(crate) use crypto::DatabaseCipher;
 
@@ -16,10 +17,10 @@ pub struct SeaOrmStorage {
 
 impl SeaOrmStorage {
     pub async fn connect(dsn: &str, database_secret_key: Option<&str>) -> Result<Self, DbErr> {
-        let db = Database::connect(dsn).await?;
-        if db.get_database_backend() == DatabaseBackend::Sqlite {
-            db.execute_unprepared("PRAGMA foreign_keys = ON").await?;
-        }
+        let mut options = ConnectOptions::new(dsn.to_string());
+        optimize::configure_connect_options(&mut options);
+        let db = Database::connect(options).await?;
+        optimize::apply_after_connect(&db).await?;
         let cipher = DatabaseCipher::from_optional_secret(database_secret_key)
             .map_err(|err| DbErr::Custom(format!("load DATABASE_SECRET_KEY: {err}")))?;
         Ok(Self { db, cipher })
@@ -38,6 +39,7 @@ impl SeaOrmStorage {
         let schema = self
             .db
             .get_schema_registry("gproxy_storage::seaorm::entities::*");
-        schema.sync(&self.db).await
+        schema.sync(&self.db).await?;
+        optimize::apply_after_sync(&self.db).await
     }
 }
