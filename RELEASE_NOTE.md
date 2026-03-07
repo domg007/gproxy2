@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.3.28
+
+### English
+
+#### Changed
+
+- Added a provider-delete confirmation dialog in the admin UI to reduce accidental removals.
+- Switched the provider workspace to open on the `bulk` tab after selecting a provider, making bulk credential operations easier to reach.
+- Reordered Codex OAuth action buttons for a clearer admin flow.
+- Updated deployment docs, README entries, and templates for ClawCloud Run, including a new `claw.yaml` template and README badge.
+
+#### Fixed
+
+- Fixed local provider-request handling to use the full `ProviderDefinition` instead of only `ChannelId`, so provider-local behavior can honor provider configuration.
+- Fixed VertexExpress local Gemini model responses to require a configured credential before returning synthetic local model data, avoiding misleading success responses on unconfigured providers.
+
+#### Compatibility
+
+- Cloud deployment guidance now points to ClawCloud Run; repository templates use `claw.yaml` and no longer ship `zeabur.yaml`.
+- Existing provider and credential data remain compatible; the VertexExpress change only tightens runtime behavior when no usable credential is configured.
+
+### 中文
+
+#### 变更
+
+- 管理后台新增 provider 删除确认弹窗，减少误删风险。
+- 在后台选中 provider 后，工作区默认切换到 `bulk` 标签页，便于更快进入批量凭证操作。
+- 调整了 Codex OAuth 操作按钮顺序，优化管理员操作流程。
+- 更新了 ClawCloud Run 的部署文档、README 入口和模板，新增 `claw.yaml` 模板与 README 徽章。
+
+#### 修复
+
+- 修复了 provider 本地请求处理仅依赖 `ChannelId` 的问题，现改为基于完整 `ProviderDefinition` 执行，以便本地行为正确感知 provider 配置。
+- 修复了 VertexExpress 本地 Gemini 模型响应在未配置可用凭证时仍返回本地合成模型数据的问题，避免未配置 provider 出现误导性的成功响应。
+
+#### 兼容性
+
+- 云部署说明现以 ClawCloud Run 为主，仓库模板改为使用 `claw.yaml`，并移除了 `zeabur.yaml`。
+- 现有 provider 与 credential 数据保持兼容；VertexExpress 的改动仅在未配置可用凭证时收紧运行时行为。
+
 ## v0.3.27
 
 ### English
