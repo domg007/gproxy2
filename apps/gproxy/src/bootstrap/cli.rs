@@ -36,6 +36,9 @@ pub struct CliArgs {
     #[arg(long, env = "GPROXY_DSN")]
     pub dsn: Option<String>,
 
+    #[arg(long, env = "DATABASE_SECRET_KEY")]
+    pub database_secret_key: Option<String>,
+
     #[arg(long, env = "GPROXY_STORAGE_WRITE_QUEUE_CAPACITY")]
     pub storage_write_queue_capacity: Option<usize>,
 

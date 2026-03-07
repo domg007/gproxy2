@@ -226,7 +226,7 @@ mod tests {
                     .enable_all()
                     .build()
                     .expect("runtime should build")
-                    .block_on(SeaOrmStorage::connect("sqlite::memory:"))
+                    .block_on(SeaOrmStorage::connect("sqlite::memory:", None))
                     .expect("memory storage should connect"),
             ),
             storage_writes,

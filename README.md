@@ -333,6 +333,9 @@ Supported overrides:
 - `--storage-write-queue-capacity` / `GPROXY_STORAGE_WRITE_QUEUE_CAPACITY`
 - `--storage-write-max-batch-size` / `GPROXY_STORAGE_WRITE_MAX_BATCH_SIZE`
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
+- `--database-secret-key` / `DATABASE_SECRET_KEY`
+
+When `DATABASE_SECRET_KEY` is unset, gproxy stores and reads DB values as plaintext. When it is set, gproxy transparently encrypts at rest for `credential.secret_json`, user API keys, user passwords, `admin_key`, and `hf_token`.
 
 ### Bootstrap Source Mode
 

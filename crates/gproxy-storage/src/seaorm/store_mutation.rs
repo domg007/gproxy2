@@ -6,7 +6,7 @@ use sea_orm::{
 use serde_json::Value as JsonValue;
 use time::OffsetDateTime;
 
-use super::SeaOrmStorage;
+use super::{DatabaseCipher, SeaOrmStorage};
 use super::entities::{
     credentials, downstream_requests, providers, upstream_requests, user_keys, users,
 };
@@ -18,6 +18,41 @@ fn parse_json(field: &str, raw: &str) -> Result<JsonValue, DbErr> {
 
 fn parse_optional_json(field: &str, raw: Option<&str>) -> Result<Option<JsonValue>, DbErr> {
     raw.map(|value| parse_json(field, value)).transpose()
+}
+
+fn encrypt_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: &str,
+) -> Result<String, DbErr> {
+    match cipher {
+        Some(cipher) => cipher
+            .encrypt_string(raw)
+            .map_err(|err| DbErr::Custom(format!("encrypt {field}: {err}"))),
+        None => Ok(raw.to_string()),
+    }
+}
+
+fn encrypt_optional_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: Option<&str>,
+) -> Result<Option<String>, DbErr> {
+    raw.map(|value| encrypt_string_field(cipher, field, value)).transpose()
+}
+
+fn encrypt_json_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: &str,
+) -> Result<JsonValue, DbErr> {
+    let value = parse_json(field, raw)?;
+    match cipher {
+        Some(cipher) => cipher
+            .encrypt_json(&value)
+            .map_err(|err| DbErr::Custom(format!("encrypt {field}: {err}"))),
+        None => Ok(value),
+    }
 }
 
 impl SeaOrmStorage {
@@ -64,7 +99,11 @@ impl SeaOrmStorage {
                 "credential.settings_json",
                 settings_json,
             )?),
-            secret_json: Set(parse_json("credential.secret_json", secret_json)?),
+            secret_json: Set(encrypt_json_field(
+                self.cipher(),
+                "credential.secret_json",
+                secret_json,
+            )?),
             enabled: Set(enabled),
             created_at: Set(now),
             updated_at: Set(now),
@@ -84,7 +123,11 @@ impl SeaOrmStorage {
         let model = users::ActiveModel {
             id: NotSet,
             name: Set(name.to_string()),
-            password: Set(Some(password.to_string())),
+            password: Set(encrypt_optional_string_field(
+                self.cipher(),
+                "user.password",
+                Some(password),
+            )?),
             enabled: Set(enabled),
             created_at: Set(now),
             updated_at: Set(now),
@@ -105,7 +148,7 @@ impl SeaOrmStorage {
         let model = user_keys::ActiveModel {
             id: NotSet,
             user_id: Set(user_id),
-            api_key: Set(api_key.to_string()),
+            api_key: Set(encrypt_string_field(self.cipher(), "user_key.api_key", api_key)?),
             label: Set(label.map(str::to_string)),
             enabled: Set(enabled),
             created_at: Set(now),

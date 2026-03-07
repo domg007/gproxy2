@@ -331,6 +331,9 @@ https://gproxy.leenhawk.com/zh/guides/credential-selection-cache-affinity/
 - `--storage-write-queue-capacity` / `GPROXY_STORAGE_WRITE_QUEUE_CAPACITY`
 - `--storage-write-max-batch-size` / `GPROXY_STORAGE_WRITE_MAX_BATCH_SIZE`
 - `--storage-write-aggregate-window-ms` / `GPROXY_STORAGE_WRITE_AGGREGATE_WINDOW_MS`
+- `--database-secret-key` / `DATABASE_SECRET_KEY`
+
+未设置 `DATABASE_SECRET_KEY` 时，gproxy 会按明文读写数据库；设置后会对 `credential.secret_json`、用户 API Key、用户密码、`admin_key` 与 `hf_token` 做透明静态加密。
 
 ### 启动数据来源模式
 

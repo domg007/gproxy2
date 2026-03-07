@@ -1,6 +1,7 @@
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::Value as JsonValue;
 
-use super::super::SeaOrmStorage;
+use super::super::{DatabaseCipher, SeaOrmStorage};
 use super::super::entities::{
     credential_statuses, credentials, global_settings, providers, user_keys, users,
 };
@@ -10,27 +11,72 @@ use crate::query::{
     UserKeyQueryRow, UserQuery, UserQueryRow,
 };
 
+fn decrypt_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: String,
+) -> Result<String, DbErr> {
+    match cipher {
+        Some(cipher) => cipher
+            .decrypt_string(&raw)
+            .map_err(|err| DbErr::Custom(format!("decrypt {field}: {err}"))),
+        None => Ok(raw),
+    }
+}
+
+fn decrypt_optional_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: Option<String>,
+) -> Result<Option<String>, DbErr> {
+    match (cipher, raw) {
+        (_, None) => Ok(None),
+        (Some(cipher), Some(raw)) => cipher
+            .decrypt_string(&raw)
+            .map(Some)
+            .map_err(|err| DbErr::Custom(format!("decrypt {field}: {err}"))),
+        (None, Some(raw)) => Ok(Some(raw)),
+    }
+}
+
+fn decrypt_json_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: JsonValue,
+) -> Result<JsonValue, DbErr> {
+    match cipher {
+        Some(cipher) => cipher
+            .decrypt_json(raw)
+            .map_err(|err| DbErr::Custom(format!("decrypt {field}: {err}"))),
+        None => Ok(raw),
+    }
+}
+
 impl SeaOrmStorage {
     pub async fn get_global_settings(&self) -> Result<Option<GlobalSettingsRow>, DbErr> {
         let row = global_settings::Entity::find()
             .order_by(global_settings::Column::UpdatedAt, Order::Desc)
             .one(self.connection())
             .await?;
-        Ok(row.map(|row| GlobalSettingsRow {
-            id: row.id,
-            host: row.host,
-            port: row.port,
-            admin_key: row.admin_key,
-            hf_token: row.hf_token,
-            hf_url: row.hf_url,
-            proxy: row.proxy,
-            spoof_emulation: row.spoof_emulation,
-            update_source: row.update_source,
-            dsn: row.dsn,
-            data_dir: row.data_dir,
-            mask_sensitive_info: row.mask_sensitive_info,
-            updated_at: row.updated_at,
-        }))
+        let cipher = self.cipher();
+        Ok(match row {
+            Some(row) => Some(GlobalSettingsRow {
+                id: row.id,
+                host: row.host,
+                port: row.port,
+                admin_key: decrypt_string_field(cipher, "global_settings.admin_key", row.admin_key)?,
+                hf_token: decrypt_optional_string_field(cipher, "global_settings.hf_token", row.hf_token)?,
+                hf_url: row.hf_url,
+                proxy: row.proxy,
+                spoof_emulation: row.spoof_emulation,
+                update_source: row.update_source,
+                dsn: row.dsn,
+                data_dir: row.data_dir,
+                mask_sensitive_info: row.mask_sensitive_info,
+                updated_at: row.updated_at,
+            }),
+            None => None,
+        })
     }
 
     pub async fn list_providers(
@@ -90,20 +136,22 @@ impl SeaOrmStorage {
             stmt = stmt.limit(limit);
         }
         let rows = stmt.all(self.connection()).await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| CredentialQueryRow {
-                id: row.id,
-                provider_id: row.provider_id,
-                name: row.name,
-                kind: row.kind,
-                settings_json: row.settings_json,
-                secret_json: row.secret_json,
-                enabled: row.enabled,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
+        let cipher = self.cipher();
+        rows.into_iter()
+            .map(|row| {
+                Ok(CredentialQueryRow {
+                    id: row.id,
+                    provider_id: row.provider_id,
+                    name: row.name,
+                    kind: row.kind,
+                    settings_json: row.settings_json,
+                    secret_json: decrypt_json_field(cipher, "credential.secret_json", row.secret_json)?,
+                    enabled: row.enabled,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                })
             })
-            .collect())
+            .collect()
     }
 
     pub async fn list_credential_statuses(
@@ -154,15 +202,18 @@ impl SeaOrmStorage {
             stmt = stmt.filter(users::Column::Name.eq(name.as_str()));
         }
         let rows = stmt.all(self.connection()).await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| UserQueryRow {
-                id: row.id,
-                name: row.name,
-                password: row.password.unwrap_or_default(),
-                enabled: row.enabled,
+        let cipher = self.cipher();
+        rows.into_iter()
+            .map(|row| {
+                Ok(UserQueryRow {
+                    id: row.id,
+                    name: row.name,
+                    password: decrypt_optional_string_field(cipher, "user.password", row.password)?
+                        .unwrap_or_default(),
+                    enabled: row.enabled,
+                })
             })
-            .collect())
+            .collect()
     }
 
     pub async fn list_user_keys(
@@ -177,18 +228,32 @@ impl SeaOrmStorage {
         if let Scope::Eq(user_id) = query.user_id {
             stmt = stmt.filter(user_keys::Column::UserId.eq(user_id));
         }
-        if let Scope::Eq(api_key) = &query.api_key {
-            stmt = stmt.filter(user_keys::Column::ApiKey.eq(api_key.as_str()));
+        let api_key_filter = if let Scope::Eq(api_key) = &query.api_key {
+            Some(api_key.clone())
+        } else {
+            None
+        };
+        if self.cipher().is_none()
+            && let Some(api_key) = api_key_filter.as_deref()
+        {
+            stmt = stmt.filter(user_keys::Column::ApiKey.eq(api_key));
         }
         let rows = stmt.all(self.connection()).await?;
-        Ok(rows
+        let cipher = self.cipher();
+        let mut rows: Vec<UserKeyQueryRow> = rows
             .into_iter()
-            .map(|row| UserKeyQueryRow {
-                id: row.id,
-                user_id: row.user_id,
-                api_key: row.api_key,
+            .map(|row| {
+                Ok(UserKeyQueryRow {
+                    id: row.id,
+                    user_id: row.user_id,
+                    api_key: decrypt_string_field(cipher, "user_key.api_key", row.api_key)?,
+                })
             })
-            .collect())
+            .collect::<Result<_, DbErr>>()?;
+        if let Some(api_key) = api_key_filter.as_deref() {
+            rows.retain(|row| row.api_key == api_key);
+        }
+        Ok(rows)
     }
 
     pub async fn list_user_keys_for_memory(
@@ -203,18 +268,32 @@ impl SeaOrmStorage {
         if let Scope::Eq(user_id) = query.user_id {
             stmt = stmt.filter(user_keys::Column::UserId.eq(user_id));
         }
-        if let Scope::Eq(api_key) = &query.api_key {
-            stmt = stmt.filter(user_keys::Column::ApiKey.eq(api_key.as_str()));
+        let api_key_filter = if let Scope::Eq(api_key) = &query.api_key {
+            Some(api_key.clone())
+        } else {
+            None
+        };
+        if self.cipher().is_none()
+            && let Some(api_key) = api_key_filter.as_deref()
+        {
+            stmt = stmt.filter(user_keys::Column::ApiKey.eq(api_key));
         }
         let rows = stmt.all(self.connection()).await?;
-        Ok(rows
+        let cipher = self.cipher();
+        let mut rows: Vec<UserKeyMemoryRow> = rows
             .into_iter()
-            .map(|row| UserKeyMemoryRow {
-                id: row.id,
-                user_id: row.user_id,
-                api_key: row.api_key,
-                enabled: row.enabled,
+            .map(|row| {
+                Ok(UserKeyMemoryRow {
+                    id: row.id,
+                    user_id: row.user_id,
+                    api_key: decrypt_string_field(cipher, "user_key.api_key", row.api_key)?,
+                    enabled: row.enabled,
+                })
             })
-            .collect())
+            .collect::<Result<_, DbErr>>()?;
+        if let Some(api_key) = api_key_filter.as_deref() {
+            rows.retain(|row| row.api_key == api_key);
+        }
+        Ok(rows)
     }
 }

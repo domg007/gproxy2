@@ -46,7 +46,11 @@ pub async fn bootstrap_from_env() -> Result<Bootstrap> {
 
 pub async fn bootstrap(args: CliArgs) -> Result<Bootstrap> {
     let loaded = config::load_bootstrap_config(&args)?;
-    let runtime_storage = storage::init_runtime_storage(&loaded.global).await?;
+    let runtime_storage = storage::init_runtime_storage(
+        &loaded.global,
+        args.database_secret_key.as_deref(),
+    )
+    .await?;
     let preference = storage::resolve_storage_preference(
         runtime_storage.storage.as_ref(),
         &args,

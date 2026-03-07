@@ -25,10 +25,13 @@ fn ensure_runtime_directories(global: &GlobalSettings) -> Result<std::path::Path
     Ok(tokenizer_cache_dir)
 }
 
-pub(super) async fn init_runtime_storage(global: &GlobalSettings) -> Result<RuntimeStorage> {
+pub(super) async fn init_runtime_storage(
+    global: &GlobalSettings,
+    database_secret_key: Option<&str>,
+) -> Result<RuntimeStorage> {
     let tokenizer_cache_dir = ensure_runtime_directories(global)?;
     let storage = Arc::new(
-        SeaOrmStorage::connect(&global.dsn)
+        SeaOrmStorage::connect(&global.dsn, database_secret_key)
             .await
             .with_context(|| format!("connect storage dsn={}", global.dsn))?,
     );

@@ -9,7 +9,7 @@ use sea_orm::{
 use serde_json::Value as JsonValue;
 use time::OffsetDateTime;
 
-use super::SeaOrmStorage;
+use super::{DatabaseCipher, SeaOrmStorage};
 use super::entities::{
     credential_statuses, credentials, downstream_requests, global_settings, providers,
     upstream_requests, usages, user_keys, users,
@@ -21,6 +21,43 @@ use crate::write::{
 };
 
 const UPSERT_CHUNK_SIZE: usize = 256;
+
+fn encrypt_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: String,
+) -> Result<String, StorageWriteSinkError> {
+    match cipher {
+        Some(cipher) => cipher
+            .encrypt_string(&raw)
+            .map_err(|err| StorageWriteSinkError::new(format!("encrypt {field}: {err}"))),
+        None => Ok(raw),
+    }
+}
+
+fn encrypt_optional_string_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: Option<String>,
+) -> Result<Option<String>, StorageWriteSinkError> {
+    match raw {
+        Some(raw) => encrypt_string_field(cipher, field, raw).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn encrypt_json_field(
+    cipher: Option<&DatabaseCipher>,
+    field: &str,
+    raw: JsonValue,
+) -> Result<JsonValue, StorageWriteSinkError> {
+    match cipher {
+        Some(cipher) => cipher
+            .encrypt_json(&raw)
+            .map_err(|err| StorageWriteSinkError::new(format!("encrypt {field}: {err}"))),
+        None => Ok(raw),
+    }
+}
 
 impl StorageWriteSink for SeaOrmStorage {
     fn write_batch<'a>(
@@ -96,14 +133,14 @@ impl SeaOrmStorage {
         }
 
         if let Some(settings) = global_settings {
-            upsert_global_settings(&txn, settings, now).await?;
+            upsert_global_settings(&txn, self.cipher(), settings, now).await?;
         }
 
         upsert_providers(&txn, providers_upsert.into_values(), now).await?;
-        upsert_credentials(&txn, credentials_upsert.into_values(), now).await?;
+        upsert_credentials(&txn, self.cipher(), credentials_upsert.into_values(), now).await?;
         upsert_credential_statuses(&txn, credential_statuses_upsert.into_values(), now).await?;
-        upsert_users(&txn, users_upsert.into_values(), now).await?;
-        upsert_user_keys(&txn, user_keys_upsert.into_values(), now).await?;
+        upsert_users(&txn, self.cipher(), users_upsert.into_values(), now).await?;
+        upsert_user_keys(&txn, self.cipher(), user_keys_upsert.into_values(), now).await?;
         upsert_downstream_requests(&txn, downstream_requests_upsert, now).await?;
         upsert_upstream_requests(&txn, upstream_requests_upsert, now).await?;
         upsert_usages(&txn, usages_upsert, now).await?;
@@ -117,6 +154,7 @@ impl SeaOrmStorage {
 
 async fn upsert_global_settings<C: ConnectionTrait>(
     db: &C,
+    cipher: Option<&DatabaseCipher>,
     settings: GlobalSettingsWrite,
     now: OffsetDateTime,
 ) -> Result<(), StorageWriteSinkError> {
@@ -125,8 +163,8 @@ async fn upsert_global_settings<C: ConnectionTrait>(
         id: Set(id),
         host: Set(settings.host),
         port: Set(i32::from(settings.port)),
-        admin_key: Set(settings.admin_key),
-        hf_token: Set(settings.hf_token),
+        admin_key: Set(encrypt_string_field(cipher, "global_settings.admin_key", settings.admin_key)?),
+        hf_token: Set(encrypt_optional_string_field(cipher, "global_settings.hf_token", settings.hf_token)?),
         hf_url: Set(settings.hf_url),
         proxy: Set(settings.proxy),
         spoof_emulation: Set(Some(settings.spoof_emulation)),
@@ -208,6 +246,7 @@ async fn upsert_providers<C: ConnectionTrait>(
 
 async fn upsert_credentials<C: ConnectionTrait>(
     db: &C,
+    cipher: Option<&DatabaseCipher>,
     values: impl IntoIterator<Item = CredentialWrite>,
     now: OffsetDateTime,
 ) -> Result<(), StorageWriteSinkError> {
@@ -215,7 +254,11 @@ async fn upsert_credentials<C: ConnectionTrait>(
     for item in values {
         let settings_json =
             parse_optional_json("credential.settings_json", item.settings_json.as_deref())?;
-        let secret_json = parse_json("credential.secret_json", &item.secret_json)?;
+        let secret_json = encrypt_json_field(
+            cipher,
+            "credential.secret_json",
+            parse_json("credential.secret_json", &item.secret_json)?,
+        )?;
         models.push(credentials::ActiveModel {
             id: Set(item.id),
             provider_id: Set(item.provider_id),
@@ -316,20 +359,25 @@ async fn upsert_credential_statuses<C: ConnectionTrait>(
 
 async fn upsert_users<C: ConnectionTrait>(
     db: &C,
+    cipher: Option<&DatabaseCipher>,
     values: impl IntoIterator<Item = UserWrite>,
     now: OffsetDateTime,
 ) -> Result<(), StorageWriteSinkError> {
-    let models: Vec<_> = values
-        .into_iter()
-        .map(|item| users::ActiveModel {
+    let mut models = Vec::new();
+    for item in values {
+        models.push(users::ActiveModel {
             id: Set(item.id),
             name: Set(item.name),
-            password: Set(Some(item.password)),
+            password: Set(encrypt_optional_string_field(
+                cipher,
+                "user.password",
+                Some(item.password),
+            )?),
             enabled: Set(item.enabled),
             created_at: Set(now),
             updated_at: Set(now),
-        })
-        .collect();
+        });
+    }
 
     let mut iter = models.into_iter();
     loop {
@@ -357,21 +405,22 @@ async fn upsert_users<C: ConnectionTrait>(
 
 async fn upsert_user_keys<C: ConnectionTrait>(
     db: &C,
+    cipher: Option<&DatabaseCipher>,
     values: impl IntoIterator<Item = UserKeyWrite>,
     now: OffsetDateTime,
 ) -> Result<(), StorageWriteSinkError> {
-    let models: Vec<_> = values
-        .into_iter()
-        .map(|item| user_keys::ActiveModel {
+    let mut models = Vec::new();
+    for item in values {
+        models.push(user_keys::ActiveModel {
             id: Set(item.id),
             user_id: Set(item.user_id),
-            api_key: Set(item.api_key),
+            api_key: Set(encrypt_string_field(cipher, "user_key.api_key", item.api_key)?),
             label: Set(item.label),
             enabled: Set(item.enabled),
             created_at: Set(now),
             updated_at: Set(now),
-        })
-        .collect();
+        });
+    }
 
     let mut iter = models.into_iter();
     loop {
