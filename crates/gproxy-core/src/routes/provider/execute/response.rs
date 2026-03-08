@@ -64,6 +64,12 @@ async fn handle_local_upstream_response(
             .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
     }
 
+    let local_http = if local.operation() == OperationFamily::VideoContentGet {
+        local_response_status_and_headers(local)
+    } else {
+        None
+    };
+
     enqueue_upstream_and_usage_event(
         context.state.as_ref(),
         UpstreamAndUsageEventInput {
@@ -73,8 +79,16 @@ async fn handle_local_upstream_response(
             credential_id: upstream_credential_id,
             request_meta: upstream_request_meta.as_ref(),
             error_status: None,
-            response_status: Some(200),
-            response_headers: &[],
+            response_status: Some(
+                local_http
+                    .as_ref()
+                    .map(|item| item.0.as_u16())
+                    .unwrap_or(200),
+            ),
+            response_headers: local_http
+                .as_ref()
+                .map(|item| item.1.as_slice())
+                .unwrap_or(&[]),
             response_body: None,
             local_response: Some(&usage_source_response),
         },
@@ -82,6 +96,10 @@ async fn handle_local_upstream_response(
     .await;
 
     let body = serialize_local_response_body(local)?;
+    if let Some((status, headers)) = local_http {
+        return response_from_status_headers_and_bytes(status, headers.as_slice(), body);
+    }
+
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "application/json")

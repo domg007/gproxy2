@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 pub enum OperationFamily {
     ModelList,
     ModelGet,
+    CreateVideo,
+    VideoGet,
+    VideoContentGet,
     CountToken,
     Compact,
     GenerateContent,

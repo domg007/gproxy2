@@ -96,6 +96,11 @@ pub fn transform_request(
     let mut transformed = match route.dst_operation {
         OperationFamily::ModelList => transform_model_list_request(input, route.dst_protocol),
         OperationFamily::ModelGet => transform_model_get_request(input, route.dst_protocol),
+        OperationFamily::CreateVideo => transform_create_video_request(input, route.dst_protocol),
+        OperationFamily::VideoGet => transform_video_get_request(input, route.dst_protocol),
+        OperationFamily::VideoContentGet => {
+            transform_video_content_get_request(input, route.dst_protocol)
+        }
         OperationFamily::CountToken => transform_count_tokens_request(input, route.dst_protocol),
         OperationFamily::Embedding => transform_embeddings_request(input, route.dst_protocol),
         OperationFamily::GenerateContent => transform_generate_request(input, route.dst_protocol),
@@ -212,6 +217,13 @@ pub fn transform_response(
         }
         OperationFamily::ModelGet => {
             transform_model_get_response(current_response, route.src_protocol)
+        }
+        OperationFamily::CreateVideo => {
+            transform_create_video_response(current_response, route.src_protocol)
+        }
+        OperationFamily::VideoGet => transform_video_get_response(current_response, route.src_protocol),
+        OperationFamily::VideoContentGet => {
+            transform_video_content_get_response(current_response, route.src_protocol)
         }
         OperationFamily::CountToken => {
             transform_count_tokens_response(current_response, route.src_protocol)

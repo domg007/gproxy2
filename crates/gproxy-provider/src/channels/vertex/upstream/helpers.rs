@@ -1,4 +1,6 @@
 use super::*;
+use base64::Engine as _;
+use http::StatusCode;
 
 pub(super) async fn normalize_vertex_model_response(
     response: WreqResponse,
@@ -18,9 +20,16 @@ pub(super) async fn normalize_vertex_model_response(
         .map_err(|err| UpstreamError::UpstreamRequest(err.to_string()))?;
     let raw_body = serde_json::from_slice::<Value>(&bytes)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    if matches!(kind, VertexModelResponseKind::VideoContentGet) {
+        return vertex_video_content_local_response(status, header_map, raw_body);
+    }
     let body = match kind {
         VertexModelResponseKind::List => vertex_model_list_payload(raw_body),
         VertexModelResponseKind::Get => vertex_model_get_payload(raw_body),
+        VertexModelResponseKind::CreateVideo | VertexModelResponseKind::VideoGet => {
+            vertex_video_operation_payload(raw_body)
+        }
+        VertexModelResponseKind::VideoContentGet => unreachable!(),
         VertexModelResponseKind::Embedding => vertex_embedding_payload(raw_body)?,
     };
 
@@ -41,11 +50,252 @@ pub(super) async fn normalize_vertex_model_response(
                 .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             Ok(TransformResponse::ModelGetGemini(response))
         }
+        VertexModelResponseKind::CreateVideo => {
+            let response = serde_json::from_value(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            Ok(TransformResponse::CreateVideoGemini(response))
+        }
+        VertexModelResponseKind::VideoGet => {
+            let response = serde_json::from_value(payload)
+                .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+            Ok(TransformResponse::VideoGetGemini(response))
+        }
+        VertexModelResponseKind::VideoContentGet => unreachable!(),
         VertexModelResponseKind::Embedding => {
             let response = serde_json::from_value(payload)
                 .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
             Ok(TransformResponse::EmbeddingGemini(response))
         }
+    }
+}
+
+pub(super) fn vertex_video_operation_model_id(operation: &str) -> Result<String, UpstreamError> {
+    let operation = operation.trim().trim_start_matches('/');
+    let Some((_, tail)) = operation.split_once("/models/") else {
+        return Err(UpstreamError::SerializeRequest(
+            "vertex video operation is missing `/models/` segment".to_string(),
+        ));
+    };
+    let Some((model_id, _)) = tail.split_once("/operations/") else {
+        return Err(UpstreamError::SerializeRequest(
+            "vertex video operation is missing `/operations/` segment".to_string(),
+        ));
+    };
+    if model_id.trim().is_empty() {
+        return Err(UpstreamError::SerializeRequest(
+            "vertex video operation model id is empty".to_string(),
+        ));
+    }
+    Ok(model_id.to_string())
+}
+
+pub(super) fn vertex_video_operation_payload(value: Value) -> Value {
+    let Value::Object(mut map) = value else {
+        return value;
+    };
+    let response_already_normalized = map
+        .get("response")
+        .and_then(Value::as_object)
+        .map(|response| {
+            response.contains_key("generateVideoResponse") || response.contains_key("generatedVideos")
+        })
+        .unwrap_or(false);
+    if response_already_normalized {
+        return Value::Object(map);
+    }
+
+    if let Some(response) = map.remove("response") {
+        map.insert("response".to_string(), vertex_video_operation_result(response));
+    } else if let Some(videos) = map.remove("videos") {
+        map.insert(
+            "response".to_string(),
+            vertex_video_operation_result(json!({ "videos": videos })),
+        );
+    }
+    Value::Object(map)
+}
+
+fn vertex_video_operation_result(value: Value) -> Value {
+    let Value::Object(mut map) = value else {
+        return value;
+    };
+    if map.contains_key("generateVideoResponse") || map.contains_key("generatedVideos") {
+        return Value::Object(map);
+    }
+
+    let videos = match map.remove("videos") {
+        Some(Value::Array(items)) => items
+            .into_iter()
+            .map(vertex_generated_video_sample)
+            .collect::<Vec<_>>(),
+        Some(item) => vec![vertex_generated_video_sample(item)],
+        None => Vec::new(),
+    };
+
+    let mut out = Map::new();
+    out.insert("generatedVideos".to_string(), Value::Array(videos));
+    Value::Object(out)
+}
+
+fn vertex_generated_video_sample(value: Value) -> Value {
+    let Value::Object(map) = value else {
+        return value;
+    };
+
+    let mut sample = Map::new();
+    let mut video = Map::new();
+    if let Some(uri) = map
+        .get("gcsUri")
+        .or_else(|| map.get("uri"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        video.insert("uri".to_string(), Value::String(uri.to_string()));
+    }
+    if let Some(mime_type) = map
+        .get("mimeType")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        video.insert("mimeType".to_string(), Value::String(mime_type.to_string()));
+    }
+    if !video.is_empty() {
+        sample.insert("video".to_string(), Value::Object(video));
+    }
+    Value::Object(sample)
+}
+
+fn vertex_video_content_local_response(
+    status: http::StatusCode,
+    mut header_map: Map<String, Value>,
+    raw_body: Value,
+) -> Result<TransformResponse, UpstreamError> {
+    let Some((bytes, mime_type)) = vertex_video_content_bytes(&raw_body)? else {
+        header_map
+            .entry("content-type".to_string())
+            .or_insert_with(|| Value::String("application/json".to_string()));
+        let body = if raw_body.get("done").and_then(Value::as_bool).unwrap_or(false) {
+            serde_json::json!({
+                "error": {
+                    "code": i32::from(StatusCode::BAD_GATEWAY.as_u16()),
+                    "message": "vertex video bytes missing from operation response",
+                    "status": "BAD_GATEWAY",
+                }
+            })
+        } else {
+            serde_json::json!({
+                "error": {
+                    "code": i32::from(StatusCode::CONFLICT.as_u16()),
+                    "message": "video content is not ready yet",
+                    "status": "CONFLICT",
+                }
+            })
+        };
+        return Ok(TransformResponse::VideoContentGetGemini(
+            serde_json::from_value(serde_json::json!({
+                "stats_code": if raw_body.get("done").and_then(Value::as_bool).unwrap_or(false) {
+                    StatusCode::BAD_GATEWAY.as_u16()
+                } else {
+                    StatusCode::CONFLICT.as_u16()
+                },
+                "headers": Value::Object(header_map),
+                "body": body,
+            }))
+            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+        ));
+    };
+
+    header_map.insert(
+        "content-type".to_string(),
+        Value::String(
+            mime_type
+                .unwrap_or_else(|| "application/octet-stream".to_string()),
+        ),
+    );
+    Ok(TransformResponse::VideoContentGetGemini(
+        serde_json::from_value(serde_json::json!({
+            "stats_code": status.as_u16(),
+            "headers": Value::Object(header_map),
+            "body": {
+                "bytes": bytes,
+            },
+        }))
+        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+    ))
+}
+
+fn vertex_video_content_bytes(
+    raw_body: &Value,
+) -> Result<Option<(Vec<u8>, Option<String>)>, UpstreamError> {
+    let videos = raw_body
+        .get("response")
+        .and_then(|value| value.get("videos"))
+        .and_then(Value::as_array)
+        .or_else(|| raw_body.get("videos").and_then(Value::as_array));
+    let Some(first) = videos.and_then(|items| items.first()) else {
+        return Ok(None);
+    };
+    let Some(encoded) = first
+        .get("bytesBase64Encoded")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    let mime_type = first
+        .get("mimeType")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    Ok(Some((bytes, mime_type)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_vertex_video_model_id_from_operation_name() {
+        let model_id = vertex_video_operation_model_id(
+            "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
+        )
+        .expect("model id");
+        assert_eq!(model_id, "veo-3.0-generate");
+    }
+
+    #[test]
+    fn normalizes_vertex_video_operation_payload() {
+        let payload = vertex_video_operation_payload(serde_json::json!({
+            "name": "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
+            "done": true,
+            "response": {
+                "videos": [
+                    {
+                        "gcsUri": "gs://bucket/video.mp4",
+                        "mimeType": "video/mp4"
+                    }
+                ]
+            }
+        }));
+
+        assert_eq!(
+            payload
+                .get("response")
+                .and_then(|item| item.get("generatedVideos"))
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("video"))
+                .and_then(|item| item.get("uri"))
+                .and_then(Value::as_str),
+            Some("gs://bucket/video.mp4")
+        );
     }
 }
 

@@ -32,6 +32,61 @@ impl VertexPreparedRequest {
                     extra_headers: Vec::new(),
                 })
             }
+            TransformRequest::CreateVideoGemini(value) => {
+                let model_id = normalize_vertex_model_name(value.path.model.as_str());
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:predictLongRunning"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&value.body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: Some(VertexModelResponseKind::CreateVideo),
+                    extra_headers: Vec::new(),
+                })
+            }
+            TransformRequest::VideoGetGemini(value) => {
+                let model_id = vertex_video_operation_model_id(value.path.operation.as_str())?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:fetchPredictOperation"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&json!({
+                            "operationName": value.path.operation,
+                        }))
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: Some(VertexModelResponseKind::VideoGet),
+                    extra_headers: Vec::new(),
+                })
+            }
+            TransformRequest::VideoContentGetGemini(value) => {
+                let model_id = vertex_video_operation_model_id(value.path.operation.as_str())?;
+                Ok(Self {
+                    method: WreqMethod::POST,
+                    endpoint: VertexEndpoint::Project(format!(
+                        "publishers/google/models/{model_id}:fetchPredictOperation"
+                    )),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&json!({
+                            "operationName": value.path.operation,
+                        }))
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model_id),
+                    model_response_kind: Some(VertexModelResponseKind::VideoContentGet),
+                    extra_headers: Vec::new(),
+                })
+            }
             TransformRequest::CountTokenGemini(value) => {
                 let model_id = normalize_vertex_model_name(value.path.model.as_str());
                 let body = vertex_count_tokens_payload(model_id.as_str(), &value.body)?;

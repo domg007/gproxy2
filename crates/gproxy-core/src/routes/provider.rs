@@ -160,6 +160,12 @@ pub fn router() -> Router<Arc<AppState>> {
             "/{provider}/v1/images/edits",
             post(openai_create_image_edit),
         )
+        .route("/{provider}/v1/videos", post(openai_create_video))
+        .route("/{provider}/v1/videos/{video_id}", get(openai_video_get))
+        .route(
+            "/{provider}/v1/videos/{video_id}/content",
+            get(openai_video_content_get),
+        )
         .route(
             "/{provider}/v1/responses/input_tokens",
             post(openai_input_tokens),

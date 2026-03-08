@@ -305,6 +305,46 @@ impl OpenAiPreparedRequest {
                 model: Some(value.path.model.clone()),
                 extra_headers: extra_headers_from_transform_request(request),
             }),
+            gproxy_middleware::TransformRequest::CreateVideoOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/videos".to_string(),
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
+            gproxy_middleware::TransformRequest::VideoGetOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: format!("/v1/videos/{}", value.path.video_id),
+                body: None,
+                model: None,
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
+            gproxy_middleware::TransformRequest::VideoContentGetOpenAi(value) => {
+                let mut path = format!("/v1/videos/{}/content", value.path.video_id);
+                if let Some(variant) = value.query.variant.as_ref()
+                    && let Some(variant) = serde_json::to_value(variant)
+                        .ok()
+                        .and_then(|item| item.as_str().map(ToOwned::to_owned))
+                {
+                    path.push_str("?variant=");
+                    path.push_str(variant.as_str());
+                }
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    path,
+                    body: None,
+                    model: None,
+                    extra_headers: extra_headers_from_transform_request(request),
+                })
+            }
             gproxy_middleware::TransformRequest::CountTokenOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/responses/input_tokens".to_string(),

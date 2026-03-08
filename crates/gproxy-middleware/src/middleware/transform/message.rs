@@ -18,6 +18,8 @@ use gproxy_protocol::gemini::embeddings::request::GeminiEmbedContentRequest;
 use gproxy_protocol::gemini::embeddings::response::GeminiEmbedContentResponse;
 use gproxy_protocol::gemini::generate_content::request::GeminiGenerateContentRequest;
 use gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse;
+use gproxy_protocol::gemini::generate_videos::request::GeminiGenerateVideosRequest;
+use gproxy_protocol::gemini::generate_videos::response::GeminiGenerateVideosResponse;
 use gproxy_protocol::gemini::live::request::GeminiLiveConnectRequest;
 use gproxy_protocol::gemini::live::response::GeminiLiveMessageResponse;
 use gproxy_protocol::gemini::model_get::request::GeminiModelGetRequest;
@@ -26,6 +28,10 @@ use gproxy_protocol::gemini::model_list::request::GeminiModelListRequest;
 use gproxy_protocol::gemini::model_list::response::GeminiModelListResponse;
 use gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest;
 use gproxy_protocol::gemini::stream_generate_content::response::GeminiStreamGenerateContentResponse;
+use gproxy_protocol::gemini::video_content_get::request::GeminiVideoContentGetRequest;
+use gproxy_protocol::gemini::video_content_get::response::GeminiVideoContentGetResponse;
+use gproxy_protocol::gemini::video_operation_get::request::GeminiVideoOperationGetRequest;
+use gproxy_protocol::gemini::video_operation_get::response::GeminiVideoOperationGetResponse;
 use gproxy_protocol::openai::compact_response::request::OpenAiCompactRequest;
 use gproxy_protocol::openai::compact_response::response::OpenAiCompactResponse;
 use gproxy_protocol::openai::count_tokens::request::OpenAiCountTokensRequest;
@@ -44,12 +50,18 @@ use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResp
 use gproxy_protocol::openai::create_response::stream::OpenAiCreateResponseSseStreamBody;
 use gproxy_protocol::openai::create_response::websocket::request::OpenAiCreateResponseWebSocketConnectRequest;
 use gproxy_protocol::openai::create_response::websocket::response::OpenAiCreateResponseWebSocketMessageResponse;
+use gproxy_protocol::openai::create_video::request::OpenAiCreateVideoRequest;
+use gproxy_protocol::openai::create_video::response::OpenAiCreateVideoResponse;
 use gproxy_protocol::openai::embeddings::request::OpenAiEmbeddingsRequest;
 use gproxy_protocol::openai::embeddings::response::OpenAiEmbeddingsResponse;
 use gproxy_protocol::openai::model_get::request::OpenAiModelGetRequest;
 use gproxy_protocol::openai::model_get::response::OpenAiModelGetResponse;
 use gproxy_protocol::openai::model_list::request::OpenAiModelListRequest;
 use gproxy_protocol::openai::model_list::response::OpenAiModelListResponse;
+use gproxy_protocol::openai::video_content_get::request::OpenAiVideoContentGetRequest;
+use gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse;
+use gproxy_protocol::openai::video_get::request::OpenAiVideoGetRequest;
+use gproxy_protocol::openai::video_get::response::OpenAiVideoGetResponse;
 use serde::{Deserialize, Serialize};
 
 use super::error::MiddlewareTransformError;
@@ -138,6 +150,15 @@ pub enum TransformRequest {
     ModelGetClaude(ClaudeModelGetRequest),
     ModelGetGemini(GeminiModelGetRequest),
 
+    CreateVideoOpenAi(OpenAiCreateVideoRequest),
+    CreateVideoGemini(GeminiGenerateVideosRequest),
+
+    VideoGetOpenAi(OpenAiVideoGetRequest),
+    VideoGetGemini(GeminiVideoOperationGetRequest),
+
+    VideoContentGetOpenAi(OpenAiVideoContentGetRequest),
+    VideoContentGetGemini(GeminiVideoContentGetRequest),
+
     CountTokenOpenAi(OpenAiCountTokensRequest),
     CountTokenClaude(ClaudeCountTokensRequest),
     CountTokenGemini(GeminiCountTokensRequest),
@@ -176,6 +197,11 @@ impl TransformRequest {
             Self::ModelGetOpenAi(_) | Self::ModelGetClaude(_) | Self::ModelGetGemini(_) => {
                 OperationFamily::ModelGet
             }
+            Self::CreateVideoOpenAi(_) | Self::CreateVideoGemini(_) => OperationFamily::CreateVideo,
+            Self::VideoGetOpenAi(_) | Self::VideoGetGemini(_) => OperationFamily::VideoGet,
+            Self::VideoContentGetOpenAi(_) | Self::VideoContentGetGemini(_) => {
+                OperationFamily::VideoContentGet
+            }
             Self::CountTokenOpenAi(_) | Self::CountTokenClaude(_) | Self::CountTokenGemini(_) => {
                 OperationFamily::CountToken
             }
@@ -208,6 +234,15 @@ impl TransformRequest {
             Self::ModelGetOpenAi(_) => ProtocolKind::OpenAi,
             Self::ModelGetClaude(_) => ProtocolKind::Claude,
             Self::ModelGetGemini(_) => ProtocolKind::Gemini,
+
+            Self::CreateVideoOpenAi(_) => ProtocolKind::OpenAi,
+            Self::CreateVideoGemini(_) => ProtocolKind::Gemini,
+
+            Self::VideoGetOpenAi(_) => ProtocolKind::OpenAi,
+            Self::VideoGetGemini(_) => ProtocolKind::Gemini,
+
+            Self::VideoContentGetOpenAi(_) => ProtocolKind::OpenAi,
+            Self::VideoContentGetGemini(_) => ProtocolKind::Gemini,
 
             Self::CountTokenOpenAi(_) => ProtocolKind::OpenAi,
             Self::CountTokenClaude(_) => ProtocolKind::Claude,
@@ -253,6 +288,15 @@ pub enum TransformResponse {
     ModelGetClaude(ClaudeModelGetResponse),
     ModelGetGemini(GeminiModelGetResponse),
 
+    CreateVideoOpenAi(OpenAiCreateVideoResponse),
+    CreateVideoGemini(GeminiGenerateVideosResponse),
+
+    VideoGetOpenAi(OpenAiVideoGetResponse),
+    VideoGetGemini(GeminiVideoOperationGetResponse),
+
+    VideoContentGetOpenAi(OpenAiVideoContentGetResponse),
+    VideoContentGetGemini(GeminiVideoContentGetResponse),
+
     CountTokenOpenAi(OpenAiCountTokensResponse),
     CountTokenClaude(ClaudeCountTokensResponse),
     CountTokenGemini(GeminiCountTokensResponse),
@@ -291,6 +335,11 @@ impl TransformResponse {
             Self::ModelGetOpenAi(_) | Self::ModelGetClaude(_) | Self::ModelGetGemini(_) => {
                 OperationFamily::ModelGet
             }
+            Self::CreateVideoOpenAi(_) | Self::CreateVideoGemini(_) => OperationFamily::CreateVideo,
+            Self::VideoGetOpenAi(_) | Self::VideoGetGemini(_) => OperationFamily::VideoGet,
+            Self::VideoContentGetOpenAi(_) | Self::VideoContentGetGemini(_) => {
+                OperationFamily::VideoContentGet
+            }
             Self::CountTokenOpenAi(_) | Self::CountTokenClaude(_) | Self::CountTokenGemini(_) => {
                 OperationFamily::CountToken
             }
@@ -323,6 +372,15 @@ impl TransformResponse {
             Self::ModelGetOpenAi(_) => ProtocolKind::OpenAi,
             Self::ModelGetClaude(_) => ProtocolKind::Claude,
             Self::ModelGetGemini(_) => ProtocolKind::Gemini,
+
+            Self::CreateVideoOpenAi(_) => ProtocolKind::OpenAi,
+            Self::CreateVideoGemini(_) => ProtocolKind::Gemini,
+
+            Self::VideoGetOpenAi(_) => ProtocolKind::OpenAi,
+            Self::VideoGetGemini(_) => ProtocolKind::Gemini,
+
+            Self::VideoContentGetOpenAi(_) => ProtocolKind::OpenAi,
+            Self::VideoContentGetGemini(_) => ProtocolKind::Gemini,
 
             Self::CountTokenOpenAi(_) => ProtocolKind::OpenAi,
             Self::CountTokenClaude(_) => ProtocolKind::Claude,

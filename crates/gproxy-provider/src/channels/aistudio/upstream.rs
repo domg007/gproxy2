@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+
+use http::StatusCode;
 use serde_json::Value;
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
@@ -20,7 +23,7 @@ use crate::credential::ChannelCredentialStateStore;
 use crate::credential_state::CredentialStateManager;
 use crate::provider::ProviderDefinition;
 use gproxy_middleware::{OperationFamily, ProtocolKind};
-use url::form_urlencoded;
+use url::{Url, form_urlencoded};
 
 pub async fn execute_aistudio_with_retry(
     client: &WreqClient,
@@ -29,6 +32,19 @@ pub async fn execute_aistudio_with_retry(
     request: &gproxy_middleware::TransformRequest,
     now_unix_ms: u64,
 ) -> Result<UpstreamResponse, UpstreamError> {
+    if matches!(
+        request,
+        gproxy_middleware::TransformRequest::VideoContentGetGemini(_)
+    ) {
+        return execute_aistudio_video_content_with_retry(
+            client,
+            provider,
+            credential_states,
+            request,
+            now_unix_ms,
+        )
+        .await;
+    }
     let cache_protocol = cache_affinity_protocol_from_transform_request(request);
     let prepared = AiStudioPreparedRequest::from_transform_request(request)?;
     execute_aistudio_with_prepared(
@@ -350,6 +366,30 @@ impl AiStudioPreparedRequest {
                     extra_headers: Vec::new(),
                 })
             }
+            gproxy_middleware::TransformRequest::CreateVideoGemini(value) => {
+                let model = normalize_gemini_model_name(value.path.model.as_str());
+                Ok(Self {
+                    method: to_wreq_method(&value.method)?,
+                    path: format!("/v1beta/{model}:predictLongRunning"),
+                    query: None,
+                    body: Some(
+                        serde_json::to_vec(&value.body)
+                            .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                    ),
+                    model: Some(model),
+                    auth_scheme: AuthScheme::XGoogApiKey,
+                    extra_headers: Vec::new(),
+                })
+            }
+            gproxy_middleware::TransformRequest::VideoGetGemini(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: format!("/v1beta/{}", value.path.operation.trim_start_matches('/')),
+                query: None,
+                body: None,
+                model: None,
+                auth_scheme: AuthScheme::XGoogApiKey,
+                extra_headers: Vec::new(),
+            }),
             gproxy_middleware::TransformRequest::CountTokenGemini(value) => {
                 let model = normalize_gemini_model_name(value.path.model.as_str());
                 Ok(Self {
@@ -692,6 +732,552 @@ fn normalize_gemini_model_name(model: &str) -> String {
     }
 }
 
+async fn execute_aistudio_video_content_with_retry(
+    client: &WreqClient,
+    provider: &ProviderDefinition,
+    credential_states: &ChannelCredentialStateStore,
+    request: &gproxy_middleware::TransformRequest,
+    now_unix_ms: u64,
+) -> Result<UpstreamResponse, UpstreamError> {
+    let gproxy_middleware::TransformRequest::VideoContentGetGemini(request) = request else {
+        return Err(UpstreamError::UnsupportedRequest);
+    };
+
+    let base_url = provider.settings.base_url().trim();
+    if base_url.is_empty() {
+        return Err(UpstreamError::InvalidBaseUrl);
+    }
+
+    let state_manager = CredentialStateManager::new(now_unix_ms);
+    let operation = request.path.operation.clone();
+    let extra_headers_template = extra_headers_from_transform_request(
+        &gproxy_middleware::TransformRequest::VideoContentGetGemini(request.clone()),
+    );
+    let user_agent_template =
+        resolve_user_agent_or_else(provider.settings.user_agent(), default_gproxy_user_agent);
+    let pick_mode = credential_pick_mode(provider.credential_pick_mode, None);
+
+    retry_with_eligible_credentials_with_affinity(
+        crate::channels::retry::CredentialRetryContext {
+            provider,
+            credential_states,
+            model: None,
+            now_unix_ms,
+            pick_mode,
+            cache_affinity_hint: None,
+        },
+        |credential| {
+            match &credential.credential {
+                ChannelCredential::Builtin(BuiltinChannelCredential::AiStudio(value)) => {
+                    Some(value.api_key.as_str())
+                }
+                _ => None,
+            }
+            .map(str::trim)
+            .filter(|api_key| !api_key.is_empty())
+            .map(ToOwned::to_owned)
+        },
+        |attempt| {
+            let operation = operation.clone();
+            let extra_headers = extra_headers_template.clone();
+            let user_agent = user_agent_template.clone();
+            let base_url = base_url.to_string();
+
+            async move {
+                let mut poll_headers = Vec::new();
+                merge_extra_headers(&mut poll_headers, &extra_headers);
+                add_or_replace_header(&mut poll_headers, "user-agent", user_agent.clone());
+                add_or_replace_header(
+                    &mut poll_headers,
+                    "x-goog-api-key",
+                    attempt.material.clone(),
+                );
+
+                let poll_url = join_base_url_and_path(
+                    base_url.as_str(),
+                    format!("/v1beta/{}", operation.trim_start_matches('/')).as_str(),
+                );
+                let poll = crate::channels::upstream::tracked_send_request(
+                    client,
+                    WreqMethod::GET,
+                    poll_url.as_str(),
+                    poll_headers,
+                    None,
+                )
+                .await;
+
+                let (poll_response, poll_request_meta) = match poll {
+                    Ok(result) => result,
+                    Err(err) => {
+                        let message = err.to_string();
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                };
+
+                let poll_status = poll_response.status();
+                if !poll_status.is_success() {
+                    let status_code = poll_status.as_u16();
+                    if is_auth_failure(status_code) {
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_auth_dead(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                    if status_code == 429 {
+                        let retry_after_ms = retry_after_to_millis(poll_response.headers());
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_rate_limited(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            retry_after_ms,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                    if is_transient_server_failure(status_code) {
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+
+                    state_manager.mark_success(
+                        credential_states,
+                        &provider.channel,
+                        attempt.credential_id,
+                    );
+                    let local = match gemini_video_content_error_from_http(poll_response).await {
+                        Ok(local) => local,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                None,
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: Some(status_code),
+                                last_error: Some(message),
+                                last_request_meta: Some(poll_request_meta.clone()),
+                            };
+                        }
+                    };
+                    return CredentialRetryDecision::Return(
+                        UpstreamResponse::from_local(local).with_request_meta(poll_request_meta),
+                    );
+                }
+
+                let poll_headers_map = response_headers_map(poll_response.headers());
+                let poll_body = match poll_response.bytes().await {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        let message = err.to_string();
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                };
+                let poll_json = match serde_json::from_slice::<Value>(&poll_body) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        let message = format!("decode AI Studio video operation failed: {err}");
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                };
+
+                let Some(download_uri) = aistudio_video_download_uri(&poll_json) else {
+                    state_manager.mark_success(
+                        credential_states,
+                        &provider.channel,
+                        attempt.credential_id,
+                    );
+                    let local = if poll_json
+                        .get("done")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        gemini_video_content_error_response(
+                            StatusCode::BAD_GATEWAY,
+                            poll_headers_map,
+                            "video download URI missing from AI Studio operation response",
+                        )
+                    } else {
+                        gemini_video_content_error_response(
+                            StatusCode::CONFLICT,
+                            poll_headers_map,
+                            "video content is not ready yet",
+                        )
+                    };
+                    let local = match local {
+                        Ok(local) => local,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                None,
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: None,
+                                last_error: Some(message),
+                                last_request_meta: Some(poll_request_meta.clone()),
+                            };
+                        }
+                    };
+                    return CredentialRetryDecision::Return(
+                        UpstreamResponse::from_local(local).with_request_meta(poll_request_meta),
+                    );
+                };
+
+                let download_url =
+                    append_query_api_key(download_uri.as_str(), attempt.material.as_str());
+                let mut download_headers = Vec::new();
+                merge_extra_headers(&mut download_headers, &extra_headers);
+                add_or_replace_header(&mut download_headers, "user-agent", user_agent);
+                add_or_replace_header(
+                    &mut download_headers,
+                    "x-goog-api-key",
+                    attempt.material.clone(),
+                );
+
+                let download = crate::channels::upstream::tracked_send_request(
+                    client,
+                    WreqMethod::GET,
+                    download_url.as_str(),
+                    download_headers,
+                    None,
+                )
+                .await;
+
+                let (download_response, download_request_meta) = match download {
+                    Ok(result) => result,
+                    Err(err) => {
+                        let message = err.to_string();
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                };
+
+                let download_status = download_response.status();
+                if !download_status.is_success() {
+                    let status_code = download_status.as_u16();
+                    if is_auth_failure(status_code) {
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_auth_dead(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                    if status_code == 429 {
+                        let retry_after_ms = retry_after_to_millis(download_response.headers());
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_rate_limited(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            retry_after_ms,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                    if is_transient_server_failure(status_code) {
+                        let message = format!("upstream status {status_code}");
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+
+                    state_manager.mark_success(
+                        credential_states,
+                        &provider.channel,
+                        attempt.credential_id,
+                    );
+                    let local =
+                        match gemini_video_content_error_from_http(download_response).await {
+                            Ok(local) => local,
+                            Err(err) => {
+                                let message = err.to_string();
+                                state_manager.mark_transient_failure(
+                                    credential_states,
+                                    &provider.channel,
+                                    attempt.credential_id,
+                                    None,
+                                    None,
+                                    Some(message.clone()),
+                                );
+                                return CredentialRetryDecision::Retry {
+                                    last_status: Some(status_code),
+                                    last_error: Some(message),
+                                    last_request_meta: Some(download_request_meta.clone()),
+                                };
+                            }
+                        };
+                    return CredentialRetryDecision::Return(
+                        UpstreamResponse::from_local(local).with_request_meta(download_request_meta),
+                    );
+                }
+
+                let headers = response_headers_map(download_response.headers());
+                let bytes = match download_response.bytes().await {
+                    Ok(bytes) => bytes.to_vec(),
+                    Err(err) => {
+                        let message = err.to_string();
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
+                    }
+                };
+
+                state_manager.mark_success(
+                    credential_states,
+                    &provider.channel,
+                    attempt.credential_id,
+                );
+                let local = match gemini_video_content_success_response(download_status, headers, bytes)
+                {
+                    Ok(local) => local,
+                    Err(err) => {
+                        let message = err.to_string();
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            None,
+                            None,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: None,
+                            last_error: Some(message),
+                            last_request_meta: Some(download_request_meta.clone()),
+                        };
+                    }
+                };
+                CredentialRetryDecision::Return(
+                    UpstreamResponse::from_local(local).with_request_meta(download_request_meta),
+                )
+            }
+        },
+    )
+    .await
+}
+
+fn response_headers_map(headers: &wreq::header::HeaderMap) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn gemini_video_content_success_response(
+    status: StatusCode,
+    headers: BTreeMap<String, String>,
+    bytes: Vec<u8>,
+) -> Result<gproxy_middleware::TransformResponse, UpstreamError> {
+    let response = serde_json::from_value(serde_json::json!({
+        "stats_code": status.as_u16(),
+        "headers": headers,
+        "body": {
+            "bytes": bytes,
+        },
+    }))
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    Ok(gproxy_middleware::TransformResponse::VideoContentGetGemini(
+        response,
+    ))
+}
+
+fn gemini_video_content_error_response(
+    status: StatusCode,
+    mut headers: BTreeMap<String, String>,
+    message: &str,
+) -> Result<gproxy_middleware::TransformResponse, UpstreamError> {
+    if !headers.contains_key("content-type") {
+        headers.insert("content-type".to_string(), "application/json".to_string());
+    }
+    let response = serde_json::from_value(serde_json::json!({
+        "stats_code": status.as_u16(),
+        "headers": headers,
+        "body": {
+            "error": {
+                "code": i32::from(status.as_u16()),
+                "message": message,
+            }
+        },
+    }))
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    Ok(gproxy_middleware::TransformResponse::VideoContentGetGemini(
+        response,
+    ))
+}
+
+async fn gemini_video_content_error_from_http(
+    response: wreq::Response,
+) -> Result<gproxy_middleware::TransformResponse, UpstreamError> {
+    let status = response.status();
+    let mut headers = response_headers_map(response.headers());
+    if !headers.contains_key("content-type") {
+        headers.insert("content-type".to_string(), "application/json".to_string());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| UpstreamError::UpstreamRequest(err.to_string()))?;
+    let body = serde_json::from_slice::<Value>(bytes.as_ref()).unwrap_or_else(|_| {
+        serde_json::json!({
+            "error": {
+                "code": i32::from(status.as_u16()),
+                "message": String::from_utf8_lossy(bytes.as_ref()).to_string(),
+            }
+        })
+    });
+    let response = serde_json::from_value(serde_json::json!({
+        "stats_code": status.as_u16(),
+        "headers": headers,
+        "body": body,
+    }))
+    .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
+    Ok(gproxy_middleware::TransformResponse::VideoContentGetGemini(response))
+}
+
+fn aistudio_video_download_uri(value: &Value) -> Option<String> {
+    value.get("response").and_then(|response| {
+        response
+            .get("generateVideoResponse")
+            .and_then(|item| item.get("generatedSamples"))
+            .and_then(Value::as_array)
+            .or_else(|| response.get("generatedVideos").and_then(Value::as_array))
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("video"))
+            .and_then(|item| item.get("uri"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn append_query_api_key(url: &str, api_key: &str) -> String {
+    let Ok(mut parsed) = Url::parse(url) else {
+        return url.to_string();
+    };
+    let has_key = parsed.query_pairs().any(|(name, _)| name == "key");
+    if !has_key {
+        parsed.query_pairs_mut().append_pair("key", api_key);
+    }
+    parsed.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -765,5 +1351,31 @@ mod tests {
         );
         assert_eq!(prepared.model.as_deref(), Some("models/gemini-2.5-flash"));
         assert!(prepared.body.is_none());
+    }
+
+    #[test]
+    fn aistudio_video_download_uri_reads_generated_video() {
+        let value = json!({
+            "response": {
+                "generatedVideos": [
+                    {
+                        "video": {
+                            "uri": "https://example.com/video.mp4"
+                        }
+                    }
+                ]
+            }
+        });
+        assert_eq!(
+            aistudio_video_download_uri(&value).as_deref(),
+            Some("https://example.com/video.mp4")
+        );
+    }
+
+    #[test]
+    fn append_query_api_key_preserves_existing_params() {
+        let url = append_query_api_key("https://example.com/video.mp4?alt=media", "test-key");
+        assert!(url.contains("alt=media"));
+        assert!(url.contains("key=test-key"));
     }
 }

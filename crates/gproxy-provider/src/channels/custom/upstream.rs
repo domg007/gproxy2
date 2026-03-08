@@ -666,6 +666,7 @@ impl CustomPreparedRequest {
                 let _ = value;
                 Err(UpstreamError::UnsupportedRequest)
             }
+            _ => Err(UpstreamError::UnsupportedRequest),
         }?;
         prepared.extra_headers = extra_headers;
         Ok(prepared)

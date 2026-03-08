@@ -1,4 +1,7 @@
 use super::*;
+use gproxy_protocol::openai::create_video::response::OpenAiCreateVideoResponse;
+use gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse;
+use gproxy_protocol::openai::video_get::response::OpenAiVideoGetResponse;
 
 pub(super) fn transform_model_list_response(
     input: TransformResponse,
@@ -195,6 +198,102 @@ pub(super) fn transform_embeddings_response(
         _ => {
             return Err(MiddlewareTransformError::Unsupported(
                 "embedding response transform requires embedding destination payload",
+            ));
+        }
+    })
+}
+
+pub(super) fn transform_create_video_response(
+    input: TransformResponse,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    Ok(match input {
+        TransformResponse::CreateVideoOpenAi(response) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::CreateVideoOpenAi(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "create_video does not support this destination protocol",
+                ));
+            }
+        },
+        TransformResponse::CreateVideoGemini(response) => match dst_protocol {
+            ProtocolKind::OpenAi => {
+                TransformResponse::CreateVideoOpenAi(OpenAiCreateVideoResponse::try_from(response)?)
+            }
+            ProtocolKind::Gemini => TransformResponse::CreateVideoGemini(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "create_video does not support this destination protocol",
+                ));
+            }
+        },
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "create_video response transform requires create_video destination payload",
+            ));
+        }
+    })
+}
+
+pub(super) fn transform_video_get_response(
+    input: TransformResponse,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    Ok(match input {
+        TransformResponse::VideoGetOpenAi(response) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::VideoGetOpenAi(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "video_get does not support this destination protocol",
+                ));
+            }
+        },
+        TransformResponse::VideoGetGemini(response) => match dst_protocol {
+            ProtocolKind::OpenAi => {
+                TransformResponse::VideoGetOpenAi(OpenAiVideoGetResponse::try_from(response)?)
+            }
+            ProtocolKind::Gemini => TransformResponse::VideoGetGemini(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "video_get does not support this destination protocol",
+                ));
+            }
+        },
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "video_get response transform requires video_get destination payload",
+            ));
+        }
+    })
+}
+
+pub(super) fn transform_video_content_get_response(
+    input: TransformResponse,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformResponse, MiddlewareTransformError> {
+    Ok(match input {
+        TransformResponse::VideoContentGetOpenAi(response) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::VideoContentGetOpenAi(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "video_content_get does not support this destination protocol",
+                ));
+            }
+        },
+        TransformResponse::VideoContentGetGemini(response) => match dst_protocol {
+            ProtocolKind::OpenAi => TransformResponse::VideoContentGetOpenAi(
+                OpenAiVideoContentGetResponse::try_from(response)?,
+            ),
+            ProtocolKind::Gemini => TransformResponse::VideoContentGetGemini(response),
+            _ => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "video_content_get does not support this destination protocol",
+                ));
+            }
+        },
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "video_content_get response transform requires video_content_get destination payload",
             ));
         }
     })

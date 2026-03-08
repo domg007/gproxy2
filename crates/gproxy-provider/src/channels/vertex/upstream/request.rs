@@ -480,6 +480,9 @@ pub(super) enum VertexEndpoint {
 pub(super) enum VertexModelResponseKind {
     List,
     Get,
+    CreateVideo,
+    VideoGet,
+    VideoContentGet,
     Embedding,
 }
 

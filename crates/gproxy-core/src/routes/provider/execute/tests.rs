@@ -32,6 +32,25 @@ fn local_response_body_is_unwrapped_from_enum_shell_and_http_wrapper() {
 }
 
 #[test]
+fn local_video_content_response_serializes_as_raw_bytes() {
+    let response: gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse =
+        serde_json::from_value(json!({
+            "stats_code": 200,
+            "headers": {
+                "content-type": "video/mp4"
+            },
+            "body": {
+                "bytes": [1, 2, 3, 4]
+            }
+        }))
+        .expect("valid openai video content response");
+
+    let bytes = serialize_local_response_body(&TransformResponse::VideoContentGetOpenAi(response))
+        .expect("serialize local response");
+    assert_eq!(bytes, vec![1, 2, 3, 4]);
+}
+
+#[test]
 fn stream_transform_error_chunk_is_ndjson_for_gemini_ndjson() {
     let chunk = encode_transform_stream_error_chunk(ProtocolKind::GeminiNDJson, "boom".to_string());
     let text = String::from_utf8(chunk.to_vec()).expect("utf8");

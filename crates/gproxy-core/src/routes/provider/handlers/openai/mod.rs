@@ -30,8 +30,12 @@ use gproxy_protocol::openai::create_response::websocket::types::{
     OpenAiCreateResponseWebSocketWrappedErrorEvent,
     OpenAiCreateResponseWebSocketWrappedErrorEventType,
 };
+use gproxy_protocol::openai::create_video::request as openai_create_video_request;
 use gproxy_protocol::openai::model_get::request as openai_model_get_request;
 use gproxy_protocol::openai::model_list::request as openai_model_list_request;
+use gproxy_protocol::openai::video_content_get::request as openai_video_content_get_request;
+use gproxy_protocol::openai::video_content_get::types as openai_video_content_get_types;
+use gproxy_protocol::openai::video_get::request as openai_video_get_request;
 use gproxy_provider::{
     BuiltinChannel, BuiltinChannelCredential, ChannelCredential, ChannelId, CredentialRef,
     ProviderDefinition, RouteImplementation, RouteKey, UpstreamOAuthRequest, parse_query_value,

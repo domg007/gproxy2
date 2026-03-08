@@ -10,6 +10,12 @@ pub(super) fn request_extra_headers(
         TransformRequest::ModelGetOpenAi(value) => value.headers.extra.clone(),
         TransformRequest::ModelGetClaude(value) => value.headers.extra.clone(),
         TransformRequest::ModelGetGemini(value) => value.headers.extra.clone(),
+        TransformRequest::CreateVideoOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::CreateVideoGemini(value) => value.headers.extra.clone(),
+        TransformRequest::VideoGetOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::VideoGetGemini(value) => value.headers.extra.clone(),
+        TransformRequest::VideoContentGetOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::VideoContentGetGemini(value) => value.headers.extra.clone(),
         TransformRequest::CountTokenOpenAi(value) => value.headers.extra.clone(),
         TransformRequest::CountTokenClaude(value) => value.headers.extra.clone(),
         TransformRequest::CountTokenGemini(value) => value.headers.extra.clone(),
@@ -49,6 +55,12 @@ pub(super) fn apply_request_extra_headers(
         TransformRequest::ModelGetOpenAi(value) => value.headers.extra = extra,
         TransformRequest::ModelGetClaude(value) => value.headers.extra = extra,
         TransformRequest::ModelGetGemini(value) => value.headers.extra = extra,
+        TransformRequest::CreateVideoOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::CreateVideoGemini(value) => value.headers.extra = extra,
+        TransformRequest::VideoGetOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::VideoGetGemini(value) => value.headers.extra = extra,
+        TransformRequest::VideoContentGetOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::VideoContentGetGemini(value) => value.headers.extra = extra,
         TransformRequest::CountTokenOpenAi(value) => value.headers.extra = extra,
         TransformRequest::CountTokenClaude(value) => value.headers.extra = extra,
         TransformRequest::CountTokenGemini(value) => value.headers.extra = extra,
@@ -144,6 +156,35 @@ pub fn decode_request_payload(
         (OperationFamily::ModelGet, ProtocolKind::Gemini) => Ok(TransformRequest::ModelGetGemini(
             decode_json("request", operation, protocol, body)?,
         )),
+
+        (OperationFamily::CreateVideo, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::CreateVideoOpenAi(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::CreateVideo, ProtocolKind::Gemini) => {
+            Ok(TransformRequest::CreateVideoGemini(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+
+        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(
+            TransformRequest::VideoGetOpenAi(decode_json("request", operation, protocol, body)?),
+        ),
+        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(
+            TransformRequest::VideoGetGemini(decode_json("request", operation, protocol, body)?),
+        ),
+
+        (OperationFamily::VideoContentGet, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::VideoContentGetOpenAi(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::VideoContentGet, ProtocolKind::Gemini) => {
+            Ok(TransformRequest::VideoContentGetGemini(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
 
         (OperationFamily::CountToken, ProtocolKind::OpenAi) => Ok(
             TransformRequest::CountTokenOpenAi(decode_json("request", operation, protocol, body)?),
@@ -272,6 +313,24 @@ pub(crate) fn encode_request_payload(
         TransformRequest::ModelGetGemini(value) => {
             encode_json("request", operation, protocol, &value)
         }
+        TransformRequest::CreateVideoOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::CreateVideoGemini(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::VideoGetOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::VideoGetGemini(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::VideoContentGetOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::VideoContentGetGemini(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
         TransformRequest::CountTokenOpenAi(value) => {
             encode_json("request", operation, protocol, &value)
         }
@@ -361,6 +420,35 @@ pub fn decode_response_payload(
         (OperationFamily::ModelGet, ProtocolKind::Gemini) => Ok(TransformResponse::ModelGetGemini(
             decode_json("response", operation, protocol, body)?,
         )),
+
+        (OperationFamily::CreateVideo, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::CreateVideoOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::CreateVideo, ProtocolKind::Gemini) => {
+            Ok(TransformResponse::CreateVideoGemini(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+
+        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(
+            TransformResponse::VideoGetOpenAi(decode_json("response", operation, protocol, body)?),
+        ),
+        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(
+            TransformResponse::VideoGetGemini(decode_json("response", operation, protocol, body)?),
+        ),
+
+        (OperationFamily::VideoContentGet, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::VideoContentGetOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::VideoContentGet, ProtocolKind::Gemini) => {
+            Ok(TransformResponse::VideoContentGetGemini(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
 
         (OperationFamily::CountToken, ProtocolKind::OpenAi) => {
             Ok(TransformResponse::CountTokenOpenAi(decode_json(
@@ -499,6 +587,24 @@ pub(crate) fn encode_response_payload(
             encode_json("response", operation, protocol, &value)
         }
         TransformResponse::ModelGetGemini(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::CreateVideoOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::CreateVideoGemini(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::VideoGetOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::VideoGetGemini(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::VideoContentGetOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::VideoContentGetGemini(value) => {
             encode_json("response", operation, protocol, &value)
         }
         TransformResponse::CountTokenOpenAi(value) => {

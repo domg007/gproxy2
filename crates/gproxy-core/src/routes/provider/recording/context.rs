@@ -113,6 +113,18 @@ pub(crate) fn extract_model_from_request(request: &TransformRequest) -> Option<S
         TransformRequest::ModelGetClaude(value) => Some(value.path.model_id.clone()),
         TransformRequest::ModelGetGemini(value) => Some(value.path.name.clone()),
 
+        TransformRequest::CreateVideoOpenAi(value) => value
+            .body
+            .model
+            .as_ref()
+            .and_then(|model| serde_json::to_value(model).ok())
+            .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+        TransformRequest::CreateVideoGemini(value) => Some(value.path.model.clone()),
+        TransformRequest::VideoGetOpenAi(_)
+        | TransformRequest::VideoGetGemini(_)
+        | TransformRequest::VideoContentGetOpenAi(_)
+        | TransformRequest::VideoContentGetGemini(_) => None,
+
         TransformRequest::CountTokenOpenAi(value) => value.body.model.clone(),
         TransformRequest::CountTokenClaude(value) => serialize_claude_model(&value.body.model),
         TransformRequest::CountTokenGemini(value) => {

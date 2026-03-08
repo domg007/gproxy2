@@ -16,6 +16,16 @@ pub(crate) fn build_openai_local_count_response(
 pub(crate) fn serialize_local_response_body(
     response: &gproxy_middleware::TransformResponse,
 ) -> Result<Vec<u8>, UpstreamError> {
+    match response {
+        gproxy_middleware::TransformResponse::VideoContentGetOpenAi(
+            gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse::Success { body, .. },
+        ) => return Ok(body.bytes.clone()),
+        gproxy_middleware::TransformResponse::VideoContentGetGemini(
+            gproxy_protocol::gemini::video_content_get::response::GeminiVideoContentGetResponse::Success { body, .. },
+        ) => return Ok(body.bytes.clone()),
+        _ => {}
+    }
+
     let value = serde_json::to_value(response)
         .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
     let inner = match value {
@@ -45,6 +55,42 @@ pub(crate) fn serialize_local_response_body(
     }
 
     serde_json::to_vec(&inner).map_err(|err| UpstreamError::SerializeRequest(err.to_string()))
+}
+
+pub(crate) fn local_response_status_and_headers(
+    response: &gproxy_middleware::TransformResponse,
+) -> Option<(StatusCode, Vec<(String, String)>)> {
+    match response {
+        gproxy_middleware::TransformResponse::VideoContentGetOpenAi(
+            gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse::Success {
+                stats_code,
+                headers,
+                ..
+            },
+        ) => Some((*stats_code, headers.extra.clone().into_iter().collect())),
+        gproxy_middleware::TransformResponse::VideoContentGetOpenAi(
+            gproxy_protocol::openai::video_content_get::response::OpenAiVideoContentGetResponse::Error {
+                stats_code,
+                headers,
+                ..
+            },
+        ) => Some((*stats_code, headers.extra.clone().into_iter().collect())),
+        gproxy_middleware::TransformResponse::VideoContentGetGemini(
+            gproxy_protocol::gemini::video_content_get::response::GeminiVideoContentGetResponse::Success {
+                stats_code,
+                headers,
+                ..
+            },
+        ) => Some((*stats_code, headers.extra.clone().into_iter().collect())),
+        gproxy_middleware::TransformResponse::VideoContentGetGemini(
+            gproxy_protocol::gemini::video_content_get::response::GeminiVideoContentGetResponse::Error {
+                stats_code,
+                headers,
+                ..
+            },
+        ) => Some((*stats_code, headers.extra.clone().into_iter().collect())),
+        _ => None,
+    }
 }
 
 pub(crate) async fn execute_local_count_token_request(

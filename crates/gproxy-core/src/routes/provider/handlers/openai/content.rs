@@ -412,3 +412,83 @@ pub(in crate::routes::provider) async fn openai_compact_unscoped(
         .await
         .map_err(HttpError::from)
 }
+
+pub(in crate::routes::provider) async fn openai_create_video(
+    State(state): State<Arc<AppState>>,
+    Path(provider_name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let mut request = openai_create_video_request::OpenAiCreateVideoRequest::default();
+    request.headers.extra = collect_passthrough_headers(&headers);
+    request.body = serde_json::from_slice(&body)
+        .map_err(|err| bad_request(format!("invalid openai video creation request body: {err}")))?;
+    execute_transform_request(
+        state,
+        channel,
+        provider,
+        auth,
+        TransformRequest::CreateVideoOpenAi(request),
+    )
+    .await
+    .map_err(HttpError::from)
+}
+
+pub(in crate::routes::provider) async fn openai_video_get(
+    State(state): State<Arc<AppState>>,
+    Path((provider_name, video_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let mut request = openai_video_get_request::OpenAiVideoGetRequest::default();
+    request.path.video_id = video_id;
+    request.headers.extra = collect_passthrough_headers(&headers);
+    execute_transform_request(
+        state,
+        channel,
+        provider,
+        auth,
+        TransformRequest::VideoGetOpenAi(request),
+    )
+    .await
+    .map_err(HttpError::from)
+}
+
+pub(in crate::routes::provider) async fn openai_video_content_get(
+    State(state): State<Arc<AppState>>,
+    Path((provider_name, video_id)): Path<(String, String)>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let mut request = openai_video_content_get_request::OpenAiVideoContentGetRequest::default();
+    request.path.video_id = video_id;
+    request.query.variant = parse_openai_video_content_variant(query.as_deref())?;
+    request.headers.extra = collect_passthrough_headers(&headers);
+    execute_transform_request(
+        state,
+        channel,
+        provider,
+        auth,
+        TransformRequest::VideoContentGetOpenAi(request),
+    )
+    .await
+    .map_err(HttpError::from)
+}
+
+fn parse_openai_video_content_variant(
+    query: Option<&str>,
+) -> Result<Option<openai_video_content_get_types::OpenAiVideoContentVariant>, HttpError> {
+    let Some(raw) = parse_query_value(query, "variant") else {
+        return Ok(None);
+    };
+    serde_json::from_value(serde_json::Value::String(raw.clone())).map(Some).map_err(|_| {
+        bad_request(format!(
+            "invalid query parameter `variant`: {raw}"
+        ))
+    })
+}
