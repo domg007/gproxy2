@@ -5,7 +5,6 @@ pub use crate::registry::BUILTIN_CHANNELS;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BuiltinChannel {
     OpenAi,
-    Grok,
     Anthropic,
     AiStudio,
     VertexExpress,
@@ -23,7 +22,6 @@ impl BuiltinChannel {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
-            Self::Grok => "grok-web",
             Self::Anthropic => "anthropic",
             Self::AiStudio => "aistudio",
             Self::VertexExpress => "vertexexpress",

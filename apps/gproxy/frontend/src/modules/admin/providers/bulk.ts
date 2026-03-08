@@ -1,8 +1,6 @@
 import type { CredentialQueryRow } from "../../../lib/types";
 import {
-  buildGrokCookieHeaderFromSecretValues,
   createEmptyCredentialFormState,
-  parseGrokSecretValuesFromCookieHeader,
   secretValuesFromSecretJson
 } from "./credentials";
 import type {
@@ -132,9 +130,6 @@ export function availableBulkModes(
   schema: ChannelCredentialSchema,
   supportsOAuth: boolean
 ): CredentialBulkMode[] {
-  if (channel === "grok-web") {
-    return ["grok_cookie"];
-  }
   if (channel === "claudecode") {
     return ["keys"];
   }
@@ -174,26 +169,6 @@ function parseLineValueImports(
         ...base.secretValues,
         [keyField]: line
       }
-    };
-  });
-}
-
-function parseGrokCookieImports(rawText: string): BulkCredentialImportEntry[] {
-  const lines = rawText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  return lines.map((line, index) => {
-    const secretValues = parseGrokSecretValuesFromCookieHeader(line);
-    const sso = secretValues.sso;
-    if (typeof sso !== "string" || !sso.trim()) {
-      throw new Error(`line ${index + 1} is missing sso`);
-    }
-    return {
-      name: null,
-      enabled: true,
-      secretValues
     };
   });
 }
@@ -289,10 +264,6 @@ export function parseBulkCredentialText(args: {
     return parseLineValueImports(channel, cookieField.key, rawText);
   }
 
-  if (mode === "grok_cookie") {
-    return parseGrokCookieImports(rawText);
-  }
-
   const rows = parseJsonObjects(rawText);
   return rows.map((row) => entryFromJsonObject(channel, schema, row));
 }
@@ -308,14 +279,12 @@ export function buildBulkExportText(args: {
     return "";
   }
 
-  if (mode === "keys" || mode === "claudecode_cookie" || mode === "grok_cookie") {
+  if (mode === "keys" || mode === "claudecode_cookie") {
     return credentialRows
       .map((row) => {
         const secretValues = secretValuesFromSecretJson(channel, row.secret_json);
         const value =
-          mode === "grok_cookie"
-            ? buildGrokCookieHeaderFromSecretValues(secretValues)
-            : mode === "claudecode_cookie"
+          mode === "claudecode_cookie"
             ? secretValues.cookie
             : (secretValues.api_key ?? secretValues.cookie);
         return typeof value === "string" ? value.trim() : "";

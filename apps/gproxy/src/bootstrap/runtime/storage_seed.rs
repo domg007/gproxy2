@@ -29,13 +29,11 @@ const BUILTIN_PROVIDER_ID_ANTIGRAVITY: i64 = 9;
 const BUILTIN_PROVIDER_ID_NVIDIA: i64 = 10;
 const BUILTIN_PROVIDER_ID_DEEPSEEK: i64 = 11;
 const BUILTIN_PROVIDER_ID_GROQ: i64 = 12;
-const BUILTIN_PROVIDER_ID_GROK: i64 = 13;
 const CUSTOM_PROVIDER_ID_START: i64 = 1000;
 
 fn default_builtin_provider_id(channel: BuiltinChannel) -> i64 {
     match channel {
         BuiltinChannel::OpenAi => BUILTIN_PROVIDER_ID_OPENAI,
-        BuiltinChannel::Grok => BUILTIN_PROVIDER_ID_GROK,
         BuiltinChannel::Anthropic => BUILTIN_PROVIDER_ID_ANTHROPIC,
         BuiltinChannel::AiStudio => BUILTIN_PROVIDER_ID_AISTUDIO,
         BuiltinChannel::VertexExpress => BUILTIN_PROVIDER_ID_VERTEXEXPRESS,

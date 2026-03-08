@@ -55,7 +55,7 @@ pub(crate) async fn execute_passthrough_payload_request(
     let http = state.load_http();
     let spoof_http = matches!(
         &channel,
-        ChannelId::Builtin(BuiltinChannel::ClaudeCode | BuiltinChannel::Grok)
+        ChannelId::Builtin(BuiltinChannel::ClaudeCode)
     )
     .then(|| state.load_spoof_http());
     let tokenizers = state.tokenizers();

@@ -327,9 +327,6 @@ export const zhMessages = {
     "field.channel": "渠道",
     "field.base_url": "基础 URL",
     "field.user_agent": "User-Agent",
-    "field.grok_cf_solver_url": "CF Solver URL",
-    "field.grok_cf_solver_timeout_seconds": "CF 获取超时(秒)",
-    "field.grok_cf_session_ttl_seconds": "CF 会话 TTL(秒)",
     "field.custom_mask_table": "遮蔽表（JSON）",
     "field.kind": "类型",
     "field.user_id": "用户 ID",
@@ -458,12 +455,11 @@ export const zhMessages = {
     "providers.subtab.bulk": "导入/导出",
     "providers.subtab.oauth": "OAuth",
     "providers.bulk.hint":
-      "Key 渠道支持每行一个 key；Grok 支持每行一个 Cookie 字符串并自动提取 sso；OAuth 渠道支持每行一个 JSON 对象，或直接粘贴 JSON 数组。",
+      "Key 渠道支持每行一个 key；OAuth 渠道支持每行一个 JSON 对象，或直接粘贴 JSON 数组。",
     "providers.bulk.mode": "导入模式",
     "providers.bulk.mode.keys": "key（每行一个）",
     "providers.bulk.mode.json": "JSON 对象",
     "providers.bulk.mode.claudecode_cookie": "ClaudeCode Cookie",
-    "providers.bulk.mode.grok_cookie": "Grok Cookie",
     "providers.bulk.input": "导入内容",
     "providers.bulk.import": "导入",
     "providers.bulk.export": "导出",
@@ -477,12 +473,6 @@ export const zhMessages = {
     "providers.bulk.placeholder.keyLineB": "sk-provider-key-2",
     "providers.bulk.placeholder.cookieLineA": "claude-session-cookie-1",
     "providers.bulk.placeholder.cookieLineB": "claude-session-cookie-2",
-    "providers.bulk.placeholder.grokCookieLineA":
-      "i18nextLng=zh; stblid=...; sso=...; sso-rw=...; x-userid=...",
-    "providers.bulk.placeholder.grokCookieLineB":
-      "stblid=...; sso=...; x-userid=...",
-    "providers.grok.cfHint":
-      "配置 FlareSolverr 地址后，请求会在运行时自动刷新 Cloudflare cookies 和对应 User-Agent；凭证里只保留 sso。",
     "providers.credentialUnnamed": "（未命名凭证）",
     "providers.oauth.startPlaceholder": "state=...&redirect_uri=...",
     "providers.oauth.callbackPlaceholder": "callback_url=...&code=...",

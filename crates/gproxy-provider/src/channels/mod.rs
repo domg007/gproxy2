@@ -8,7 +8,6 @@ pub mod credential;
 pub mod custom;
 pub mod deepseek;
 pub mod geminicli;
-pub mod grok;
 pub mod groq;
 pub mod nvidia;
 pub mod openai;

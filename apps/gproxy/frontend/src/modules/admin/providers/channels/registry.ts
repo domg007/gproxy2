@@ -12,7 +12,6 @@ import { CHANNEL_CONFIG as claudecodeConfig } from "./claudecode";
 import { CHANNEL_CONFIG as codexConfig } from "./codex";
 import { CHANNEL_CONFIG as nvidiaConfig } from "./nvidia";
 import { CHANNEL_CONFIG as deepseekConfig } from "./deepseek";
-import { CHANNEL_CONFIG as grokConfig } from "./grok";
 import { CHANNEL_CONFIG as groqConfig } from "./groq";
 
 export type ChannelConfig = {
@@ -38,7 +37,6 @@ const CHANNEL_REGISTRY: readonly ChannelConfig[] = [
   codexConfig,
   nvidiaConfig,
   deepseekConfig,
-  grokConfig,
   groqConfig
 ];
 

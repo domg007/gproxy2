@@ -23,7 +23,6 @@ import {
   type WorkspaceTab,
   buildChannelSettingsJson,
   buildCredentialSecretJson,
-  buildGrokCookieHeaderFromSecretValues,
   credentialDefaultNameFromSecretValues,
   buildDispatchJson,
   createEmptyCredentialFormState,
@@ -720,7 +719,6 @@ export function ProvidersModule({
 
   const copyCredential = async (row: CredentialQueryRow) => {
     const channel = selectedProvider?.channel ?? providerForm.channel;
-    const normalizedChannel = normalizeChannel(channel);
     const isKeyChannel =
       currentCredentialSchema.fields.length === 1 &&
       currentCredentialSchema.fields[0]?.key === "api_key";
@@ -744,12 +742,6 @@ export function ProvidersModule({
       return value;
     };
     const copiedText = (() => {
-      if (normalizedChannel === "grok-web") {
-        const cookie = buildGrokCookieHeaderFromSecretValues(
-          secretValuesFromSecretJson(channel, row.secret_json)
-        );
-        return cookie || JSON.stringify(unwrapSecretJson(row.secret_json));
-      }
       if (!isKeyChannel) {
         return JSON.stringify(unwrapSecretJson(row.secret_json));
       }

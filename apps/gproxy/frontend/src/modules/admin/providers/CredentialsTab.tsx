@@ -413,9 +413,6 @@ export function CredentialsTab({
     if (bulkMode === "claudecode_cookie") {
       return `${t("providers.bulk.placeholder.cookieLineA")}\n${t("providers.bulk.placeholder.cookieLineB")}`;
     }
-    if (bulkMode === "grok_cookie") {
-      return `${t("providers.bulk.placeholder.grokCookieLineA")}\n${t("providers.bulk.placeholder.grokCookieLineB")}`;
-    }
     const sample: Record<string, unknown> = {
       name: "credential-1",
       enabled: true

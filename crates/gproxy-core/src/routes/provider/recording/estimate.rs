@@ -119,7 +119,7 @@ pub(crate) async fn estimate_tokens_with_channel_count(
         let http = context.state.load_http();
         let spoof_http = matches!(
             &context.channel,
-            ChannelId::Builtin(BuiltinChannel::ClaudeCode | BuiltinChannel::Grok)
+            ChannelId::Builtin(BuiltinChannel::ClaudeCode)
         )
         .then(|| context.state.load_spoof_http());
         let tokenizers = context.state.tokenizers();

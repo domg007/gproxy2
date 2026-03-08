@@ -1,7 +1,7 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::{
     BuiltinChannelCredential, ChannelCredential, aistudio, anthropic, antigravity, claudecode,
-    codex, deepseek, geminicli, grok, groq, nvidia, openai, vertex, vertexexpress,
+    codex, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 use crate::dispatch::ProviderDispatchTable;
 
@@ -14,9 +14,8 @@ pub struct BuiltinChannelRegistration {
     pub supports_secret_credential: bool,
 }
 
-pub const BUILTIN_CHANNELS: [BuiltinChannel; 13] = [
+pub const BUILTIN_CHANNELS: [BuiltinChannel; 12] = [
     BuiltinChannel::OpenAi,
-    BuiltinChannel::Grok,
     BuiltinChannel::Anthropic,
     BuiltinChannel::AiStudio,
     BuiltinChannel::VertexExpress,
@@ -30,17 +29,10 @@ pub const BUILTIN_CHANNELS: [BuiltinChannel; 13] = [
     BuiltinChannel::Groq,
 ];
 
-pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 13] = [
+pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 12] = [
     BuiltinChannelRegistration {
         channel: BuiltinChannel::OpenAi,
         id: "openai",
-        supports_oauth: false,
-        supports_upstream_usage: false,
-        supports_secret_credential: true,
-    },
-    BuiltinChannelRegistration {
-        channel: BuiltinChannel::Grok,
-        id: "grok-web",
         supports_oauth: false,
         supports_upstream_usage: false,
         supports_secret_credential: true,
@@ -125,9 +117,6 @@ pub const BUILTIN_CHANNEL_REGISTRY: [BuiltinChannelRegistration; 13] = [
 ];
 
 pub fn parse_builtin_channel(value: &str) -> Option<BuiltinChannel> {
-    if value == "grok" {
-        return Some(BuiltinChannel::Grok);
-    }
     BUILTIN_CHANNEL_REGISTRY
         .iter()
         .find(|entry| entry.id == value)
@@ -137,7 +126,6 @@ pub fn parse_builtin_channel(value: &str) -> Option<BuiltinChannel> {
 pub fn default_dispatch_table_for_builtin(channel: BuiltinChannel) -> ProviderDispatchTable {
     match channel {
         BuiltinChannel::OpenAi => openai::default_dispatch_table(),
-        BuiltinChannel::Grok => grok::default_dispatch_table(),
         BuiltinChannel::Anthropic => anthropic::default_dispatch_table(),
         BuiltinChannel::AiStudio => aistudio::default_dispatch_table(),
         BuiltinChannel::VertexExpress => vertexexpress::default_dispatch_table(),
@@ -171,11 +159,6 @@ pub fn credential_from_secret(channel: &ChannelId, secret: &str) -> Option<Chann
                         api_key: secret.to_string(),
                     }),
                 ),
-                BuiltinChannel::Grok => ChannelCredential::Builtin(BuiltinChannelCredential::Grok(
-                    grok::GrokCredential {
-                        sso: secret.to_string(),
-                    },
-                )),
                 BuiltinChannel::Anthropic => ChannelCredential::Builtin(
                     BuiltinChannelCredential::Anthropic(anthropic::AnthropicCredential {
                         api_key: secret.to_string(),

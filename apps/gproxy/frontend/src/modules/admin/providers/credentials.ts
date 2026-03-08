@@ -134,105 +134,6 @@ function normalizedStringValue(
   return value.trim();
 }
 
-type CookiePair = {
-  key: string;
-  value: string;
-  text: string;
-};
-
-function parseCookiePairs(raw: string): CookiePair[] {
-  return raw
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const separatorIndex = part.indexOf("=");
-      if (separatorIndex < 0) {
-        return null;
-      }
-      const key = part.slice(0, separatorIndex).trim();
-      if (!key) {
-        return null;
-      }
-      const value = part.slice(separatorIndex + 1).trim();
-      return {
-        key,
-        value,
-        text: `${key}=${value}`
-      };
-    })
-    .filter((pair): pair is CookiePair => pair !== null);
-}
-
-function isLikelyGrokCookieHeader(raw: string): boolean {
-  const lowered = raw.trim().toLowerCase();
-  if (!lowered) {
-    return false;
-  }
-  return lowered.includes("sso=") || lowered.includes("sso-rw=") || lowered.includes(";");
-}
-
-export function parseGrokCookieHeader(raw: string): {
-  sso: string;
-} | null {
-  const trimmed = raw.trim();
-  if (!isLikelyGrokCookieHeader(trimmed)) {
-    return null;
-  }
-
-  const pairs = parseCookiePairs(trimmed);
-  if (pairs.length === 0) {
-    return null;
-  }
-
-  let sso = "";
-
-  for (const pair of pairs) {
-    const lowered = pair.key.toLowerCase();
-    if (lowered === "sso" || lowered === "sso-rw") {
-      if (!sso && pair.value) {
-        sso = pair.value;
-      }
-    }
-  }
-
-  if (!sso) {
-    return null;
-  }
-
-  return { sso };
-}
-
-export function parseGrokSecretValuesFromCookieHeader(
-  raw: string
-): Record<string, CredentialFieldValue> {
-  const base = createEmptyCredentialFormState("grok-web");
-  const parsed = parseGrokCookieHeader(raw);
-  if (parsed?.sso) {
-    return {
-      ...base.secretValues,
-      sso: parsed.sso
-    };
-  }
-  return {
-    ...base.secretValues,
-    sso: raw.trim()
-  };
-}
-
-export function buildGrokCookieHeaderFromSecretValues(
-  values: Record<string, CredentialFieldValue>
-): string {
-  const sso = normalizedStringValue(values, "sso");
-  const parts: string[] = [];
-
-  if (sso) {
-    parts.push(`sso=${sso}`, `sso-rw=${sso}`);
-  }
-
-  return parts.join("; ");
-}
-
 function firstChars(value: string, length: number): string {
   if (!value) {
     return "";
@@ -301,14 +202,6 @@ export function buildCredentialSecretJson(
   const schema = credentialSchemaForChannel(channel);
   const normalizedChannel = normalizeChannel(channel);
   const payload: Record<string, unknown> = {};
-
-  if (normalizedChannel === "grok-web") {
-    const rawSsoInput = normalizedStringValue(values, "sso");
-    const parsedFromCookie = parseGrokCookieHeader(rawSsoInput);
-    payload.sso = parsedFromCookie?.sso ? parsedFromCookie.sso : rawSsoInput;
-
-    return JSON.stringify(encodeCredentialPayload(schema, payload));
-  }
 
   for (const field of schema.fields) {
     const raw = values[field.key];

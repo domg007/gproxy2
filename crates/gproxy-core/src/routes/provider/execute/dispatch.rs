@@ -124,7 +124,7 @@ pub(super) async fn execute_upstream_dispatch(
         let http = context.state.load_http();
         let spoof_http = matches!(
             &context.channel,
-            ChannelId::Builtin(BuiltinChannel::ClaudeCode | BuiltinChannel::Grok)
+            ChannelId::Builtin(BuiltinChannel::ClaudeCode)
         )
         .then(|| context.state.load_spoof_http());
         let tokenizers = context.state.tokenizers();

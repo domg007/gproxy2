@@ -3,13 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     aistudio, anthropic, antigravity, cache_control::CacheBreakpointRule, claudecode, codex,
-    custom, deepseek, geminicli, grok, groq, nvidia, openai, vertex, vertexexpress,
+    custom, deepseek, geminicli, groq, nvidia, openai, vertex, vertexexpress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinChannelSettings {
     OpenAi(openai::OpenAiSettings),
-    Grok(grok::GrokSettings),
     Anthropic(anthropic::AnthropicSettings),
     AiStudio(aistudio::AiStudioSettings),
     VertexExpress(vertexexpress::VertexExpressSettings),
@@ -27,7 +26,6 @@ impl BuiltinChannelSettings {
     pub fn default_for(channel: BuiltinChannel) -> Self {
         match channel {
             BuiltinChannel::OpenAi => Self::OpenAi(Default::default()),
-            BuiltinChannel::Grok => Self::Grok(Default::default()),
             BuiltinChannel::Anthropic => Self::Anthropic(Default::default()),
             BuiltinChannel::AiStudio => Self::AiStudio(Default::default()),
             BuiltinChannel::VertexExpress => Self::VertexExpress(Default::default()),
@@ -59,7 +57,6 @@ impl ChannelSettings {
     pub fn base_url(&self) -> &str {
         match self {
             Self::Builtin(BuiltinChannelSettings::OpenAi(value)) => value.base_url.as_str(),
-            Self::Builtin(BuiltinChannelSettings::Grok(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::AiStudio(value)) => value.base_url.as_str(),
             Self::Builtin(BuiltinChannelSettings::VertexExpress(value)) => value.base_url.as_str(),
@@ -78,7 +75,6 @@ impl ChannelSettings {
     pub fn user_agent(&self) -> Option<&str> {
         match self {
             Self::Builtin(BuiltinChannelSettings::OpenAi(value)) => value.user_agent.as_deref(),
-            Self::Builtin(BuiltinChannelSettings::Grok(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::AiStudio(value)) => value.user_agent.as_deref(),
             Self::Builtin(BuiltinChannelSettings::VertexExpress(value)) => {

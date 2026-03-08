@@ -332,9 +332,6 @@ export const enMessages = {
     "field.channel": "channel",
     "field.base_url": "base_url",
     "field.user_agent": "user_agent",
-    "field.grok_cf_solver_url": "CF solver URL",
-    "field.grok_cf_solver_timeout_seconds": "CF timeout (sec)",
-    "field.grok_cf_session_ttl_seconds": "CF session TTL (sec)",
     "field.custom_mask_table": "custom_mask_table",
     "field.kind": "kind",
     "field.user_id": "user_id",
@@ -463,12 +460,11 @@ export const enMessages = {
     "providers.subtab.bulk": "Import/Export",
     "providers.subtab.oauth": "OAuth",
     "providers.bulk.hint":
-      "Key channels use one key per line. Grok accepts one raw Cookie header per line and auto-extracts sso. OAuth channels accept one JSON object per line or a JSON array.",
+      "Key channels use one key per line. OAuth channels accept one JSON object per line or a JSON array.",
     "providers.bulk.mode": "Import Mode",
     "providers.bulk.mode.keys": "keys (one per line)",
     "providers.bulk.mode.json": "json objects",
     "providers.bulk.mode.claudecode_cookie": "claudecode cookies",
-    "providers.bulk.mode.grok_cookie": "grok cookies",
     "providers.bulk.input": "Import Payload",
     "providers.bulk.import": "Import",
     "providers.bulk.export": "Export",
@@ -482,12 +478,6 @@ export const enMessages = {
     "providers.bulk.placeholder.keyLineB": "sk-provider-key-2",
     "providers.bulk.placeholder.cookieLineA": "claude-session-cookie-1",
     "providers.bulk.placeholder.cookieLineB": "claude-session-cookie-2",
-    "providers.bulk.placeholder.grokCookieLineA":
-      "i18nextLng=zh; stblid=...; sso=...; sso-rw=...; x-userid=...",
-    "providers.bulk.placeholder.grokCookieLineB":
-      "stblid=...; sso=...; x-userid=...",
-    "providers.grok.cfHint":
-      "When a FlareSolverr URL is configured, requests refresh Cloudflare cookies and the matching User-Agent at runtime. Credentials store only sso.",
     "providers.credentialUnnamed": "(unnamed credential)",
     "providers.oauth.startPlaceholder": "state=...&redirect_uri=...",
     "providers.oauth.callbackPlaceholder": "callback_url=...&code=...",

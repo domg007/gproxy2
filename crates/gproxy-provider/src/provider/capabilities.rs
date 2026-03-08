@@ -189,7 +189,6 @@ define_execute_handler!(
     execute_deepseek_with_retry,
     tokenized
 );
-define_execute_handler!(execute_grok_capability, execute_grok_with_retry, spoof);
 define_execute_handler!(execute_groq_capability, execute_groq_with_retry, tokenized);
 define_execute_handler!(
     execute_custom_capability,
@@ -251,11 +250,6 @@ define_payload_handler!(
     payload_deepseek_capability,
     execute_deepseek_payload_with_retry,
     payload
-);
-define_payload_handler!(
-    payload_grok_capability,
-    execute_grok_payload_with_retry,
-    spoof_payload
 );
 define_payload_handler!(
     payload_groq_capability,
@@ -320,13 +314,6 @@ pub(super) fn channel_capabilities(channel: &ChannelId) -> ProviderChannelCapabi
         ChannelId::Builtin(BuiltinChannel::OpenAi) => ProviderChannelCapabilities {
             execute: execute_openai_capability,
             payload: Some(payload_openai_capability),
-            oauth_start: None,
-            oauth_callback: None,
-            upstream_usage: None,
-        },
-        ChannelId::Builtin(BuiltinChannel::Grok) => ProviderChannelCapabilities {
-            execute: execute_grok_capability,
-            payload: Some(payload_grok_capability),
             oauth_start: None,
             oauth_callback: None,
             upstream_usage: None,

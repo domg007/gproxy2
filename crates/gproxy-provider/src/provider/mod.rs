@@ -30,7 +30,6 @@ use crate::channels::geminicli::{
     execute_geminicli_payload_with_retry, execute_geminicli_upstream_usage_with_retry,
     execute_geminicli_with_retry,
 };
-use crate::channels::grok::{execute_grok_payload_with_retry, execute_grok_with_retry};
 use crate::channels::groq::{execute_groq_payload_with_retry, execute_groq_with_retry};
 use crate::channels::nvidia::{execute_nvidia_payload_with_retry, execute_nvidia_with_retry};
 use crate::channels::openai::{execute_openai_payload_with_retry, execute_openai_with_retry};
