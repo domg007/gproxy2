@@ -52,13 +52,15 @@ use super::super::{
     anthropic_headers_from_request, apply_credential_update_and_persist, authorize_provider_access,
     bad_request, capture_tracked_http_events, collect_headers, collect_passthrough_headers,
     collect_unscoped_model_ids, collect_websocket_passthrough_headers,
-    enqueue_internal_tracked_http_events, enqueue_upstream_request_event_from_meta,
-    execute_transform_candidates, execute_transform_request, execute_transform_request_payload,
-    internal_error, model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
+    enqueue_credential_status_updates_for_request, enqueue_internal_tracked_http_events,
+    enqueue_upstream_request_event_from_meta, execute_transform_candidates,
+    execute_transform_request, execute_transform_request_payload, internal_error,
+    model_protocol_preference, normalize_gemini_model_path, now_unix_ms,
     oauth_callback_response_to_axum, oauth_response_to_axum, parse_json_body,
     parse_optional_query_value, persist_provider_and_credential, resolve_credential_id,
     resolve_provider, resolve_provider_id, response_from_status_headers_and_bytes,
-    split_provider_prefixed_plain_model, upstream_error_request_meta, upstream_error_status,
+    split_provider_prefixed_plain_model, upstream_error_credential_id, upstream_error_request_meta,
+    upstream_error_status,
 };
 
 mod http_fallback;
