@@ -1,15 +1,24 @@
-use anyhow::Result;
+use std::future::IntoFuture;
+
+use anyhow::{Result, anyhow};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use gproxy_core::management_router;
+use gproxy_storage::StorageWriteSinkError;
 use tokio::net::TcpListener;
+use tokio::task::{JoinError, JoinHandle};
+
+use crate::bootstrap::runtime::Bootstrap;
+
 mod admin_ui;
 mod bootstrap;
 mod middleware;
 
 const MAX_AXUM_BODY_BYTES: usize = 50 * 1024 * 1024;
+
+type StorageWriteWorkerHandle = JoinHandle<std::result::Result<(), StorageWriteSinkError>>;
 
 fn parse_author_and_email(authors: &str) -> (String, String) {
     let first = authors
@@ -72,6 +81,31 @@ async fn shutdown_signal() {
     tracing::info!("shutdown signal received, starting graceful shutdown");
 }
 
+fn storage_write_worker_failure(
+    result: std::result::Result<std::result::Result<(), StorageWriteSinkError>, JoinError>,
+    stage: &str,
+) -> anyhow::Error {
+    match result {
+        Ok(Ok(())) => anyhow!("storage write worker exited unexpectedly while {stage}"),
+        Ok(Err(err)) => anyhow!("storage write worker failed while {stage}: {err}"),
+        Err(err) => anyhow!("storage write worker panicked while {stage}: {err}"),
+    }
+}
+
+async fn flush_storage_write_worker_on_shutdown(
+    storage_write_worker: &mut StorageWriteWorkerHandle,
+) -> Result<()> {
+    match storage_write_worker.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(anyhow!(
+            "storage write worker failed while draining shutdown writes: {err}"
+        )),
+        Err(err) => Err(anyhow!(
+            "storage write worker panicked while draining shutdown writes: {err}"
+        )),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -83,12 +117,17 @@ async fn main() -> Result<()> {
         .compact()
         .init();
 
-    let boot = bootstrap::bootstrap_from_env().await?;
-    let config = boot.state.load_config();
+    let Bootstrap {
+        config_path: _config_path,
+        config: _config,
+        storage: _storage,
+        state,
+        storage_write_worker,
+    } = bootstrap::bootstrap_from_env().await?;
+    let config = state.load_config();
     let host = config.global.host.clone();
     let port = config.global.port;
-    let username = boot
-        .state
+    let username = state
         .load_users()
         .first()
         .map(|user| user.name.clone())
@@ -109,23 +148,39 @@ async fn main() -> Result<()> {
     println!("password: {password}");
     println!("========================================");
 
-    let _ = (&boot.config_path, &boot.config, &boot.storage_write_worker);
-    let _storage = boot.storage.connection();
-
     let app = Router::new()
         .route("/favicon.ico", get(admin_ui::favicon))
         .route("/", get(admin_ui::index))
         .route("/assets/{*path}", get(admin_ui::asset))
-        .merge(management_router(boot.state.clone()))
+        .merge(management_router(state.clone()))
         .layer(from_fn_with_state(
-            boot.state.clone(),
+            state.clone(),
             middleware::downstream_event::middleware,
         ))
         .layer(DefaultBodyLimit::max(MAX_AXUM_BODY_BYTES));
     let listener = TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app)
+    let server = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        .into_future();
+    tokio::pin!(server);
+    let mut storage_write_worker = storage_write_worker;
+
+    tokio::select! {
+        worker_result = &mut storage_write_worker => {
+            let err = storage_write_worker_failure(worker_result, "serving requests");
+            tracing::error!(error=%err, "storage write worker exited; terminating process for restart");
+            return Err(err);
+        }
+        server_result = &mut server => {
+            server_result?;
+        }
+    }
+
+    drop(state);
+    if let Err(err) = flush_storage_write_worker_on_shutdown(&mut storage_write_worker).await {
+        tracing::error!(error=%err, "storage write worker failed during shutdown flush");
+        return Err(err);
+    }
 
     Ok(())
 }
