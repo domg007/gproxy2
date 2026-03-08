@@ -1648,7 +1648,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1715,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1728,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "base64 0.22.1",
  "http",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.31"
+version = "0.3.32"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -2356,9 +2356,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libloading"

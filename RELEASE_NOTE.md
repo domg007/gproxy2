@@ -1,5 +1,59 @@
 # Release Notes
 
+## v0.3.32
+
+### English
+
+#### Added
+
+- Added OpenAI-compatible image generation and image edit APIs, including request/response transforms and SSE handling for supported upstreams.
+- Added OpenAI-compatible video create/retrieve/content APIs, and wired video execution flows for the supported Gemini/OpenAI-style upstreams.
+- Added bulk deletion for dead credentials in the admin credential workspace.
+
+#### Changed
+
+- Renamed the built-in `claude` channel to `anthropic` across provider/admin configuration, docs, and channel metadata.
+- Runtime OAuth/token-refresh credential updates are now persisted as a direct provider+credential storage batch so refreshed secrets become durable immediately.
+- Removed the unfinished Grok channel support before release to keep the built-in provider surface smaller and easier to maintain.
+
+#### Fixed
+
+- Added storage migration for legacy `claude` data so provider rows, credential kinds/secrets, and credential-status references are rewritten to `anthropic` automatically.
+- Dead Codex credentials discovered during usage refresh are now persisted instead of only being marked in memory.
+- Storage write worker now fails fast when the sink exits or returns an error, instead of silently leaving pending writes behind.
+
+#### Compatibility
+
+- Existing storage data using `claude` is migrated to `anthropic` automatically on startup; no manual data rewrite is required.
+- Config/admin payloads should now use `anthropic`, `builtin/anthropic`, `anthropic_prelude_text`, `anthropic_append_beta_query`, and `anthropic_extra_beta_headers`.
+- The new media APIs extend the OpenAI-compatible surface without changing existing chat/completions behavior.
+
+### 中文
+
+#### 新增
+
+- 新增 OpenAI 兼容的图片生成与图片编辑 API，并补齐了对应的请求/响应转换和 SSE 处理链路。
+- 新增 OpenAI 兼容的视频创建、查询与内容下载 API，并为支持的 Gemini / OpenAI 风格上游接通了视频执行流程。
+- 后台凭证工作区新增 dead 凭证批量删除能力。
+
+#### 变更
+
+- 内置 `claude` 渠道正式统一更名为 `anthropic`，对应的 provider/admin 配置、文档和渠道元数据都已同步调整。
+- 运行时 OAuth / token refresh 产生的凭证更新，改为直接以 provider + credential 的一个 storage batch 持久化，刷新后的密钥会立即落盘。
+- 在正式发布前移除了未完成的 Grok 渠道支持，缩小内置 provider 维护面，降低后续维护成本。
+
+#### 修复
+
+- 新增 legacy `claude` 数据迁移：历史 provider 记录、credential kind / secret、credential status 引用都会自动改写到 `anthropic`。
+- Codex 在 usage refresh 过程中识别出的 dead 凭证，现在会同步持久化，而不再只是停留在内存状态里。
+- storage write worker 在 sink 退出或写入失败时会直接 fail fast，不再静默留下未落盘写入。
+
+#### 兼容性
+
+- 已有使用 `claude` 的 storage 数据会在启动时自动迁移到 `anthropic`，不需要手工改库。
+- 配置文件和 admin 载荷现在应使用 `anthropic`、`builtin/anthropic`、`anthropic_prelude_text`、`anthropic_append_beta_query`、`anthropic_extra_beta_headers` 这些新标识。
+- 新增的多媒体 API 只是在 OpenAI 兼容面上扩展能力，不会改变现有 chat/completions 的行为。
+
 ## v0.3.31
 
 ### English
