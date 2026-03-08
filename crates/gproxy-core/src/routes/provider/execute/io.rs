@@ -48,7 +48,7 @@ pub(crate) fn transformed_payload_content_type(
     operation: OperationFamily,
     protocol: ProtocolKind,
 ) -> &'static str {
-    if operation != OperationFamily::StreamGenerateContent {
+    if !operation.is_stream() {
         return "application/json";
     }
     match protocol {
@@ -104,6 +104,10 @@ pub(crate) fn should_wrap_payload_for_typed_decode(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::OpenAiChatCompletion
             )
+            | (OperationFamily::CreateImage, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi)
+            | (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi)
             | (OperationFamily::CountToken, ProtocolKind::OpenAi)
             | (OperationFamily::Embedding, ProtocolKind::OpenAi)
             | (OperationFamily::Compact, ProtocolKind::OpenAi)

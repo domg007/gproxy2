@@ -117,6 +117,8 @@ pub fn router() -> Router<Arc<AppState>> {
             "/v1/responses",
             post(openai_responses_unscoped).get(openai_responses_upgrade_unscoped),
         )
+        .route("/v1/images/generations", post(openai_create_image_unscoped))
+        .route("/v1/images/edits", post(openai_create_image_edit_unscoped))
         .route(
             "/v1/responses/input_tokens",
             post(openai_input_tokens_unscoped),
@@ -149,6 +151,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/{provider}/v1/responses",
             post(openai_responses).get(openai_responses_upgrade),
+        )
+        .route(
+            "/{provider}/v1/images/generations",
+            post(openai_create_image),
+        )
+        .route(
+            "/{provider}/v1/images/edits",
+            post(openai_create_image_edit),
         )
         .route(
             "/{provider}/v1/responses/input_tokens",

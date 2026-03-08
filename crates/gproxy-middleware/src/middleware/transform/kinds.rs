@@ -8,6 +8,10 @@ pub enum OperationFamily {
     Compact,
     GenerateContent,
     StreamGenerateContent,
+    CreateImage,
+    StreamCreateImage,
+    CreateImageEdit,
+    StreamCreateImageEdit,
     OpenAiResponseWebSocket,
     GeminiLive,
     Embedding,
@@ -15,11 +19,17 @@ pub enum OperationFamily {
 
 impl OperationFamily {
     pub const fn is_stream(self) -> bool {
-        matches!(self, Self::StreamGenerateContent)
+        matches!(
+            self,
+            Self::StreamGenerateContent | Self::StreamCreateImage | Self::StreamCreateImageEdit
+        )
     }
 
     pub const fn can_be_stream_driven(self) -> bool {
-        matches!(self, Self::GenerateContent | Self::Compact)
+        matches!(
+            self,
+            Self::GenerateContent | Self::Compact | Self::CreateImage | Self::CreateImageEdit
+        )
     }
 }
 

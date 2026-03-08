@@ -234,7 +234,7 @@ async fn handle_typed_http_upstream_response(
         })
         .collect::<Vec<_>>();
 
-    let transformed_payload = if route.dst_operation == OperationFamily::StreamGenerateContent {
+    let transformed_payload = if route.dst_operation.is_stream() {
         let body_stream = response.bytes_stream().map(|item| {
             item.map_err(|err| MiddlewareTransformError::ProviderPrefix {
                 message: err.to_string(),

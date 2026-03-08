@@ -152,7 +152,11 @@ fn extract_model_from_json_payload(
         }
 
         (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi) => {
+        | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::CreateImage, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi)
+        | (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi) => {
             json_pointer_string(&value, "/body/model")
         }
         (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {

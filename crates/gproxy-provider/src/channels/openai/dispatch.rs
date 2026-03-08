@@ -81,6 +81,31 @@ const ROUTES: &[TypedRoute] = &[
         Op::StreamGenerateContent,
         Proto::OpenAi,
     ),
+    // Images
+    (
+        Op::CreateImage,
+        Proto::OpenAi,
+        Op::CreateImage,
+        Proto::OpenAi,
+    ),
+    (
+        Op::StreamCreateImage,
+        Proto::OpenAi,
+        Op::StreamCreateImage,
+        Proto::OpenAi,
+    ),
+    (
+        Op::CreateImageEdit,
+        Proto::OpenAi,
+        Op::CreateImageEdit,
+        Proto::OpenAi,
+    ),
+    (
+        Op::StreamCreateImageEdit,
+        Proto::OpenAi,
+        Op::StreamCreateImageEdit,
+        Proto::OpenAi,
+    ),
     // Embeddings
     (Op::Embedding, Proto::OpenAi, Op::Embedding, Proto::OpenAi),
     (Op::Embedding, Proto::Gemini, Op::Embedding, Proto::OpenAi),

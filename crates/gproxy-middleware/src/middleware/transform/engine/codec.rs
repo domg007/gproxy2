@@ -26,6 +26,10 @@ pub(super) fn request_extra_headers(
         TransformRequest::StreamGenerateContentClaude(value) => value.headers.extra.clone(),
         TransformRequest::StreamGenerateContentGeminiSse(value) => value.headers.extra.clone(),
         TransformRequest::StreamGenerateContentGeminiNdjson(value) => value.headers.extra.clone(),
+        TransformRequest::CreateImageOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::StreamCreateImageOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::CreateImageEditOpenAi(value) => value.headers.extra.clone(),
+        TransformRequest::StreamCreateImageEditOpenAi(value) => value.headers.extra.clone(),
         TransformRequest::OpenAiResponseWebSocket(value) => value.headers.extra.clone(),
         TransformRequest::GeminiLive(value) => value.headers.extra.clone(),
         TransformRequest::EmbeddingOpenAi(value) => value.headers.extra.clone(),
@@ -61,6 +65,10 @@ pub(super) fn apply_request_extra_headers(
         TransformRequest::StreamGenerateContentClaude(value) => value.headers.extra = extra,
         TransformRequest::StreamGenerateContentGeminiSse(value) => value.headers.extra = extra,
         TransformRequest::StreamGenerateContentGeminiNdjson(value) => value.headers.extra = extra,
+        TransformRequest::CreateImageOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::StreamCreateImageOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::CreateImageEditOpenAi(value) => value.headers.extra = extra,
+        TransformRequest::StreamCreateImageEditOpenAi(value) => value.headers.extra = extra,
         TransformRequest::OpenAiResponseWebSocket(value) => value.headers.extra = extra,
         TransformRequest::GeminiLive(value) => value.headers.extra = extra,
         TransformRequest::EmbeddingOpenAi(value) => value.headers.extra = extra,
@@ -194,6 +202,25 @@ pub fn decode_request_payload(
             Ok(TransformRequest::StreamGenerateContentGeminiNdjson(request))
         }
 
+        (OperationFamily::CreateImage, ProtocolKind::OpenAi) => Ok(
+            TransformRequest::CreateImageOpenAi(decode_json("request", operation, protocol, body)?),
+        ),
+        (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::StreamCreateImageOpenAi(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::CreateImageEditOpenAi(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi) => {
+            Ok(TransformRequest::StreamCreateImageEditOpenAi(decode_json(
+                "request", operation, protocol, body,
+            )?))
+        }
+
         (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
             Ok(TransformRequest::OpenAiResponseWebSocket(decode_json(
                 "request", operation, protocol, body,
@@ -279,6 +306,18 @@ pub(crate) fn encode_request_payload(
             encode_json("request", operation, protocol, &value)
         }
         TransformRequest::StreamGenerateContentGeminiNdjson(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::CreateImageOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::StreamCreateImageOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::CreateImageEditOpenAi(value) => {
+            encode_json("request", operation, protocol, &value)
+        }
+        TransformRequest::StreamCreateImageEditOpenAi(value) => {
             encode_json("request", operation, protocol, &value)
         }
         TransformRequest::OpenAiResponseWebSocket(value) => {
@@ -390,6 +429,27 @@ pub fn decode_response_payload(
             ))
         }
 
+        (OperationFamily::CreateImage, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::CreateImageOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::StreamCreateImageOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::CreateImageEditOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+        (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi) => {
+            Ok(TransformResponse::StreamCreateImageEditOpenAi(decode_json(
+                "response", operation, protocol, body,
+            )?))
+        }
+
         (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi) => {
             Ok(TransformResponse::OpenAiResponseWebSocket(decode_json(
                 "response", operation, protocol, body,
@@ -483,6 +543,18 @@ pub(crate) fn encode_response_payload(
             protocol,
             &ensure_gemini_ndjson_stream(value),
         ),
+        TransformResponse::CreateImageOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::StreamCreateImageOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::CreateImageEditOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
+        TransformResponse::StreamCreateImageEditOpenAi(value) => {
+            encode_json("response", operation, protocol, &value)
+        }
         TransformResponse::OpenAiResponseWebSocket(value) => {
             encode_json("response", operation, protocol, &value)
         }

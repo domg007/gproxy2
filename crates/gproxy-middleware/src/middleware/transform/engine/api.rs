@@ -103,6 +103,18 @@ pub fn transform_request(
             let generate_request = transform_generate_request(input, route.dst_protocol)?;
             promote_generate_request_to_stream(generate_request, route.dst_protocol)
         }
+        OperationFamily::CreateImage => transform_create_image_request(input, route.dst_protocol),
+        OperationFamily::StreamCreateImage => {
+            let request = transform_create_image_request(input, route.dst_protocol)?;
+            promote_create_image_request_to_stream(request, route.dst_protocol)
+        }
+        OperationFamily::CreateImageEdit => {
+            transform_create_image_edit_request(input, route.dst_protocol)
+        }
+        OperationFamily::StreamCreateImageEdit => {
+            let request = transform_create_image_edit_request(input, route.dst_protocol)?;
+            promote_create_image_edit_request_to_stream(request, route.dst_protocol)
+        }
         OperationFamily::OpenAiResponseWebSocket => {
             transform_openai_response_websocket_request(input, route.dst_protocol)
         }
@@ -138,6 +150,16 @@ pub fn transform_response(
     let mut current_operation = route.dst_operation;
     let mut current_response = input;
 
+    if current_operation == OperationFamily::StreamGenerateContent
+        && route.src_operation == OperationFamily::StreamCreateImage
+    {
+        return transform_create_image_stream_response(current_response, route.src_protocol);
+    }
+    if current_operation == OperationFamily::StreamGenerateContent
+        && route.src_operation == OperationFamily::StreamCreateImageEdit
+    {
+        return transform_create_image_edit_stream_response(current_response, route.src_protocol);
+    }
     if current_operation == OperationFamily::StreamGenerateContent
         && route.src_operation != OperationFamily::StreamGenerateContent
     {
@@ -208,6 +230,18 @@ pub fn transform_response(
                     "stream response source requires stream destination",
                 ))
             }
+        }
+        OperationFamily::CreateImage => {
+            transform_create_image_response(current_response, route.src_protocol)
+        }
+        OperationFamily::StreamCreateImage => {
+            transform_create_image_stream_response(current_response, route.src_protocol)
+        }
+        OperationFamily::CreateImageEdit => {
+            transform_create_image_edit_response(current_response, route.src_protocol)
+        }
+        OperationFamily::StreamCreateImageEdit => {
+            transform_create_image_edit_stream_response(current_response, route.src_protocol)
         }
         OperationFamily::OpenAiResponseWebSocket => {
             transform_openai_response_websocket_response(current_response, route.src_protocol)

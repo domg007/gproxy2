@@ -361,6 +361,66 @@ impl OpenAiPreparedRequest {
                 model: Some(value.body.model.clone()),
                 extra_headers: extra_headers_from_transform_request(request),
             }),
+            gproxy_middleware::TransformRequest::CreateImageOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/generations".to_string(),
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
+            gproxy_middleware::TransformRequest::StreamCreateImageOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/generations".to_string(),
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
+            gproxy_middleware::TransformRequest::CreateImageEditOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/edits".to_string(),
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
+            gproxy_middleware::TransformRequest::StreamCreateImageEditOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/edits".to_string(),
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                extra_headers: extra_headers_from_transform_request(request),
+            }),
             gproxy_middleware::TransformRequest::EmbeddingOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/embeddings".to_string(),
@@ -464,6 +524,28 @@ impl OpenAiPreparedRequest {
                     extra_headers,
                 })
             }
+            (OperationFamily::CreateImage, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/images/generations".to_string(),
+                body: Some(
+                    serde_json::to_vec(&body_value)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: json_pointer_string(&body_value, "/model"),
+                extra_headers,
+            }),
+            (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi)
+            | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi) => Ok(Self {
+                method: WreqMethod::POST,
+                path: "/v1/images/edits".to_string(),
+                body: Some(
+                    serde_json::to_vec(&body_value)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: json_pointer_string(&body_value, "/model"),
+                extra_headers,
+            }),
             (OperationFamily::Embedding, ProtocolKind::OpenAi) => Ok(Self {
                 method: WreqMethod::POST,
                 path: "/v1/embeddings".to_string(),

@@ -165,9 +165,7 @@ pub(crate) async fn execute_passthrough_payload_request(
     if let Some(response) = upstream.response {
         let response_status = response.status().as_u16();
         let response_headers = response_headers_to_pairs(&response);
-        if operation == OperationFamily::StreamGenerateContent
-            || is_streaming_content_type(response_headers.as_slice())
-        {
+        if operation.is_stream() || is_streaming_content_type(response_headers.as_slice()) {
             let rewrite_gemini_stream_to_ndjson = operation
                 == OperationFamily::StreamGenerateContent
                 && protocol == ProtocolKind::GeminiNDJson;

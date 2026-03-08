@@ -131,6 +131,136 @@ pub(in crate::routes::provider) async fn openai_responses_unscoped(
         .map_err(HttpError::from)
 }
 
+pub(in crate::routes::provider) async fn openai_create_image(
+    State(state): State<Arc<AppState>>,
+    Path(provider_name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let value = parse_json_body::<serde_json::Value>(
+        &body,
+        "invalid openai image generation request body",
+    )?;
+    let operation = if stream_enabled(&value) {
+        OperationFamily::StreamCreateImage
+    } else {
+        OperationFamily::CreateImage
+    };
+    let payload = TransformRequestPayload::from_bytes(
+        operation,
+        ProtocolKind::OpenAi,
+        build_openai_payload(
+            value,
+            &headers,
+            "invalid openai image generation request body",
+        )?,
+    );
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
+}
+
+pub(in crate::routes::provider) async fn openai_create_image_unscoped(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let mut body = parse_json_body::<serde_json::Value>(
+        &body,
+        "invalid openai image generation request body",
+    )?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI image generation request body",
+        "`model` in OpenAI image generation request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI image generation request body",
+    )?;
+    let operation = if stream_enabled(&body) {
+        OperationFamily::StreamCreateImage
+    } else {
+        OperationFamily::CreateImage
+    };
+    let body = build_openai_payload(
+        body,
+        &headers,
+        "invalid openai image generation request body",
+    )?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let payload = TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
+}
+
+pub(in crate::routes::provider) async fn openai_create_image_edit(
+    State(state): State<Arc<AppState>>,
+    Path(provider_name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let value =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai image edit request body")?;
+    let operation = if stream_enabled(&value) {
+        OperationFamily::StreamCreateImageEdit
+    } else {
+        OperationFamily::CreateImageEdit
+    };
+    let payload = TransformRequestPayload::from_bytes(
+        operation,
+        ProtocolKind::OpenAi,
+        build_openai_payload(value, &headers, "invalid openai image edit request body")?,
+    );
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
+}
+
+pub(in crate::routes::provider) async fn openai_create_image_edit_unscoped(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, HttpError> {
+    let auth = authorize_provider_access(&headers, &state)?;
+    let mut body =
+        parse_json_body::<serde_json::Value>(&body, "invalid openai image edit request body")?;
+    let model = required_string_field(
+        &body,
+        "/model",
+        "missing `model` in OpenAI image edit request body",
+        "`model` in OpenAI image edit request body must be a string",
+    )?;
+    let (provider_name, stripped_model) = split_provider_prefixed_plain_model(model)?;
+    set_string_field(
+        &mut body,
+        "/model",
+        stripped_model,
+        "missing `model` in OpenAI image edit request body",
+    )?;
+    let operation = if stream_enabled(&body) {
+        OperationFamily::StreamCreateImageEdit
+    } else {
+        OperationFamily::CreateImageEdit
+    };
+    let body = build_openai_payload(body, &headers, "invalid openai image edit request body")?;
+    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let payload = TransformRequestPayload::from_bytes(operation, ProtocolKind::OpenAi, body);
+    execute_transform_request_payload(state, channel, provider, auth, payload)
+        .await
+        .map_err(HttpError::from)
+}
+
 pub(in crate::routes::provider) async fn openai_input_tokens(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,

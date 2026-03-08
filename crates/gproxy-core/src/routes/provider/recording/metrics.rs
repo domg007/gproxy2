@@ -180,6 +180,19 @@ pub(crate) fn usage_metrics_from_openai_embeddings_usage(
     }
 }
 
+pub(crate) fn usage_metrics_from_openai_image_usage(
+    usage: &gproxy_protocol::openai::create_image::types::OpenAiImageUsage,
+) -> UsageMetrics {
+    UsageMetrics {
+        input_tokens: Some(u64_to_i64(usage.input_tokens)),
+        output_tokens: Some(u64_to_i64(usage.output_tokens)),
+        cache_read_input_tokens: None,
+        cache_creation_input_tokens: None,
+        cache_creation_input_tokens_5min: None,
+        cache_creation_input_tokens_1h: None,
+    }
+}
+
 pub(crate) fn extract_usage_from_local_response(
     response: &gproxy_middleware::TransformResponse,
 ) -> Option<UsageMetrics> {
@@ -267,6 +280,22 @@ pub(crate) fn extract_usage_from_local_response(
                 _ => None,
             }
         }
+        gproxy_middleware::TransformResponse::CreateImageOpenAi(
+            gproxy_protocol::openai::create_image::response::OpenAiCreateImageResponse::Success {
+                body, ..
+            },
+        ) => body
+            .usage
+            .as_ref()
+            .map(usage_metrics_from_openai_image_usage),
+        gproxy_middleware::TransformResponse::CreateImageEditOpenAi(
+            gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse::Success {
+                body, ..
+            },
+        ) => body
+            .usage
+            .as_ref()
+            .map(usage_metrics_from_openai_image_usage),
         gproxy_middleware::TransformResponse::EmbeddingOpenAi(
             openai_embeddings_response::OpenAiEmbeddingsResponse::Success { body, .. },
         ) => Some(usage_metrics_from_openai_embeddings_usage(&body.usage)),

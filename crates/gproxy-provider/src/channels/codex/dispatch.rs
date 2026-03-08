@@ -80,6 +80,31 @@ const ROUTES: &[TypedRoute] = &[
         Op::StreamGenerateContent,
         Proto::OpenAi,
     ),
+    // Images (transform-only; no native OpenAI images passthrough)
+    (
+        Op::CreateImage,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::OpenAi,
+    ),
+    (
+        Op::StreamCreateImage,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::OpenAi,
+    ),
+    (
+        Op::CreateImageEdit,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::OpenAi,
+    ),
+    (
+        Op::StreamCreateImageEdit,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::OpenAi,
+    ),
     // Compact is native in Codex upstream.
     (Op::Compact, Proto::OpenAi, Op::Compact, Proto::OpenAi),
 ];

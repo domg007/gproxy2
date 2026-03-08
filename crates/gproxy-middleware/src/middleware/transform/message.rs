@@ -33,6 +33,12 @@ use gproxy_protocol::openai::count_tokens::response::OpenAiCountTokensResponse;
 use gproxy_protocol::openai::create_chat_completions::request::OpenAiChatCompletionsRequest;
 use gproxy_protocol::openai::create_chat_completions::response::OpenAiChatCompletionsResponse;
 use gproxy_protocol::openai::create_chat_completions::stream::OpenAiChatCompletionsSseStreamBody;
+use gproxy_protocol::openai::create_image::request::OpenAiCreateImageRequest;
+use gproxy_protocol::openai::create_image::response::OpenAiCreateImageResponse;
+use gproxy_protocol::openai::create_image::stream::OpenAiCreateImageSseStreamBody;
+use gproxy_protocol::openai::create_image_edit::request::OpenAiCreateImageEditRequest;
+use gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse;
+use gproxy_protocol::openai::create_image_edit::stream::OpenAiCreateImageEditSseStreamBody;
 use gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest;
 use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse;
 use gproxy_protocol::openai::create_response::stream::OpenAiCreateResponseSseStreamBody;
@@ -147,6 +153,11 @@ pub enum TransformRequest {
     StreamGenerateContentGeminiSse(GeminiStreamGenerateContentRequest),
     StreamGenerateContentGeminiNdjson(GeminiStreamGenerateContentRequest),
 
+    CreateImageOpenAi(OpenAiCreateImageRequest),
+    StreamCreateImageOpenAi(OpenAiCreateImageRequest),
+    CreateImageEditOpenAi(OpenAiCreateImageEditRequest),
+    StreamCreateImageEditOpenAi(OpenAiCreateImageEditRequest),
+
     OpenAiResponseWebSocket(OpenAiCreateResponseWebSocketConnectRequest),
     GeminiLive(GeminiLiveConnectRequest),
 
@@ -177,6 +188,10 @@ impl TransformRequest {
             | Self::StreamGenerateContentClaude(_)
             | Self::StreamGenerateContentGeminiSse(_)
             | Self::StreamGenerateContentGeminiNdjson(_) => OperationFamily::StreamGenerateContent,
+            Self::CreateImageOpenAi(_) => OperationFamily::CreateImage,
+            Self::StreamCreateImageOpenAi(_) => OperationFamily::StreamCreateImage,
+            Self::CreateImageEditOpenAi(_) => OperationFamily::CreateImageEdit,
+            Self::StreamCreateImageEditOpenAi(_) => OperationFamily::StreamCreateImageEdit,
             Self::OpenAiResponseWebSocket(_) => OperationFamily::OpenAiResponseWebSocket,
             Self::GeminiLive(_) => OperationFamily::GeminiLive,
             Self::EmbeddingOpenAi(_) | Self::EmbeddingGemini(_) => OperationFamily::Embedding,
@@ -210,6 +225,11 @@ impl TransformRequest {
             Self::StreamGenerateContentClaude(_) => ProtocolKind::Claude,
             Self::StreamGenerateContentGeminiSse(_) => ProtocolKind::Gemini,
             Self::StreamGenerateContentGeminiNdjson(_) => ProtocolKind::GeminiNDJson,
+
+            Self::CreateImageOpenAi(_) => ProtocolKind::OpenAi,
+            Self::StreamCreateImageOpenAi(_) => ProtocolKind::OpenAi,
+            Self::CreateImageEditOpenAi(_) => ProtocolKind::OpenAi,
+            Self::StreamCreateImageEditOpenAi(_) => ProtocolKind::OpenAi,
 
             Self::OpenAiResponseWebSocket(_) => ProtocolKind::OpenAi,
             Self::GeminiLive(_) => ProtocolKind::Gemini,
@@ -248,6 +268,11 @@ pub enum TransformResponse {
     StreamGenerateContentGeminiSse(GeminiStreamGenerateContentResponse),
     StreamGenerateContentGeminiNdjson(GeminiStreamGenerateContentResponse),
 
+    CreateImageOpenAi(OpenAiCreateImageResponse),
+    StreamCreateImageOpenAi(OpenAiCreateImageSseStreamBody),
+    CreateImageEditOpenAi(OpenAiCreateImageEditResponse),
+    StreamCreateImageEditOpenAi(OpenAiCreateImageEditSseStreamBody),
+
     OpenAiResponseWebSocket(Vec<OpenAiCreateResponseWebSocketMessageResponse>),
     GeminiLive(Vec<GeminiLiveMessageResponse>),
 
@@ -278,6 +303,10 @@ impl TransformResponse {
             | Self::StreamGenerateContentClaude(_)
             | Self::StreamGenerateContentGeminiSse(_)
             | Self::StreamGenerateContentGeminiNdjson(_) => OperationFamily::StreamGenerateContent,
+            Self::CreateImageOpenAi(_) => OperationFamily::CreateImage,
+            Self::StreamCreateImageOpenAi(_) => OperationFamily::StreamCreateImage,
+            Self::CreateImageEditOpenAi(_) => OperationFamily::CreateImageEdit,
+            Self::StreamCreateImageEditOpenAi(_) => OperationFamily::StreamCreateImageEdit,
             Self::OpenAiResponseWebSocket(_) => OperationFamily::OpenAiResponseWebSocket,
             Self::GeminiLive(_) => OperationFamily::GeminiLive,
             Self::EmbeddingOpenAi(_) | Self::EmbeddingGemini(_) => OperationFamily::Embedding,
@@ -311,6 +340,11 @@ impl TransformResponse {
             Self::StreamGenerateContentClaude(_) => ProtocolKind::Claude,
             Self::StreamGenerateContentGeminiSse(_) => ProtocolKind::Gemini,
             Self::StreamGenerateContentGeminiNdjson(_) => ProtocolKind::GeminiNDJson,
+
+            Self::CreateImageOpenAi(_) => ProtocolKind::OpenAi,
+            Self::StreamCreateImageOpenAi(_) => ProtocolKind::OpenAi,
+            Self::CreateImageEditOpenAi(_) => ProtocolKind::OpenAi,
+            Self::StreamCreateImageEditOpenAi(_) => ProtocolKind::OpenAi,
 
             Self::OpenAiResponseWebSocket(_) => ProtocolKind::OpenAi,
             Self::GeminiLive(_) => ProtocolKind::Gemini,

@@ -53,6 +53,10 @@ pub(crate) fn extract_model_from_payload(
 
         (OperationFamily::GenerateContent, ProtocolKind::OpenAi)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAi)
+        | (OperationFamily::CreateImage, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi)
+        | (OperationFamily::CreateImageEdit, ProtocolKind::OpenAi)
+        | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi)
         | (OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi)
         | (OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion)
         | (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion)
@@ -121,6 +125,12 @@ pub(crate) fn extract_model_from_request(request: &TransformRequest) -> Option<S
 
         TransformRequest::GenerateContentOpenAiResponse(value)
         | TransformRequest::StreamGenerateContentOpenAiResponse(value) => value.body.model.clone(),
+
+        TransformRequest::CreateImageOpenAi(value)
+        | TransformRequest::StreamCreateImageOpenAi(value) => value.body.model.as_ref().and_then(|model| serde_json::to_value(model).ok()).and_then(|value| value.as_str().map(ToOwned::to_owned)),
+
+        TransformRequest::CreateImageEditOpenAi(value)
+        | TransformRequest::StreamCreateImageEditOpenAi(value) => value.body.model.as_ref().and_then(|model| serde_json::to_value(model).ok()).and_then(|value| value.as_str().map(ToOwned::to_owned)),
 
         TransformRequest::GenerateContentOpenAiChatCompletions(value)
         | TransformRequest::StreamGenerateContentOpenAiChatCompletions(value) => {

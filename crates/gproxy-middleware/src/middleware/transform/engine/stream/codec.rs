@@ -202,6 +202,40 @@ pub(super) fn encode_openai_sse_event(
     Ok(encode_sse_frame(event.event.as_deref(), &data))
 }
 
+pub(super) fn encode_openai_create_image_sse_event(
+    event: OpenAiCreateImageSseEvent,
+) -> Result<Bytes, MiddlewareTransformError> {
+    let data = match event.data {
+        OpenAiCreateImageSseData::Event(stream_event) => serde_json::to_string(&stream_event)
+            .map_err(|err| MiddlewareTransformError::JsonEncode {
+                kind: "response_stream",
+                operation: OperationFamily::StreamCreateImage,
+                protocol: ProtocolKind::OpenAi,
+                message: err.to_string(),
+            })?,
+        OpenAiCreateImageSseData::Done(done) => done,
+    };
+    Ok(encode_sse_frame(event.event.as_deref(), &data))
+}
+
+pub(super) fn encode_openai_create_image_edit_sse_event(
+    event: OpenAiCreateImageEditSseEvent,
+) -> Result<Bytes, MiddlewareTransformError> {
+    let data = match event.data {
+        OpenAiCreateImageEditSseData::Event(stream_event) => serde_json::to_string(&stream_event)
+            .map_err(|err| {
+            MiddlewareTransformError::JsonEncode {
+                kind: "response_stream",
+                operation: OperationFamily::StreamCreateImageEdit,
+                protocol: ProtocolKind::OpenAi,
+                message: err.to_string(),
+            }
+        })?,
+        OpenAiCreateImageEditSseData::Done(done) => done,
+    };
+    Ok(encode_sse_frame(event.event.as_deref(), &data))
+}
+
 pub(super) fn claude_sse_event_name(event: &ClaudeCreateMessageStreamEvent) -> &'static str {
     match event {
         ClaudeCreateMessageStreamEvent::MessageStart(_) => "message_start",

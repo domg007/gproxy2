@@ -370,6 +370,78 @@ impl CustomPreparedRequest {
                 request_headers: Vec::new(),
                 extra_headers: Vec::new(),
             }),
+            gproxy_middleware::TransformRequest::CreateImageOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/generations".to_string(),
+                query: None,
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+                extra_headers: Vec::new(),
+            }),
+            gproxy_middleware::TransformRequest::StreamCreateImageOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/generations".to_string(),
+                query: None,
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+                extra_headers: Vec::new(),
+            }),
+            gproxy_middleware::TransformRequest::CreateImageEditOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/edits".to_string(),
+                query: None,
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+                extra_headers: Vec::new(),
+            }),
+            gproxy_middleware::TransformRequest::StreamCreateImageEditOpenAi(value) => Ok(Self {
+                method: to_wreq_method(&value.method)?,
+                path: "/v1/images/edits".to_string(),
+                query: None,
+                body: Some(
+                    serde_json::to_vec(&value.body)
+                        .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?,
+                ),
+                model: value
+                    .body
+                    .model
+                    .as_ref()
+                    .and_then(|model| serde_json::to_value(model).ok())
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned)),
+                auth_scheme: AuthScheme::Bearer,
+                request_headers: Vec::new(),
+                extra_headers: Vec::new(),
+            }),
             gproxy_middleware::TransformRequest::EmbeddingOpenAi(value) => Ok(Self {
                 method: to_wreq_method(&value.method)?,
                 path: "/v1/embeddings".to_string(),

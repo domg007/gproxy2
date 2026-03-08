@@ -247,6 +247,36 @@ pub(super) fn transform_generate_request(
         | TransformRequest::GenerateContentGemini(_) => {
             convert_generate_request_between_protocols(input, dst_protocol)
         }
+        TransformRequest::CreateImageOpenAi(request) => Ok(match dst_protocol {
+            ProtocolKind::OpenAi => TransformRequest::GenerateContentOpenAiResponse(
+                OpenAiCreateResponseRequest::try_from(request)?,
+            ),
+            ProtocolKind::Gemini => TransformRequest::GenerateContentGemini(
+                GeminiGenerateContentRequest::try_from(request)?,
+            ),
+            ProtocolKind::OpenAiChatCompletion
+            | ProtocolKind::Claude
+            | ProtocolKind::GeminiNDJson => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "create_image request supports only OpenAi and Gemini generate destinations",
+                ));
+            }
+        }),
+        TransformRequest::CreateImageEditOpenAi(request) => Ok(match dst_protocol {
+            ProtocolKind::OpenAi => TransformRequest::GenerateContentOpenAiResponse(
+                OpenAiCreateResponseRequest::try_from(request)?,
+            ),
+            ProtocolKind::Gemini => TransformRequest::GenerateContentGemini(
+                GeminiGenerateContentRequest::try_from(request)?,
+            ),
+            ProtocolKind::OpenAiChatCompletion
+            | ProtocolKind::Claude
+            | ProtocolKind::GeminiNDJson => {
+                return Err(MiddlewareTransformError::Unsupported(
+                    "create_image_edit request supports only OpenAi and Gemini generate destinations",
+                ));
+            }
+        }),
         TransformRequest::StreamGenerateContentOpenAiResponse(_)
         | TransformRequest::StreamGenerateContentOpenAiChatCompletions(_)
         | TransformRequest::StreamGenerateContentClaude(_)
@@ -254,6 +284,11 @@ pub(super) fn transform_generate_request(
         | TransformRequest::StreamGenerateContentGeminiNdjson(_) => {
             let nonstream = demote_stream_request_to_generate(input)?;
             convert_generate_request_between_protocols(nonstream, dst_protocol)
+        }
+        TransformRequest::StreamCreateImageOpenAi(_)
+        | TransformRequest::StreamCreateImageEditOpenAi(_) => {
+            let nonstream = demote_stream_request_to_generate(input)?;
+            transform_generate_request(nonstream, dst_protocol)
         }
         TransformRequest::OpenAiResponseWebSocket(request) => {
             let nonstream = TransformRequest::GenerateContentOpenAiResponse(
@@ -533,6 +568,14 @@ pub(super) fn demote_stream_request_to_generate(
                 body: request.body,
             })
         }
+        TransformRequest::StreamCreateImageOpenAi(mut request) => {
+            request.body.stream = None;
+            TransformRequest::CreateImageOpenAi(request)
+        }
+        TransformRequest::StreamCreateImageEditOpenAi(mut request) => {
+            request.body.stream = None;
+            TransformRequest::CreateImageEditOpenAi(request)
+        }
         _ => {
             return Err(MiddlewareTransformError::Unsupported(
                 "stream request demotion requires stream_generate_content source payload",
@@ -614,6 +657,106 @@ pub(super) fn promote_generate_request_to_stream(
             ));
         }
     })
+}
+
+pub(super) fn transform_create_image_request(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "create_image request currently requires OpenAi destination protocol",
+        ));
+    }
+
+    Ok(match input {
+        TransformRequest::CreateImageOpenAi(request) => {
+            TransformRequest::CreateImageOpenAi(request)
+        }
+        TransformRequest::StreamCreateImageOpenAi(mut request) => {
+            request.body.stream = None;
+            TransformRequest::CreateImageOpenAi(request)
+        }
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "create_image request transform requires create_image source payload",
+            ));
+        }
+    })
+}
+
+pub(super) fn transform_create_image_edit_request(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "create_image_edit request currently requires OpenAi destination protocol",
+        ));
+    }
+
+    Ok(match input {
+        TransformRequest::CreateImageEditOpenAi(request) => {
+            TransformRequest::CreateImageEditOpenAi(request)
+        }
+        TransformRequest::StreamCreateImageEditOpenAi(mut request) => {
+            request.body.stream = None;
+            TransformRequest::CreateImageEditOpenAi(request)
+        }
+        _ => {
+            return Err(MiddlewareTransformError::Unsupported(
+                "create_image_edit request transform requires create_image_edit source payload",
+            ));
+        }
+    })
+}
+
+pub(super) fn promote_create_image_request_to_stream(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "create_image stream request currently requires OpenAi destination protocol",
+        ));
+    }
+
+    match input {
+        TransformRequest::CreateImageOpenAi(mut request) => {
+            request.body.stream = Some(true);
+            Ok(TransformRequest::StreamCreateImageOpenAi(request))
+        }
+        TransformRequest::StreamCreateImageOpenAi(request) => {
+            Ok(TransformRequest::StreamCreateImageOpenAi(request))
+        }
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "create_image stream request promotion requires create_image source payload",
+        )),
+    }
+}
+
+pub(super) fn promote_create_image_edit_request_to_stream(
+    input: TransformRequest,
+    dst_protocol: ProtocolKind,
+) -> Result<TransformRequest, MiddlewareTransformError> {
+    if dst_protocol != ProtocolKind::OpenAi {
+        return Err(MiddlewareTransformError::Unsupported(
+            "create_image_edit stream request currently requires OpenAi destination protocol",
+        ));
+    }
+
+    match input {
+        TransformRequest::CreateImageEditOpenAi(mut request) => {
+            request.body.stream = Some(true);
+            Ok(TransformRequest::StreamCreateImageEditOpenAi(request))
+        }
+        TransformRequest::StreamCreateImageEditOpenAi(request) => {
+            Ok(TransformRequest::StreamCreateImageEditOpenAi(request))
+        }
+        _ => Err(MiddlewareTransformError::Unsupported(
+            "create_image_edit stream request promotion requires create_image_edit source payload",
+        )),
+    }
 }
 
 pub(super) fn transform_compact_request(

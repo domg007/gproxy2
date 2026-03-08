@@ -56,6 +56,14 @@ use gproxy_protocol::openai::create_chat_completions::stream::{
     OpenAiChatCompletionsSseData, OpenAiChatCompletionsSseEvent, OpenAiChatCompletionsSseStreamBody,
 };
 use gproxy_protocol::openai::create_chat_completions::types::HttpMethod as OpenAiChatHttpMethod;
+use gproxy_protocol::openai::create_image::response::OpenAiCreateImageResponse;
+use gproxy_protocol::openai::create_image::stream::{
+    OpenAiCreateImageSseData, OpenAiCreateImageSseEvent, OpenAiCreateImageSseStreamBody,
+};
+use gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse;
+use gproxy_protocol::openai::create_image_edit::stream::{
+    OpenAiCreateImageEditSseData, OpenAiCreateImageEditSseEvent, OpenAiCreateImageEditSseStreamBody,
+};
 use gproxy_protocol::openai::create_response::request::{
     OpenAiCreateResponseRequest, PathParameters as OpenAiCreateResponsePathParameters,
     QueryParameters as OpenAiCreateResponseQueryParameters,

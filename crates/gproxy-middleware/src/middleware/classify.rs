@@ -124,6 +124,28 @@ fn classify_route(input: &ClassifyRequest) -> Result<ClassifiedRoute, Middleware
         });
     }
 
+    if path == "/images/generations" {
+        return Ok(ClassifiedRoute {
+            operation: if read_stream_flag(input.body()).unwrap_or(false) {
+                OperationFamily::StreamCreateImage
+            } else {
+                OperationFamily::CreateImage
+            },
+            protocol: ProtocolKind::OpenAi,
+        });
+    }
+
+    if path == "/images/edits" {
+        return Ok(ClassifiedRoute {
+            operation: if read_stream_flag(input.body()).unwrap_or(false) {
+                OperationFamily::StreamCreateImageEdit
+            } else {
+                OperationFamily::CreateImageEdit
+            },
+            protocol: ProtocolKind::OpenAi,
+        });
+    }
+
     if path == "/messages/count_tokens" || path == "/messages/count-tokens" {
         return Ok(ClassifiedRoute {
             operation: OperationFamily::CountToken,

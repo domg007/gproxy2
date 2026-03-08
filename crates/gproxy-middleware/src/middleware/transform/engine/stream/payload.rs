@@ -219,6 +219,22 @@ pub(super) fn encode_stream_response_payload(
                 }
             }
         }
+        TransformResponse::StreamCreateImageOpenAi(stream_body) => {
+            let chunks = stream_body
+                .events
+                .into_iter()
+                .map(encode_openai_create_image_sse_event)
+                .collect::<Result<Vec<_>, _>>()?;
+            chunks_to_body_stream(chunks)
+        }
+        TransformResponse::StreamCreateImageEditOpenAi(stream_body) => {
+            let chunks = stream_body
+                .events
+                .into_iter()
+                .map(encode_openai_create_image_edit_sse_event)
+                .collect::<Result<Vec<_>, _>>()?;
+            chunks_to_body_stream(chunks)
+        }
         _ => {
             return Err(MiddlewareTransformError::Unsupported(
                 "encode_stream_response_payload expects a stream response variant",
@@ -236,7 +252,7 @@ pub(in crate::middleware::transform::engine) async fn transform_buffered_stream_
     let events = collect_source_stream_events(input.body, input.protocol).await?;
     let decoded = source_events_to_stream_response(input.protocol, events)?;
     let transformed = transform_response(decoded, route)?;
-    if transformed.operation() == OperationFamily::StreamGenerateContent {
+    if transformed.operation().is_stream() {
         encode_stream_response_payload(transformed)
     } else {
         let operation = transformed.operation();

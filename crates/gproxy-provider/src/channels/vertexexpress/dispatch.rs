@@ -83,6 +83,31 @@ const ROUTES: &[TypedRoute] = &[
         Op::StreamGenerateContent,
         Proto::Gemini,
     ),
+    // Images
+    (
+        Op::CreateImage,
+        Proto::OpenAi,
+        Op::GenerateContent,
+        Proto::Gemini,
+    ),
+    (
+        Op::StreamCreateImage,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::Gemini,
+    ),
+    (
+        Op::CreateImageEdit,
+        Proto::OpenAi,
+        Op::GenerateContent,
+        Proto::Gemini,
+    ),
+    (
+        Op::StreamCreateImageEdit,
+        Proto::OpenAi,
+        Op::StreamGenerateContent,
+        Proto::Gemini,
+    ),
     // Internal OpenAI ops routed into Gemini generate
     (
         Op::Compact,
