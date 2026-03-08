@@ -399,7 +399,7 @@ mod tests {
             dispatch_json: Set(serde_json::json!({})),
             enabled: Set(true),
             created_at: Set(now),
-            updated_at: Set(now)
+            updated_at: Set(now),
         }
         .insert(db)
         .await
@@ -415,7 +415,7 @@ mod tests {
             dispatch_json: Set(serde_json::json!({})),
             enabled: Set(true),
             created_at: Set(now),
-            updated_at: Set(now + Duration::minutes(5))
+            updated_at: Set(now + Duration::minutes(5)),
         }
         .insert(db)
         .await
@@ -436,7 +436,7 @@ mod tests {
             })),
             enabled: Set(true),
             created_at: Set(now),
-            updated_at: Set(now)
+            updated_at: Set(now),
         }
         .insert(db)
         .await
@@ -457,7 +457,7 @@ mod tests {
             })),
             enabled: Set(true),
             created_at: Set(now),
-            updated_at: Set(now)
+            updated_at: Set(now),
         }
         .insert(db)
         .await
@@ -471,7 +471,7 @@ mod tests {
             health_json: Set(None),
             checked_at: Set(Some(now + Duration::minutes(10))),
             last_error: Set(Some("401".to_string())),
-            updated_at: Set(now)
+            updated_at: Set(now),
         }
         .insert(db)
         .await
@@ -485,7 +485,7 @@ mod tests {
             health_json: Set(None),
             checked_at: Set(None),
             last_error: Set(None),
-            updated_at: Set(now - Duration::minutes(1))
+            updated_at: Set(now - Duration::minutes(1)),
         }
         .insert(db)
         .await
@@ -505,7 +505,7 @@ mod tests {
             response_status: Set(Some(200)),
             response_headers_json: Set(serde_json::json!({})),
             response_body: Set(None),
-            created_at: Set(now)
+            created_at: Set(now),
         }
         .insert(db)
         .await
@@ -528,7 +528,7 @@ mod tests {
             cache_creation_input_tokens: Set(None),
             cache_creation_input_tokens_5min: Set(None),
             cache_creation_input_tokens_1h: Set(None),
-            created_at: Set(now)
+            created_at: Set(now),
         }
         .insert(db)
         .await
