@@ -166,7 +166,10 @@ mod tests {
 
         assert_eq!(encoded["output"][0]["type"], json!("tool_search_call"));
         assert_eq!(encoded["output"][1]["type"], json!("tool_search_output"));
-        assert_eq!(encoded["output"][1]["tools"][0]["defer_loading"], json!(true));
+        assert_eq!(
+            encoded["output"][1]["tools"][0]["defer_loading"],
+            json!(true)
+        );
         assert_eq!(encoded["output"][1]["tools"][1]["type"], json!("computer"));
         assert_eq!(encoded["output"][2]["created_by"], json!("assistant"));
         assert_eq!(encoded["tools"][0]["type"], json!("computer"));

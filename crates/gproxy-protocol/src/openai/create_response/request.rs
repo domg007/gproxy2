@@ -291,13 +291,19 @@ mod tests {
         let encoded = serde_json::to_value(body).expect("request body should serialize");
 
         assert_eq!(encoded["tool_choice"]["type"], json!("computer"));
-        assert_eq!(encoded["input"][0]["content"][0]["detail"], json!("original"));
+        assert_eq!(
+            encoded["input"][0]["content"][0]["detail"],
+            json!("original")
+        );
         assert_eq!(encoded["input"][0]["content"][1]["detail"], json!("low"));
         assert_eq!(encoded["tools"][0]["defer_loading"], json!(true));
         assert_eq!(encoded["tools"][1]["defer_loading"], json!(true));
         assert_eq!(encoded["tools"][2]["type"], json!("namespace"));
         assert_eq!(encoded["tools"][3]["type"], json!("tool_search"));
         assert_eq!(encoded["tools"][4]["type"], json!("computer"));
-        assert_eq!(encoded["tools"][5]["search_content_types"], json!(["text", "image"]));
+        assert_eq!(
+            encoded["tools"][5]["search_content_types"],
+            json!(["text", "image"])
+        );
     }
 }
