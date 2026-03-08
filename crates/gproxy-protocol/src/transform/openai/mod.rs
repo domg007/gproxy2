@@ -1,5 +1,7 @@
 pub mod compact;
 pub mod count_tokens;
+pub mod create_image;
+pub mod create_image_edit;
 pub mod embeddings;
 pub mod generate_content;
 pub mod model_get;
