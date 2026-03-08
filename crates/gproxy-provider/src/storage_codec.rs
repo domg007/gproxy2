@@ -4,6 +4,7 @@ use crate::credential::{CredentialHealth, ModelCooldown};
 pub fn credential_kind_for_storage(credential: &ChannelCredential) -> String {
     match credential {
         ChannelCredential::Builtin(BuiltinChannelCredential::OpenAi(_)) => "builtin/openai",
+        ChannelCredential::Builtin(BuiltinChannelCredential::Grok(_)) => "builtin/grok-web",
         ChannelCredential::Builtin(BuiltinChannelCredential::Anthropic(_)) => "builtin/anthropic",
         ChannelCredential::Builtin(BuiltinChannelCredential::AiStudio(_)) => "builtin/aistudio",
         ChannelCredential::Builtin(BuiltinChannelCredential::VertexExpress(_)) => {

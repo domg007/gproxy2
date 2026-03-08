@@ -157,23 +157,19 @@ pub fn decode_request_payload(
             decode_json("request", operation, protocol, body)?,
         )),
 
-        (OperationFamily::CreateVideo, ProtocolKind::OpenAi) => {
-            Ok(TransformRequest::CreateVideoOpenAi(decode_json(
-                "request", operation, protocol, body,
-            )?))
-        }
-        (OperationFamily::CreateVideo, ProtocolKind::Gemini) => {
-            Ok(TransformRequest::CreateVideoGemini(decode_json(
-                "request", operation, protocol, body,
-            )?))
-        }
+        (OperationFamily::CreateVideo, ProtocolKind::OpenAi) => Ok(
+            TransformRequest::CreateVideoOpenAi(decode_json("request", operation, protocol, body)?),
+        ),
+        (OperationFamily::CreateVideo, ProtocolKind::Gemini) => Ok(
+            TransformRequest::CreateVideoGemini(decode_json("request", operation, protocol, body)?),
+        ),
 
-        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(
-            TransformRequest::VideoGetOpenAi(decode_json("request", operation, protocol, body)?),
-        ),
-        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(
-            TransformRequest::VideoGetGemini(decode_json("request", operation, protocol, body)?),
-        ),
+        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(TransformRequest::VideoGetOpenAi(
+            decode_json("request", operation, protocol, body)?,
+        )),
+        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(TransformRequest::VideoGetGemini(
+            decode_json("request", operation, protocol, body)?,
+        )),
 
         (OperationFamily::VideoContentGet, ProtocolKind::OpenAi) => {
             Ok(TransformRequest::VideoContentGetOpenAi(decode_json(
@@ -432,12 +428,12 @@ pub fn decode_response_payload(
             )?))
         }
 
-        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(
-            TransformResponse::VideoGetOpenAi(decode_json("response", operation, protocol, body)?),
-        ),
-        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(
-            TransformResponse::VideoGetGemini(decode_json("response", operation, protocol, body)?),
-        ),
+        (OperationFamily::VideoGet, ProtocolKind::OpenAi) => Ok(TransformResponse::VideoGetOpenAi(
+            decode_json("response", operation, protocol, body)?,
+        )),
+        (OperationFamily::VideoGet, ProtocolKind::Gemini) => Ok(TransformResponse::VideoGetGemini(
+            decode_json("response", operation, protocol, body)?,
+        )),
 
         (OperationFamily::VideoContentGet, ProtocolKind::OpenAi) => {
             Ok(TransformResponse::VideoContentGetOpenAi(decode_json(

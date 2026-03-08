@@ -146,6 +146,13 @@ fn classify_route(input: &ClassifyRequest) -> Result<ClassifiedRoute, Middleware
         });
     }
 
+    if path == "/videos" {
+        return Ok(ClassifiedRoute {
+            operation: OperationFamily::CreateVideo,
+            protocol: ProtocolKind::OpenAi,
+        });
+    }
+
     if path == "/messages/count_tokens" || path == "/messages/count-tokens" {
         return Ok(ClassifiedRoute {
             operation: OperationFamily::CountToken,
@@ -342,5 +349,40 @@ where
                 .await
                 .map_err(RequestClassifyServiceError::Inner)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::Request;
+
+    fn classify(method: Method, uri: &str, body: &str) -> ClassifiedRequest {
+        classify_request_payload(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Bytes::from(body.to_string()))
+                .expect("request"),
+        )
+        .expect("classified request")
+    }
+
+    #[test]
+    fn classifies_openai_video_create_requests() {
+        let classified = classify(Method::POST, "/v1/videos", r#"{"prompt":"demo"}"#);
+        assert_eq!(classified.operation, OperationFamily::CreateVideo);
+        assert_eq!(classified.protocol, ProtocolKind::OpenAi);
+    }
+
+    #[test]
+    fn keeps_image_generation_stream_classification() {
+        let classified = classify(
+            Method::POST,
+            "/v1/images/generations",
+            r#"{"prompt":"demo","stream":true}"#,
+        );
+        assert_eq!(classified.operation, OperationFamily::StreamCreateImage);
+        assert_eq!(classified.protocol, ProtocolKind::OpenAi);
     }
 }

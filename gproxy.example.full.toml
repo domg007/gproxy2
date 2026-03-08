@@ -296,6 +296,28 @@ secret = "sk-replace-me"
 [channels.credentials.state.health]
 kind = "healthy"
 
+[[channels]]
+id = "grok-web"
+enabled = true
+
+[channels.settings]
+base_url = "https://grok.com"
+cf_solver_url = "http://127.0.0.1:8191"
+cf_solver_timeout_seconds = 60
+cf_session_ttl_seconds = 1800
+temporary = false
+disable_memory = false
+
+[[channels.credentials]]
+id = "grok-main"
+label = "primary"
+
+[channels.credentials.builtin.Grok]
+sso = "sso-replace-me-or-sso=..."
+
+[channels.credentials.state.health]
+kind = "healthy"
+
 # ------------------------------------------------------------
 # Custom provider example
 # ------------------------------------------------------------

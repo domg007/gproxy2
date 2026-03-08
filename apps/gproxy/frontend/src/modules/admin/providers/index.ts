@@ -1,11 +1,14 @@
 import type { ProviderChannelCatalogRow, ProviderQueryRow } from "../../../lib/types";
 import { getChannelConfig } from "./channels/registry";
 import {
+  buildGrokCookieHeaderFromSecretValues,
   buildCredentialSecretJson,
   credentialDefaultNameFromSecretJson,
   credentialDefaultNameFromSecretValues,
   createEmptyCredentialFormState,
   credentialFormFromRow,
+  parseGrokCookieHeader,
+  parseGrokSecretValuesFromCookieHeader,
   credentialSchemaForChannel,
   secretValuesFromSecretJson
 } from "./credentials";
@@ -80,6 +83,7 @@ export {
   buildChannelSettingsJson,
   DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
   buildCredentialSecretJson,
+  buildGrokCookieHeaderFromSecretValues,
   credentialDefaultNameFromSecretJson,
   credentialDefaultNameFromSecretValues,
   buildBulkExportText,
@@ -88,6 +92,8 @@ export {
   createDefaultDispatchRule,
   defaultBulkMode,
   credentialFormFromRow,
+  parseGrokCookieHeader,
+  parseGrokSecretValuesFromCookieHeader,
   credentialSchemaForChannel,
   secretValuesFromSecretJson,
   defaultChannelSettingsDraft,

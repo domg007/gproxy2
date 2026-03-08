@@ -276,9 +276,9 @@ pub(super) fn transform_video_get_request(
     Ok(match input {
         TransformRequest::VideoGetOpenAi(request) => match dst_protocol {
             ProtocolKind::OpenAi => TransformRequest::VideoGetOpenAi(request),
-            ProtocolKind::Gemini => TransformRequest::VideoGetGemini(
-                GeminiVideoOperationGetRequest::try_from(request)?,
-            ),
+            ProtocolKind::Gemini => {
+                TransformRequest::VideoGetGemini(GeminiVideoOperationGetRequest::try_from(request)?)
+            }
             _ => {
                 return Err(MiddlewareTransformError::Unsupported(
                     "video_get supports only openai and gemini",

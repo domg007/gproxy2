@@ -221,7 +221,9 @@ pub fn transform_response(
         OperationFamily::CreateVideo => {
             transform_create_video_response(current_response, route.src_protocol)
         }
-        OperationFamily::VideoGet => transform_video_get_response(current_response, route.src_protocol),
+        OperationFamily::VideoGet => {
+            transform_video_get_response(current_response, route.src_protocol)
+        }
         OperationFamily::VideoContentGet => {
             transform_video_content_get_response(current_response, route.src_protocol)
         }

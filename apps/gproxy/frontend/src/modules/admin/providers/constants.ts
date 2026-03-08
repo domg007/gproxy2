@@ -16,6 +16,13 @@ export const OPERATION_OPTIONS = [
   "OpenAiResponseWebSocket",
   "GeminiLive",
   "StreamGenerateContent",
+  "CreateImage",
+  "StreamCreateImage",
+  "CreateImageEdit",
+  "StreamCreateImageEdit",
+  "CreateVideo",
+  "VideoGet",
+  "VideoContentGet",
   "Embedding"
 ];
 

@@ -653,6 +653,7 @@ pub(super) fn split_export_credential(
             BuiltinChannelCredential::VertexExpress(item) => (Some(item.api_key), None),
             BuiltinChannelCredential::Nvidia(item) => (Some(item.api_key), None),
             BuiltinChannelCredential::Deepseek(item) => (Some(item.api_key), None),
+            BuiltinChannelCredential::Grok(item) => (Some(item.sso), None),
             BuiltinChannelCredential::Groq(item) => (Some(item.api_key), None),
             other => (None, Some(other)),
         },

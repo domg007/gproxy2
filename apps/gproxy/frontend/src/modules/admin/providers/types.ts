@@ -1,7 +1,11 @@
 export type DispatchMode = "passthrough" | "transform" | "local" | "unsupported";
 export type WorkspaceTab = "bulk" | "oauth" | "list" | "config";
 export type CredentialsSubTab = "single" | "bulk" | "oauth";
-export type CredentialBulkMode = "keys" | "json" | "claudecode_cookie";
+export type CredentialBulkMode =
+  | "keys"
+  | "json"
+  | "claudecode_cookie"
+  | "grok_cookie";
 
 export type DispatchRuleDraft = {
   id: string;

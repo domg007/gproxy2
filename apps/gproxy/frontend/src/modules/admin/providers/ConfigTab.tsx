@@ -98,6 +98,7 @@ export function ConfigTab({
   ] as const;
   const dispatchTemplateChannels = BUILTIN_CHANNELS;
   const showAnthropicSettings = providerFormChannel === "anthropic";
+  const showGrokSettings = providerFormChannel === "grok-web";
   const anthropicExtraBetaHeaders = anthropicExtraBetaHeadersDraftToList(
     providerForm.settings.anthropic_extra_beta_headers ?? ""
   );
@@ -944,6 +945,52 @@ export function ConfigTab({
             }
           />
         </div>
+        {showGrokSettings ? (
+          <div className="md:col-span-2 rounded-lg border border-border p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              grok
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="md:col-span-3">
+                <Label>{t("field.grok_cf_solver_url")}</Label>
+                <Input
+                  value={providerForm.settings.cf_solver_url ?? ""}
+                  onChange={(value) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: { ...prev.settings, cf_solver_url: value }
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>{t("field.grok_cf_solver_timeout_seconds")}</Label>
+                <Input
+                  value={providerForm.settings.cf_solver_timeout_seconds ?? "60"}
+                  onChange={(value) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: { ...prev.settings, cf_solver_timeout_seconds: value }
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>{t("field.grok_cf_session_ttl_seconds")}</Label>
+                <Input
+                  value={providerForm.settings.cf_session_ttl_seconds ?? "1800"}
+                  onChange={(value) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: { ...prev.settings, cf_session_ttl_seconds: value }
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted">{t("providers.grok.cfHint")}</p>
+          </div>
+        ) : null}
         {showClaudeTopLevelCacheControl ? (
           <div>
             <Label>{t("field.cache_breakpoints")}</Label>

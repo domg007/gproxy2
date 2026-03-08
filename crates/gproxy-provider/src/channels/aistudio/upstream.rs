@@ -1089,28 +1089,29 @@ async fn execute_aistudio_video_content_with_retry(
                         &provider.channel,
                         attempt.credential_id,
                     );
-                    let local =
-                        match gemini_video_content_error_from_http(download_response).await {
-                            Ok(local) => local,
-                            Err(err) => {
-                                let message = err.to_string();
-                                state_manager.mark_transient_failure(
-                                    credential_states,
-                                    &provider.channel,
-                                    attempt.credential_id,
-                                    None,
-                                    None,
-                                    Some(message.clone()),
-                                );
-                                return CredentialRetryDecision::Retry {
-                                    last_status: Some(status_code),
-                                    last_error: Some(message),
-                                    last_request_meta: Some(download_request_meta.clone()),
-                                };
-                            }
-                        };
+                    let local = match gemini_video_content_error_from_http(download_response).await
+                    {
+                        Ok(local) => local,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                None,
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: Some(status_code),
+                                last_error: Some(message),
+                                last_request_meta: Some(download_request_meta.clone()),
+                            };
+                        }
+                    };
                     return CredentialRetryDecision::Return(
-                        UpstreamResponse::from_local(local).with_request_meta(download_request_meta),
+                        UpstreamResponse::from_local(local)
+                            .with_request_meta(download_request_meta),
                     );
                 }
 
@@ -1140,26 +1141,26 @@ async fn execute_aistudio_video_content_with_retry(
                     &provider.channel,
                     attempt.credential_id,
                 );
-                let local = match gemini_video_content_success_response(download_status, headers, bytes)
-                {
-                    Ok(local) => local,
-                    Err(err) => {
-                        let message = err.to_string();
-                        state_manager.mark_transient_failure(
-                            credential_states,
-                            &provider.channel,
-                            attempt.credential_id,
-                            None,
-                            None,
-                            Some(message.clone()),
-                        );
-                        return CredentialRetryDecision::Retry {
-                            last_status: None,
-                            last_error: Some(message),
-                            last_request_meta: Some(download_request_meta.clone()),
-                        };
-                    }
-                };
+                let local =
+                    match gemini_video_content_success_response(download_status, headers, bytes) {
+                        Ok(local) => local,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                None,
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: None,
+                                last_error: Some(message),
+                                last_request_meta: Some(download_request_meta.clone()),
+                            };
+                        }
+                    };
                 CredentialRetryDecision::Return(
                     UpstreamResponse::from_local(local).with_request_meta(download_request_meta),
                 )
@@ -1249,7 +1250,9 @@ async fn gemini_video_content_error_from_http(
         "body": body,
     }))
     .map_err(|err| UpstreamError::SerializeRequest(err.to_string()))?;
-    Ok(gproxy_middleware::TransformResponse::VideoContentGetGemini(response))
+    Ok(gproxy_middleware::TransformResponse::VideoContentGetGemini(
+        response,
+    ))
 }
 
 fn aistudio_video_download_uri(value: &Value) -> Option<String> {

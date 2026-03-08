@@ -1,8 +1,8 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 use crate::channels::{
-    BuiltinChannelSettings, ChannelSettings, aistudio, anthropic, custom, deepseek, groq, nvidia,
-    openai, retry::CredentialPickMode, vertexexpress,
+    BuiltinChannelSettings, ChannelSettings, aistudio, anthropic, custom, deepseek, grok, groq,
+    nvidia, openai, retry::CredentialPickMode, vertexexpress,
 };
 
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";
@@ -119,6 +119,9 @@ pub fn parse_provider_settings_value_for_channel(
                 openai::OpenAiSettings::from_provider_settings_value(value)?,
             ))
         }
+        ChannelId::Builtin(BuiltinChannel::Grok) => ChannelSettings::Builtin(
+            BuiltinChannelSettings::Grok(grok::GrokSettings::from_provider_settings_value(value)?),
+        ),
         ChannelId::Builtin(BuiltinChannel::Anthropic) => {
             ChannelSettings::Builtin(BuiltinChannelSettings::Anthropic(
                 anthropic::AnthropicSettings::from_provider_settings_value(value)?,
@@ -233,6 +236,32 @@ pub fn provider_settings_to_json_value_with_routing(
             if let Some(rules) = cache_breakpoint_rules_to_settings_value(&value.cache_breakpoints)
             {
                 root.insert("cache_breakpoints".to_string(), rules);
+            }
+        }
+        ChannelSettings::Builtin(BuiltinChannelSettings::Grok(value)) => {
+            if let Some(url) = clean_opt(value.cf_solver_url()) {
+                root.insert(
+                    "cf_solver_url".to_string(),
+                    serde_json::Value::String(url.to_string()),
+                );
+            }
+            if value.cf_solver_timeout_seconds != grok::DEFAULT_CF_SOLVER_TIMEOUT_SECONDS {
+                root.insert(
+                    "cf_solver_timeout_seconds".to_string(),
+                    serde_json::Value::from(value.cf_solver_timeout_seconds),
+                );
+            }
+            if value.cf_session_ttl_seconds != grok::DEFAULT_CF_SESSION_TTL_SECONDS {
+                root.insert(
+                    "cf_session_ttl_seconds".to_string(),
+                    serde_json::Value::from(value.cf_session_ttl_seconds),
+                );
+            }
+            if value.temporary {
+                root.insert("temporary".to_string(), serde_json::Value::Bool(true));
+            }
+            if value.disable_memory {
+                root.insert("disable_memory".to_string(), serde_json::Value::Bool(true));
             }
         }
         ChannelSettings::Builtin(BuiltinChannelSettings::Codex(value)) => {

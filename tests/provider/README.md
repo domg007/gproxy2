@@ -21,6 +21,11 @@ This folder contains curl-based smoke tests for provider upstream access.
 - `--provider`: provider id (for example `openai`, `anthropic`, `aistudio`, `vertexexpress`, `vertex`, `geminicli`, `claudecode`, `codex`, `antigravity`, `nvidia`, `deepseek`, or custom channel id)
 - `--method`: test method (see list below)
 - `--model`: model name (required for content/model_get methods)
+- `--embedding-model`: optional OpenAI embedding model for incremental regression
+- `--gemini-embedding-model`: optional Gemini embedding model for incremental regression
+- `--image-model`: optional OpenAI image generation model for incremental regression
+- `--image-edit-model`: optional OpenAI image edit model for incremental regression
+- `--video-model`: optional OpenAI video model for incremental regression
 - `--prompt`: optional content prompt
 - `--api-key`: API key (or `API_KEY` env)
 - `--base-url`: default `http://127.0.0.1:8787`
@@ -44,6 +49,11 @@ Default prompt:
 - `openai_responses`
 - `openai_responses_stream`
 - `openai_input_tokens`
+- `openai_image_generate`
+- `openai_image_generate_stream`
+- `openai_image_edit`
+- `openai_image_edit_stream`
+- `openai_video_create`
 - `openai_embeddings`
 - `embeddings` (alias of `openai_embeddings`)
 - `openai_compact`
@@ -143,7 +153,10 @@ Example:
 API_KEY='your-key' tests/provider/run_channel_regression.sh \
   --provider openai \
   --model gpt-5-nano \
-  --embedding-model text-embedding-3-small
+  --embedding-model text-embedding-3-small \
+  --image-model gpt-image-1 \
+  --image-edit-model chatgpt-image-latest \
+  --video-model sora-2
 ```
 
 ## OpenAI Channel Lessons Learned

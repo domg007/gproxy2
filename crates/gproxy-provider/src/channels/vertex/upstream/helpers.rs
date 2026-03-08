@@ -97,7 +97,8 @@ pub(super) fn vertex_video_operation_payload(value: Value) -> Value {
         .get("response")
         .and_then(Value::as_object)
         .map(|response| {
-            response.contains_key("generateVideoResponse") || response.contains_key("generatedVideos")
+            response.contains_key("generateVideoResponse")
+                || response.contains_key("generatedVideos")
         })
         .unwrap_or(false);
     if response_already_normalized {
@@ -105,7 +106,10 @@ pub(super) fn vertex_video_operation_payload(value: Value) -> Value {
     }
 
     if let Some(response) = map.remove("response") {
-        map.insert("response".to_string(), vertex_video_operation_result(response));
+        map.insert(
+            "response".to_string(),
+            vertex_video_operation_result(response),
+        );
     } else if let Some(videos) = map.remove("videos") {
         map.insert(
             "response".to_string(),
@@ -176,7 +180,11 @@ fn vertex_video_content_local_response(
         header_map
             .entry("content-type".to_string())
             .or_insert_with(|| Value::String("application/json".to_string()));
-        let body = if raw_body.get("done").and_then(Value::as_bool).unwrap_or(false) {
+        let body = if raw_body
+            .get("done")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             serde_json::json!({
                 "error": {
                     "code": i32::from(StatusCode::BAD_GATEWAY.as_u16()),
@@ -209,10 +217,7 @@ fn vertex_video_content_local_response(
 
     header_map.insert(
         "content-type".to_string(),
-        Value::String(
-            mime_type
-                .unwrap_or_else(|| "application/octet-stream".to_string()),
-        ),
+        Value::String(mime_type.unwrap_or_else(|| "application/octet-stream".to_string())),
     );
     Ok(TransformResponse::VideoContentGetGemini(
         serde_json::from_value(serde_json::json!({

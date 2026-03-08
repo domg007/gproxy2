@@ -34,6 +34,11 @@ Methods:
   openai_responses
   openai_responses_stream
   openai_input_tokens
+  openai_image_generate
+  openai_image_generate_stream
+  openai_image_edit
+  openai_image_edit_stream
+  openai_video_create
   openai_embeddings
   embeddings
   openai_compact
@@ -154,6 +159,7 @@ body=""
 extra_headers=()
 
 escaped_prompt="$(json_escape "$PROMPT")"
+tiny_png_data_url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wv7sAAAAASUVORK5CYII="
 
 case "$METHOD" in
   model_list)
@@ -226,6 +232,41 @@ case "$METHOD" in
     method_upper="POST"
     path="/$PROVIDER/v1/responses/input_tokens"
     body_json="{\"model\":\"$(json_escape "$MODEL")\",\"input\":\"$escaped_prompt\"}"
+    body="$body_json"
+    ;;
+  openai_image_generate)
+    require_non_empty "model" "$MODEL"
+    method_upper="POST"
+    path="/$PROVIDER/v1/images/generations"
+    body_json="{\"model\":\"$(json_escape "$MODEL")\",\"prompt\":\"$escaped_prompt\",\"size\":\"1024x1024\",\"stream\":false}"
+    body="$body_json"
+    ;;
+  openai_image_generate_stream)
+    require_non_empty "model" "$MODEL"
+    method_upper="POST"
+    path="/$PROVIDER/v1/images/generations"
+    body_json="{\"model\":\"$(json_escape "$MODEL")\",\"prompt\":\"$escaped_prompt\",\"size\":\"1024x1024\",\"stream\":true}"
+    body="$body_json"
+    ;;
+  openai_image_edit)
+    require_non_empty "model" "$MODEL"
+    method_upper="POST"
+    path="/$PROVIDER/v1/images/edits"
+    body_json="{\"model\":\"$(json_escape "$MODEL")\",\"prompt\":\"$escaped_prompt\",\"images\":[{\"image_url\":\"$tiny_png_data_url\"}],\"size\":\"1024x1024\",\"stream\":false}"
+    body="$body_json"
+    ;;
+  openai_image_edit_stream)
+    require_non_empty "model" "$MODEL"
+    method_upper="POST"
+    path="/$PROVIDER/v1/images/edits"
+    body_json="{\"model\":\"$(json_escape "$MODEL")\",\"prompt\":\"$escaped_prompt\",\"images\":[{\"image_url\":\"$tiny_png_data_url\"}],\"size\":\"1024x1024\",\"stream\":true}"
+    body="$body_json"
+    ;;
+  openai_video_create)
+    require_non_empty "model" "$MODEL"
+    method_upper="POST"
+    path="/$PROVIDER/v1/videos"
+    body_json="{\"model\":\"$(json_escape "$MODEL")\",\"prompt\":\"$escaped_prompt\",\"seconds\":\"8\",\"size\":\"1280x720\"}"
     body="$body_json"
     ;;
   openai_embeddings|embeddings)

@@ -486,9 +486,7 @@ fn parse_openai_video_content_variant(
     let Some(raw) = parse_query_value(query, "variant") else {
         return Ok(None);
     };
-    serde_json::from_value(serde_json::Value::String(raw.clone())).map(Some).map_err(|_| {
-        bad_request(format!(
-            "invalid query parameter `variant`: {raw}"
-        ))
-    })
+    serde_json::from_value(serde_json::Value::String(raw.clone()))
+        .map(Some)
+        .map_err(|_| bad_request(format!("invalid query parameter `variant`: {raw}")))
 }

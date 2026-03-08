@@ -7,6 +7,9 @@ PROVIDER="${PROVIDER:-}"
 MODEL="${MODEL:-}"
 EMBEDDING_MODEL="${EMBEDDING_MODEL:-}"
 GEMINI_EMBEDDING_MODEL="${GEMINI_EMBEDDING_MODEL:-}"
+IMAGE_MODEL="${IMAGE_MODEL:-}"
+IMAGE_EDIT_MODEL="${IMAGE_EDIT_MODEL:-}"
+VIDEO_MODEL="${VIDEO_MODEL:-}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-120}"
 RERUN="${RERUN:-0}"
 
@@ -21,6 +24,9 @@ Usage:
     --model <model> \
     [--embedding-model <embedding-model>] \
     [--gemini-embedding-model <gemini-embedding-model>] \
+    [--image-model <image-model>] \
+    [--image-edit-model <image-edit-model>] \
+    [--video-model <video-model>] \
     [--api-key <key>] \
     [--base-url <url>] \
     [--timeout <seconds>] \
@@ -57,6 +63,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --gemini-embedding-model)
       GEMINI_EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --image-model)
+      IMAGE_MODEL="$2"
+      shift 2
+      ;;
+    --image-edit-model)
+      IMAGE_EDIT_MODEL="$2"
+      shift 2
+      ;;
+    --video-model)
+      VIDEO_MODEL="$2"
       shift 2
       ;;
     --api-key)
@@ -207,4 +225,18 @@ fi
 
 if [[ -n "${GEMINI_EMBEDDING_MODEL// }" ]]; then
   run_one "gemini_embeddings" "$GEMINI_EMBEDDING_MODEL"
+fi
+
+if [[ -n "${IMAGE_MODEL// }" ]]; then
+  run_one "openai_image_generate" "$IMAGE_MODEL"
+  run_one "openai_image_generate_stream" "$IMAGE_MODEL"
+fi
+
+if [[ -n "${IMAGE_EDIT_MODEL// }" ]]; then
+  run_one "openai_image_edit" "$IMAGE_EDIT_MODEL"
+  run_one "openai_image_edit_stream" "$IMAGE_EDIT_MODEL"
+fi
+
+if [[ -n "${VIDEO_MODEL// }" ]]; then
+  run_one "openai_video_create" "$VIDEO_MODEL"
 fi
