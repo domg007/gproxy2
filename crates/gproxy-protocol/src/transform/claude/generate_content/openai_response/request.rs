@@ -185,6 +185,7 @@ fn document_block_to_input_content(
         ct::BetaDocumentSource::Base64Pdf(source) => {
             Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: Some(source.data),
                 file_id: None,
                 file_url: None,
@@ -194,6 +195,7 @@ fn document_block_to_input_content(
         ct::BetaDocumentSource::PlainText(source) => {
             Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: Some(source.data),
                 file_id: None,
                 file_url: None,
@@ -203,6 +205,7 @@ fn document_block_to_input_content(
         ct::BetaDocumentSource::UrlPdf(source) => {
             Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: None,
                 file_id: None,
                 file_url: Some(source.url),
@@ -212,6 +215,7 @@ fn document_block_to_input_content(
         ct::BetaDocumentSource::File(source) => {
             Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: None,
                 file_id: Some(source.file_id),
                 file_url: None,
@@ -235,6 +239,7 @@ fn document_block_to_input_content(
             } else {
                 Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                     type_: ot::ResponseInputFileType::InputFile,
+                    detail: None,
                     file_data: Some(text),
                     file_id: None,
                     file_url: None,
@@ -270,6 +275,7 @@ fn user_message_part_from_block(
         ct::BetaContentBlockParam::ContainerUpload(block) => {
             Some(ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: None,
                 file_id: Some(block.file_id),
                 file_url: None,
@@ -1375,6 +1381,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                         encrypted_content: block.content.unwrap_or_default(),
                                         type_: ot::ResponseCompactionItemType::Compaction,
                                         id: None,
+                                        created_by: None,
                                     },
                                 ));
                             }
@@ -1720,6 +1727,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                         encrypted_content: block.content.unwrap_or_default(),
                                         type_: ot::ResponseCompactionItemType::Compaction,
                                         id: None,
+                                        created_by: None,
                                     },
                                 ));
                             }
@@ -1752,6 +1760,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                             converted_tools.push(ResponseTool::Custom(ot::ResponseCustomTool {
                                 name: tool.name,
                                 type_: ot::ResponseCustomToolType::Custom,
+                                defer_loading: None,
                                 description: tool.description,
                                 format: Some(ot::ResponseCustomToolInputFormat::Text(
                                     ot::ResponseCustomToolTextFormat {
@@ -1765,6 +1774,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                 parameters: tool_input_schema_to_json_object(tool.input_schema),
                                 strict: tool.common.strict,
                                 type_: ResponseFunctionToolType::Function,
+                                defer_loading: None,
                                 description: tool.description,
                             }));
                         }
@@ -1787,25 +1797,25 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                     }
                     BetaToolUnion::ComputerUse20241022(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
                     BetaToolUnion::ComputerUse20250124(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
                     BetaToolUnion::ComputerUse20251124(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
@@ -1891,6 +1901,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                             allowed_tools,
                             authorization: None,
                             connector_id: None,
+                            defer_loading: None,
                             headers: None,
                             require_approval: None,
                             server_description: None,
@@ -1913,6 +1924,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                         .map(ResponseMcpAllowedTools::ToolNames),
                     authorization: server.authorization_token,
                     connector_id: None,
+                    defer_loading: None,
                     headers: None,
                     require_approval: None,
                     server_description: None,

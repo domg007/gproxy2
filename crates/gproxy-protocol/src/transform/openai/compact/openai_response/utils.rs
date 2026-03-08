@@ -96,6 +96,12 @@ fn compact_output_item_from_response_item(
         rt::ResponseOutputItem::ComputerCallOutput(item) => {
             ct::CompactedResponseOutputItem::ComputerCallOutput(item)
         }
+        rt::ResponseOutputItem::ToolSearchCall(item) => {
+            ct::CompactedResponseOutputItem::ToolSearchCall(item)
+        }
+        rt::ResponseOutputItem::ToolSearchOutput(item) => {
+            ct::CompactedResponseOutputItem::ToolSearchOutput(item)
+        }
         rt::ResponseOutputItem::FunctionWebSearch(item) => {
             ct::CompactedResponseOutputItem::FunctionWebSearch(item)
         }

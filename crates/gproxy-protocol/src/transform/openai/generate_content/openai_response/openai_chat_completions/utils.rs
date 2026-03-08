@@ -199,7 +199,9 @@ pub fn response_tool_choice_to_chat_tool_choice(
                             | ot::ResponseToolChoiceBuiltinType::WebSearchPreview20250311 => {
                                 "web_search_preview"
                             }
-                            ot::ResponseToolChoiceBuiltinType::ComputerUsePreview => {
+                            ot::ResponseToolChoiceBuiltinType::Computer
+                            | ot::ResponseToolChoiceBuiltinType::ComputerUsePreview
+                            | ot::ResponseToolChoiceBuiltinType::ComputerUse => {
                                 "computer_use_preview"
                             }
                             ot::ResponseToolChoiceBuiltinType::ImageGeneration => {
@@ -392,6 +394,30 @@ pub fn response_tools_to_chat_tools(
                         custom: ct::ChatCompletionCustomToolSpec {
                             name: format!("mcp:{}", tool.server_label),
                             description: tool.server_description,
+                            format: None,
+                        },
+                        type_: ct::ChatCompletionCustomToolType::Custom,
+                    },
+                ));
+            }
+            ot::ResponseTool::Namespace(tool) => {
+                mapped.push(ct::ChatCompletionTool::Custom(
+                    ct::ChatCompletionCustomTool {
+                        custom: ct::ChatCompletionCustomToolSpec {
+                            name: format!("namespace:{}", tool.name),
+                            description: Some(tool.description),
+                            format: None,
+                        },
+                        type_: ct::ChatCompletionCustomToolType::Custom,
+                    },
+                ));
+            }
+            ot::ResponseTool::ToolSearch(_) => {
+                mapped.push(ct::ChatCompletionTool::Custom(
+                    ct::ChatCompletionCustomTool {
+                        custom: ct::ChatCompletionCustomToolSpec {
+                            name: "tool_search".to_string(),
+                            description: Some("OpenAI Responses tool_search tool".to_string()),
                             format: None,
                         },
                         type_: ct::ChatCompletionCustomToolType::Custom,

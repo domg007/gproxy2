@@ -346,8 +346,8 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                     ot::ResponseTool::Computer(tool) => {
                         converted_tools.push(ct::BetaToolUnion::ComputerUse20251124(
                             ct::BetaToolComputerUse20251124 {
-                                display_height_px: tool.display_height,
-                                display_width_px: tool.display_width,
+                                display_height_px: tool.display_height_or_default(),
+                                display_width_px: tool.display_width_or_default(),
                                 name: ct::BetaComputerToolName::Computer,
                                 type_: ct::BetaToolComputerUse20251124Type::Computer20251124,
                                 common: ct::BetaToolCommonFields::default(),
@@ -419,6 +419,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                             default_config: None,
                         }));
                     }
+                    ot::ResponseTool::Namespace(_) | ot::ResponseTool::ToolSearch(_) => {}
                     ot::ResponseTool::ImageGeneration(_) => {}
                 }
             }

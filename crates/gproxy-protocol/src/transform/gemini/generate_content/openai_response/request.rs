@@ -114,6 +114,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                     } else {
                         message_parts.push(ResponseInputContent::File(ResponseInputFile {
                             type_: ResponseInputFileType::InputFile,
+                            detail: None,
                             file_data: Some(inline_data.data),
                             file_id: None,
                             file_url: None,
@@ -141,6 +142,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                     } else {
                         message_parts.push(ResponseInputContent::File(ResponseInputFile {
                             type_: ResponseInputFileType::InputFile,
+                            detail: None,
                             file_data: None,
                             file_id: None,
                             file_url: Some(file_data.file_uri),
@@ -280,6 +282,7 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
                             parameters,
                             strict: None,
                             type_: crate::openai::count_tokens::types::ResponseFunctionToolType::Function,
+                            defer_loading: None,
                             description: if declaration.description.is_empty() {
                                 None
                             } else {
@@ -301,9 +304,9 @@ impl TryFrom<GeminiGenerateContentRequest> for OpenAiCreateResponseRequest {
 
                 if tool.computer_use.is_some() {
                     converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                        display_height: 1024,
-                        display_width: 1024,
-                        environment: ResponseComputerEnvironment::Browser,
+                        display_height: Some(1024),
+                        display_width: Some(1024),
+                        environment: Some(ResponseComputerEnvironment::Browser),
                         type_: ResponseComputerToolType::ComputerUsePreview,
                     }));
                 }

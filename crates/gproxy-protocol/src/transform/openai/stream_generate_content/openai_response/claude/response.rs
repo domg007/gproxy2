@@ -1301,6 +1301,7 @@ fn compaction_item(item_id: String, encrypted_content: String) -> rt::ResponseOu
         encrypted_content,
         type_: ot::ResponseCompactionItemType::Compaction,
         id: Some(item_id),
+        created_by: None,
     })
 }
 

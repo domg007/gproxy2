@@ -374,6 +374,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                                 encrypted_content: block.content.unwrap_or_default(),
                                 type_: ot::ResponseCompactionItemType::Compaction,
                                 id: None,
+                                created_by: None,
                             },
                         ));
                     }

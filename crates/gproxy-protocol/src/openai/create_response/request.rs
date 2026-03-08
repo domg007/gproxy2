@@ -205,4 +205,99 @@ mod tests {
         assert!(encoded["input"][0].get("summary").is_some());
         assert_eq!(encoded["input"][0]["summary"], json!([]));
     }
+
+    #[test]
+    fn request_body_supports_tool_search_and_computer_tools() {
+        let value = json!({
+            "model": "gpt-5.4",
+            "tool_choice": {
+                "type": "computer"
+            },
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "detail": "original",
+                            "image_url": "https://example.com/screenshot.png"
+                        },
+                        {
+                            "type": "input_file",
+                            "detail": "low",
+                            "file_url": "https://example.com/spec.pdf",
+                            "filename": "spec.pdf"
+                        }
+                    ]
+                }
+            ],
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "get_weather",
+                    "parameters": {"type": "object"},
+                    "strict": true,
+                    "defer_loading": true
+                },
+                {
+                    "type": "custom",
+                    "name": "router",
+                    "defer_loading": true,
+                    "format": {"type": "text"}
+                },
+                {
+                    "type": "namespace",
+                    "name": "crm",
+                    "description": "CRM tools",
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "lookup",
+                            "description": "Find records",
+                            "parameters": {"type": "object"},
+                            "strict": true
+                        },
+                        {
+                            "type": "custom",
+                            "name": "draft_email",
+                            "defer_loading": true,
+                            "format": {"type": "text"}
+                        }
+                    ]
+                },
+                {
+                    "type": "tool_search",
+                    "execution": "client",
+                    "description": "Discover deferred tools",
+                    "parameters": {"type": "object"}
+                },
+                {
+                    "type": "computer"
+                },
+                {
+                    "type": "web_search_preview",
+                    "search_content_types": ["text", "image"],
+                    "search_context_size": "medium",
+                    "user_location": {
+                        "type": "approximate",
+                        "country": "US"
+                    }
+                }
+            ]
+        });
+
+        let body: RequestBody = serde_json::from_value(value).expect("request body should parse");
+        let encoded = serde_json::to_value(body).expect("request body should serialize");
+
+        assert_eq!(encoded["tool_choice"]["type"], json!("computer"));
+        assert_eq!(encoded["input"][0]["content"][0]["detail"], json!("original"));
+        assert_eq!(encoded["input"][0]["content"][1]["detail"], json!("low"));
+        assert_eq!(encoded["tools"][0]["defer_loading"], json!(true));
+        assert_eq!(encoded["tools"][1]["defer_loading"], json!(true));
+        assert_eq!(encoded["tools"][2]["type"], json!("namespace"));
+        assert_eq!(encoded["tools"][3]["type"], json!("tool_search"));
+        assert_eq!(encoded["tools"][4]["type"], json!("computer"));
+        assert_eq!(encoded["tools"][5]["search_content_types"], json!(["text", "image"]));
+    }
 }

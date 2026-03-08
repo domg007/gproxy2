@@ -98,10 +98,12 @@ mod tests {
                         .expect("json object"),
                         strict: Some(true),
                         type_: ot::ResponseFunctionToolType::Function,
+                        defer_loading: None,
                         description: Some("Run a command".to_string()),
                     }),
                     ot::ResponseTool::WebSearchPreview(ot::ResponseWebSearchPreviewTool {
                         type_: ot::ResponseWebSearchPreviewToolType::WebSearchPreview,
+                        search_content_types: None,
                         search_context_size: None,
                         user_location: None,
                     }),
@@ -141,6 +143,7 @@ mod tests {
                 tools: Some(vec![ot::ResponseTool::WebSearchPreview(
                     ot::ResponseWebSearchPreviewTool {
                         type_: ot::ResponseWebSearchPreviewToolType::WebSearchPreview,
+                        search_content_types: None,
                         search_context_size: None,
                         user_location: None,
                     },

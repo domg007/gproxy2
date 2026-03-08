@@ -38,6 +38,8 @@ pub enum ResponseInputItem {
     FileSearchToolCall(ResponseFileSearchToolCall),
     ComputerToolCall(ResponseComputerToolCall),
     ComputerCallOutput(ResponseComputerCallOutput),
+    ToolSearchCall(ResponseToolSearchCall),
+    ToolSearchOutput(ResponseToolSearchOutput),
     FunctionWebSearch(ResponseFunctionWebSearch),
     FunctionToolCall(ResponseFunctionToolCall),
     FunctionCallOutput(ResponseFunctionCallOutput),
@@ -120,6 +122,8 @@ pub enum ResponseInputImageDetail {
     High,
     #[serde(rename = "auto")]
     Auto,
+    #[serde(rename = "original")]
+    Original,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +136,8 @@ pub enum ResponseInputImageType {
 pub struct ResponseInputFile {
     #[serde(rename = "type")]
     pub type_: ResponseInputFileType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<ResponseInputFileDetail>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_data: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,6 +152,14 @@ pub struct ResponseInputFile {
 pub enum ResponseInputFileType {
     #[serde(rename = "input_file")]
     InputFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseInputFileDetail {
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "high")]
+    High,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -506,6 +520,52 @@ pub enum ResponseComputerCallOutputType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseToolSearchCall {
+    pub id: String,
+    pub arguments: Value,
+    pub call_id: String,
+    pub execution: ResponseToolSearchExecution,
+    pub status: ResponseItemStatus,
+    #[serde(rename = "type")]
+    pub type_: ResponseToolSearchCallType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseToolSearchOutput {
+    pub id: String,
+    pub call_id: String,
+    pub execution: ResponseToolSearchExecution,
+    pub status: ResponseItemStatus,
+    pub tools: Vec<ResponseTool>,
+    #[serde(rename = "type")]
+    pub type_: ResponseToolSearchOutputType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseToolSearchExecution {
+    #[serde(rename = "server")]
+    Server,
+    #[serde(rename = "client")]
+    Client,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseToolSearchCallType {
+    #[serde(rename = "tool_search_call")]
+    ToolSearchCall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseToolSearchOutputType {
+    #[serde(rename = "tool_search_output")]
+    ToolSearchOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseFunctionWebSearch {
     pub id: String,
     pub action: ResponseFunctionWebSearchAction,
@@ -665,6 +725,8 @@ pub struct ResponseCompactionItemParam {
     pub type_: ResponseCompactionItemType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1275,8 +1337,12 @@ pub enum ResponseToolChoiceBuiltinType {
     FileSearch,
     #[serde(rename = "web_search_preview")]
     WebSearchPreview,
+    #[serde(rename = "computer")]
+    Computer,
     #[serde(rename = "computer_use_preview")]
     ComputerUsePreview,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
     #[serde(rename = "web_search_preview_2025_03_11")]
     WebSearchPreview20250311,
     #[serde(rename = "image_generation")]
@@ -1358,6 +1424,8 @@ pub enum ResponseTool {
     FileSearch(ResponseFileSearchTool),
     Computer(ResponseComputerTool),
     WebSearch(ResponseWebSearchTool),
+    Namespace(ResponseNamespaceTool),
+    ToolSearch(ResponseToolSearchTool),
     Mcp(ResponseMcpTool),
     CodeInterpreter(ResponseCodeInterpreterTool),
     ImageGeneration(ResponseImageGenerationTool),
@@ -1376,6 +1444,8 @@ pub struct ResponseFunctionTool {
     pub strict: Option<bool>,
     #[serde(rename = "type")]
     pub type_: ResponseFunctionToolType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -1499,11 +1569,33 @@ pub enum ResponseFileSearchRanker {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseComputerTool {
-    pub display_height: u64,
-    pub display_width: u64,
-    pub environment: ResponseComputerEnvironment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_height: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_width: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<ResponseComputerEnvironment>,
     #[serde(rename = "type")]
     pub type_: ResponseComputerToolType,
+}
+
+impl ResponseComputerTool {
+    pub const DEFAULT_DISPLAY_HEIGHT: u64 = 1024;
+    pub const DEFAULT_DISPLAY_WIDTH: u64 = 1024;
+
+    pub fn display_height_or_default(&self) -> u64 {
+        self.display_height.unwrap_or(Self::DEFAULT_DISPLAY_HEIGHT)
+    }
+
+    pub fn display_width_or_default(&self) -> u64 {
+        self.display_width.unwrap_or(Self::DEFAULT_DISPLAY_WIDTH)
+    }
+
+    pub fn environment_or_default(&self) -> ResponseComputerEnvironment {
+        self.environment
+            .clone()
+            .unwrap_or(ResponseComputerEnvironment::Browser)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1522,8 +1614,69 @@ pub enum ResponseComputerEnvironment {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ResponseComputerToolType {
+    #[serde(rename = "computer")]
+    Computer,
     #[serde(rename = "computer_use_preview")]
     ComputerUsePreview,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseNamespaceTool {
+    pub description: String,
+    pub name: String,
+    pub tools: Vec<ResponseNamespaceToolItem>,
+    #[serde(rename = "type")]
+    pub type_: ResponseNamespaceToolType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseNamespaceToolType {
+    #[serde(rename = "namespace")]
+    Namespace,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResponseNamespaceToolItem {
+    Function(ResponseNamespaceFunctionTool),
+    Custom(ResponseCustomTool),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseNamespaceFunctionTool {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_: ResponseNamespaceFunctionToolType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<JsonObject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseNamespaceFunctionToolType {
+    #[serde(rename = "function")]
+    Function,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseToolSearchTool {
+    #[serde(rename = "type")]
+    pub type_: ResponseToolSearchToolType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ResponseToolSearchExecution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseToolSearchToolType {
+    #[serde(rename = "tool_search")]
+    ToolSearch,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1593,6 +1746,8 @@ pub struct ResponseMcpTool {
     pub authorization: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<ResponseMcpConnectorId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2004,6 +2159,8 @@ pub struct ResponseCustomTool {
     #[serde(rename = "type")]
     pub type_: ResponseCustomToolType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<ResponseCustomToolInputFormat>,
@@ -2061,9 +2218,19 @@ pub struct ResponseWebSearchPreviewTool {
     #[serde(rename = "type")]
     pub type_: ResponseWebSearchPreviewToolType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_content_types: Option<Vec<ResponseWebSearchPreviewContentType>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_context_size: Option<ResponseWebSearchContextSize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_location: Option<ResponseWebSearchPreviewUserLocation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseWebSearchPreviewContentType {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "image")]
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

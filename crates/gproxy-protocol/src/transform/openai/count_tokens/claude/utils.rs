@@ -310,7 +310,9 @@ pub fn openai_tool_choice_to_claude(
         Some(ot::ResponseToolChoice::Types(tool)) => {
             let name = match tool.type_ {
                 ot::ResponseToolChoiceBuiltinType::FileSearch => "tool_search_tool_bm25",
-                ot::ResponseToolChoiceBuiltinType::ComputerUsePreview => "computer",
+                ot::ResponseToolChoiceBuiltinType::Computer
+                | ot::ResponseToolChoiceBuiltinType::ComputerUsePreview
+                | ot::ResponseToolChoiceBuiltinType::ComputerUse => "computer",
                 ot::ResponseToolChoiceBuiltinType::WebSearchPreview
                 | ot::ResponseToolChoiceBuiltinType::WebSearchPreview20250311 => "web_search",
                 ot::ResponseToolChoiceBuiltinType::CodeInterpreter => "code_execution",

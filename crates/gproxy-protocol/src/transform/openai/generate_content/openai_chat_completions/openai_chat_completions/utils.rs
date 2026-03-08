@@ -8,6 +8,7 @@ fn chat_image_detail_to_response(
         ct::ChatCompletionImageDetail::Auto => ot::ResponseInputImageDetail::Auto,
         ct::ChatCompletionImageDetail::Low => ot::ResponseInputImageDetail::Low,
         ct::ChatCompletionImageDetail::High => ot::ResponseInputImageDetail::High,
+        ct::ChatCompletionImageDetail::Original => ot::ResponseInputImageDetail::Original,
     })
 }
 
@@ -44,6 +45,7 @@ fn chat_content_part_to_response_input_content(
             };
             ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: Some(part.input_audio.data),
                 file_id: None,
                 file_url: None,
@@ -53,6 +55,7 @@ fn chat_content_part_to_response_input_content(
         ct::ChatCompletionContentPart::File(part) => {
             ot::ResponseInputContent::File(ot::ResponseInputFile {
                 type_: ot::ResponseInputFileType::InputFile,
+                detail: None,
                 file_data: part.file.file_data,
                 file_id: part.file.file_id,
                 file_url: part.file.file_url,
@@ -150,6 +153,7 @@ pub fn chat_tools_to_response_tools(
                         parameters: tool.function.parameters.unwrap_or_default(),
                         strict: tool.function.strict,
                         type_: ot::ResponseFunctionToolType::Function,
+                        defer_loading: None,
                         description: tool.function.description,
                     }));
                 }
@@ -157,6 +161,7 @@ pub fn chat_tools_to_response_tools(
                     output.push(ot::ResponseTool::Custom(ot::ResponseCustomTool {
                         name: tool.custom.name,
                         type_: ot::ResponseCustomToolType::Custom,
+                        defer_loading: None,
                         description: tool.custom.description,
                         format: chat_custom_tool_format_to_response(tool.custom.format),
                     }));
@@ -172,6 +177,7 @@ pub fn chat_tools_to_response_tools(
                 parameters: function.parameters.unwrap_or_default(),
                 strict: None,
                 type_: ot::ResponseFunctionToolType::Function,
+                defer_loading: None,
                 description: function.description,
             }));
         }
@@ -181,6 +187,7 @@ pub fn chat_tools_to_response_tools(
         output.push(ot::ResponseTool::WebSearchPreview(
             ot::ResponseWebSearchPreviewTool {
                 type_: ot::ResponseWebSearchPreviewToolType::WebSearchPreview,
+                search_content_types: None,
                 search_context_size: web_search.search_context_size.map(|size| match size {
                     ct::ChatCompletionWebSearchContextSize::Low => {
                         ot::ResponseWebSearchContextSize::Low

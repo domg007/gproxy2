@@ -15,7 +15,7 @@ pub use crate::openai::count_tokens::types::{
     ResponseOutputRefusal, ResponseOutputText, ResponseReasoning, ResponseReasoningItem,
     ResponseReasoningTextContent, ResponseShellCall, ResponseShellCallOutput,
     ResponseSummaryTextContent, ResponseTextConfig, ResponseTool, ResponseToolChoice,
-    ResponseTruncation,
+    ResponseToolSearchCall, ResponseToolSearchOutput, ResponseTruncation,
 };
 pub use crate::openai::types::{
     HttpMethod, OpenAiApiError, OpenAiApiErrorResponse, OpenAiResponseHeaders,
@@ -191,6 +191,8 @@ pub enum ResponseOutputItem {
     FileSearchToolCall(ResponseFileSearchToolCall),
     ComputerToolCall(ResponseComputerToolCall),
     ComputerCallOutput(ResponseComputerCallOutput),
+    ToolSearchCall(ResponseToolSearchCall),
+    ToolSearchOutput(ResponseToolSearchOutput),
     FunctionWebSearch(ResponseFunctionWebSearch),
     FunctionToolCall(ResponseFunctionToolCall),
     FunctionCallOutput(ResponseFunctionCallOutput),

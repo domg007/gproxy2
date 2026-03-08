@@ -167,6 +167,7 @@ impl TryFrom<ClaudeCountTokensRequest> for OpenAiCountTokensRequest {
                             parameters: tool_input_schema_to_json_object(tool.input_schema),
                             strict: tool.common.strict,
                             type_: ResponseFunctionToolType::Function,
+                            defer_loading: None,
                             description: tool.description,
                         }));
                     }
@@ -188,25 +189,25 @@ impl TryFrom<ClaudeCountTokensRequest> for OpenAiCountTokensRequest {
                     }
                     BetaToolUnion::ComputerUse20241022(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
                     BetaToolUnion::ComputerUse20250124(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
                     BetaToolUnion::ComputerUse20251124(tool) => {
                         converted_tools.push(ResponseTool::Computer(ResponseComputerTool {
-                            display_height: tool.display_height_px,
-                            display_width: tool.display_width_px,
-                            environment: ResponseComputerEnvironment::Browser,
+                            display_height: Some(tool.display_height_px),
+                            display_width: Some(tool.display_width_px),
+                            environment: Some(ResponseComputerEnvironment::Browser),
                             type_: ResponseComputerToolType::ComputerUsePreview,
                         }));
                     }
@@ -283,6 +284,7 @@ impl TryFrom<ClaudeCountTokensRequest> for OpenAiCountTokensRequest {
                             allowed_tools,
                             authorization: None,
                             connector_id: None,
+                            defer_loading: None,
                             headers: None,
                             require_approval: None,
                             server_description: None,
@@ -305,6 +307,7 @@ impl TryFrom<ClaudeCountTokensRequest> for OpenAiCountTokensRequest {
                         .map(ResponseMcpAllowedTools::ToolNames),
                     authorization: server.authorization_token,
                     connector_id: None,
+                    defer_loading: None,
                     headers: None,
                     require_approval: None,
                     server_description: None,

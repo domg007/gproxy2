@@ -215,6 +215,8 @@ pub enum ChatCompletionImageDetail {
     Low,
     #[serde(rename = "high")]
     High,
+    #[serde(rename = "original")]
+    Original,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1131,6 +1133,26 @@ mod tests {
                 .and_then(|detail| detail.id.as_deref()),
             Some("reasoning_0")
         );
+    }
+
+    #[test]
+    fn image_detail_original_roundtrip() {
+        let image = ChatCompletionContentPartImage {
+            image_url: ChatCompletionImageUrl {
+                url: "https://example.com/screenshot.png".to_string(),
+                detail: Some(ChatCompletionImageDetail::Original),
+            },
+            type_: ChatCompletionContentPartImageType::ImageUrl,
+        };
+
+        let value = serde_json::to_value(&image).unwrap();
+        assert_eq!(value["image_url"]["detail"], "original");
+
+        let decoded: ChatCompletionContentPartImage = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            decoded.image_url.detail,
+            Some(ChatCompletionImageDetail::Original)
+        ));
     }
 }
 

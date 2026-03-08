@@ -327,7 +327,10 @@ pub fn openai_tool_to_gemini(tool: ot::ResponseTool) -> Option<gt::GeminiTool> {
             code_execution: Some(gt::GeminiCodeExecution {}),
             ..gt::GeminiTool::default()
         }),
-        ot::ResponseTool::Mcp(_) | ot::ResponseTool::ImageGeneration(_) => None,
+        ot::ResponseTool::Mcp(_)
+        | ot::ResponseTool::ImageGeneration(_)
+        | ot::ResponseTool::Namespace(_)
+        | ot::ResponseTool::ToolSearch(_) => None,
     }
 }
 
@@ -536,6 +539,7 @@ mod tests {
                 .expect("json object"),
                 strict: Some(true),
                 type_: ot::ResponseFunctionToolType::Function,
+                defer_loading: None,
                 description: Some("Run a command".to_string()),
             }),
             ot::ResponseTool::WebSearch(ot::ResponseWebSearchTool {

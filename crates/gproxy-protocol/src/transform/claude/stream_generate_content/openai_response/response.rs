@@ -415,6 +415,28 @@ impl OpenAiResponseToClaudeStream {
                     );
                 }
             }
+            ResponseOutputItem::ToolSearchCall(call) => {
+                let item_id = call.id;
+                let block_index = self.ensure_tool_block(out, &item_id, "tool_search");
+                if let Ok(arguments_json) = serde_json::to_string(&call.arguments)
+                    && !arguments_json.is_empty()
+                {
+                    out.push(input_json_delta_event(block_index, arguments_json));
+                }
+                if is_done {
+                    self.close_tool_block(out, &item_id);
+                }
+            }
+            ResponseOutputItem::ToolSearchOutput(call) => {
+                if let Ok(tools_json) = serde_json::to_string(&call.tools)
+                    && !tools_json.is_empty()
+                {
+                    self.emit_text_block(
+                        out,
+                        format!("tool_search_output({}): {tools_json}", call.call_id),
+                    );
+                }
+            }
             ResponseOutputItem::ReasoningItem(item) => {
                 if let Some(signature) = item.id.filter(|id| !id.is_empty()) {
                     for summary in item.summary {

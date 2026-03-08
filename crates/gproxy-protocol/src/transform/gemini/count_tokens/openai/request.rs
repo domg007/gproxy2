@@ -164,6 +164,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                     } else {
                         message_content.push(ResponseInputContent::File(ResponseInputFile {
                             type_: ResponseInputFileType::InputFile,
+                            detail: None,
                             file_data: Some(inline_data.data),
                             file_id: None,
                             file_url: None,
@@ -191,6 +192,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                     } else {
                         message_content.push(ResponseInputContent::File(ResponseInputFile {
                             type_: ResponseInputFileType::InputFile,
+                            detail: None,
                             file_data: None,
                             file_id: None,
                             file_url: Some(file_data.file_uri),
@@ -364,6 +366,7 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
                             parameters,
                             strict: None,
                             type_: crate::openai::count_tokens::types::ResponseFunctionToolType::Function,
+                            defer_loading: None,
                             description: if declaration.description.is_empty() {
                                 None
                             } else {
@@ -385,9 +388,9 @@ impl TryFrom<GeminiCountTokensRequest> for OpenAiCountTokensRequest {
 
                 if tool.computer_use.is_some() {
                     mapped.push(ResponseTool::Computer(ResponseComputerTool {
-                        display_height: 1024,
-                        display_width: 1024,
-                        environment: ResponseComputerEnvironment::Browser,
+                        display_height: Some(1024),
+                        display_width: Some(1024),
+                        environment: Some(ResponseComputerEnvironment::Browser),
                         type_: ResponseComputerToolType::ComputerUsePreview,
                     }));
                 }

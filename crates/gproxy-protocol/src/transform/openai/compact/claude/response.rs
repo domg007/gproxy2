@@ -60,6 +60,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCompactResponse {
                                         encrypted_content: thinking.data,
                                         type_: ot::ResponseCompactionItemType::Compaction,
                                         id: Some(format!("compaction_{index}")),
+                                        created_by: None,
                                     },
                                 ));
                             }
@@ -126,6 +127,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCompactResponse {
                                     encrypted_content: compaction.content.unwrap_or_default(),
                                     type_: ot::ResponseCompactionItemType::Compaction,
                                     id: Some(format!("compaction_{index}")),
+                                    created_by: None,
                                 },
                             ));
                         }
