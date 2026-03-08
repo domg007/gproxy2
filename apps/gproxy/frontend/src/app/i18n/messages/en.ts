@@ -463,7 +463,7 @@ export const enMessages = {
     "providers.bulk.import": "Import",
     "providers.bulk.export": "Export",
     "providers.bulk.clearInput": "Clear Input",
-    "providers.bulk.importFile": "Import File",
+    "providers.bulk.importFile": "Import Files",
     "providers.bulk.exportFile": "Export File",
     "providers.bulk.emptyExport": "No credential payload to export",
     "providers.bulk.exportData": "Export Data",

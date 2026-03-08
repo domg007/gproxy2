@@ -99,6 +99,7 @@ export function CredentialBulkSection({
         <input
           ref={bulkFileInputRef}
           type="file"
+          multiple
           accept=".json,.jsonl,application/json,text/plain"
           className="hidden"
           onChange={onBulkImportFileChange}

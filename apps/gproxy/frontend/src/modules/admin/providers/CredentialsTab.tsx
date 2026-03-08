@@ -166,6 +166,24 @@ function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
   };
 }
 
+function buildBulkImportPreviewText(
+  entries: BulkCredentialImportEntry[]
+): string {
+  return entries
+    .map((entry) =>
+      JSON.stringify({
+        ...(typeof entry.id === "number" ? { id: entry.id } : {}),
+        ...(typeof entry.name === "string" && entry.name.trim()
+          ? { name: entry.name }
+          : {}),
+        enabled: entry.enabled ?? true,
+        ...(entry.settingsPayload ? { settings_json: entry.settingsPayload } : {}),
+        secretValues: entry.secretValues
+      })
+    )
+    .join("\n");
+}
+
 export function CredentialsTab({
   mode,
   viewModel,
@@ -502,15 +520,30 @@ export function CredentialsTab({
   };
 
   const onBulkImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
 
     try {
-      const text = await file.text();
-      setBulkInputText(text);
+      const fileEntryGroups = await Promise.all(
+        files.map(async (file) => {
+          try {
+            const text = await file.text();
+            return parseBulkCredentialText({
+              channel,
+              schema: credentialSchema,
+              mode: bulkMode,
+              rawText: text
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`${file.name}: ${message}`);
+          }
+        })
+      );
+      setBulkInputText(buildBulkImportPreviewText(fileEntryGroups.flat()));
       setBulkError("");
     } catch (error) {
       setBulkError(error instanceof Error ? error.message : String(error));
