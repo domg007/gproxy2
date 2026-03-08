@@ -918,7 +918,7 @@ export function ConfigTab({
           />
         </div>
         <div>
-          <Label>{t("field.channel")}</Label>
+          <Label>{t("providers.field.channelType")}</Label>
           <Select
             value={providerForm.channel}
             onChange={(value) =>

@@ -55,6 +55,7 @@ export type CredentialsTabViewModel = {
   supportsUpstreamUsage: boolean;
   supportsOAuth: boolean;
   deadCredentialCount: number;
+  testingAllCredentials: boolean;
   credentialRows: CredentialQueryRow[];
   statusesByCredential: Map<number, CredentialStatusQueryRow[]>;
   usageByCredential: Record<number, string>;
@@ -82,6 +83,7 @@ export type CredentialsTabActions = {
   onCopyCredential: (row: CredentialQueryRow) => void;
   onRemoveCredential: (id: number) => void;
   onRequestRemoveDeadCredentials: () => void;
+  onTestAllCredentials: () => void;
   onToggleCredentialEnabled: (row: CredentialQueryRow) => void;
   onSetCredentialHealth: (payload: {
     credentialId: number;
@@ -185,6 +187,7 @@ export function CredentialsTab({
     supportsUpstreamUsage,
     supportsOAuth,
     deadCredentialCount,
+    testingAllCredentials,
     credentialRows,
     statusesByCredential,
     usageByCredential,
@@ -211,6 +214,7 @@ export function CredentialsTab({
     onCopyCredential,
     onRemoveCredential,
     onRequestRemoveDeadCredentials,
+    onTestAllCredentials,
     onToggleCredentialEnabled,
     onSetCredentialHealth,
     onQueryUpstreamUsage,
@@ -835,8 +839,17 @@ export function CredentialsTab({
               />
             </div>
             <Button
+              variant="neutral"
+              disabled={credentialRows.length === 0 || testingAllCredentials}
+              onClick={onTestAllCredentials}
+            >
+              {testingAllCredentials
+                ? t("providers.credentials.testingAll")
+                : t("providers.credentials.testAll")}
+            </Button>
+            <Button
               variant={deadCredentialCount > 0 ? "danger" : "neutral"}
-              disabled={deadCredentialCount === 0}
+              disabled={deadCredentialCount === 0 || testingAllCredentials}
               onClick={onRequestRemoveDeadCredentials}
             >
               {t("providers.credentials.deleteDead", { count: deadCredentialCount })}

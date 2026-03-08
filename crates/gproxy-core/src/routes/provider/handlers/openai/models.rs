@@ -6,8 +6,14 @@ pub(in crate::routes::provider) async fn v1_model_list(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    let auth = authorize_provider_access(&headers, &state)?;
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let mut auth = authorize_provider_access(&headers, &state)?;
+    let (channel, mut provider) = resolve_provider(&state, provider_name.as_str())?;
+    if let Some(credential_id) =
+        parse_optional_query_value::<i64>(query.as_deref(), "credential_id")?
+    {
+        provider = restrict_provider_to_credential(provider, credential_id)?;
+        auth.forced_credential_id = Some(credential_id);
+    }
     let passthrough_headers = collect_passthrough_headers(&headers);
 
     let mut openai = openai_model_list_request::OpenAiModelListRequest::default();

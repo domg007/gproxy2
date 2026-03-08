@@ -15,6 +15,7 @@ pub(super) struct RequestAuthContext {
     pub(super) user_id: i64,
     pub(super) user_key_id: i64,
     pub(super) downstream_trace_id: Option<i64>,
+    pub(super) forced_credential_id: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

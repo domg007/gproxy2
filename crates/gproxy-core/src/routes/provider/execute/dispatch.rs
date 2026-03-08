@@ -130,24 +130,63 @@ pub(super) async fn execute_upstream_dispatch(
         let tokenizers = context.state.tokenizers();
         let global = context.state.load_config().global.clone();
 
-        capture_tracked_http_events(async {
-            context
+        if let Some(forced_credential_id) = context.auth.forced_credential_id {
+            let Some(credential) = context
                 .provider
-                .execute_with_retry_with_spoof(
-                    http.as_ref(),
-                    spoof_http.as_deref(),
-                    context.state.credential_states(),
-                    &dispatch.upstream_request,
-                    dispatch.now_unix_ms,
-                    TokenizerResolutionContext {
-                        tokenizer_store: tokenizers.as_ref(),
-                        hf_token: global.hf_token.as_deref(),
-                        hf_url: global.hf_url.as_deref(),
-                    },
-                )
-                .await
-        })
-        .await
+                .credentials
+                .credential(forced_credential_id)
+                .cloned()
+            else {
+                return ExecutedUpstream {
+                    result: Err(UpstreamError::NoEligibleCredential {
+                        channel: context.channel.as_str().to_string(),
+                        model: dispatch.upstream_request_context.model.clone(),
+                    }),
+                    tracked_http_events: Vec::new(),
+                };
+            };
+            let mut provider = context.provider.clone();
+            provider.credentials.credentials = vec![credential];
+            provider.credentials.channel_states.clear();
+            let credential_states = gproxy_provider::ChannelCredentialStateStore::new();
+
+            capture_tracked_http_events(async {
+                provider
+                    .execute_with_retry_with_spoof(
+                        http.as_ref(),
+                        spoof_http.as_deref(),
+                        &credential_states,
+                        &dispatch.upstream_request,
+                        dispatch.now_unix_ms,
+                        TokenizerResolutionContext {
+                            tokenizer_store: tokenizers.as_ref(),
+                            hf_token: global.hf_token.as_deref(),
+                            hf_url: global.hf_url.as_deref(),
+                        },
+                    )
+                    .await
+            })
+            .await
+        } else {
+            capture_tracked_http_events(async {
+                context
+                    .provider
+                    .execute_with_retry_with_spoof(
+                        http.as_ref(),
+                        spoof_http.as_deref(),
+                        context.state.credential_states(),
+                        &dispatch.upstream_request,
+                        dispatch.now_unix_ms,
+                        TokenizerResolutionContext {
+                            tokenizer_store: tokenizers.as_ref(),
+                            hf_token: global.hf_token.as_deref(),
+                            hf_url: global.hf_url.as_deref(),
+                        },
+                    )
+                    .await
+            })
+            .await
+        }
     };
 
     if !dispatch.dispatch_local {

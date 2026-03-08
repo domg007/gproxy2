@@ -87,6 +87,7 @@ pub(super) fn authorize_provider_access(
             user_id: key.user_id,
             user_key_id: key.id,
             downstream_trace_id: parse_downstream_trace_id(headers),
+            forced_credential_id: None,
         });
     }
 
@@ -106,6 +107,21 @@ pub(super) fn resolve_provider(
         ));
     };
     Ok((channel, provider))
+}
+
+pub(super) fn restrict_provider_to_credential(
+    mut provider: ProviderDefinition,
+    credential_id: i64,
+) -> Result<ProviderDefinition, HttpError> {
+    let Some(credential) = provider.credentials.credential(credential_id).cloned() else {
+        return Err(HttpError::new(
+            StatusCode::NOT_FOUND,
+            format!("credential not found: {credential_id}"),
+        ));
+    };
+    provider.credentials.credentials = vec![credential];
+    provider.credentials.channel_states.clear();
+    Ok(provider)
 }
 
 pub(super) fn collect_headers(headers: &HeaderMap) -> Vec<(String, String)> {

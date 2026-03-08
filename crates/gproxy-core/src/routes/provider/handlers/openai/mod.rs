@@ -59,8 +59,8 @@ use super::super::{
     oauth_callback_response_to_axum, oauth_response_to_axum, parse_json_body,
     parse_optional_query_value, persist_provider_and_credential, resolve_credential_id,
     resolve_provider, resolve_provider_id, response_from_status_headers_and_bytes,
-    split_provider_prefixed_plain_model, upstream_error_credential_id, upstream_error_request_meta,
-    upstream_error_status,
+    restrict_provider_to_credential, split_provider_prefixed_plain_model,
+    upstream_error_credential_id, upstream_error_request_meta, upstream_error_status,
 };
 
 mod http_fallback;

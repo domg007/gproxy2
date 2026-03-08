@@ -43,6 +43,10 @@ type UpsertEntityAck = {
   id: number;
 };
 
+type OpenAiModelListPayload = {
+  data?: Array<{ id?: string | null }>;
+};
+
 export function ProvidersModule({
   apiKey,
   notify
@@ -57,6 +61,7 @@ export function ProvidersModule({
   const [deletingProvider, setDeletingProvider] = useState(false);
   const [deleteDeadCredentialIds, setDeleteDeadCredentialIds] = useState<number[] | null>(null);
   const [deletingDeadCredentials, setDeletingDeadCredentials] = useState(false);
+  const [testingAllCredentials, setTestingAllCredentials] = useState(false);
   const [credentialForm, setCredentialForm] = useState(createEmptyCredentialFormState("custom"));
 
   const {
@@ -650,13 +655,17 @@ export function ProvidersModule({
     statusId,
     healthKind,
     healthJson,
-    lastError
+    lastError,
+    silent = false,
+    reload = true
   }: {
     credentialId: number;
     statusId?: number;
     healthKind: "healthy" | "partial" | "dead";
     healthJson: Record<string, unknown> | null;
     lastError?: string | null;
+    silent?: boolean;
+    reload?: boolean;
   }) => {
     if (!selectedProvider) {
       return;
@@ -701,10 +710,14 @@ export function ProvidersModule({
         }
         return next;
       });
-      notify("success", t("providers.status.saved"));
-      window.setTimeout(() => {
-        void loadProviderScopedData(selectedProvider);
-      }, 250);
+      if (!silent) {
+        notify("success", t("providers.status.saved"));
+      }
+      if (reload) {
+        window.setTimeout(() => {
+          void loadProviderScopedData(selectedProvider);
+        }, 250);
+      }
     } catch (error) {
       notify("error", formatError(error));
     }
@@ -765,12 +778,89 @@ export function ProvidersModule({
     await loadProviderScopedData(selectedProvider);
   };
 
+  const testAllCredentials = async () => {
+    if (!selectedProvider) {
+      return;
+    }
+    if (credentialRows.length === 0) {
+      notify("info", t("providers.credentials.testAllEmpty"));
+      return;
+    }
+
+    setTestingAllCredentials(true);
+    let availableCount = 0;
+    let unavailableCount = 0;
+
+    try {
+      for (const row of credentialRows) {
+        const statusId = (statusesByCredential.get(row.id) ?? [])[0]?.id;
+
+        try {
+          const modelList = await apiRequest<OpenAiModelListPayload>(
+            `/${providerRouteKey}/v1/models?credential_id=${row.id}`,
+            { apiKey }
+          );
+          const modelId = modelList.data?.find((item) => typeof item.id === "string" && item.id.trim())?.id?.trim();
+          if (!modelId) {
+            throw new Error(t("providers.credentials.testAllNoModel"));
+          }
+
+          await apiRequest(`/${providerRouteKey}/v1/chat/completions?credential_id=${row.id}`, {
+            apiKey,
+            method: "POST",
+            body: {
+              model: modelId,
+              messages: [{ role: "user", content: "test" }],
+              max_tokens: 1,
+              stream: false
+            }
+          });
+
+          await upsertCredentialHealthState({
+            credentialId: row.id,
+            statusId,
+            healthKind: "healthy",
+            healthJson: null,
+            lastError: null,
+            silent: true,
+            reload: false
+          });
+          availableCount += 1;
+        } catch (error) {
+          await upsertCredentialHealthState({
+            credentialId: row.id,
+            statusId,
+            healthKind: "dead",
+            healthJson: null,
+            lastError: formatError(error),
+            silent: true,
+            reload: false
+          });
+          unavailableCount += 1;
+        }
+      }
+
+      notify(
+        availableCount === credentialRows.length ? "success" : "info",
+        t("providers.credentials.testAllDone", {
+          total: credentialRows.length,
+          available: availableCount,
+          unavailable: unavailableCount
+        })
+      );
+      await loadProviderScopedData(selectedProvider);
+    } finally {
+      setTestingAllCredentials(false);
+    }
+  };
+
   const credentialsViewModel = {
     selectedProvider,
     credentialSchema: currentCredentialSchema,
     supportsUpstreamUsage: providerSupportsUpstreamUsage,
     supportsOAuth: providerSupportsOAuth,
     deadCredentialCount: deadCredentialIds.length,
+    testingAllCredentials,
     credentialRows,
     statusesByCredential,
     usageByCredential,
@@ -798,6 +888,7 @@ export function ProvidersModule({
     onCopyCredential: (row: CredentialQueryRow) => void copyCredential(row),
     onRemoveCredential: (id: number) => void removeCredential(id),
     onRequestRemoveDeadCredentials: () => requestRemoveDeadCredentials(),
+    onTestAllCredentials: () => void testAllCredentials(),
     onToggleCredentialEnabled: (row: CredentialQueryRow) => void toggleCredentialEnabled(row),
     onSetCredentialHealth: (payload: {
       credentialId: number;

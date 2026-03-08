@@ -3,11 +3,18 @@ use super::*;
 pub(in crate::routes::provider) async fn openai_chat_completions(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, HttpError> {
-    let auth = authorize_provider_access(&headers, &state)?;
-    let (channel, provider) = resolve_provider(&state, provider_name.as_str())?;
+    let mut auth = authorize_provider_access(&headers, &state)?;
+    let (channel, mut provider) = resolve_provider(&state, provider_name.as_str())?;
+    if let Some(credential_id) =
+        parse_optional_query_value::<i64>(query.as_deref(), "credential_id")?
+    {
+        provider = restrict_provider_to_credential(provider, credential_id)?;
+        auth.forced_credential_id = Some(credential_id);
+    }
     let value = parse_json_body::<serde_json::Value>(
         &body,
         "invalid openai chat completions request body",
