@@ -18,7 +18,7 @@ impl TryFrom<GeminiGenerateVideosResponse> for OpenAiCreateVideoResponse {
             } => OpenAiCreateVideoResponse::Success {
                 stats_code,
                 headers: openai_response_headers_from_gemini(headers),
-                body: openai_video_from_gemini_operation(body),
+                body: openai_video_from_gemini_operation(*body),
             },
             GeminiGenerateVideosResponse::Error {
                 stats_code,
@@ -50,7 +50,7 @@ mod tests {
         let response = GeminiGenerateVideosResponse::Success {
             stats_code: StatusCode::OK,
             headers: GeminiResponseHeaders::default(),
-            body: GeminiResponseBody {
+            body: Box::new(GeminiResponseBody {
                 name: "operations/abc123".to_string(),
                 metadata: Some(GeminiVideoOperationMetadata {
                     create_time: Some("2026-03-08T12:00:00Z".to_string()),
@@ -76,7 +76,7 @@ mod tests {
                     ..GeminiGenerateVideosOperationResult::default()
                 }),
                 error: None,
-            },
+            }),
         };
 
         let converted = OpenAiCreateVideoResponse::try_from(response).unwrap();

@@ -2,6 +2,8 @@ use super::*;
 use base64::Engine as _;
 use http::StatusCode;
 
+type VertexVideoContentBytes = (Vec<u8>, Option<String>);
+
 pub(super) async fn normalize_vertex_model_response(
     response: WreqResponse,
     kind: VertexModelResponseKind,
@@ -233,7 +235,7 @@ fn vertex_video_content_local_response(
 
 fn vertex_video_content_bytes(
     raw_body: &Value,
-) -> Result<Option<(Vec<u8>, Option<String>)>, UpstreamError> {
+) -> Result<Option<VertexVideoContentBytes>, UpstreamError> {
     let videos = raw_body
         .get("response")
         .and_then(|value| value.get("videos"))
@@ -260,48 +262,6 @@ fn vertex_video_content_bytes(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
     Ok(Some((bytes, mime_type)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extracts_vertex_video_model_id_from_operation_name() {
-        let model_id = vertex_video_operation_model_id(
-            "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
-        )
-        .expect("model id");
-        assert_eq!(model_id, "veo-3.0-generate");
-    }
-
-    #[test]
-    fn normalizes_vertex_video_operation_payload() {
-        let payload = vertex_video_operation_payload(serde_json::json!({
-            "name": "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
-            "done": true,
-            "response": {
-                "videos": [
-                    {
-                        "gcsUri": "gs://bucket/video.mp4",
-                        "mimeType": "video/mp4"
-                    }
-                ]
-            }
-        }));
-
-        assert_eq!(
-            payload
-                .get("response")
-                .and_then(|item| item.get("generatedVideos"))
-                .and_then(Value::as_array)
-                .and_then(|items| items.first())
-                .and_then(|item| item.get("video"))
-                .and_then(|item| item.get("uri"))
-                .and_then(Value::as_str),
-            Some("gs://bucket/video.mp4")
-        );
-    }
 }
 
 pub(super) fn vertex_model_list_payload(value: Value) -> Value {
@@ -693,4 +653,46 @@ pub(super) fn vertex_embedding_payload(value: Value) -> Result<Value, UpstreamEr
             "values": values,
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_vertex_video_model_id_from_operation_name() {
+        let model_id = vertex_video_operation_model_id(
+            "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
+        )
+        .expect("model id");
+        assert_eq!(model_id, "veo-3.0-generate");
+    }
+
+    #[test]
+    fn normalizes_vertex_video_operation_payload() {
+        let payload = vertex_video_operation_payload(serde_json::json!({
+            "name": "projects/p/locations/global/publishers/google/models/veo-3.0-generate/operations/123",
+            "done": true,
+            "response": {
+                "videos": [
+                    {
+                        "gcsUri": "gs://bucket/video.mp4",
+                        "mimeType": "video/mp4"
+                    }
+                ]
+            }
+        }));
+
+        assert_eq!(
+            payload
+                .get("response")
+                .and_then(|item| item.get("generatedVideos"))
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("video"))
+                .and_then(|item| item.get("uri"))
+                .and_then(Value::as_str),
+            Some("gs://bucket/video.mp4")
+        );
+    }
 }

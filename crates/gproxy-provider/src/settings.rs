@@ -1,8 +1,8 @@
 use crate::channel::{BuiltinChannel, ChannelId};
 use crate::channels::cache_control::cache_breakpoint_rules_to_settings_value;
 use crate::channels::{
-    BuiltinChannelSettings, ChannelSettings, aistudio, anthropic, custom, deepseek, groq,
-    nvidia, openai, retry::CredentialPickMode, vertexexpress,
+    BuiltinChannelSettings, ChannelSettings, aistudio, anthropic, custom, deepseek, groq, nvidia,
+    openai, retry::CredentialPickMode, vertexexpress,
 };
 
 pub const CREDENTIAL_PICK_MODE_KEY: &str = "credential_pick_mode";

@@ -18,7 +18,7 @@ impl TryFrom<GeminiVideoOperationGetResponse> for OpenAiVideoGetResponse {
             } => OpenAiVideoGetResponse::Success {
                 stats_code,
                 headers: openai_response_headers_from_gemini(headers),
-                body: openai_video_from_gemini_operation(body),
+                body: openai_video_from_gemini_operation(*body),
             },
             GeminiVideoOperationGetResponse::Error {
                 stats_code,

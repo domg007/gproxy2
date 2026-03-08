@@ -53,11 +53,8 @@ pub(crate) async fn execute_passthrough_payload_request(
     let provider_id = resolve_provider_id(state.as_ref(), &channel).await.ok();
     let now = now_unix_ms();
     let http = state.load_http();
-    let spoof_http = matches!(
-        &channel,
-        ChannelId::Builtin(BuiltinChannel::ClaudeCode)
-    )
-    .then(|| state.load_spoof_http());
+    let spoof_http = matches!(&channel, ChannelId::Builtin(BuiltinChannel::ClaudeCode))
+        .then(|| state.load_spoof_http());
     let tokenizers = state.tokenizers();
     let global = state.load_config().global.clone();
 

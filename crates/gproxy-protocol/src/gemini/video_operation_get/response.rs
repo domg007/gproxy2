@@ -15,7 +15,7 @@ pub enum GeminiVideoOperationGetResponse {
         #[serde(with = "crate::gemini::types::status_code_serde")]
         stats_code: StatusCode,
         headers: GeminiResponseHeaders,
-        body: ResponseBodyAlias,
+        body: Box<ResponseBodyAlias>,
     },
     Error {
         #[serde(with = "crate::gemini::types::status_code_serde")]
