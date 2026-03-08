@@ -99,8 +99,8 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateImageEditSseStre
                         partial_image_index,
                     )),
                     ResponseStreamEvent::ImageGenerationCallCompleted { item_id, .. } => {
-                        if emitted_completed.insert(item_id.clone()) {
-                            if let Some(result) = ctx.results_by_item_id.get(&item_id) {
+                        if emitted_completed.insert(item_id.clone())
+                            && let Some(result) = ctx.results_by_item_id.get(&item_id) {
                                 events.push(completed_image_event(
                                     sse_event.event,
                                     &ctx,
@@ -108,11 +108,10 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateImageEditSseStre
                                     ctx.usage.as_ref(),
                                 ));
                             }
-                        }
                     }
                     ResponseStreamEvent::OutputItemDone { item, .. } => {
-                        if let crate::openai::create_response::types::ResponseOutputItem::ImageGenerationCall(call) = item {
-                            if !ctx.explicit_completed_item_ids.contains(&call.id)
+                        if let crate::openai::create_response::types::ResponseOutputItem::ImageGenerationCall(call) = item
+                            && !ctx.explicit_completed_item_ids.contains(&call.id)
                                 && emitted_completed.insert(call.id.clone())
                                 && !call.result.is_empty()
                             {
@@ -123,7 +122,6 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateImageEditSseStre
                                     ctx.usage.as_ref(),
                                 ));
                             }
-                        }
                     }
                     ResponseStreamEvent::Completed { response, .. } => {
                         for item in response.output {
