@@ -1,5 +1,32 @@
 use super::*;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TokenErrorDetails {
+    error: String,
+    description: String,
+    code: String,
+}
+
+impl TokenErrorDetails {
+    fn is_empty(&self) -> bool {
+        self.error.is_empty() && self.description.is_empty() && self.code.is_empty()
+    }
+
+    fn as_message_suffix(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.error.is_empty() {
+            parts.push(self.error.clone());
+        }
+        if !self.description.is_empty() {
+            parts.push(self.description.clone());
+        }
+        if !self.code.is_empty() {
+            parts.push(format!("code={}", self.code));
+        }
+        parts.join(" | ")
+    }
+}
+
 pub(crate) fn codex_auth_material_from_credential(
     value: &CodexCredential,
 ) -> Option<CodexAuthMaterial> {
@@ -271,21 +298,22 @@ pub(super) async fn refresh_access_token(
     }
 
     let payload_text = String::from_utf8_lossy(&bytes).to_string();
-    let error = parsed
-        .as_ref()
-        .and_then(|value| value.error.as_deref())
-        .unwrap_or_default();
-    let description = parsed
-        .as_ref()
-        .and_then(|value| value.error_description.as_deref())
-        .unwrap_or_default();
-    let message = if error.is_empty() && description.is_empty() {
+    let details = extract_token_error_details(parsed.as_ref());
+    let message = if details.is_empty() {
         format!("refresh_token_failed: status {status}: {payload_text}")
     } else {
-        format!("refresh_token_failed: status {status}: {error} {description}")
+        format!(
+            "refresh_token_failed: status {status}: {}",
+            details.as_message_suffix()
+        )
     };
 
-    if is_invalid_oauth_credential_failure(status, error, description) {
+    if is_invalid_oauth_credential_failure(
+        status,
+        details.error.as_str(),
+        details.description.as_str(),
+        details.code.as_str(),
+    ) {
         Err(CodexTokenRefreshError::InvalidCredential(message))
     } else {
         Err(CodexTokenRefreshError::Transient(message))
@@ -315,14 +343,16 @@ pub(super) fn is_invalid_oauth_credential_failure(
     status: u16,
     error: &str,
     description: &str,
+    code: &str,
 ) -> bool {
     if !matches!(status, 400 | 401 | 403) {
         return false;
     }
     let joined = format!(
-        "{} {}",
+        "{} {} {}",
         error.to_ascii_lowercase(),
-        description.to_ascii_lowercase()
+        description.to_ascii_lowercase(),
+        code.to_ascii_lowercase(),
     );
     joined.contains("invalid_grant")
         || joined.contains("invalid_client")
@@ -331,6 +361,65 @@ pub(super) fn is_invalid_oauth_credential_failure(
         || joined.contains("refresh_token_expired")
         || joined.contains("refresh_token_reused")
         || joined.contains("refresh_token_invalidated")
+}
+
+fn extract_token_error_details(parsed: Option<&TokenResponse>) -> TokenErrorDetails {
+    let Some(parsed) = parsed else {
+        return TokenErrorDetails::default();
+    };
+
+    let top_level_description = parsed
+        .error_description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    match parsed.error.as_ref() {
+        Some(Value::String(error)) => TokenErrorDetails {
+            error: error.trim().to_string(),
+            description: top_level_description.unwrap_or_default(),
+            code: String::new(),
+        },
+        Some(Value::Object(error)) => {
+            let error_type = error
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .unwrap_or_default();
+            let code = error
+                .get("code")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .unwrap_or_default();
+            let nested_message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            TokenErrorDetails {
+                error: error_type,
+                description: top_level_description.or(nested_message).unwrap_or_default(),
+                code,
+            }
+        }
+        Some(other) => TokenErrorDetails {
+            error: String::new(),
+            description: top_level_description.unwrap_or_else(|| other.to_string()),
+            code: String::new(),
+        },
+        None => TokenErrorDetails {
+            error: String::new(),
+            description: top_level_description.unwrap_or_default(),
+            code: String::new(),
+        },
+    }
 }
 
 pub(super) fn parse_id_token_claims(id_token: &str) -> IdTokenClaims {
@@ -406,4 +495,60 @@ pub(super) fn default_poll_interval_secs() -> u64 {
 
 pub(super) fn percent_encode(value: &str) -> String {
     form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TokenResponse, extract_token_error_details, is_invalid_oauth_credential_failure};
+    use serde_json::json;
+
+    #[test]
+    fn nested_refresh_token_reused_error_is_detected_as_invalid_credential() {
+        let parsed = TokenResponse {
+            access_token: None,
+            refresh_token: None,
+            id_token: None,
+            expires_in: None,
+            error: Some(json!({
+                "message": "Your refresh token has already been used to generate a new access token. Please try signing in again.",
+                "type": "invalid_request_error",
+                "param": null,
+                "code": "refresh_token_reused"
+            })),
+            error_description: None,
+        };
+
+        let details = extract_token_error_details(Some(&parsed));
+        assert_eq!(details.error, "invalid_request_error");
+        assert_eq!(details.code, "refresh_token_reused");
+        assert!(details.description.contains("already been used"));
+        assert!(is_invalid_oauth_credential_failure(
+            401,
+            details.error.as_str(),
+            details.description.as_str(),
+            details.code.as_str(),
+        ));
+    }
+
+    #[test]
+    fn string_error_and_description_still_detect_invalid_credential() {
+        let parsed = TokenResponse {
+            access_token: None,
+            refresh_token: None,
+            id_token: None,
+            expires_in: None,
+            error: Some(json!("invalid_grant")),
+            error_description: Some("refresh token expired".to_string()),
+        };
+
+        let details = extract_token_error_details(Some(&parsed));
+        assert_eq!(details.error, "invalid_grant");
+        assert_eq!(details.description, "refresh token expired");
+        assert!(is_invalid_oauth_credential_failure(
+            400,
+            details.error.as_str(),
+            details.description.as_str(),
+            details.code.as_str(),
+        ));
+    }
 }

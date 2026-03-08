@@ -137,7 +137,7 @@ struct TokenResponse {
     id_token: Option<String>,
     #[serde(default, deserialize_with = "deserialize_option_u64_from_string")]
     expires_in: Option<u64>,
-    error: Option<String>,
+    error: Option<Value>,
     error_description: Option<String>,
 }
 
