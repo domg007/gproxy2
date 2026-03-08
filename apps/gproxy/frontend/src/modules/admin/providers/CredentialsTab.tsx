@@ -277,7 +277,6 @@ export function CredentialsTab({
   const oauthCallbackQuery = oauthCallbackQueryByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthRawResult = oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? "";
   const oauthOpenUrl = oauthReadableResult?.authUrl ?? oauthReadableResult?.verificationUri;
-  const oauthSubmitUrl = readQueryParam(oauthCallbackQuery, "callback_url");
   const oauthCallbackModeCount = new Set(
     oauthCallbackButtons.flatMap((button) => (button.mode ? [button.mode] : []))
   ).size;
@@ -585,13 +584,6 @@ export function CredentialsTab({
     return oauthUi?.callbackFields ?? [];
   };
 
-  const callbackButtonUsesCallbackUrl = (fields?: readonly string[]): boolean =>
-    resolveCallbackFields(fields).includes("callback_url");
-
-  const showSharedCallbackUrl =
-    !!oauthSubmitUrl &&
-    visibleOauthCallbackButtons.some((button) => callbackButtonUsesCallbackUrl(button.fields));
-
   const updateQueryParam = (rawQuery: string, key: string, value: string): string => {
     const input = rawQuery.trim();
     const params = new URLSearchParams(input.startsWith("?") ? input.slice(1) : input);
@@ -729,16 +721,6 @@ export function CredentialsTab({
             : null}
           {!oauthVisibleCallbackUsesCustomFields ? (
             <div className="flex flex-wrap gap-2">
-              {showSharedCallbackUrl ? (
-                <a
-                  className="btn btn-primary inline-flex"
-                  href={oauthSubmitUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {t("providers.oauth.openCallbackUrl")}
-                </a>
-              ) : null}
               {visibleOauthCallbackButtons.map((button) => (
                 <Button
                   key={button.labelKey}
@@ -770,16 +752,6 @@ export function CredentialsTab({
                 </div>
                 {fields.map((field) => renderOAuthField("callback", field, oauthCallbackQuery))}
                 <div className="flex flex-wrap gap-2">
-                  {oauthSubmitUrl && callbackButtonUsesCallbackUrl(button.fields) ? (
-                    <a
-                      className="btn btn-primary inline-flex"
-                      href={oauthSubmitUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {t("providers.oauth.openCallbackUrl")}
-                    </a>
-                  ) : null}
                   <Button
                     variant={button.mode ? "neutral" : "primary"}
                     onClick={() => onRunCredentialOAuthCallback(undefined, button.mode, button.queryDefaults)}

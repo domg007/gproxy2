@@ -164,7 +164,6 @@ export const enMessages = {
     "providers.oauth.interval": "interval",
     "providers.oauth.instructions": "instructions",
     "providers.oauth.openAuthUrl": "Open Auth URL",
-    "providers.oauth.openCallbackUrl": "Open Callback URL",
     "providers.oauth.selectStartMode": "Start the matching OAuth flow above before submitting its callback.",
     "providers.oauth.response": "response",
     "providers.credentials.saved": "Credential saved",
