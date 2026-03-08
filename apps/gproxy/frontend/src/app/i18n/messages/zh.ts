@@ -458,7 +458,7 @@ export const zhMessages = {
     "providers.bulk.import": "导入",
     "providers.bulk.export": "导出",
     "providers.bulk.clearInput": "清空输入",
-    "providers.bulk.importFile": "导入文件（可多选）",
+    "providers.bulk.importFile": "导入文件",
     "providers.bulk.exportFile": "导出文件",
     "providers.bulk.emptyExport": "没有可导出的凭证内容",
     "providers.bulk.exportData": "导出结果",

@@ -101,7 +101,7 @@ export type CredentialsTabActions = {
     queryDefaults?: Record<string, string | null | undefined>
   ) => void;
   onUpsertCredential: () => void;
-  onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void;
+  onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void | Promise<void>;
 };
 
 function defaultCredentialPageSize(): number {
@@ -164,24 +164,6 @@ function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
     interval: pickNumberAsString("interval"),
     instructions: pick("instructions")
   };
-}
-
-function buildBulkImportPreviewText(
-  entries: BulkCredentialImportEntry[]
-): string {
-  return entries
-    .map((entry) =>
-      JSON.stringify({
-        ...(typeof entry.id === "number" ? { id: entry.id } : {}),
-        ...(typeof entry.name === "string" && entry.name.trim()
-          ? { name: entry.name }
-          : {}),
-        enabled: entry.enabled ?? true,
-        ...(entry.settingsPayload ? { settings_json: entry.settingsPayload } : {}),
-        secretValues: entry.secretValues
-      })
-    )
-    .join("\n");
 }
 
 export function CredentialsTab({
@@ -543,8 +525,9 @@ export function CredentialsTab({
           }
         })
       );
-      setBulkInputText(buildBulkImportPreviewText(fileEntryGroups.flat()));
+      setBulkInputText("");
       setBulkError("");
+      await onUpsertCredentialsBatch(fileEntryGroups.flat());
     } catch (error) {
       setBulkError(error instanceof Error ? error.message : String(error));
     }
