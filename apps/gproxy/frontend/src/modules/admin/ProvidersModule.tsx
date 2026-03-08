@@ -55,6 +55,8 @@ export function ProvidersModule({
   const [isCreatingProvider, setIsCreatingProvider] = useState(false);
   const [deleteTargetProvider, setDeleteTargetProvider] = useState<ProviderQueryRow | null>(null);
   const [deletingProvider, setDeletingProvider] = useState(false);
+  const [deleteDeadCredentialIds, setDeleteDeadCredentialIds] = useState<number[] | null>(null);
+  const [deletingDeadCredentials, setDeletingDeadCredentials] = useState(false);
   const [credentialForm, setCredentialForm] = useState(createEmptyCredentialFormState("custom"));
 
   const {
@@ -182,6 +184,16 @@ export function ProvidersModule({
   const showClaudeTopLevelCacheControl =
     providerFormChannel === "anthropic" || providerFormChannel === "claudecode";
   const showCustomMaskTable = isCustomChannel(providerFormChannel);
+  const deadCredentialIds = useMemo(
+    () =>
+      credentialRows
+        .filter((row) => {
+          const primaryStatus = (statusesByCredential.get(row.id) ?? [])[0];
+          return primaryStatus?.health_kind?.trim().toLowerCase() === "dead";
+        })
+        .map((row) => row.id),
+    [credentialRows, statusesByCredential]
+  );
 
   const channelOptions = useMemo(() => {
     const options = [...getProviderChannelSelectOptions(channelCatalogRows)];
@@ -197,6 +209,10 @@ export function ProvidersModule({
       setActiveTab("config");
     }
   }, [activeTab, showWorkspace]);
+
+  useEffect(() => {
+    setDeleteDeadCredentialIds(null);
+  }, [selectedProviderId]);
 
   useEffect(() => {
     void loadProviderScopedData(selectedProvider);
@@ -490,6 +506,21 @@ export function ProvidersModule({
     }
   };
 
+  const applyDeletedCredentialIds = useCallback(
+    (ids: number[]) => {
+      if (ids.length === 0) {
+        return;
+      }
+      const deletedIdSet = new Set(ids);
+      setCredentialRows((prev) => prev.filter((row) => !deletedIdSet.has(row.id)));
+      setStatusRows((prev) => prev.filter((row) => !deletedIdSet.has(row.credential_id)));
+      for (const id of ids) {
+        clearUsageForCredential(id);
+      }
+    },
+    [clearUsageForCredential, setCredentialRows, setStatusRows]
+  );
+
   const removeCredential = async (id: number) => {
     if (!selectedProvider) {
       return;
@@ -500,15 +531,77 @@ export function ProvidersModule({
         method: "POST",
         body: { id }
       });
-      setCredentialRows((prev) => prev.filter((row) => row.id !== id));
-      setStatusRows((prev) => prev.filter((row) => row.credential_id !== id));
-      clearUsageForCredential(id);
+      applyDeletedCredentialIds([id]);
       notify("success", t("providers.credentials.deleted", { id }));
       window.setTimeout(() => {
         void loadProviderScopedData(selectedProvider);
       }, 250);
     } catch (error) {
       notify("error", formatError(error));
+    }
+  };
+
+  const requestRemoveDeadCredentials = () => {
+    if (deadCredentialIds.length === 0) {
+      return;
+    }
+    setDeleteDeadCredentialIds(deadCredentialIds);
+  };
+
+  const confirmAndRemoveDeadCredentials = async () => {
+    if (!selectedProvider || !deleteDeadCredentialIds || deleteDeadCredentialIds.length === 0) {
+      return;
+    }
+
+    const targetProvider = selectedProvider;
+    const targetIds = deleteDeadCredentialIds.slice();
+    setDeletingDeadCredentials(true);
+    try {
+      const results = await Promise.allSettled(
+        targetIds.map(async (id) => {
+          await apiRequest("/admin/credentials/delete", {
+            apiKey,
+            method: "POST",
+            body: { id }
+          });
+          return id;
+        })
+      );
+
+      const deletedIds: number[] = [];
+      let failedCount = 0;
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          deletedIds.push(result.value);
+        } else {
+          failedCount += 1;
+        }
+      }
+
+      applyDeletedCredentialIds(deletedIds);
+      setDeleteDeadCredentialIds(null);
+
+      if (failedCount === 0) {
+        notify(
+          "success",
+          t("providers.credentials.deadDeleted", { count: deletedIds.length })
+        );
+      } else {
+        notify(
+          "error",
+          t("providers.credentials.deadDeletedPartial", {
+            success: deletedIds.length,
+            failed: failedCount
+          })
+        );
+      }
+
+      window.setTimeout(() => {
+        void loadProviderScopedData(targetProvider);
+      }, 250);
+    } finally {
+      setDeletingDeadCredentials(false);
     }
   };
 
@@ -677,6 +770,7 @@ export function ProvidersModule({
     credentialSchema: currentCredentialSchema,
     supportsUpstreamUsage: providerSupportsUpstreamUsage,
     supportsOAuth: providerSupportsOAuth,
+    deadCredentialCount: deadCredentialIds.length,
     credentialRows,
     statusesByCredential,
     usageByCredential,
@@ -703,6 +797,7 @@ export function ProvidersModule({
     onEditCredential: editCredential,
     onCopyCredential: (row: CredentialQueryRow) => void copyCredential(row),
     onRemoveCredential: (id: number) => void removeCredential(id),
+    onRequestRemoveDeadCredentials: () => requestRemoveDeadCredentials(),
     onToggleCredentialEnabled: (row: CredentialQueryRow) => void toggleCredentialEnabled(row),
     onSetCredentialHealth: (payload: {
       credentialId: number;
@@ -859,6 +954,27 @@ export function ProvidersModule({
           }
         }}
         onConfirm={() => void confirmAndRemoveProvider()}
+      />
+      <ConfirmDialog
+        open={deleteDeadCredentialIds !== null}
+        title={t("providers.credentials.deleteDeadConfirmTitle")}
+        description={
+          selectedProvider && deleteDeadCredentialIds
+            ? t("providers.credentials.deleteDeadConfirm", {
+                name: selectedProvider.name,
+                count: deleteDeadCredentialIds.length
+              })
+            : ""
+        }
+        cancelLabel={t("common.cancel")}
+        confirmLabel={t("common.delete")}
+        busy={deletingDeadCredentials}
+        onClose={() => {
+          if (!deletingDeadCredentials) {
+            setDeleteDeadCredentialIds(null);
+          }
+        }}
+        onConfirm={() => void confirmAndRemoveDeadCredentials()}
       />
     </div>
   );

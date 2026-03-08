@@ -170,6 +170,13 @@ export const zhMessages = {
     "providers.credentials.saved": "凭证已保存",
     "providers.credentials.deleted": "凭证 {id} 已删除",
     "providers.credentials.enabledChanged": "凭证 {id} 状态已切换为 {state}",
+    "providers.credentials.deleteDead": "删除全部 dead（{count}）",
+    "providers.credentials.deleteDeadConfirmTitle": "批量删除 dead 凭证",
+    "providers.credentials.deleteDeadConfirm":
+      "确认删除渠道 {name} 下全部 {count} 个 dead 凭证吗？",
+    "providers.credentials.deadDeleted": "已删除 {count} 个 dead 凭证",
+    "providers.credentials.deadDeletedPartial":
+      "已删除 {success} 个 dead 凭证，{failed} 个删除失败",
     "providers.bulk.emptyImport": "没有可导入的凭证内容",
     "providers.bulk.imported": "已导入 {count} 条凭证",
     "providers.health.healthy": "健康",

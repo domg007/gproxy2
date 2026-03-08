@@ -170,6 +170,13 @@ export const enMessages = {
     "providers.credentials.saved": "Credential saved",
     "providers.credentials.deleted": "Credential {id} deleted",
     "providers.credentials.enabledChanged": "Credential {id} set to {state}",
+    "providers.credentials.deleteDead": "Delete all dead ({count})",
+    "providers.credentials.deleteDeadConfirmTitle": "Bulk Delete Dead Credentials",
+    "providers.credentials.deleteDeadConfirm":
+      "Delete all {count} dead credentials under provider {name}?",
+    "providers.credentials.deadDeleted": "Deleted {count} dead credentials",
+    "providers.credentials.deadDeletedPartial":
+      "Deleted {success} dead credentials, {failed} deletions failed",
     "providers.bulk.emptyImport": "No credential payload to import",
     "providers.bulk.imported": "Imported {count} credentials",
     "providers.health.healthy": "Healthy",
