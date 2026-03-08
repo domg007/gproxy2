@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../app/i18n";
-import { apiRequest, formatError } from "../../lib/api";
+import { apiRequest, formatError, isApiError } from "../../lib/api";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { parseRequiredI64, parseRequiredPositiveInteger } from "../../lib/form";
 import type {
@@ -778,6 +778,51 @@ export function ProvidersModule({
     await loadProviderScopedData(selectedProvider);
   };
 
+  const isLikelyHtmlErrorPage = (value: string): boolean => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return (
+      normalized.includes("<html") ||
+      normalized.includes("<head") ||
+      normalized.includes("<body") ||
+      normalized.includes("<title>") ||
+      normalized.includes("cloudflare")
+    );
+  };
+
+  const classifyCredentialTestError = (
+    error: unknown
+  ): {
+    healthKind: "partial" | "dead";
+    healthJson: Record<string, unknown> | null;
+    lastError: string;
+  } => {
+    const lastError = formatError(error);
+    if (isApiError(error)) {
+      if ([429, 500, 502, 503, 504].includes(error.status)) {
+        return {
+          healthKind: "partial",
+          healthJson: { models: [] },
+          lastError
+        };
+      }
+      if (error.status === 403 && isLikelyHtmlErrorPage(error.message)) {
+        return {
+          healthKind: "partial",
+          healthJson: { models: [] },
+          lastError
+        };
+      }
+    }
+    return {
+      healthKind: "dead",
+      healthJson: null,
+      lastError
+    };
+  };
+
   const testAllCredentials = async () => {
     if (!selectedProvider) {
       return;
@@ -827,12 +872,13 @@ export function ProvidersModule({
           });
           availableCount += 1;
         } catch (error) {
+          const failureState = classifyCredentialTestError(error);
           await upsertCredentialHealthState({
             credentialId: row.id,
             statusId,
-            healthKind: "dead",
-            healthJson: null,
-            lastError: formatError(error),
+            healthKind: failureState.healthKind,
+            healthJson: failureState.healthJson,
+            lastError: failureState.lastError,
             silent: true,
             reload: false
           });

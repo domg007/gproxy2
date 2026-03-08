@@ -1,5 +1,53 @@
 use super::*;
 
+fn response_header_value(response: &wreq::Response, name: &str) -> Option<String> {
+    response
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase())
+}
+
+fn is_probable_html_edge_block(response: &wreq::Response) -> bool {
+    if response.status().as_u16() != 403 {
+        return false;
+    }
+
+    let content_type = response_header_value(response, "content-type").unwrap_or_default();
+    let server = response_header_value(response, "server").unwrap_or_default();
+    let is_html =
+        content_type.contains("text/html") || content_type.contains("application/xhtml+xml");
+    let is_cloudflare = server.contains("cloudflare")
+        || response.headers().contains_key("cf-ray")
+        || response.headers().contains_key("cf-cache-status");
+
+    is_html || (is_cloudflare && !content_type.contains("application/json"))
+}
+
+fn codex_html_edge_block_retry(
+    state_manager: &CredentialStateManager,
+    credential_states: &ChannelCredentialStateStore,
+    provider: &ProviderDefinition,
+    credential_id: i64,
+    model: Option<&str>,
+    status_code: u16,
+) -> CredentialRetryDecision<UpstreamResponse> {
+    let message = format!("upstream status {status_code} (probable html edge block)");
+    state_manager.mark_transient_failure(
+        credential_states,
+        &provider.channel,
+        credential_id,
+        model,
+        None,
+        Some(message.clone()),
+    );
+    CredentialRetryDecision::Retry {
+        last_status: Some(status_code),
+        last_error: Some(message),
+        last_request_meta: None,
+    }
+}
+
 pub(super) async fn execute_codex_with_prepared(
     client: &WreqClient,
     provider: &ProviderDefinition,
@@ -136,6 +184,16 @@ pub(super) async fn execute_codex_with_prepared(
                 };
 
                 let mut status_code = response.status().as_u16();
+                if is_probable_html_edge_block(&response) {
+                    return codex_html_edge_block_retry(
+                        &state_manager,
+                        credential_states,
+                        provider,
+                        attempt.credential_id,
+                        model.as_deref(),
+                        status_code,
+                    );
+                }
                 if is_auth_failure(status_code) {
                     let refreshed_token = match resolve_codex_access_token(
                         client,
@@ -214,6 +272,16 @@ pub(super) async fn execute_codex_with_prepared(
                     };
 
                     status_code = response.status().as_u16();
+                    if is_probable_html_edge_block(&response) {
+                        return codex_html_edge_block_retry(
+                            &state_manager,
+                            credential_states,
+                            provider,
+                            attempt.credential_id,
+                            model.as_deref(),
+                            status_code,
+                        );
+                    }
                     if is_auth_failure(status_code) {
                         let message = format!(
                             "upstream status {} after codex access token refresh",
