@@ -24,6 +24,22 @@ pub(super) struct ExecutedUpstream {
     pub(super) tracked_http_events: Vec<TrackedHttpEvent>,
 }
 
+fn sync_forced_credential_state(
+    state: &AppState,
+    channel: &ChannelId,
+    credential_id: i64,
+    request_now_unix_ms: u64,
+    temporary_states: &gproxy_provider::ChannelCredentialStateStore,
+) {
+    let Some(state_row) = temporary_states.get(channel, credential_id) else {
+        return;
+    };
+    if state_row.checked_at_unix_ms != Some(request_now_unix_ms) {
+        return;
+    }
+    state.upsert_credential_state(state_row);
+}
+
 pub(super) async fn prepare_execute_dispatch(
     context: &ExecuteRequestContext,
     request: TransformRequest,
@@ -148,14 +164,14 @@ pub(super) async fn execute_upstream_dispatch(
             let mut provider = context.provider.clone();
             provider.credentials.credentials = vec![credential];
             provider.credentials.channel_states.clear();
-            let credential_states = gproxy_provider::ChannelCredentialStateStore::new();
+            let temporary_credential_states = gproxy_provider::ChannelCredentialStateStore::new();
 
-            capture_tracked_http_events(async {
+            let (result, tracked_http_events) = capture_tracked_http_events(async {
                 provider
                     .execute_with_retry_with_spoof(
                         http.as_ref(),
                         spoof_http.as_deref(),
-                        &credential_states,
+                        &temporary_credential_states,
                         &dispatch.upstream_request,
                         dispatch.now_unix_ms,
                         TokenizerResolutionContext {
@@ -166,7 +182,15 @@ pub(super) async fn execute_upstream_dispatch(
                     )
                     .await
             })
-            .await
+            .await;
+            sync_forced_credential_state(
+                context.state.as_ref(),
+                &context.channel,
+                forced_credential_id,
+                dispatch.now_unix_ms,
+                &temporary_credential_states,
+            );
+            (result, tracked_http_events)
         } else {
             capture_tracked_http_events(async {
                 context

@@ -337,7 +337,7 @@ mod tests {
 
         ProviderDefinition {
             channel,
-            dispatch: ProviderDispatchTable::default(),
+            dispatch: ProviderDispatchTable::default_for_builtin(BuiltinChannel::Codex),
             settings,
             credential_pick_mode: CredentialPickMode::RoundRobinWithCache,
             cache_affinity_max_keys: gproxy_provider::DEFAULT_CREDENTIAL_CACHE_AFFINITY_MAX_KEYS,
@@ -480,6 +480,109 @@ mod tests {
         assert!(
             result.is_err(),
             "usage route should fail on reused refresh token"
+        );
+
+        wait_for_dead_status(storage.as_ref(), 1, "codex").await;
+        let rows = storage
+            .list_credential_statuses(&CredentialStatusQuery {
+                id: Scope::All,
+                credential_id: Scope::Eq(1),
+                channel: Scope::Eq("codex".to_string()),
+                health_kind: Scope::All,
+                limit: Some(10),
+            })
+            .await
+            .expect("query persisted statuses");
+        let row = rows
+            .into_iter()
+            .find(|row| row.health_kind.eq_ignore_ascii_case("dead"))
+            .expect("dead status row");
+        let last_error = row.last_error.unwrap_or_default();
+        assert!(
+            last_error.contains("refresh_token_reused"),
+            "expected persisted last_error to mention refresh_token_reused, got: {last_error}"
+        );
+
+        drop(state);
+        worker.abort();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn forced_model_list_persists_dead_status_when_codex_refresh_token_is_reused() {
+        let storage = Arc::new(
+            SeaOrmStorage::connect("sqlite::memory:", None)
+                .await
+                .expect("connect memory storage"),
+        );
+        storage.sync().await.expect("sync memory storage");
+
+        let (storage_writes, storage_rx) = storage_write_channel(32);
+        let worker = spawn_storage_write_worker(
+            storage.clone(),
+            storage_rx,
+            StorageWriteWorkerConfig {
+                aggregate_window: Duration::from_millis(5),
+                ..Default::default()
+            },
+        );
+
+        let oauth_issuer_url = spawn_token_error_server().await;
+        let provider = build_codex_provider(
+            format!("{}/backend-api/codex", oauth_issuer_url).as_str(),
+            oauth_issuer_url.as_str(),
+        );
+        let channel = provider.channel.clone();
+        let credential = provider
+            .credentials
+            .credentials
+            .first()
+            .cloned()
+            .expect("provider credential");
+
+        let mut registry = ProviderRegistry::default();
+        registry.upsert(provider.clone());
+
+        let api_key = "test-provider-key".to_string();
+        let state = Arc::new(AppState::new(AppStateInit {
+            storage: storage.clone(),
+            storage_writes,
+            http: Arc::new(WreqClient::new()),
+            spoof_http: Arc::new(WreqClient::new()),
+            global: GlobalSettings::default(),
+            providers: registry,
+            tokenizers: Arc::new(LocalTokenizerStore::new(std::path::PathBuf::from("/tmp"))),
+            users: Vec::new(),
+            keys: HashMap::from([(
+                api_key.clone(),
+                MemoryUserKey {
+                    id: 1,
+                    user_id: 1,
+                    api_key: api_key.clone(),
+                    enabled: true,
+                },
+            )]),
+        }));
+
+        persist_provider_and_credential(state.as_ref(), &channel, &provider, &credential)
+            .await
+            .expect("persist provider and credential");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-api-key"),
+            HeaderValue::from_str(api_key.as_str()).expect("api key header"),
+        );
+
+        let result = v1_model_list(
+            State(state.clone()),
+            Path("codex".to_string()),
+            RawQuery(Some("credential_id=1".to_string())),
+            headers,
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "forced model list should fail on reused refresh token"
         );
 
         wait_for_dead_status(storage.as_ref(), 1, "codex").await;

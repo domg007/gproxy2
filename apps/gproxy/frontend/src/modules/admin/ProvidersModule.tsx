@@ -792,6 +792,37 @@ export function ProvidersModule({
     );
   };
 
+  const isLikelyInvalidCredentialTestError = (error: unknown): boolean => {
+    if (!isApiError(error)) {
+      return false;
+    }
+    const normalized = error.message.trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (error.status === 401) {
+      return true;
+    }
+    if (error.status === 403 && !isLikelyHtmlErrorPage(error.message)) {
+      return true;
+    }
+    return [
+      "last_status=some(401)",
+      "last_status=some(403)",
+      "invalid credential",
+      "invalid_grant",
+      "invalid_client",
+      "unauthorized_client",
+      "refresh_token_expired",
+      "refresh_token_reused",
+      "refresh_token_invalidated",
+      "missing refresh token",
+      "oauth token response missing refresh_token",
+      "upstream status 401 after",
+      "upstream status 403 after"
+    ].some((pattern) => normalized.includes(pattern));
+  };
+
   const classifyCredentialTestError = (
     error: unknown
   ): {
@@ -801,14 +832,21 @@ export function ProvidersModule({
   } => {
     const lastError = formatError(error);
     if (isApiError(error)) {
-      if ([429, 500, 502, 503, 504].includes(error.status)) {
+      if (error.status === 403 && isLikelyHtmlErrorPage(error.message)) {
         return {
           healthKind: "partial",
           healthJson: { models: [] },
           lastError
         };
       }
-      if (error.status === 403 && isLikelyHtmlErrorPage(error.message)) {
+      if (isLikelyInvalidCredentialTestError(error)) {
+        return {
+          healthKind: "dead",
+          healthJson: null,
+          lastError
+        };
+      }
+      if ([429, 500, 502, 503, 504].includes(error.status)) {
         return {
           healthKind: "partial",
           healthJson: { models: [] },
