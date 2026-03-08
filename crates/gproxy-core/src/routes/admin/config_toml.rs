@@ -50,10 +50,13 @@ pub(super) async fn export_config_toml(
     let mut credentials = gproxy_admin::query_credentials(
         &storage,
         gproxy_storage::CredentialQuery {
+            id: Scope::All,
             provider_id: Scope::All,
             kind: Scope::All,
             enabled: Scope::All,
+            name_contains: None,
             limit: None,
+            offset: None,
         },
     )
     .await?;
@@ -64,9 +67,11 @@ pub(super) async fn export_config_toml(
         gproxy_storage::CredentialStatusQuery {
             id: Scope::All,
             credential_id: Scope::All,
+            provider_id: Scope::All,
             channel: Scope::All,
             health_kind: Scope::All,
             limit: None,
+            offset: None,
         },
     )
     .await?;
@@ -326,10 +331,13 @@ pub(super) async fn apply_imported_channels(
     let existing_credentials = gproxy_admin::query_credentials(
         &storage,
         gproxy_storage::CredentialQuery {
+            id: Scope::All,
             provider_id: Scope::All,
             kind: Scope::All,
             enabled: Scope::All,
+            name_contains: None,
             limit: None,
+            offset: None,
         },
     )
     .await?;
@@ -354,9 +362,11 @@ pub(super) async fn apply_imported_channels(
         gproxy_storage::CredentialStatusQuery {
             id: Scope::All,
             credential_id: Scope::All,
+            provider_id: Scope::All,
             channel: Scope::All,
             health_kind: Scope::All,
             limit: None,
+            offset: None,
         },
     )
     .await?;
@@ -573,9 +583,11 @@ pub(super) async fn apply_imported_channels(
                         gproxy_storage::CredentialStatusQuery {
                             id: Scope::All,
                             credential_id: Scope::Eq(credential_id),
+                            provider_id: Scope::All,
                             channel: Scope::Eq(channel_name_owned.clone()),
                             health_kind: Scope::All,
                             limit: Some(1),
+                            offset: None,
                         },
                     )
                     .await?;

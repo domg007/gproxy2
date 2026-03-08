@@ -387,9 +387,11 @@ mod tests {
                 .list_credential_statuses(&CredentialStatusQuery {
                     id: Scope::All,
                     credential_id: Scope::Eq(credential_id),
+                    provider_id: Scope::All,
                     channel: Scope::Eq(channel.to_string()),
                     health_kind: Scope::All,
                     limit: Some(10),
+                    offset: None,
                 })
                 .await
                 .expect("query credential statuses");
@@ -487,9 +489,11 @@ mod tests {
             .list_credential_statuses(&CredentialStatusQuery {
                 id: Scope::All,
                 credential_id: Scope::Eq(1),
+                provider_id: Scope::All,
                 channel: Scope::Eq("codex".to_string()),
                 health_kind: Scope::All,
                 limit: Some(10),
+                offset: None,
             })
             .await
             .expect("query persisted statuses");
@@ -590,9 +594,11 @@ mod tests {
             .list_credential_statuses(&CredentialStatusQuery {
                 id: Scope::All,
                 credential_id: Scope::Eq(1),
+                provider_id: Scope::All,
                 channel: Scope::Eq("codex".to_string()),
                 health_kind: Scope::All,
                 limit: Some(10),
+                offset: None,
             })
             .await
             .expect("query persisted statuses");

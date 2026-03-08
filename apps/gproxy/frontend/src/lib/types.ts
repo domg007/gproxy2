@@ -1,4 +1,4 @@
-export type Scope<T> = "All" | { Eq: T };
+export type Scope<T> = "All" | { Eq: T } | { In: T[] };
 
 export type UserRole = "admin" | "user";
 export type ThemeMode = "light" | "dark" | "system";
@@ -49,6 +49,10 @@ export interface CredentialQueryRow {
   updated_at: string;
 }
 
+export interface CredentialQueryCount {
+  count: number;
+}
+
 export interface CredentialStatusQueryRow {
   id: number;
   credential_id: number;
@@ -58,6 +62,10 @@ export interface CredentialStatusQueryRow {
   checked_at: string | null;
   last_error: string | null;
   updated_at: string;
+}
+
+export interface CredentialStatusQueryCount {
+  count: number;
 }
 
 export interface UserQueryRow {

@@ -1,10 +1,11 @@
 use gproxy_storage::{
-    CredentialQuery, CredentialQueryRow, CredentialStatusQuery, CredentialStatusQueryRow,
-    CredentialStatusWrite, CredentialWrite, DownstreamRequestQuery, DownstreamRequestQueryRow,
-    GlobalSettingsRow, GlobalSettingsWrite, ProviderQuery, ProviderQueryRow, ProviderWrite,
-    RequestQueryCount, Scope, StorageWriteEvent, StorageWriteSender, UpstreamRequestQuery,
-    UpstreamRequestQueryRow, UsageQuery, UsageQueryCount, UsageQueryRow, UsageSummary,
-    UserKeyQuery, UserKeyQueryRow, UserKeyWrite, UserQuery, UserQueryRow, UserWrite,
+    CredentialQuery, CredentialQueryCount, CredentialQueryRow, CredentialStatusQuery,
+    CredentialStatusQueryCount, CredentialStatusQueryRow, CredentialStatusWrite, CredentialWrite,
+    DownstreamRequestQuery, DownstreamRequestQueryRow, GlobalSettingsRow, GlobalSettingsWrite,
+    ProviderQuery, ProviderQueryRow, ProviderWrite, RequestQueryCount, Scope, StorageWriteEvent,
+    StorageWriteSender, UpstreamRequestQuery, UpstreamRequestQueryRow, UsageQuery, UsageQueryCount,
+    UsageQueryRow, UsageSummary, UserKeyQuery, UserKeyQueryRow, UserKeyWrite, UserQuery,
+    UserQueryRow, UserWrite,
 };
 use std::collections::HashMap;
 
@@ -58,6 +59,13 @@ pub async fn query_credentials(
     Ok(storage.list_credentials(&query).await?)
 }
 
+pub async fn count_credentials(
+    storage: &gproxy_storage::SeaOrmStorage,
+    query: CredentialQuery,
+) -> Result<CredentialQueryCount, AdminApiError> {
+    Ok(storage.count_credentials(&query).await?)
+}
+
 pub async fn upsert_credential(
     writer: &StorageWriteSender,
     payload: CredentialWrite,
@@ -80,6 +88,13 @@ pub async fn query_credential_statuses(
     query: CredentialStatusQuery,
 ) -> Result<Vec<CredentialStatusQueryRow>, AdminApiError> {
     Ok(storage.list_credential_statuses(&query).await?)
+}
+
+pub async fn count_credential_statuses(
+    storage: &gproxy_storage::SeaOrmStorage,
+    query: CredentialStatusQuery,
+) -> Result<CredentialStatusQueryCount, AdminApiError> {
+    Ok(storage.count_credential_statuses(&query).await?)
 }
 
 pub async fn upsert_credential_status(

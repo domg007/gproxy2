@@ -77,8 +77,22 @@ export function ProvidersModule({
     setStatusRows,
     selectedProvider,
     statusesByCredential,
+    credentialSearchMode,
+    credentialSearchText,
+    credentialPageSize,
+    credentialPage,
+    credentialTotalCount,
+    credentialFilteredCount,
+    deadCredentialCount,
+    credentialListLoading,
+    setCredentialPage,
+    updateCredentialSearchMode,
+    updateCredentialSearchText,
+    updateCredentialPageSize,
     loadProviders,
     loadProviderScopedData,
+    loadAllProviderCredentials,
+    loadDeadCredentialIds,
     beginCreateProvider: beginCreateProviderData,
     selectProvider: selectProviderData
   } = useProviderData({
@@ -100,11 +114,12 @@ export function ProvidersModule({
           targetProviderId === null
             ? selectedProvider
             : latestProviders.find((row) => row.id === targetProviderId) ?? selectedProvider;
-        const { credentials } = await loadProviderScopedData(latestProvider);
+        await loadProviderScopedData(latestProvider);
         if (expected.size === 0) {
           return;
         }
-        const idSet = new Set(credentials.map((row) => row.id));
+        const allCredentials = await loadAllProviderCredentials(latestProvider);
+        const idSet = new Set(allCredentials.map((row) => row.id));
         if (Array.from(expected).every((id) => idSet.has(id))) {
           return;
         }
@@ -113,7 +128,13 @@ export function ProvidersModule({
         });
       }
     },
-    [loadProviderScopedData, loadProviders, selectedProvider, selectedProviderId]
+    [
+      loadAllProviderCredentials,
+      loadProviderScopedData,
+      loadProviders,
+      selectedProvider,
+      selectedProviderId
+    ]
   );
 
   const {
@@ -189,16 +210,6 @@ export function ProvidersModule({
   const showClaudeTopLevelCacheControl =
     providerFormChannel === "anthropic" || providerFormChannel === "claudecode";
   const showCustomMaskTable = isCustomChannel(providerFormChannel);
-  const deadCredentialIds = useMemo(
-    () =>
-      credentialRows
-        .filter((row) => {
-          const primaryStatus = (statusesByCredential.get(row.id) ?? [])[0];
-          return primaryStatus?.health_kind?.trim().toLowerCase() === "dead";
-        })
-        .map((row) => row.id),
-    [credentialRows, statusesByCredential]
-  );
 
   const channelOptions = useMemo(() => {
     const options = [...getProviderChannelSelectOptions(channelCatalogRows)];
@@ -220,20 +231,13 @@ export function ProvidersModule({
   }, [selectedProviderId]);
 
   useEffect(() => {
-    void loadProviderScopedData(selectedProvider);
     resetUsageState();
     resetOAuthState();
     resetStatusEditor();
     setCredentialForm(
       createEmptyCredentialFormState(selectedProvider?.channel ?? providerForm.channel)
     );
-  }, [
-    loadProviderScopedData,
-    resetOAuthState,
-    resetStatusEditor,
-    resetUsageState,
-    selectedProvider
-  ]);
+  }, [providerForm.channel, resetOAuthState, resetStatusEditor, resetUsageState, selectedProvider]);
 
   const beginCreateProvider = () => {
     beginCreateProviderData();
@@ -546,11 +550,15 @@ export function ProvidersModule({
     }
   };
 
-  const requestRemoveDeadCredentials = () => {
-    if (deadCredentialIds.length === 0) {
+  const requestRemoveDeadCredentials = async () => {
+    if (!selectedProvider || deadCredentialCount === 0) {
       return;
     }
-    setDeleteDeadCredentialIds(deadCredentialIds);
+    const ids = await loadDeadCredentialIds(selectedProvider);
+    if (ids.length === 0) {
+      return;
+    }
+    setDeleteDeadCredentialIds(ids);
   };
 
   const confirmAndRemoveDeadCredentials = async () => {
@@ -865,8 +873,12 @@ export function ProvidersModule({
     if (!selectedProvider) {
       return;
     }
-    if (credentialRows.length === 0) {
+    if (credentialTotalCount === 0) {
       notify("info", t("providers.credentials.testAllEmpty"));
+      return;
+    }
+    const allCredentialRows = await loadAllProviderCredentials(selectedProvider);
+    if (allCredentialRows.length === 0) {
       return;
     }
 
@@ -875,7 +887,7 @@ export function ProvidersModule({
     let unavailableCount = 0;
 
     try {
-      for (const row of credentialRows) {
+      for (const row of allCredentialRows) {
         const statusId = (statusesByCredential.get(row.id) ?? [])[0]?.id;
 
         try {
@@ -925,9 +937,9 @@ export function ProvidersModule({
       }
 
       notify(
-        availableCount === credentialRows.length ? "success" : "info",
+        availableCount === allCredentialRows.length ? "success" : "info",
         t("providers.credentials.testAllDone", {
-          total: credentialRows.length,
+          total: allCredentialRows.length,
           available: availableCount,
           unavailable: unavailableCount
         })
@@ -943,8 +955,15 @@ export function ProvidersModule({
     credentialSchema: currentCredentialSchema,
     supportsUpstreamUsage: providerSupportsUpstreamUsage,
     supportsOAuth: providerSupportsOAuth,
-    deadCredentialCount: deadCredentialIds.length,
+    deadCredentialCount,
     testingAllCredentials,
+    credentialTotalCount,
+    credentialFilteredCount,
+    credentialPageSize,
+    credentialPage,
+    credentialSearchMode,
+    credentialSearchText,
+    credentialListLoading,
     credentialRows,
     statusesByCredential,
     usageByCredential,
@@ -968,10 +987,14 @@ export function ProvidersModule({
     setStatusEditorCredentialId,
     setStatusForm,
     setCredentialForm,
+    onChangeCredentialSearchMode: updateCredentialSearchMode,
+    onChangeCredentialSearchText: updateCredentialSearchText,
+    onChangeCredentialPageSize: updateCredentialPageSize,
+    onChangeCredentialPage: (page: number) => setCredentialPage(page),
     onEditCredential: editCredential,
     onCopyCredential: (row: CredentialQueryRow) => void copyCredential(row),
     onRemoveCredential: (id: number) => void removeCredential(id),
-    onRequestRemoveDeadCredentials: () => requestRemoveDeadCredentials(),
+    onRequestRemoveDeadCredentials: () => void requestRemoveDeadCredentials(),
     onTestAllCredentials: () => void testAllCredentials(),
     onToggleCredentialEnabled: (row: CredentialQueryRow) => void toggleCredentialEnabled(row),
     onSetCredentialHealth: (payload: {

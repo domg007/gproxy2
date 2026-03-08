@@ -71,10 +71,13 @@ pub(super) async fn resolve_credential_id(
         .unwrap_or_else(|| credential.id.to_string());
     let rows = storage
         .list_credentials(&CredentialQuery {
+            id: Scope::All,
             provider_id: Scope::Eq(provider_id),
             kind: Scope::All,
             enabled: Scope::All,
+            name_contains: None,
             limit: Some(256),
+            offset: None,
         })
         .await
         .map_err(|err| internal_error(err.to_string()))?;

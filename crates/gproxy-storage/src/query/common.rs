@@ -5,6 +5,7 @@ pub enum Scope<T> {
     #[default]
     All,
     Eq(T),
+    In(Vec<T>),
 }
 
 impl<T> Scope<T> {
@@ -12,6 +13,7 @@ impl<T> Scope<T> {
         match self {
             Self::All => None,
             Self::Eq(value) => Some(value),
+            Self::In(_) => None,
         }
     }
 }

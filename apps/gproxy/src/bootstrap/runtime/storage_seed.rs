@@ -234,10 +234,13 @@ pub(super) async fn seed_registry_credentials_and_statuses(
 ) -> Result<()> {
     let existing_credentials = storage
         .list_credentials(&CredentialQuery {
+            id: Scope::All,
             provider_id: Scope::All,
             kind: Scope::All,
             enabled: Scope::All,
+            name_contains: None,
             limit: None,
+            offset: None,
         })
         .await
         .context("list existing credentials for bootstrap seed")?;
@@ -260,9 +263,11 @@ pub(super) async fn seed_registry_credentials_and_statuses(
         .list_credential_statuses(&CredentialStatusQuery {
             id: Scope::All,
             credential_id: Scope::All,
+            provider_id: Scope::All,
             channel: Scope::All,
             health_kind: Scope::All,
             limit: None,
+            offset: None,
         })
         .await
         .context("list existing credential statuses for bootstrap seed")?;
@@ -400,10 +405,13 @@ pub(super) async fn hydrate_registry_credentials_and_statuses(
 ) -> Result<()> {
     let rows = storage
         .list_credentials(&CredentialQuery {
+            id: Scope::All,
             provider_id: Scope::All,
             kind: Scope::All,
             enabled: Scope::Eq(true),
+            name_contains: None,
             limit: None,
+            offset: None,
         })
         .await
         .context("list credentials for runtime hydration")?;
@@ -412,9 +420,11 @@ pub(super) async fn hydrate_registry_credentials_and_statuses(
         .list_credential_statuses(&CredentialStatusQuery {
             id: Scope::All,
             credential_id: Scope::All,
+            provider_id: Scope::All,
             channel: Scope::All,
             health_kind: Scope::All,
             limit: None,
+            offset: None,
         })
         .await
         .context("list credential statuses for runtime hydration")?;

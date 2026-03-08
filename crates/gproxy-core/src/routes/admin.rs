@@ -225,11 +225,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/providers/upsert", post(upsert_provider))
         .route("/providers/delete", post(delete_provider))
         .route("/credentials/query", post(query_credentials))
+        .route("/credentials/count", post(count_credentials))
         .route("/credentials/upsert", post(upsert_credential))
         .route("/credentials/delete", post(delete_credential))
         .route(
             "/credential-statuses/query",
             post(query_credential_statuses),
+        )
+        .route(
+            "/credential-statuses/count",
+            post(count_credential_statuses),
         )
         .route(
             "/credential-statuses/upsert",

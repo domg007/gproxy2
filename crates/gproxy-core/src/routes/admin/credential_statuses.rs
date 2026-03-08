@@ -21,6 +21,18 @@ pub(super) async fn query_credential_statuses(
     ))
 }
 
+pub(super) async fn count_credential_statuses(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::CredentialStatusQuery>,
+) -> Result<Json<gproxy_storage::CredentialStatusQueryCount>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.load_storage();
+    Ok(Json(
+        gproxy_admin::count_credential_statuses(&storage, query).await?,
+    ))
+}
+
 pub(super) async fn upsert_credential_status(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -55,9 +67,11 @@ pub(super) async fn delete_credential_status(
         gproxy_storage::CredentialStatusQuery {
             id: gproxy_storage::Scope::Eq(payload.id),
             credential_id: gproxy_storage::Scope::All,
+            provider_id: gproxy_storage::Scope::All,
             channel: gproxy_storage::Scope::All,
             health_kind: gproxy_storage::Scope::All,
             limit: Some(1),
+            offset: None,
         },
     )
     .await?

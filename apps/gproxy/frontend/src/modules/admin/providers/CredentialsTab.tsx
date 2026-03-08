@@ -21,7 +21,6 @@ import type { CooldownItem, CredentialHealthKind, TranslateFn } from "./credenti
 import {
   availableBulkModes,
   buildBulkExportText,
-  credentialDefaultNameFromSecretJson,
   defaultBulkMode,
   getChannelConfig,
   parseBulkCredentialText,
@@ -56,6 +55,13 @@ export type CredentialsTabViewModel = {
   supportsOAuth: boolean;
   deadCredentialCount: number;
   testingAllCredentials: boolean;
+  credentialTotalCount: number;
+  credentialFilteredCount: number;
+  credentialPageSize: number;
+  credentialPage: number;
+  credentialSearchMode: CredentialSearchMode;
+  credentialSearchText: string;
+  credentialListLoading: boolean;
   credentialRows: CredentialQueryRow[];
   statusesByCredential: Map<number, CredentialStatusQueryRow[]>;
   usageByCredential: Record<number, string>;
@@ -79,6 +85,10 @@ export type CredentialsTabActions = {
   setStatusEditorCredentialId: Dispatch<SetStateAction<number | null>>;
   setStatusForm: Dispatch<SetStateAction<StatusFormState>>;
   setCredentialForm: Dispatch<SetStateAction<CredentialFormState>>;
+  onChangeCredentialSearchMode: (value: CredentialSearchMode) => void;
+  onChangeCredentialSearchText: (value: string) => void;
+  onChangeCredentialPageSize: (value: number) => void;
+  onChangeCredentialPage: (value: number) => void;
   onEditCredential: (row: CredentialQueryRow) => void;
   onCopyCredential: (row: CredentialQueryRow) => void;
   onRemoveCredential: (id: number) => void;
@@ -107,22 +117,6 @@ export type CredentialsTabActions = {
   onUpsertCredential: () => void;
   onUpsertCredentialsBatch: (entries: BulkCredentialImportEntry[]) => void | Promise<void>;
 };
-
-function defaultCredentialPageSize(): number {
-  if (typeof window === "undefined") {
-    return 20;
-  }
-  if (window.innerWidth < 640) {
-    return 5;
-  }
-  if (window.innerWidth < 1024) {
-    return 10;
-  }
-  if (window.innerWidth < 1600) {
-    return 20;
-  }
-  return 50;
-}
 
 function parseOAuthReadableResult(raw: string): OAuthReadableResult | null {
   const text = raw.trim();
@@ -188,6 +182,13 @@ export function CredentialsTab({
     supportsOAuth,
     deadCredentialCount,
     testingAllCredentials,
+    credentialTotalCount,
+    credentialFilteredCount,
+    credentialPageSize,
+    credentialPage,
+    credentialSearchMode,
+    credentialSearchText,
+    credentialListLoading,
     credentialRows,
     statusesByCredential,
     usageByCredential,
@@ -210,6 +211,10 @@ export function CredentialsTab({
     setStatusEditorCredentialId,
     setStatusForm,
     setCredentialForm,
+    onChangeCredentialSearchMode,
+    onChangeCredentialSearchText,
+    onChangeCredentialPageSize,
+    onChangeCredentialPage,
     onEditCredential,
     onCopyCredential,
     onRemoveCredential,
@@ -267,10 +272,6 @@ export function CredentialsTab({
   const [bulkExportText, setBulkExportText] = useState("");
   const [bulkError, setBulkError] = useState("");
   const [listEditorCredentialId, setListEditorCredentialId] = useState<number | null>(null);
-  const [listSearchMode, setListSearchMode] = useState<CredentialSearchMode>("name");
-  const [listSearchText, setListSearchText] = useState("");
-  const [listPageSize, setListPageSize] = useState<number>(() => defaultCredentialPageSize());
-  const [listPage, setListPage] = useState(1);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const oauthReadableResult = useMemo(
     () => parseOAuthReadableResult(oauthResultByCredential[GLOBAL_OAUTH_SLOT] ?? ""),
@@ -303,10 +304,6 @@ export function CredentialsTab({
     setExpandedCooldownCredentialId(null);
     setSelectedCooldownKeysByCredential({});
     setListEditorCredentialId(null);
-    setListSearchMode("name");
-    setListSearchText("");
-    setListPageSize(defaultCredentialPageSize());
-    setListPage(1);
   }, [channel, credentialSchema, supportsOAuth]);
 
   useEffect(() => {
@@ -318,39 +315,7 @@ export function CredentialsTab({
     }
   }, [credentialRows, listEditorCredentialId]);
 
-  const filteredCredentialRows = useMemo(() => {
-    const needle = listSearchText.trim().toLowerCase();
-    if (!needle) {
-      return credentialRows;
-    }
-    return credentialRows.filter((row) => {
-      if (listSearchMode === "id") {
-        return String(row.id).includes(needle);
-      }
-      const displayName =
-        row.name ??
-        credentialDefaultNameFromSecretJson(channel, row.secret_json) ??
-        "";
-      return displayName.toLowerCase().includes(needle);
-    });
-  }, [channel, credentialRows, listSearchMode, listSearchText]);
-
-  useEffect(() => {
-    setListPage(1);
-  }, [listSearchMode, listSearchText, listPageSize]);
-
-  const listTotalPages = Math.max(1, Math.ceil(filteredCredentialRows.length / listPageSize));
-
-  useEffect(() => {
-    if (listPage > listTotalPages) {
-      setListPage(listTotalPages);
-    }
-  }, [listPage, listTotalPages]);
-
-  const pagedCredentialRows = useMemo(() => {
-    const start = (listPage - 1) * listPageSize;
-    return filteredCredentialRows.slice(start, start + listPageSize);
-  }, [filteredCredentialRows, listPage, listPageSize]);
+  const listTotalPages = Math.max(1, Math.ceil(credentialFilteredCount / credentialPageSize));
 
   const normalizeHealthKind = (value: string | undefined): CredentialHealthKind => {
     switch (value?.trim().toLowerCase()) {
@@ -811,8 +776,8 @@ export function CredentialsTab({
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-24">
               <Select
-                value={listSearchMode}
-                onChange={(value) => setListSearchMode(value as CredentialSearchMode)}
+                value={credentialSearchMode}
+                onChange={(value) => onChangeCredentialSearchMode(value as CredentialSearchMode)}
                 options={[
                   { value: "id", label: t("providers.search.mode.id") },
                   { value: "name", label: t("providers.search.mode.name") }
@@ -821,15 +786,15 @@ export function CredentialsTab({
             </div>
             <div className="min-w-[180px] flex-1">
               <Input
-                value={listSearchText}
-                onChange={setListSearchText}
+                value={credentialSearchText}
+                onChange={onChangeCredentialSearchText}
                 placeholder={t("providers.search.placeholder.credential")}
               />
             </div>
             <div className="w-20">
               <Select
-                value={String(listPageSize)}
-                onChange={(value) => setListPageSize(Number(value))}
+                value={String(credentialPageSize)}
+                onChange={(value) => onChangeCredentialPageSize(Number(value))}
                 options={[
                   { value: "5", label: "5" },
                   { value: "10", label: "10" },
@@ -840,7 +805,7 @@ export function CredentialsTab({
             </div>
             <Button
               variant="neutral"
-              disabled={credentialRows.length === 0 || testingAllCredentials}
+              disabled={credentialTotalCount === 0 || testingAllCredentials}
               onClick={onTestAllCredentials}
             >
               {testingAllCredentials
@@ -855,16 +820,22 @@ export function CredentialsTab({
               {t("providers.credentials.deleteDead", { count: deadCredentialCount })}
             </Button>
           </div>
+          <div className="text-xs text-muted">
+            {t("providers.credentials.summary", {
+              total: credentialTotalCount,
+              matched: credentialFilteredCount
+            })}
+          </div>
 
-          {filteredCredentialRows.length === 0 ? (
+          {credentialRows.length === 0 ? (
             <div className="provider-card text-sm text-muted">
-              {t("providers.search.emptyCredential")}
+              {credentialListLoading ? t("common.loading") : t("providers.search.emptyCredential")}
             </div>
           ) : (
             <>
               <CredentialCardsSection
                 channel={channel}
-                credentialRows={pagedCredentialRows}
+                credentialRows={credentialRows}
                 statusesByCredential={statusesByCredential}
                 usageByCredential={usageByCredential}
                 liveUsageRowsByCredential={liveUsageRowsByCredential}
@@ -902,29 +873,32 @@ export function CredentialsTab({
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
                 <div>
-                  {t("providers.pager.stats", {
-                    shown: pagedCredentialRows.length,
-                    total: filteredCredentialRows.length
+                  {t("providers.pager.statsDetailed", {
+                    shown: credentialRows.length,
+                    filtered: credentialFilteredCount,
+                    total: credentialTotalCount
                   })}
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="neutral"
-                    disabled={listPage <= 1}
-                    onClick={() => setListPage((prev) => Math.max(1, prev - 1))}
+                    disabled={credentialPage <= 1 || credentialListLoading}
+                    onClick={() => onChangeCredentialPage(Math.max(1, credentialPage - 1))}
                   >
                     {t("providers.pager.prev")}
                   </Button>
                   <span>
                     {t("providers.pager.page", {
-                      current: listPage,
+                      current: credentialPage,
                       total: listTotalPages
                     })}
                   </span>
                   <Button
                     variant="neutral"
-                    disabled={listPage >= listTotalPages}
-                    onClick={() => setListPage((prev) => Math.min(listTotalPages, prev + 1))}
+                    disabled={credentialPage >= listTotalPages || credentialListLoading}
+                    onClick={() =>
+                      onChangeCredentialPage(Math.min(listTotalPages, credentialPage + 1))
+                    }
                   >
                     {t("providers.pager.next")}
                   </Button>

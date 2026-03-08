@@ -1,4 +1,7 @@
-use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, Order, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, RelationTrait,
+};
 use serde_json::Value as JsonValue;
 
 use super::super::entities::{
@@ -6,9 +9,10 @@ use super::super::entities::{
 };
 use super::super::{DatabaseCipher, SeaOrmStorage};
 use crate::query::{
-    CredentialQuery, CredentialQueryRow, CredentialStatusQuery, CredentialStatusQueryRow,
-    GlobalSettingsRow, ProviderQuery, ProviderQueryRow, Scope, UserKeyMemoryRow, UserKeyQuery,
-    UserKeyQueryRow, UserQuery, UserQueryRow,
+    CredentialQuery, CredentialQueryCount, CredentialQueryRow, CredentialStatusQuery,
+    CredentialStatusQueryCount, CredentialStatusQueryRow, GlobalSettingsRow, ProviderQuery,
+    ProviderQueryRow, Scope, UserKeyMemoryRow, UserKeyQuery, UserKeyQueryRow, UserQuery,
+    UserQueryRow,
 };
 
 fn decrypt_string_field(
@@ -129,6 +133,15 @@ impl SeaOrmStorage {
     ) -> Result<Vec<CredentialQueryRow>, DbErr> {
         let mut stmt =
             credentials::Entity::find().order_by(credentials::Column::UpdatedAt, Order::Desc);
+        match &query.id {
+            Scope::All => {}
+            Scope::Eq(id) => {
+                stmt = stmt.filter(credentials::Column::Id.eq(*id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credentials::Column::Id.is_in(ids.iter().copied()));
+            }
+        }
         if let Scope::Eq(provider_id) = query.provider_id {
             stmt = stmt.filter(credentials::Column::ProviderId.eq(provider_id));
         }
@@ -138,10 +151,23 @@ impl SeaOrmStorage {
         if let Scope::Eq(enabled) = query.enabled {
             stmt = stmt.filter(credentials::Column::Enabled.eq(enabled));
         }
+        if let Some(name_contains) = query
+            .name_contains
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            stmt = stmt.filter(credentials::Column::Name.contains(name_contains));
+        }
         if let Some(limit) = query.limit
             && limit > 0
         {
             stmt = stmt.limit(limit);
+        }
+        if let Some(offset) = query.offset
+            && offset > 0
+        {
+            stmt = stmt.offset(offset);
         }
         let rows = stmt.all(self.connection()).await?;
         let cipher = self.cipher();
@@ -166,17 +192,80 @@ impl SeaOrmStorage {
             .collect()
     }
 
+    pub async fn count_credentials(
+        &self,
+        query: &CredentialQuery,
+    ) -> Result<CredentialQueryCount, DbErr> {
+        let mut stmt = credentials::Entity::find();
+        match &query.id {
+            Scope::All => {}
+            Scope::Eq(id) => {
+                stmt = stmt.filter(credentials::Column::Id.eq(*id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credentials::Column::Id.is_in(ids.iter().copied()));
+            }
+        }
+        if let Scope::Eq(provider_id) = query.provider_id {
+            stmt = stmt.filter(credentials::Column::ProviderId.eq(provider_id));
+        }
+        if let Scope::Eq(kind) = &query.kind {
+            stmt = stmt.filter(credentials::Column::Kind.eq(kind.as_str()));
+        }
+        if let Scope::Eq(enabled) = query.enabled {
+            stmt = stmt.filter(credentials::Column::Enabled.eq(enabled));
+        }
+        if let Some(name_contains) = query
+            .name_contains
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            stmt = stmt.filter(credentials::Column::Name.contains(name_contains));
+        }
+        let count = stmt.count(self.connection()).await?;
+        Ok(CredentialQueryCount { count })
+    }
+
     pub async fn list_credential_statuses(
         &self,
         query: &CredentialStatusQuery,
     ) -> Result<Vec<CredentialStatusQueryRow>, DbErr> {
         let mut stmt = credential_statuses::Entity::find()
             .order_by(credential_statuses::Column::Id, Order::Desc);
-        if let Scope::Eq(id) = query.id {
-            stmt = stmt.filter(credential_statuses::Column::Id.eq(id));
+        if credential_status_query_needs_credential_join(query) {
+            stmt = stmt.join(
+                JoinType::InnerJoin,
+                credential_statuses::Relation::Credentials.def(),
+            );
         }
-        if let Scope::Eq(credential_id) = query.credential_id {
-            stmt = stmt.filter(credential_statuses::Column::CredentialId.eq(credential_id));
+        match &query.id {
+            Scope::All => {}
+            Scope::Eq(id) => {
+                stmt = stmt.filter(credential_statuses::Column::Id.eq(*id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credential_statuses::Column::Id.is_in(ids.iter().copied()));
+            }
+        }
+        match &query.credential_id {
+            Scope::All => {}
+            Scope::Eq(credential_id) => {
+                stmt = stmt.filter(credential_statuses::Column::CredentialId.eq(*credential_id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt
+                    .filter(credential_statuses::Column::CredentialId.is_in(ids.iter().copied()));
+            }
+        }
+        match &query.provider_id {
+            Scope::All => {}
+            Scope::Eq(provider_id) => {
+                stmt = stmt.filter(credentials::Column::ProviderId.eq(*provider_id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credentials::Column::ProviderId.is_in(ids.iter().copied()));
+            }
         }
         if let Scope::Eq(channel) = &query.channel {
             stmt = stmt.filter(credential_statuses::Column::Channel.eq(channel.as_str()));
@@ -188,6 +277,11 @@ impl SeaOrmStorage {
             && limit > 0
         {
             stmt = stmt.limit(limit);
+        }
+        if let Some(offset) = query.offset
+            && offset > 0
+        {
+            stmt = stmt.offset(offset);
         }
         let rows = stmt.all(self.connection()).await?;
         Ok(rows
@@ -203,6 +297,55 @@ impl SeaOrmStorage {
                 updated_at: row.updated_at,
             })
             .collect())
+    }
+
+    pub async fn count_credential_statuses(
+        &self,
+        query: &CredentialStatusQuery,
+    ) -> Result<CredentialStatusQueryCount, DbErr> {
+        let mut stmt = credential_statuses::Entity::find();
+        if credential_status_query_needs_credential_join(query) {
+            stmt = stmt.join(
+                JoinType::InnerJoin,
+                credential_statuses::Relation::Credentials.def(),
+            );
+        }
+        match &query.id {
+            Scope::All => {}
+            Scope::Eq(id) => {
+                stmt = stmt.filter(credential_statuses::Column::Id.eq(*id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credential_statuses::Column::Id.is_in(ids.iter().copied()));
+            }
+        }
+        match &query.credential_id {
+            Scope::All => {}
+            Scope::Eq(credential_id) => {
+                stmt = stmt.filter(credential_statuses::Column::CredentialId.eq(*credential_id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt
+                    .filter(credential_statuses::Column::CredentialId.is_in(ids.iter().copied()));
+            }
+        }
+        match &query.provider_id {
+            Scope::All => {}
+            Scope::Eq(provider_id) => {
+                stmt = stmt.filter(credentials::Column::ProviderId.eq(*provider_id));
+            }
+            Scope::In(ids) => {
+                stmt = stmt.filter(credentials::Column::ProviderId.is_in(ids.iter().copied()));
+            }
+        }
+        if let Scope::Eq(channel) = &query.channel {
+            stmt = stmt.filter(credential_statuses::Column::Channel.eq(channel.as_str()));
+        }
+        if let Scope::Eq(health_kind) = &query.health_kind {
+            stmt = stmt.filter(credential_statuses::Column::HealthKind.eq(health_kind.as_str()));
+        }
+        let count = stmt.count(self.connection()).await?;
+        Ok(CredentialStatusQueryCount { count })
     }
 
     pub async fn list_users(&self, query: &UserQuery) -> Result<Vec<UserQueryRow>, DbErr> {
@@ -308,4 +451,8 @@ impl SeaOrmStorage {
         }
         Ok(rows)
     }
+}
+
+fn credential_status_query_needs_credential_join(query: &CredentialStatusQuery) -> bool {
+    !matches!(query.provider_id, Scope::All)
 }

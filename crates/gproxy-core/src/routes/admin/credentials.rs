@@ -22,6 +22,18 @@ pub(super) async fn query_credentials(
     ))
 }
 
+pub(super) async fn count_credentials(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(query): Json<gproxy_storage::CredentialQuery>,
+) -> Result<Json<gproxy_storage::CredentialQueryCount>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.load_storage();
+    Ok(Json(
+        gproxy_admin::count_credentials(&storage, query).await?,
+    ))
+}
+
 pub(super) async fn upsert_credential(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -46,10 +58,13 @@ pub(super) async fn upsert_credential(
         let rows = state
             .load_storage()
             .list_credentials(&gproxy_storage::CredentialQuery {
+                id: gproxy_storage::Scope::All,
                 provider_id: gproxy_storage::Scope::Eq(payload.provider_id),
                 kind: gproxy_storage::Scope::All,
                 enabled: gproxy_storage::Scope::All,
+                name_contains: None,
                 limit: Some(1000),
+                offset: None,
             })
             .await
             .map_err(|err| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
@@ -138,10 +153,13 @@ pub(super) async fn delete_credential(
     let storage = state.load_storage();
     let rows = storage
         .list_credentials(&gproxy_storage::CredentialQuery {
+            id: gproxy_storage::Scope::All,
             provider_id: gproxy_storage::Scope::All,
             kind: gproxy_storage::Scope::All,
             enabled: gproxy_storage::Scope::All,
+            name_contains: None,
             limit: None,
+            offset: None,
         })
         .await
         .map_err(|err| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
