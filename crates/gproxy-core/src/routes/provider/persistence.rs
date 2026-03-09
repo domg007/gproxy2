@@ -112,6 +112,91 @@ pub(super) async fn resolve_credential_id(
         .map_err(|err| internal_error(err.to_string()))
 }
 
+pub(super) async fn persist_provider_and_credential(
+    state: &AppState,
+    channel: &ChannelId,
+    provider: &ProviderDefinition,
+    credential: &CredentialRef,
+) -> Result<(), HttpError> {
+    let provider_id = resolve_provider_id(state, channel).await?;
+    let provider_settings_json = gproxy_provider::provider_settings_to_json_string_with_routing(
+        &provider.settings,
+        provider.credential_pick_mode,
+        provider.cache_affinity_max_keys,
+    )
+    .map_err(|err| internal_error(err.to_string()))?;
+    let provider_dispatch_json =
+        serde_json::to_string(&provider.dispatch).map_err(|err| internal_error(err.to_string()))?;
+    let provider_write = ProviderWrite {
+        id: provider_id,
+        name: channel.as_str().to_string(),
+        channel: channel.as_str().to_string(),
+        settings_json: provider_settings_json,
+        dispatch_json: provider_dispatch_json,
+        enabled: true,
+    };
+    let credential_id = resolve_credential_id(state, provider_id, credential).await?;
+    let credential_secret_json = serde_json::to_string(&credential.credential)
+        .map_err(|err| internal_error(err.to_string()))?;
+    let credential_write = CredentialWrite {
+        id: credential_id,
+        provider_id,
+        name: credential
+            .label
+            .clone()
+            .or_else(|| Some(credential.id.to_string())),
+        kind: credential_kind_for_storage(&credential.credential),
+        settings_json: None,
+        secret_json: credential_secret_json,
+        enabled: true,
+    };
+    let mut batch = StorageWriteBatch::default();
+    batch.apply(StorageWriteEvent::UpsertProvider(provider_write));
+    batch.apply(StorageWriteEvent::UpsertCredential(credential_write));
+    state
+        .load_storage()
+        .write_batch(batch)
+        .await
+        .map_err(|err| internal_error(err.to_string()))
+}
+
+pub(super) async fn apply_credential_update_and_persist(
+    state: Arc<AppState>,
+    channel: ChannelId,
+    provider: ProviderDefinition,
+    update: UpstreamCredentialUpdate,
+) {
+    if !state.apply_upstream_credential_update_in_memory(&channel, &update) {
+        eprintln!(
+            "provider: skip credential update, in-memory apply failed channel={} credential_id={}",
+            channel.as_str(),
+            update.credential_id()
+        );
+        return;
+    }
+    let Some(credential) =
+        state.get_provider_credential_in_memory(&channel, update.credential_id())
+    else {
+        eprintln!(
+            "provider: skip credential update, updated credential missing in-memory channel={} credential_id={}",
+            channel.as_str(),
+            update.credential_id()
+        );
+        return;
+    };
+
+    if let Err(err) =
+        persist_provider_and_credential(&state, &channel, &provider, &credential).await
+    {
+        eprintln!(
+            "provider: persist credential update failed channel={} credential_id={} error={:?}",
+            channel.as_str(),
+            credential.id,
+            err
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -216,90 +301,5 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, resolved_id);
-    }
-}
-
-pub(super) async fn persist_provider_and_credential(
-    state: &AppState,
-    channel: &ChannelId,
-    provider: &ProviderDefinition,
-    credential: &CredentialRef,
-) -> Result<(), HttpError> {
-    let provider_id = resolve_provider_id(state, channel).await?;
-    let provider_settings_json = gproxy_provider::provider_settings_to_json_string_with_routing(
-        &provider.settings,
-        provider.credential_pick_mode,
-        provider.cache_affinity_max_keys,
-    )
-    .map_err(|err| internal_error(err.to_string()))?;
-    let provider_dispatch_json =
-        serde_json::to_string(&provider.dispatch).map_err(|err| internal_error(err.to_string()))?;
-    let provider_write = ProviderWrite {
-        id: provider_id,
-        name: channel.as_str().to_string(),
-        channel: channel.as_str().to_string(),
-        settings_json: provider_settings_json,
-        dispatch_json: provider_dispatch_json,
-        enabled: true,
-    };
-    let credential_id = resolve_credential_id(state, provider_id, credential).await?;
-    let credential_secret_json = serde_json::to_string(&credential.credential)
-        .map_err(|err| internal_error(err.to_string()))?;
-    let credential_write = CredentialWrite {
-        id: credential_id,
-        provider_id,
-        name: credential
-            .label
-            .clone()
-            .or_else(|| Some(credential.id.to_string())),
-        kind: credential_kind_for_storage(&credential.credential),
-        settings_json: None,
-        secret_json: credential_secret_json,
-        enabled: true,
-    };
-    let mut batch = StorageWriteBatch::default();
-    batch.apply(StorageWriteEvent::UpsertProvider(provider_write));
-    batch.apply(StorageWriteEvent::UpsertCredential(credential_write));
-    state
-        .load_storage()
-        .write_batch(batch)
-        .await
-        .map_err(|err| internal_error(err.to_string()))
-}
-
-pub(super) async fn apply_credential_update_and_persist(
-    state: Arc<AppState>,
-    channel: ChannelId,
-    provider: ProviderDefinition,
-    update: UpstreamCredentialUpdate,
-) {
-    if !state.apply_upstream_credential_update_in_memory(&channel, &update) {
-        eprintln!(
-            "provider: skip credential update, in-memory apply failed channel={} credential_id={}",
-            channel.as_str(),
-            update.credential_id()
-        );
-        return;
-    }
-    let Some(credential) =
-        state.get_provider_credential_in_memory(&channel, update.credential_id())
-    else {
-        eprintln!(
-            "provider: skip credential update, updated credential missing in-memory channel={} credential_id={}",
-            channel.as_str(),
-            update.credential_id()
-        );
-        return;
-    };
-
-    if let Err(err) =
-        persist_provider_and_credential(&state, &channel, &provider, &credential).await
-    {
-        eprintln!(
-            "provider: persist credential update failed channel={} credential_id={} error={:?}",
-            channel.as_str(),
-            credential.id,
-            err
-        );
     }
 }
