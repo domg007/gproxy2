@@ -82,6 +82,14 @@ pub(super) async fn resolve_credential_id(
         .await
         .map_err(|err| internal_error(err.to_string()))?;
 
+    if credential.id > 0
+        && rows
+            .iter()
+            .any(|row| row.id == credential.id && row.provider_id == provider_id)
+    {
+        return Ok(credential.id);
+    }
+
     if let Some(row) = rows
         .into_iter()
         .find(|row| row.name.as_deref() == Some(expected_name.as_str()))
@@ -102,6 +110,113 @@ pub(super) async fn resolve_credential_id(
         )
         .await
         .map_err(|err| internal_error(err.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use gproxy_provider::{
+        BuiltinChannel, BuiltinChannelCredential, BuiltinChannelSettings, ChannelCredential,
+        ChannelId, ChannelSettings, CredentialPickMode, CredentialRef, LocalTokenizerStore,
+        ProviderCredentialState, ProviderDefinition, ProviderDispatchTable, ProviderRegistry,
+    };
+    use gproxy_storage::{CredentialQuery, Scope, SeaOrmStorage, storage_write_channel};
+    use wreq::Client as WreqClient;
+
+    use crate::{AppStateInit, GlobalSettings};
+
+    use super::{
+        AppState, persist_provider_and_credential, resolve_credential_id, resolve_provider_id,
+    };
+
+    fn build_claudecode_provider() -> ProviderDefinition {
+        ProviderDefinition {
+            channel: ChannelId::Builtin(BuiltinChannel::ClaudeCode),
+            dispatch: ProviderDispatchTable::default_for_builtin(BuiltinChannel::ClaudeCode),
+            settings: ChannelSettings::Builtin(BuiltinChannelSettings::default_for(
+                BuiltinChannel::ClaudeCode,
+            )),
+            credential_pick_mode: CredentialPickMode::RoundRobinNoCache,
+            cache_affinity_max_keys: 0,
+            credentials: ProviderCredentialState::default(),
+        }
+    }
+
+    async fn build_state(provider: ProviderDefinition) -> Arc<AppState> {
+        let storage = Arc::new(
+            SeaOrmStorage::connect("sqlite::memory:", None)
+                .await
+                .expect("connect memory storage"),
+        );
+        storage.sync().await.expect("sync memory storage");
+
+        let mut registry = ProviderRegistry::default();
+        registry.upsert(provider);
+
+        let (storage_writes, _storage_rx) = storage_write_channel(4);
+        Arc::new(AppState::new(AppStateInit {
+            storage,
+            storage_writes,
+            http: Arc::new(WreqClient::new()),
+            spoof_http: Arc::new(WreqClient::new()),
+            global: GlobalSettings::default(),
+            providers: registry,
+            tokenizers: Arc::new(LocalTokenizerStore::new(PathBuf::from("/tmp"))),
+            users: Vec::new(),
+            keys: HashMap::new(),
+        }))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unlabeled_oauth_credential_reuses_created_row_instead_of_duplicating() {
+        let provider = build_claudecode_provider();
+        let channel = provider.channel.clone();
+        let state = build_state(provider.clone()).await;
+
+        let provider_id = resolve_provider_id(state.as_ref(), &channel)
+            .await
+            .expect("resolve provider id");
+
+        let provisional = CredentialRef {
+            id: -1,
+            label: None,
+            credential: ChannelCredential::Builtin(BuiltinChannelCredential::ClaudeCode(
+                Default::default(),
+            )),
+        };
+        let resolved_id = resolve_credential_id(state.as_ref(), provider_id, &provisional)
+            .await
+            .expect("resolve provisional credential id");
+
+        let credential = CredentialRef {
+            id: resolved_id,
+            label: None,
+            credential: provisional.credential.clone(),
+        };
+        persist_provider_and_credential(state.as_ref(), &channel, &provider, &credential)
+            .await
+            .expect("persist resolved credential");
+
+        let rows = state
+            .load_storage()
+            .list_credentials(&CredentialQuery {
+                id: Scope::All,
+                provider_id: Scope::Eq(provider_id),
+                kind: Scope::All,
+                enabled: Scope::All,
+                name_contains: None,
+                limit: Some(16),
+                offset: None,
+            })
+            .await
+            .expect("list credentials");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, resolved_id);
+    }
 }
 
 pub(super) async fn persist_provider_and_credential(
