@@ -19,6 +19,11 @@ use super::{
 const PASSTHROUGH_HEADER_DENYLIST: &[&str] = &[
     "host",
     "via",
+    "cookie",
+    "origin",
+    "referer",
+    "dnt",
+    "priority",
     "x-forwarded-for",
     "x-forwarded-host",
     "x-forwarded-proto",
@@ -34,6 +39,11 @@ const PASSTHROUGH_HEADER_DENYLIST: &[&str] = &[
     "content-type",
     crate::INTERNAL_DOWNSTREAM_TRACE_ID_HEADER,
 ];
+
+fn is_browser_context_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("sec-fetch-") || lower.starts_with("sec-ch-ua")
+}
 
 pub(super) fn header_value<'a>(headers: &'a HeaderMap, name: &'static str) -> Option<&'a str> {
     headers.get(name).and_then(|value| value.to_str().ok())
@@ -142,6 +152,9 @@ pub(super) fn collect_headers(headers: &HeaderMap) -> Vec<(String, String)> {
 }
 
 fn should_drop_passthrough_header(name: &str, websocket: bool) -> bool {
+    if is_browser_context_header(name) {
+        return true;
+    }
     if PASSTHROUGH_HEADER_DENYLIST
         .iter()
         .any(|candidate| name.eq_ignore_ascii_case(candidate))
@@ -269,6 +282,32 @@ mod tests {
         assert_eq!(filtered.get("x-app").map(String::as_str), Some("cli"));
         assert!(!filtered.contains_key("x-empty"));
         assert!(!filtered.contains_key("x-space"));
+    }
+
+    #[test]
+    fn passthrough_headers_drop_browser_context_headers() {
+        let headers = headers(&[
+            ("origin", "https://gproxy.leenhawk.com"),
+            ("referer", "https://gproxy.leenhawk.com/"),
+            ("cookie", "session=abc"),
+            ("sec-fetch-site", "same-origin"),
+            ("sec-fetch-dest", "empty"),
+            ("sec-ch-ua", "\"Chromium\";v=\"145\""),
+            ("sec-ch-ua-platform", "\"Windows\""),
+            ("x-stainless-lang", "js"),
+        ]);
+        let filtered = collect_passthrough_headers(&headers);
+        assert_eq!(
+            filtered.get("x-stainless-lang").map(String::as_str),
+            Some("js")
+        );
+        assert!(!filtered.contains_key("origin"));
+        assert!(!filtered.contains_key("referer"));
+        assert!(!filtered.contains_key("cookie"));
+        assert!(!filtered.contains_key("sec-fetch-site"));
+        assert!(!filtered.contains_key("sec-fetch-dest"));
+        assert!(!filtered.contains_key("sec-ch-ua"));
+        assert!(!filtered.contains_key("sec-ch-ua-platform"));
     }
 
     #[test]
