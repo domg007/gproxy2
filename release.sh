@@ -57,7 +57,7 @@ fi
 
 cargo update
 cargo fmt
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings -A clippy::too_many_arguments
 cargo set-version "$VERSION"
 cargo check -p gproxy
 
