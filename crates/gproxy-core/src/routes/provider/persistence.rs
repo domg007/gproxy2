@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gproxy_provider::{
-    ChannelId, CredentialRef, ProviderDefinition, UpstreamCredentialUpdate,
-    credential_kind_for_storage,
+    BuiltinChannelCredential, ChannelCredential, ChannelId, CredentialRef, ProviderDefinition,
+    UpstreamCredentialUpdate, credential_kind_for_storage,
 };
 use gproxy_storage::{
     CredentialQuery, CredentialWrite, ProviderQuery, ProviderWrite, Scope, StorageWriteBatch,
@@ -12,6 +12,36 @@ use gproxy_storage::{
 use crate::AppState;
 
 use super::{HttpError, internal_error};
+
+fn trimmed_non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn credential_default_name(credential: &CredentialRef) -> String {
+    trimmed_non_empty(credential.label.as_deref())
+        .or_else(|| match &credential.credential {
+            ChannelCredential::Builtin(BuiltinChannelCredential::ClaudeCode(value)) => {
+                trimmed_non_empty(value.user_email.as_deref())
+            }
+            ChannelCredential::Builtin(BuiltinChannelCredential::Codex(value)) => {
+                trimmed_non_empty(value.user_email.as_deref())
+            }
+            ChannelCredential::Builtin(BuiltinChannelCredential::GeminiCli(value)) => {
+                trimmed_non_empty(value.user_email.as_deref())
+            }
+            ChannelCredential::Builtin(BuiltinChannelCredential::Antigravity(value)) => {
+                trimmed_non_empty(value.user_email.as_deref())
+            }
+            ChannelCredential::Builtin(BuiltinChannelCredential::Vertex(value)) => {
+                trimmed_non_empty(Some(value.client_email.as_str()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| credential.id.to_string())
+}
 
 pub(super) async fn resolve_provider_id(
     state: &AppState,
@@ -65,10 +95,7 @@ pub(super) async fn resolve_credential_id(
     credential: &CredentialRef,
 ) -> Result<i64, HttpError> {
     let storage = state.load_storage();
-    let expected_name = credential
-        .label
-        .clone()
-        .unwrap_or_else(|| credential.id.to_string());
+    let expected_name = credential_default_name(credential);
     let rows = storage
         .list_credentials(&CredentialQuery {
             id: Scope::All,
@@ -141,10 +168,7 @@ pub(super) async fn persist_provider_and_credential(
     let credential_write = CredentialWrite {
         id: credential_id,
         provider_id,
-        name: credential
-            .label
-            .clone()
-            .or_else(|| Some(credential.id.to_string())),
+        name: Some(credential_default_name(credential)),
         kind: credential_kind_for_storage(&credential.credential),
         settings_json: None,
         secret_json: credential_secret_json,
@@ -301,5 +325,46 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, resolved_id);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unlabeled_oauth_credential_defaults_name_to_email() {
+        let provider = build_claudecode_provider();
+        let channel = provider.channel.clone();
+        let state = build_state(provider.clone()).await;
+
+        let mut builtin_credential =
+            BuiltinChannelCredential::blank_for(BuiltinChannel::ClaudeCode);
+        if let BuiltinChannelCredential::ClaudeCode(value) = &mut builtin_credential {
+            value.user_email = Some("user@example.com".to_string());
+        }
+        let credential = CredentialRef {
+            id: 42,
+            label: None,
+            credential: ChannelCredential::Builtin(builtin_credential),
+        };
+        persist_provider_and_credential(state.as_ref(), &channel, &provider, &credential)
+            .await
+            .expect("persist email named credential");
+
+        let provider_id = resolve_provider_id(state.as_ref(), &channel)
+            .await
+            .expect("resolve provider id");
+        let rows = state
+            .load_storage()
+            .list_credentials(&CredentialQuery {
+                id: Scope::All,
+                provider_id: Scope::Eq(provider_id),
+                kind: Scope::All,
+                enabled: Scope::All,
+                name_contains: None,
+                limit: Some(16),
+                offset: None,
+            })
+            .await
+            .expect("list credentials");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name.as_deref(), Some("user@example.com"));
     }
 }
