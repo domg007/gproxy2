@@ -286,10 +286,10 @@ fn codex_priority_tier_override_sets_priority_service_tier() {
 }
 
 #[test]
-fn codex_priority_tier_override_can_remove_service_tier() {
+fn codex_priority_tier_override_false_preserves_service_tier() {
     let body = serde_json::to_vec(&json!({
         "model": "gpt-5.3-codex",
-        "service_tier": "priority",
+        "service_tier": "auto",
         "input": [{"role": "user", "content": "hello"}]
     }))
     .expect("serialize body");
@@ -298,6 +298,10 @@ fn codex_priority_tier_override_can_remove_service_tier() {
         .expect("override body");
     let overridden_json = serde_json::from_slice::<serde_json::Value>(overridden.as_slice())
         .expect("parse overridden body");
-
-    assert!(overridden_json.get("service_tier").is_none());
+    assert_eq!(
+        overridden_json
+            .get("service_tier")
+            .and_then(|value| value.as_str()),
+        Some("auto")
+    );
 }

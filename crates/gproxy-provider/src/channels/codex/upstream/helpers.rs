@@ -119,7 +119,7 @@ pub(super) fn apply_codex_priority_tier_override(
     let Some(body) = body else {
         return None;
     };
-    let Some(priority_tier) = priority_tier else {
+    let Some(true) = priority_tier else {
         return Some(body.to_vec());
     };
 
@@ -130,14 +130,10 @@ pub(super) fn apply_codex_priority_tier_override(
         return Some(body.to_vec());
     };
 
-    if priority_tier {
-        map.insert(
-            "service_tier".to_string(),
-            Value::String("priority".to_string()),
-        );
-    } else {
-        map.remove("service_tier");
-    }
+    map.insert(
+        "service_tier".to_string(),
+        Value::String("priority".to_string()),
+    );
 
     serde_json::to_vec(&body_json)
         .ok()
