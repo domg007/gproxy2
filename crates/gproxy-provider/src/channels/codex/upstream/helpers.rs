@@ -112,6 +112,38 @@ pub(super) fn normalize_codex_response_request_body(body: &mut Value, is_stream:
     }
 }
 
+pub(super) fn apply_codex_priority_tier_override(
+    body: Option<&[u8]>,
+    priority_tier: Option<bool>,
+) -> Option<Vec<u8>> {
+    let Some(body) = body else {
+        return None;
+    };
+    let Some(priority_tier) = priority_tier else {
+        return Some(body.to_vec());
+    };
+
+    let Ok(mut body_json) = serde_json::from_slice::<Value>(body) else {
+        return Some(body.to_vec());
+    };
+    let Some(map) = body_json.as_object_mut() else {
+        return Some(body.to_vec());
+    };
+
+    if priority_tier {
+        map.insert(
+            "service_tier".to_string(),
+            Value::String("priority".to_string()),
+        );
+    } else {
+        map.remove("service_tier");
+    }
+
+    serde_json::to_vec(&body_json)
+        .ok()
+        .or_else(|| Some(body.to_vec()))
+}
+
 pub(super) fn ensure_codex_session_id_header(
     extra_headers: &mut Vec<(String, String)>,
     body: Option<&[u8]>,
