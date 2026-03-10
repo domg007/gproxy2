@@ -226,13 +226,14 @@ cargo run -p gproxy
 - 配置键：`channels.settings.cache_breakpoints`
 - 最多 4 条规则
 - 目标：`top_level`（别名 `global`）、`tools`、`system`、`messages`
+- `messages` 的索引基于扁平化后的 `messages[*].content` block；`content: "..."` 会先规范化成一个 text block
 - `ttl`：`auto` / `5m` / `1h`（`auto` 表示注入时不写 ttl 字段）
 - 请求体已有 `cache_control` 会始终保留，并计入 4 条上限
 
 无 ttl 的默认值说明：
 
-- `claudecode`：上游默认 `1h`
 - `anthropic`：上游默认 `5m`
+- `claudecode`：上游默认 `5m`
 - 需要确定性行为时请显式设置 ttl
 
 示例：

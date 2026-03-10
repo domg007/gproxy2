@@ -176,6 +176,7 @@ secret = "sk-replace-me"
 - 对非 `top_level` 目标：
   - `position`：`nth` 或 `last_nth`
   - `index`：从 1 开始
+  - 对 `messages`，索引基于扁平化后的 `messages[*].content` block；`content: "..."` 会先规范化为一个 text block
 - `top_level` 目标会忽略 `position` / `index`
 - `ttl`：`auto` | `5m` | `1h`
   - `auto` 会注入 `{"type":"ephemeral"}`（不带 `ttl`）
@@ -185,13 +186,13 @@ secret = "sk-replace-me"
 - 请求里已有的 `cache_control` 会被保留，并计入 4 条上限
 - gproxy 只会填充剩余槽位，不会覆盖已有 top-level/block `cache_control`
 - magic trigger 触发的注入也共用这 4 条预算
-- 仅对 `claude` / `claudecode` 的消息生成请求生效
+- 仅对 `anthropic` / `claudecode` 的消息生成请求生效
 - 管理端会先按 `top_level -> tools -> system -> messages` 排序，再由服务端截断前 4 条
 
 `ttl` 省略（`auto`）时的默认 TTL 说明：
 
-- `claudecode`：上游默认按 `1h`
-- `claude`：上游默认按 `5m`
+- `anthropic`：上游默认按 `5m`
+- `claudecode`：上游默认按 `5m`
 - 若要行为可预测，建议显式写 `ttl = "5m"` 或 `ttl = "1h"`
 
 示例：

@@ -116,9 +116,8 @@ pub(super) fn apply_codex_priority_tier_override(
     body: Option<&[u8]>,
     priority_tier: Option<bool>,
 ) -> Option<Vec<u8>> {
-    let Some(body) = body else {
-        return None;
-    };
+    let body = body?;
+
     let Some(true) = priority_tier else {
         return Some(body.to_vec());
     };

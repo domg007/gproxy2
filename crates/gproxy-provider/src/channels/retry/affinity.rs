@@ -126,7 +126,7 @@ pub(super) fn cache_affinity_hint_for_codex_openai_responses(
 pub fn cache_affinity_hint_for_claude_effective_body(
     body_json: Value,
 ) -> Option<CacheAffinityHint> {
-    cache_affinity_hint_for_claude(body_json)
+    cache_affinity_hint_for_claude(body_json, DEFAULT_CACHE_AFFINITY_TTL_MS)
 }
 
 pub fn credential_pick_mode(
@@ -197,8 +197,11 @@ pub(super) fn cache_affinity_hint_for_openai_chat(body_json: Value) -> Option<Ca
     })
 }
 
-pub(super) fn cache_affinity_hint_for_claude(body_json: Value) -> Option<CacheAffinityHint> {
-    let blocks = claude_cache_blocks(&body_json);
+pub(super) fn cache_affinity_hint_for_claude(
+    body_json: Value,
+    default_ttl_ms: u64,
+) -> Option<CacheAffinityHint> {
+    let blocks = claude_cache_blocks(&body_json, default_ttl_ms);
     if blocks.is_empty() {
         return None;
     }
@@ -214,7 +217,7 @@ pub(super) fn cache_affinity_hint_for_claude(body_json: Value) -> Option<CacheAf
         return None;
     }
 
-    let mut breakpoints = claude_breakpoints(&body_json, &blocks);
+    let mut breakpoints = claude_breakpoints(&body_json, &blocks, default_ttl_ms);
     if breakpoints.is_empty() {
         return None;
     }
@@ -463,14 +466,14 @@ pub(super) fn gemini_cache_blocks(body_json: &Value) -> Vec<Value> {
     blocks
 }
 
-pub(super) fn claude_cache_blocks(body_json: &Value) -> Vec<ClaudeCacheBlock> {
+pub(super) fn claude_cache_blocks(body_json: &Value, default_ttl_ms: u64) -> Vec<ClaudeCacheBlock> {
     let mut blocks = Vec::new();
 
     if let Some(tools) = body_json.get("tools").and_then(Value::as_array) {
         for (tool_index, tool) in tools.iter().enumerate() {
             let explicit_ttl_ms = tool
                 .get("cache_control")
-                .map(claude_cache_control_ttl_ms_from_value);
+                .map(|value| claude_cache_control_ttl_ms_from_value(value, default_ttl_ms));
             blocks.push(ClaudeCacheBlock {
                 hash_value: json!({
                     "section": "tools",
@@ -501,7 +504,7 @@ pub(super) fn claude_cache_blocks(body_json: &Value) -> Vec<ClaudeCacheBlock> {
                 for (idx, item) in items.iter().enumerate() {
                     let explicit_ttl_ms = item
                         .get("cache_control")
-                        .map(claude_cache_control_ttl_ms_from_value);
+                        .map(|value| claude_cache_control_ttl_ms_from_value(value, default_ttl_ms));
                     blocks.push(ClaudeCacheBlock {
                         hash_value: json!({
                             "section": "system",
@@ -538,9 +541,9 @@ pub(super) fn claude_cache_blocks(body_json: &Value) -> Vec<ClaudeCacheBlock> {
                 }
                 Some(Value::Array(items)) => {
                     for (content_index, item) in items.iter().enumerate() {
-                        let explicit_ttl_ms = item
-                            .get("cache_control")
-                            .map(claude_cache_control_ttl_ms_from_value);
+                        let explicit_ttl_ms = item.get("cache_control").map(|value| {
+                            claude_cache_control_ttl_ms_from_value(value, default_ttl_ms)
+                        });
                         blocks.push(ClaudeCacheBlock {
                             hash_value: json!({
                                 "section": "messages",
@@ -578,6 +581,7 @@ pub(super) fn claude_cache_blocks(body_json: &Value) -> Vec<ClaudeCacheBlock> {
 pub(super) fn claude_breakpoints(
     body_json: &Value,
     blocks: &[ClaudeCacheBlock],
+    default_ttl_ms: u64,
 ) -> Vec<ClaudeBreakpoint> {
     let mut breakpoints = Vec::new();
 
@@ -592,7 +596,7 @@ pub(super) fn claude_breakpoints(
     }
 
     if let Some(cache_control) = body_json.get("cache_control") {
-        let ttl_ms = claude_auto_cache_control_ttl_ms_from_value(cache_control);
+        let ttl_ms = claude_auto_cache_control_ttl_ms_from_value(cache_control, default_ttl_ms);
         if let Some(index) = blocks.iter().rposition(|block| block.cacheable) {
             breakpoints.push(ClaudeBreakpoint {
                 index,
@@ -743,26 +747,19 @@ pub(super) fn ttl_tag(ttl_ms: u64) -> &'static str {
     }
 }
 
-pub(super) fn claude_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
-    if value
-        .get("ttl")
-        .and_then(Value::as_str)
-        .is_some_and(|ttl| ttl == "5m")
-    {
-        return DEFAULT_CACHE_AFFINITY_TTL_MS;
+pub(super) fn claude_cache_control_ttl_ms_from_value(value: &Value, default_ttl_ms: u64) -> u64 {
+    match value.get("ttl").and_then(Value::as_str) {
+        Some("5m") => DEFAULT_CACHE_AFFINITY_TTL_MS,
+        Some("1h") => ONE_HOUR_CACHE_AFFINITY_TTL_MS,
+        _ => default_ttl_ms,
     }
-    ONE_HOUR_CACHE_AFFINITY_TTL_MS
 }
 
-pub(super) fn claude_auto_cache_control_ttl_ms_from_value(value: &Value) -> u64 {
-    if value
-        .get("ttl")
-        .and_then(Value::as_str)
-        .is_some_and(|ttl| ttl == "5m")
-    {
-        return DEFAULT_CACHE_AFFINITY_TTL_MS;
-    }
-    ONE_HOUR_CACHE_AFFINITY_TTL_MS
+pub(super) fn claude_auto_cache_control_ttl_ms_from_value(
+    value: &Value,
+    default_ttl_ms: u64,
+) -> u64 {
+    claude_cache_control_ttl_ms_from_value(value, default_ttl_ms)
 }
 
 pub(super) fn openai_retention_tag(prompt_cache_retention: Option<&Value>) -> &'static str {

@@ -1,5 +1,48 @@
 # Release Notes
 
+## v0.3.35
+
+### English
+
+#### Added
+
+- Added an optional `priority_tier` field to Codex credentials so admins can force Codex upstream requests to use `service_tier=priority` per credential.
+
+#### Changed
+
+- Refined Codex priority-tier override behavior: `service_tier` is now forced to `priority` only when the credential-level `priority_tier` flag is explicitly enabled; otherwise the request's original tier is preserved.
+
+#### Fixed
+
+- Fixed OpenAI `chat completions -> responses` history conversion so assistant output-message IDs now use the required `msg_*` format, preventing Codex upstream `400 invalid_request_error` responses such as `Invalid 'input[1].id': 'assistant_1'`.
+- Fixed the same assistant output-message ID format in Claude -> OpenAI Responses conversion so historical assistant messages stay compatible with upstream Responses validation.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing Codex credentials remain unaffected until `priority_tier` is explicitly enabled.
+
+### 中文
+
+#### 新增
+
+- Codex 凭证新增可选字段 `priority_tier`，管理员可按凭证维度强制上游请求使用 `service_tier=priority`。
+
+#### 变更
+
+- 调整 Codex 的 priority tier 覆盖逻辑：只有在凭证级 `priority_tier` 显式开启时才会强制写入 `service_tier=priority`；未开启时保留请求原始的 tier 配置。
+
+#### 修复
+
+- 修复 OpenAI `chat completions -> responses` 历史消息转换逻辑：assistant 输出消息 ID 现统一使用上游要求的 `msg_*` 格式，避免 Codex 上游返回 `Invalid 'input[1].id': 'assistant_1'` 这类 `400 invalid_request_error`。
+- 修复 Claude -> OpenAI Responses 转换中的同类 assistant 输出消息 ID 格式问题，确保历史 assistant 消息同样兼容上游 Responses 校验。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 现有 Codex 凭证默认不会改变行为；仅在显式开启 `priority_tier` 后才会启用覆盖逻辑。
+
+
 ## v0.3.34
 
 ### English

@@ -10,7 +10,8 @@ use super::oauth::{
     resolve_claudecode_access_token,
 };
 use crate::channels::cache_control::{
-    CacheBreakpointRule, apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers, canonicalize_claude_body,
+    ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CredentialRetryDecision, cache_affinity_hint_from_transform_request,

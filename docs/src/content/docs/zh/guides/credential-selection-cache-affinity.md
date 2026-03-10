@@ -126,6 +126,7 @@ TTL：
 分块层级：
 
 - `tools[] -> system -> messages.content[]`
+- Claude shorthand 会先规范化再拆分：`system: "..."` 和 `messages[*].content: "..."` 都视为一个 text block
 
 断点来源：
 
@@ -144,11 +145,9 @@ TTL：
 
 TTL：
 
-- 显式断点 `ttl == "1h"` -> 1h
-- 显式断点 `ttl == "5m"`（或缺省/其他值）-> 5m
-- 当存在 `cache_control` 但未写 `ttl`（`{"type":"ephemeral"}`）时，默认值按渠道区分：
-  - `claudecode`：默认 1h
-  - `claude`：默认 5m
+- 显式或自动断点 `ttl == "1h"` -> 1h
+- 显式或自动断点 `ttl == "5m"` -> 5m
+- 当存在 `cache_control` 但未写 `ttl`（`{"type":"ephemeral"}`）时，built-in Claude 默认按 5m 处理
 
 若既无显式断点也无顶层 `cache_control`，则不生成 Claude 亲和 hint。
 
