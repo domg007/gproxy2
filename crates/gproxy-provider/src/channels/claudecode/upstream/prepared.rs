@@ -88,6 +88,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
@@ -121,6 +122,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
@@ -156,6 +158,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_sampling(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
@@ -285,6 +288,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude);
                 }
+                canonicalize_claude_body(&mut body_json);
                 let model = json_pointer_string(&body_json, "/model").ok_or_else(|| {
                     UpstreamError::SerializeRequest(
                         "missing model in claudecode count_tokens payload".to_string(),
@@ -317,6 +321,7 @@ impl ClaudeCodePreparedRequest {
                 if let Some(prelude) = prelude_text {
                     apply_claudecode_system(&mut body_json, prelude);
                 }
+                canonicalize_claude_body(&mut body_json);
                 let model = json_pointer_string(&body_json, "/model").ok_or_else(|| {
                     UpstreamError::SerializeRequest(
                         "missing model in claudecode message payload".to_string(),

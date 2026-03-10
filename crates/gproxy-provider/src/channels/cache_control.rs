@@ -69,7 +69,76 @@ const MAGIC_TRIGGER_5M_ID: &str =
 const MAGIC_TRIGGER_1H_ID: &str =
     "GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY";
 
+pub fn canonicalize_claude_body(body: &mut Value) {
+    let Some(root) = body.as_object_mut() else {
+        return;
+    };
+
+    if let Some(system) = root.get_mut("system") {
+        canonicalize_claude_system(system);
+    }
+
+    if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages {
+            canonicalize_claude_message(message);
+        }
+    }
+}
+
+fn canonicalize_claude_system(system: &mut Value) {
+    match system {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            *system = Value::Array(vec![json_text_block(text.as_str())]);
+        }
+        Value::Array(blocks) => canonicalize_claude_blocks(blocks),
+        _ => {}
+    }
+}
+
+fn canonicalize_claude_message(message: &mut Value) {
+    let Some(message_map) = message.as_object_mut() else {
+        return;
+    };
+    let Some(content) = message_map.get_mut("content") else {
+        return;
+    };
+    canonicalize_claude_content(content);
+}
+
+fn canonicalize_claude_content(content: &mut Value) {
+    match content {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            *content = Value::Array(vec![json_text_block(text.as_str())]);
+        }
+        Value::Object(_) => {
+            let block = std::mem::take(content);
+            *content = Value::Array(vec![block]);
+        }
+        Value::Array(blocks) => canonicalize_claude_blocks(blocks),
+        _ => {}
+    }
+}
+
+fn canonicalize_claude_blocks(blocks: &mut Vec<Value>) {
+    for block in blocks {
+        if let Value::String(text) = block {
+            let text = std::mem::take(text);
+            *block = json_text_block(text.as_str());
+        }
+    }
+}
+
+fn json_text_block(text: &str) -> Value {
+    serde_json::json!({
+        "type": "text",
+        "text": text,
+    })
+}
+
 pub fn apply_magic_string_cache_control_triggers(body: &mut Value) {
+    canonicalize_claude_body(body);
     let Some(root) = body.as_object_mut() else {
         return;
     };
@@ -234,6 +303,7 @@ pub fn ensure_cache_breakpoint_rules(body: &mut Value, rules: &[CacheBreakpointR
     if rules.is_empty() {
         return;
     }
+    canonicalize_claude_body(body);
     let Some(root) = body.as_object_mut() else {
         return;
     };
@@ -319,41 +389,84 @@ fn apply_cache_breakpoint_rule(
             _ => {}
         },
         CacheBreakpointTarget::Messages => {
+            let Some((message_idx, content_idx)) = root
+                .get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| {
+                    resolve_message_block_location(messages, rule.position, rule.index)
+                })
+            else {
+                return;
+            };
             let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) else {
                 return;
             };
-            let Some(idx) = resolve_rule_index(messages.len(), rule.position, rule.index) else {
-                return;
-            };
-            let Some(message_map) = messages[idx].as_object_mut() else {
+            let Some(message_map) = messages.get_mut(message_idx).and_then(Value::as_object_mut)
+            else {
                 return;
             };
             let Some(content) = message_map.get_mut("content") else {
                 return;
             };
-            if apply_cache_control_to_message_content(content, rule.ttl) {
+            if apply_cache_control_to_message_block(content, content_idx, rule.ttl) {
                 *remaining_slots = remaining_slots.saturating_sub(1);
             }
         }
     }
 }
 
-fn apply_cache_control_to_message_content(content: &mut Value, ttl: CacheBreakpointTtl) -> bool {
+fn resolve_message_block_location(
+    messages: &[Value],
+    position: CacheBreakpointPositionKind,
+    index: usize,
+) -> Option<(usize, usize)> {
+    let mut locations = Vec::new();
+
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(message_map) = message.as_object() else {
+            continue;
+        };
+        let Some(content) = message_map.get("content") else {
+            continue;
+        };
+
+        match content {
+            Value::Array(blocks) => {
+                for (content_index, block) in blocks.iter().enumerate() {
+                    if block.is_object() {
+                        locations.push((message_index, content_index));
+                    }
+                }
+            }
+            Value::Object(_) => locations.push((message_index, 0)),
+            _ => {}
+        }
+    }
+
+    let idx = resolve_rule_index(locations.len(), position, index)?;
+    locations.get(idx).copied()
+}
+
+fn apply_cache_control_to_message_block(
+    content: &mut Value,
+    content_idx: usize,
+    ttl: CacheBreakpointTtl,
+) -> bool {
     match content {
         Value::Array(blocks) => {
-            for content_idx in (0..blocks.len()).rev() {
-                let Some(map) = blocks[content_idx].as_object_mut() else {
-                    continue;
-                };
-                if map.contains_key("cache_control") {
-                    continue;
-                }
-                map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
-                return true;
+            let Some(map) = blocks.get_mut(content_idx).and_then(Value::as_object_mut) else {
+                return false;
+            };
+            if map.contains_key("cache_control") {
+                return false;
             }
-            false
+            map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
+            true
         }
         Value::Object(map) => {
+            if content_idx != 0 {
+                return false;
+            }
             if map.contains_key("cache_control") {
                 return false;
             }
@@ -722,5 +835,115 @@ mod tests {
             body["messages"][2]["content"][0]["cache_control"],
             json!(null)
         );
+    }
+
+    #[test]
+    fn ensure_cache_breakpoint_rules_indexes_flattened_message_blocks() {
+        let mut body = json!({
+            "messages": [
+                {"role":"user","content":"m0"},
+                {"role":"assistant","content":[
+                    {"type":"text","text":"m1a"},
+                    {"type":"tool_result","tool_use_id":"tool-1","content":"ok"}
+                ]},
+                {"role":"user","content":{"type":"text","text":"m2"}}
+            ]
+        });
+        let rules = vec![
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 2,
+                ttl: CacheBreakpointTtl::Ttl1h,
+            },
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::LastNth,
+                index: 1,
+                ttl: CacheBreakpointTtl::Ttl5m,
+            },
+        ];
+
+        ensure_cache_breakpoint_rules(&mut body, &rules);
+
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("m0"));
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["ttl"],
+            json!("1h")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][1]["cache_control"],
+            json!(null)
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+    }
+
+    #[test]
+    fn ensure_cache_breakpoint_rules_normalizes_system_and_message_shorthands() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [
+                {"role":"user","content":"u0"},
+                {"role":"assistant","content":{"type":"text","text":"a1"}}
+            ]
+        });
+        let rules = vec![
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::System,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 1,
+                ttl: CacheBreakpointTtl::Ttl5m,
+            },
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 1,
+                ttl: CacheBreakpointTtl::Auto,
+            },
+        ];
+
+        ensure_cache_breakpoint_rules(&mut body, &rules);
+
+        assert_eq!(body["system"][0]["text"], json!("sys"));
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("u0"));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"],
+            json!(null)
+        );
+    }
+
+    #[test]
+    fn apply_magic_string_cache_control_triggers_normalizes_shorthand_blocks() {
+        let mut body = json!({
+            "system": "prefix GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH suffix",
+            "messages": [
+                {
+                    "role":"user",
+                    "content":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF y"
+                }
+            ]
+        });
+
+        apply_magic_string_cache_control_triggers(&mut body);
+
+        assert_eq!(
+            body["system"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], json!(null));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+        assert_eq!(body["system"][0]["text"], json!("prefix  suffix"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("x  y"));
     }
 }

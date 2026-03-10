@@ -228,13 +228,14 @@ For `anthropic` and `claudecode`, configure cache-control rewrite with:
 - setting key: `channels.settings.cache_breakpoints`
 - max 4 rules
 - targets: `top_level` (`global` alias), `tools`, `system`, `messages`
+- `messages` indexing uses flattened `messages[*].content` blocks after normalizing Claude shorthands (`content: "..."` becomes one text block)
 - `ttl`: `auto` / `5m` / `1h` (`auto` means no ttl field is injected)
 - existing request-side `cache_control` is always preserved and counts toward the 4-rule limit
 
 No-ttl default note:
 
-- `claudecode`: upstream default is `1h`
 - `anthropic`: upstream default is `5m`
+- `claudecode`: upstream default is `5m`
 - use explicit ttl when you need deterministic behavior
 
 Example:

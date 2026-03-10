@@ -61,9 +61,7 @@ base_url = "https://api.anthropic.com"
 # Optional: append ?beta=true to Anthropic upstream paths.
 anthropic_append_beta_query = false
 # Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
-# Note: no-ttl upstream default differs by channel:
-# - anthropic: 5m
-# - claudecode: 1h
+# Note: no-ttl upstream default for built-in Claude channels is 5m.
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "system", position = "last_nth", index = 1, ttl = "auto" },
