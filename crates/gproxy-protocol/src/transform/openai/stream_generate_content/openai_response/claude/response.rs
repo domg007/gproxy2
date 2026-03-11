@@ -883,7 +883,7 @@ impl ClaudeToOpenAiResponseStream {
                     ResponseStreamEvent::FunctionCallArgumentsDone {
                         arguments: arguments.clone(),
                         item_id: item_id.clone(),
-                        name: name.clone(),
+                        name: Some(name.clone()),
                         output_index: index,
                         sequence_number: arguments_done_sequence,
                     },

@@ -414,7 +414,11 @@ impl OpenAiResponseToGeminiStream {
             } => {
                 let snapshot = {
                     let entry = self.function_calls.entry(item_id.clone()).or_default();
-                    entry.name = name;
+                    if let Some(name) = name
+                        && !name.is_empty()
+                    {
+                        entry.name = name;
+                    }
                     entry.arguments = arguments;
                     (entry.name.clone(), entry.arguments.clone())
                 };

@@ -280,7 +280,8 @@ pub enum ResponseStreamEvent {
     FunctionCallArgumentsDone {
         arguments: String,
         item_id: String,
-        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         output_index: u64,
         sequence_number: u64,
     },
@@ -453,4 +454,30 @@ pub struct ResponseStreamTopLogprob {
     pub token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logprob: Option<f64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResponseStreamEvent;
+
+    #[test]
+    fn function_call_arguments_done_name_is_optional_when_decoding() {
+        let event = serde_json::from_str::<ResponseStreamEvent>(
+            r#"{
+                "type":"response.function_call_arguments.done",
+                "arguments":"{}",
+                "item_id":"fc_123",
+                "output_index":0,
+                "sequence_number":7
+            }"#,
+        )
+        .unwrap();
+
+        match event {
+            ResponseStreamEvent::FunctionCallArgumentsDone { name, .. } => {
+                assert_eq!(name, None);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 }

@@ -351,11 +351,7 @@ fn codex_dead_credential_detection_preserves_response_body() {
         );
         assert_eq!(response.status().as_u16(), 402);
         assert_eq!(
-            response
-                .bytes()
-                .await
-                .expect("response bytes")
-                .to_vec(),
+            response.bytes().await.expect("response bytes").to_vec(),
             br#"{"detail":{"code":"deactivated_workspace"}}"#
         );
     });
