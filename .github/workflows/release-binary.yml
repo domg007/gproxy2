@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -45,7 +45,7 @@ jobs:
           pnpm build
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: apps/gproxy/frontend/dist
@@ -116,10 +116,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-dist
           path: apps/gproxy/frontend/dist
@@ -136,7 +136,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust builds
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -277,7 +277,7 @@ jobs:
 
       - name: Upload Linux Docker binary
         if: ${{ matrix.platform == 'linux' && (matrix.libc == 'gnu' || matrix.libc == 'musl') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-bin-${{ env.TARGET }}
           path: docker-binary/gproxy
@@ -306,7 +306,7 @@ jobs:
           "${hash}  $env:ARTIFACT" | Out-File -Encoding ASCII "$env:ARTIFACT.sha256"
 
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-asset-${{ env.TARGET }}
           path: |
@@ -330,7 +330,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-asset-*
           path: dist
@@ -389,7 +389,7 @@ jobs:
           rm -f .signing/update-signing-private.pem
 
       - name: Upload signed artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: signed-release-assets
           path: |
@@ -405,12 +405,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download signed artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: signed-release-assets
           path: dist
@@ -461,7 +461,7 @@ jobs:
       UPDATE_SIGNING_KEY_ID: ${{ secrets.UPDATE_SIGNING_KEY_ID != '' && secrets.UPDATE_SIGNING_KEY_ID || 'gproxy-release-v1' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Validate Cloudflare downloads settings
         run: |
@@ -504,7 +504,7 @@ jobs:
       name: cloudflare
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -574,10 +574,10 @@ jobs:
             runtime_base: gcr.io/distroless/static-debian13
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download Linux binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: docker-bin-${{ matrix.target }}
           path: dist
