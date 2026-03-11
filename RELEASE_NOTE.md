@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.3.36
+
+### English
+
+#### Added
+
+- Added message-scoped content selectors for built-in Claude `cache_breakpoints`. `messages` rules can now optionally use `content_position` / `content_index` to select a block inside the matched message, and the admin provider config now exposes the same selector mode.
+
+#### Changed
+
+- Cache breakpoint matching now normalizes Claude shorthand content first, so forms like `system: "..."` and `messages[*].content: "..."` are indexed the same way as canonical text blocks.
+- Built-in Claude channels now treat no-TTL ephemeral `cache_control` consistently as `5m` when deriving cache-affinity behavior and examples.
+
+#### Fixed
+
+- Fixed Codex credential health detection: upstream `402 deactivated_workspace` responses are now recognized as dead credentials for both regular upstream requests and `v1/usage`, instead of being retried as transient failures.
+- Fixed OpenAI `responses -> chat completions` stream decoding when `response.function_call_arguments.done` omits `name`, preventing stream errors such as `failed to decode response_stream_json ... missing field 'name'`.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing Claude `cache_breakpoints` settings remain valid; `content_position` / `content_index` are optional enhancements.
+- Codex credentials may now transition to `dead` automatically when upstream explicitly returns `402 deactivated_workspace`.
+
+### 中文
+
+#### 新增
+
+- built-in Claude 渠道的 `cache_breakpoints` 新增 message 内 block 选择能力。`messages` 规则现在可选配置 `content_position` / `content_index`，用于在命中的 message 内继续定位 block；后台 provider 配置页也同步提供了对应选择方式。
+
+#### 变更
+
+- Cache breakpoint 匹配前会先规范化 Claude shorthand 内容，因此 `system: "..."`、`messages[*].content: "..."` 这类简写形式现在会和标准 text block 使用同一套索引规则。
+- built-in Claude 渠道在未显式指定 TTL 的 `cache_control` 场景下，现统一按 `5m` 处理缓存亲和相关行为与示例说明。
+
+#### 修复
+
+- 修复 Codex 凭证健康状态判定：上游返回 `402 deactivated_workspace` 时，普通请求与 `v1/usage` 现在都会将该凭证识别为 dead，而不再按瞬时失败重试。
+- 修复 OpenAI `responses -> chat completions` 流式转换在 `response.function_call_arguments.done` 缺少 `name` 字段时的解码失败问题，避免出现 `failed to decode response_stream_json ... missing field 'name'` 这类报错。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 现有 Claude `cache_breakpoints` 配置保持兼容；`content_position` / `content_index` 只是可选增强项。
+- 当 Codex 上游明确返回 `402 deactivated_workspace` 时，对应凭证现在会自动转为 `dead`。
+
 ## v0.3.35
 
 ### English

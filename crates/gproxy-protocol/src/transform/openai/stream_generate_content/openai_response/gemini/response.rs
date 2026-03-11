@@ -605,7 +605,7 @@ impl GeminiToOpenAiResponseStream {
             ResponseStreamEvent::FunctionCallArgumentsDone {
                 arguments: state.arguments.clone(),
                 item_id: state.item_id.clone(),
-                name: state.name.clone(),
+                name: Some(state.name.clone()),
                 output_index: state.output_index,
                 sequence_number: arguments_done_sequence,
             },
