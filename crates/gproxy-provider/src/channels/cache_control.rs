@@ -45,6 +45,10 @@ pub struct CacheBreakpointRule {
     pub position: CacheBreakpointPositionKind,
     #[serde(default = "default_cache_breakpoint_index")]
     pub index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_position: Option<CacheBreakpointPositionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_index: Option<usize>,
     #[serde(default)]
     pub ttl: CacheBreakpointTtl,
 }
@@ -54,7 +58,24 @@ impl CacheBreakpointRule {
         if self.index == 0 {
             self.index = 1;
         }
+        if let Some(content_index) = self.content_index.as_mut() {
+            if *content_index == 0 {
+                *content_index = 1;
+            }
+        } else if self.content_position.is_some() {
+            self.content_index = Some(1);
+        }
         self
+    }
+
+    fn content_selector(&self) -> Option<(CacheBreakpointPositionKind, usize)> {
+        if self.content_position.is_none() && self.content_index.is_none() {
+            return None;
+        }
+        Some((
+            self.content_position.unwrap_or_default(),
+            self.content_index.unwrap_or(1).max(1),
+        ))
     }
 }
 
@@ -69,7 +90,76 @@ const MAGIC_TRIGGER_5M_ID: &str =
 const MAGIC_TRIGGER_1H_ID: &str =
     "GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_1FAS5GV9R5H29T5Y2J9584K6O95M2NBVW52C95CX984FRJY";
 
+pub fn canonicalize_claude_body(body: &mut Value) {
+    let Some(root) = body.as_object_mut() else {
+        return;
+    };
+
+    if let Some(system) = root.get_mut("system") {
+        canonicalize_claude_system(system);
+    }
+
+    if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages {
+            canonicalize_claude_message(message);
+        }
+    }
+}
+
+fn canonicalize_claude_system(system: &mut Value) {
+    match system {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            *system = Value::Array(vec![json_text_block(text.as_str())]);
+        }
+        Value::Array(blocks) => canonicalize_claude_blocks(blocks),
+        _ => {}
+    }
+}
+
+fn canonicalize_claude_message(message: &mut Value) {
+    let Some(message_map) = message.as_object_mut() else {
+        return;
+    };
+    let Some(content) = message_map.get_mut("content") else {
+        return;
+    };
+    canonicalize_claude_content(content);
+}
+
+fn canonicalize_claude_content(content: &mut Value) {
+    match content {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            *content = Value::Array(vec![json_text_block(text.as_str())]);
+        }
+        Value::Object(_) => {
+            let block = std::mem::take(content);
+            *content = Value::Array(vec![block]);
+        }
+        Value::Array(blocks) => canonicalize_claude_blocks(blocks),
+        _ => {}
+    }
+}
+
+fn canonicalize_claude_blocks(blocks: &mut Vec<Value>) {
+    for block in blocks {
+        if let Value::String(text) = block {
+            let text = std::mem::take(text);
+            *block = json_text_block(text.as_str());
+        }
+    }
+}
+
+fn json_text_block(text: &str) -> Value {
+    serde_json::json!({
+        "type": "text",
+        "text": text,
+    })
+}
+
 pub fn apply_magic_string_cache_control_triggers(body: &mut Value) {
+    canonicalize_claude_body(body);
     let Some(root) = body.as_object_mut() else {
         return;
     };
@@ -175,23 +265,19 @@ fn parse_cache_breakpoint_rule(item: &Value) -> Option<CacheBreakpointRule> {
         _ => return None,
     };
 
-    let position = match obj
-        .get("position")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("nth")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "last" | "last_nth" | "from_end" => CacheBreakpointPositionKind::LastNth,
-        _ => CacheBreakpointPositionKind::Nth,
-    };
+    let position = parse_cache_breakpoint_position(obj.get("position"));
 
     let index = obj
         .get("index")
         .and_then(Value::as_u64)
         .map(|value| value as usize)
         .unwrap_or(1);
+
+    let content_position = parse_optional_cache_breakpoint_position(obj, "content_position");
+    let content_index = obj
+        .get("content_index")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize);
 
     let ttl = match obj
         .get("ttl")
@@ -211,10 +297,35 @@ fn parse_cache_breakpoint_rule(item: &Value) -> Option<CacheBreakpointRule> {
             target,
             position,
             index,
+            content_position,
+            content_index,
             ttl,
         }
         .normalized(),
     )
+}
+
+fn parse_cache_breakpoint_position(value: Option<&Value>) -> CacheBreakpointPositionKind {
+    match value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("nth")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "last" | "last_nth" | "from_end" => CacheBreakpointPositionKind::LastNth,
+        _ => CacheBreakpointPositionKind::Nth,
+    }
+}
+
+fn parse_optional_cache_breakpoint_position(
+    obj: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Option<CacheBreakpointPositionKind> {
+    if !obj.contains_key(key) {
+        return None;
+    }
+    Some(parse_cache_breakpoint_position(obj.get(key)))
 }
 
 pub fn cache_breakpoint_rules_to_settings_value(rules: &[CacheBreakpointRule]) -> Option<Value> {
@@ -234,6 +345,7 @@ pub fn ensure_cache_breakpoint_rules(body: &mut Value, rules: &[CacheBreakpointR
     if rules.is_empty() {
         return;
     }
+    canonicalize_claude_body(body);
     let Some(root) = body.as_object_mut() else {
         return;
     };
@@ -319,41 +431,136 @@ fn apply_cache_breakpoint_rule(
             _ => {}
         },
         CacheBreakpointTarget::Messages => {
+            let Some((message_idx, content_idx)) = root
+                .get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| resolve_message_target_location(messages, rule))
+            else {
+                return;
+            };
             let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) else {
                 return;
             };
-            let Some(idx) = resolve_rule_index(messages.len(), rule.position, rule.index) else {
-                return;
-            };
-            let Some(message_map) = messages[idx].as_object_mut() else {
+            let Some(message_map) = messages.get_mut(message_idx).and_then(Value::as_object_mut)
+            else {
                 return;
             };
             let Some(content) = message_map.get_mut("content") else {
                 return;
             };
-            if apply_cache_control_to_message_content(content, rule.ttl) {
+            if apply_cache_control_to_message_block(content, content_idx, rule.ttl) {
                 *remaining_slots = remaining_slots.saturating_sub(1);
             }
         }
     }
 }
 
-fn apply_cache_control_to_message_content(content: &mut Value, ttl: CacheBreakpointTtl) -> bool {
+fn resolve_message_target_location(
+    messages: &[Value],
+    rule: &CacheBreakpointRule,
+) -> Option<(usize, usize)> {
+    let Some((content_position, content_index)) = rule.content_selector() else {
+        return resolve_message_block_location(messages, rule.position, rule.index);
+    };
+
+    let message_idx = resolve_message_index(messages, rule.position, rule.index)?;
+    let content_idx = messages
+        .get(message_idx)
+        .and_then(Value::as_object)
+        .and_then(|message_map| message_map.get("content"))
+        .and_then(|content| {
+            resolve_message_content_index(content, content_position, content_index)
+        })?;
+
+    Some((message_idx, content_idx))
+}
+
+fn resolve_message_block_location(
+    messages: &[Value],
+    position: CacheBreakpointPositionKind,
+    index: usize,
+) -> Option<(usize, usize)> {
+    let mut locations = Vec::new();
+
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(message_map) = message.as_object() else {
+            continue;
+        };
+        let Some(content) = message_map.get("content") else {
+            continue;
+        };
+
+        match content {
+            Value::Array(blocks) => {
+                for (content_index, block) in blocks.iter().enumerate() {
+                    if block.is_object() {
+                        locations.push((message_index, content_index));
+                    }
+                }
+            }
+            Value::Object(_) => locations.push((message_index, 0)),
+            _ => {}
+        }
+    }
+
+    let idx = resolve_rule_index(locations.len(), position, index)?;
+    locations.get(idx).copied()
+}
+
+fn resolve_message_index(
+    messages: &[Value],
+    position: CacheBreakpointPositionKind,
+    index: usize,
+) -> Option<usize> {
+    let selectable_messages: Vec<usize> = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(message_index, message)| {
+            let content = message.as_object()?.get("content")?;
+            (message_content_block_count(content) > 0).then_some(message_index)
+        })
+        .collect();
+
+    let idx = resolve_rule_index(selectable_messages.len(), position, index)?;
+    selectable_messages.get(idx).copied()
+}
+
+fn resolve_message_content_index(
+    content: &Value,
+    position: CacheBreakpointPositionKind,
+    index: usize,
+) -> Option<usize> {
+    resolve_rule_index(message_content_block_count(content), position, index)
+}
+
+fn message_content_block_count(content: &Value) -> usize {
+    match content {
+        Value::Array(blocks) => blocks.iter().filter(|block| block.is_object()).count(),
+        Value::Object(_) => 1,
+        _ => 0,
+    }
+}
+
+fn apply_cache_control_to_message_block(
+    content: &mut Value,
+    content_idx: usize,
+    ttl: CacheBreakpointTtl,
+) -> bool {
     match content {
         Value::Array(blocks) => {
-            for content_idx in (0..blocks.len()).rev() {
-                let Some(map) = blocks[content_idx].as_object_mut() else {
-                    continue;
-                };
-                if map.contains_key("cache_control") {
-                    continue;
-                }
-                map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
-                return true;
+            let Some(map) = blocks.get_mut(content_idx).and_then(Value::as_object_mut) else {
+                return false;
+            };
+            if map.contains_key("cache_control") {
+                return false;
             }
-            false
+            map.insert("cache_control".to_string(), cache_control_ephemeral(ttl));
+            true
         }
         Value::Object(map) => {
+            if content_idx != 0 {
+                return false;
+            }
             if map.contains_key("cache_control") {
                 return false;
             }
@@ -472,7 +679,7 @@ mod tests {
     #[test]
     fn parse_cache_breakpoint_rules_limits_to_four_and_normalizes() {
         let parsed = parse_cache_breakpoint_rules(Some(&json!([
-            {"target":"messages","position":"nth","index":0,"ttl":"auto"},
+            {"target":"messages","position":"nth","index":0,"content_position":"last_nth","content_index":0,"ttl":"auto"},
             {"target":"system","position":"last_nth","index":2,"ttl":"5m"},
             {"target":"tools","position":"nth","index":1,"ttl":"1h"},
             {"target":"top_level","ttl":"auto"},
@@ -480,6 +687,11 @@ mod tests {
         ])));
         assert_eq!(parsed.len(), 4);
         assert_eq!(parsed[0].index, 1);
+        assert_eq!(
+            parsed[0].content_position,
+            Some(CacheBreakpointPositionKind::LastNth)
+        );
+        assert_eq!(parsed[0].content_index, Some(1));
         assert_eq!(parsed[1].target, CacheBreakpointTarget::System);
         assert_eq!(parsed[2].ttl, CacheBreakpointTtl::Ttl1h);
         assert_eq!(parsed[3].target, CacheBreakpointTarget::TopLevel);
@@ -498,12 +710,16 @@ mod tests {
                 target: CacheBreakpointTarget::TopLevel,
                 position: CacheBreakpointPositionKind::Nth,
                 index: 1,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Auto,
             },
             CacheBreakpointRule {
                 target: CacheBreakpointTarget::Messages,
                 position: CacheBreakpointPositionKind::LastNth,
                 index: 1,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Ttl1h,
             },
         ];
@@ -536,24 +752,32 @@ mod tests {
                 target: CacheBreakpointTarget::TopLevel,
                 position: CacheBreakpointPositionKind::Nth,
                 index: 1,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Auto,
             },
             CacheBreakpointRule {
                 target: CacheBreakpointTarget::System,
                 position: CacheBreakpointPositionKind::Nth,
                 index: 2,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Ttl5m,
             },
             CacheBreakpointRule {
                 target: CacheBreakpointTarget::Messages,
                 position: CacheBreakpointPositionKind::Nth,
                 index: 2,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Ttl5m,
             },
             CacheBreakpointRule {
                 target: CacheBreakpointTarget::Messages,
                 position: CacheBreakpointPositionKind::Nth,
                 index: 3,
+                content_position: None,
+                content_index: None,
                 ttl: CacheBreakpointTtl::Ttl5m,
             },
         ];
@@ -722,5 +946,173 @@ mod tests {
             body["messages"][2]["content"][0]["cache_control"],
             json!(null)
         );
+    }
+
+    #[test]
+    fn ensure_cache_breakpoint_rules_indexes_flattened_message_blocks() {
+        let mut body = json!({
+            "messages": [
+                {"role":"user","content":"m0"},
+                {"role":"assistant","content":[
+                    {"type":"text","text":"m1a"},
+                    {"type":"tool_result","tool_use_id":"tool-1","content":"ok"}
+                ]},
+                {"role":"user","content":{"type":"text","text":"m2"}}
+            ]
+        });
+        let rules = vec![
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 2,
+                content_position: None,
+                content_index: None,
+                ttl: CacheBreakpointTtl::Ttl1h,
+            },
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::LastNth,
+                index: 1,
+                content_position: None,
+                content_index: None,
+                ttl: CacheBreakpointTtl::Ttl5m,
+            },
+        ];
+
+        ensure_cache_breakpoint_rules(&mut body, &rules);
+
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("m0"));
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["ttl"],
+            json!("1h")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][1]["cache_control"],
+            json!(null)
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+    }
+
+    #[test]
+    fn ensure_cache_breakpoint_rules_normalizes_system_and_message_shorthands() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [
+                {"role":"user","content":"u0"},
+                {"role":"assistant","content":{"type":"text","text":"a1"}}
+            ]
+        });
+        let rules = vec![
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::System,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 1,
+                content_position: None,
+                content_index: None,
+                ttl: CacheBreakpointTtl::Ttl5m,
+            },
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 1,
+                content_position: None,
+                content_index: None,
+                ttl: CacheBreakpointTtl::Auto,
+            },
+        ];
+
+        ensure_cache_breakpoint_rules(&mut body, &rules);
+
+        assert_eq!(body["system"][0]["text"], json!("sys"));
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], json!("5m"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("u0"));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"],
+            json!(null)
+        );
+    }
+
+    #[test]
+    fn ensure_cache_breakpoint_rules_can_target_message_then_content_block() {
+        let mut body = json!({
+            "messages": [
+                {"role":"user","content":[
+                    {"type":"text","text":"m0a"},
+                    {"type":"text","text":"m0b"}
+                ]},
+                {"role":"assistant","content":[
+                    {"type":"text","text":"m1a"},
+                    {"type":"text","text":"m1b"}
+                ]},
+                {"role":"user","content":"m2"}
+            ]
+        });
+        let rules = vec![
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::Nth,
+                index: 2,
+                content_position: Some(CacheBreakpointPositionKind::Nth),
+                content_index: Some(2),
+                ttl: CacheBreakpointTtl::Ttl1h,
+            },
+            CacheBreakpointRule {
+                target: CacheBreakpointTarget::Messages,
+                position: CacheBreakpointPositionKind::LastNth,
+                index: 1,
+                content_position: Some(CacheBreakpointPositionKind::Nth),
+                content_index: Some(1),
+                ttl: CacheBreakpointTtl::Ttl5m,
+            },
+        ];
+
+        ensure_cache_breakpoint_rules(&mut body, &rules);
+
+        assert_eq!(
+            body["messages"][0]["content"][1]["cache_control"],
+            json!(null)
+        );
+        assert_eq!(
+            body["messages"][1]["content"][1]["cache_control"]["ttl"],
+            json!("1h")
+        );
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+    }
+
+    #[test]
+    fn apply_magic_string_cache_control_triggers_normalizes_shorthand_blocks() {
+        let mut body = json!({
+            "system": "prefix GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_7D9ASD7A98SD7A9S8D79ASC98A7FNKJBVV80SCMSHDSIUCH suffix",
+            "messages": [
+                {
+                    "role":"user",
+                    "content":"x GPROXY_MAGIC_STRING_TRIGGER_CACHING_CREATE_49VA1S5V19GR4G89W2V695G9W9GV52W95V198WV5W2FC9DF y"
+                }
+            ]
+        });
+
+        apply_magic_string_cache_control_triggers(&mut body);
+
+        assert_eq!(
+            body["system"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], json!(null));
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["ttl"],
+            json!("5m")
+        );
+        assert_eq!(body["system"][0]["text"], json!("prefix  suffix"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("x  y"));
     }
 }

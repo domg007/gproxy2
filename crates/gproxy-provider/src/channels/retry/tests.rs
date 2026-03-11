@@ -132,7 +132,7 @@ fn claude_top_level_cache_control_creates_auto_breakpoint() {
 }
 
 #[test]
-fn claude_top_level_cache_control_without_ttl_defaults_to_1h() {
+fn claude_top_level_cache_control_without_ttl_defaults_to_5m_in_generic_path() {
     let body = json!({
         "model": "claude-sonnet-4-6",
         "cache_control": {"type":"ephemeral"},
@@ -140,7 +140,7 @@ fn claude_top_level_cache_control_without_ttl_defaults_to_1h() {
     });
     let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
     assert!(hint.bind.key.contains("bp=auto"));
-    assert!(hint.bind.key.contains("ttl=1h"));
+    assert!(hint.bind.key.contains("ttl=5m"));
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn claude_explicit_breakpoint_creates_candidates() {
     let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
     assert!(!hint.candidates.is_empty());
     assert!(hint.bind.key.contains("bp=explicit"));
-    assert!(hint.bind.key.contains("ttl=1h"));
+    assert!(hint.bind.key.contains("ttl=5m"));
 }
 
 #[test]
@@ -169,6 +169,56 @@ fn claude_explicit_breakpoint_with_5m_ttl_stays_5m() {
     });
     let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
     assert!(!hint.candidates.is_empty());
+    assert!(hint.bind.key.contains("bp=explicit"));
+    assert!(hint.bind.key.contains("ttl=5m"));
+}
+
+#[test]
+fn claude_shorthand_and_canonical_blocks_hash_identically() {
+    let shorthand = json!({
+        "model": "claude-sonnet-4-6",
+        "cache_control": {"type":"ephemeral", "ttl":"1h"},
+        "messages": [{"role":"user","content":"hello"}]
+    });
+    let canonical = json!({
+        "model": "claude-sonnet-4-6",
+        "cache_control": {"type":"ephemeral", "ttl":"1h"},
+        "messages": [{
+            "role":"user",
+            "content":[{"type":"text","text":"hello"}]
+        }]
+    });
+
+    let shorthand_hint = cache_affinity_hint_for_claude_effective_body(shorthand).expect("hint");
+    let canonical_hint = cache_affinity_hint_for_claude_effective_body(canonical).expect("hint");
+
+    assert_eq!(shorthand_hint.bind.key, canonical_hint.bind.key);
+}
+
+#[test]
+fn claude_top_level_cache_control_without_ttl_defaults_to_5m() {
+    let body = json!({
+        "model": "claude-sonnet-4-6",
+        "cache_control": {"type":"ephemeral"},
+        "messages": [{"role":"user","content":"hello"}]
+    });
+    let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
+
+    assert!(hint.bind.key.contains("bp=auto"));
+    assert!(hint.bind.key.contains("ttl=5m"));
+}
+
+#[test]
+fn claude_explicit_breakpoint_without_ttl_defaults_to_5m() {
+    let body = json!({
+        "model": "claude-sonnet-4-6",
+        "messages": [{
+            "role":"user",
+            "content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral"}}]
+        }]
+    });
+    let hint = cache_affinity_hint_for_claude_effective_body(body).expect("hint");
+
     assert!(hint.bind.key.contains("bp=explicit"));
     assert!(hint.bind.key.contains("ttl=5m"));
 }

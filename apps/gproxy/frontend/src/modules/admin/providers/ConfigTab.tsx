@@ -244,9 +244,25 @@ export function ConfigTab({
       index: Number.isFinite(rule.index) ? Math.max(1, Math.trunc(rule.index)) : 1,
       ttl: rule.ttl
     };
+    if (
+      next.target === "messages" &&
+      (rule.content_position !== undefined || rule.content_index !== undefined)
+    ) {
+      next.content_position = rule.content_position === "last_nth" ? "last_nth" : "nth";
+      next.content_index =
+        typeof rule.content_index === "number" && Number.isFinite(rule.content_index)
+          ? Math.max(1, Math.trunc(rule.content_index))
+          : 1;
+    }
     if (next.target === "top_level") {
       next.position = "nth";
       next.index = 1;
+      delete next.content_position;
+      delete next.content_index;
+    }
+    if (next.target !== "messages") {
+      delete next.content_position;
+      delete next.content_index;
     }
     return next;
   };
@@ -339,6 +355,8 @@ export function ConfigTab({
       const position = value.position;
       const ttl = value.ttl;
       const index = value.index;
+      const contentPosition = value.content_position;
+      const contentIndex = value.content_index;
       if (
         target !== "top_level" &&
         target !== "tools" &&
@@ -356,11 +374,23 @@ export function ConfigTab({
       if (typeof index !== "number") {
         return null;
       }
+      if (
+        contentPosition !== undefined &&
+        contentPosition !== "nth" &&
+        contentPosition !== "last_nth"
+      ) {
+        return null;
+      }
+      if (contentIndex !== undefined && typeof contentIndex !== "number") {
+        return null;
+      }
       return normalizeRule({
         target,
         position,
         ttl,
-        index
+        index,
+        content_position: contentPosition,
+        content_index: contentIndex
       });
     } catch {
       return null;
@@ -1018,6 +1048,45 @@ export function ConfigTab({
                         </div>
                         {rule ? (
                           <div className="space-y-2">
+                            {rule.target === "messages" ? (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted">
+                                  {t("providers.cacheBreakpoints.contentSelector.label")}
+                                </div>
+                                <Select
+                                  value={
+                                    rule.content_position !== undefined ||
+                                    rule.content_index !== undefined
+                                      ? "message_content"
+                                      : "flattened"
+                                  }
+                                  onChange={(value) =>
+                                    updateCacheBreakpointSlot(
+                                      idx,
+                                      value === "message_content"
+                                        ? {
+                                            content_position: "nth",
+                                            content_index: 1
+                                          }
+                                        : {
+                                            content_position: undefined,
+                                            content_index: undefined
+                                          }
+                                    )
+                                  }
+                                  options={[
+                                    {
+                                      value: "flattened",
+                                      label: t("providers.cacheBreakpoints.contentSelector.flattened")
+                                    },
+                                    {
+                                      value: "message_content",
+                                      label: t("providers.cacheBreakpoints.contentSelector.message_content")
+                                    }
+                                  ]}
+                                />
+                              </div>
+                            ) : null}
                             <Select
                               value={rule.target}
                               onChange={(value) =>
@@ -1059,6 +1128,43 @@ export function ConfigTab({
                                 />
                               </div>
                             )}
+                            {rule.target === "messages" &&
+                            (rule.content_position !== undefined ||
+                              rule.content_index !== undefined) ? (
+                              <div className="space-y-1">
+                                <div className="text-xs text-muted">
+                                  {t("providers.cacheBreakpoints.contentSelector.block")}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Select
+                                    value={rule.content_position ?? "nth"}
+                                    onChange={(value) =>
+                                      updateCacheBreakpointSlot(idx, {
+                                        content_position: value as CacheBreakpointRuleDraft["position"]
+                                      })
+                                    }
+                                    options={[
+                                      {
+                                        value: "nth",
+                                        label: t("providers.cacheBreakpoints.position.nth")
+                                      },
+                                      {
+                                        value: "last_nth",
+                                        label: t("providers.cacheBreakpoints.position.last_nth")
+                                      }
+                                    ]}
+                                  />
+                                  <Input
+                                    value={String(rule.content_index ?? 1)}
+                                    onChange={(value) =>
+                                      updateCacheBreakpointSlot(idx, {
+                                        content_index: Math.max(1, Number.parseInt(value, 10) || 1)
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                             <Select
                               value={rule.ttl}
                               onChange={(value) =>

@@ -126,6 +126,7 @@ Not included in prefix key:
 Block hierarchy:
 
 - `tools[] -> system -> messages.content[]`
+- Claude shorthands are normalized before splitting: `system: "..."` and `messages[*].content: "..."` each become one text block
 
 Breakpoints:
 
@@ -144,11 +145,9 @@ Key format:
 
 TTL:
 
-- explicit breakpoint `ttl == "1h"` -> 1h
-- explicit breakpoint `ttl == "5m"` (or missing/other values) -> 5m
-- when `cache_control` is present but `ttl` is omitted (`{"type":"ephemeral"}`), upstream defaults differ by channel:
-  - `claudecode`: default 1h
-  - `claude`: default 5m
+- explicit or automatic breakpoint `ttl == "1h"` -> 1h
+- explicit or automatic breakpoint `ttl == "5m"` -> 5m
+- when `cache_control` is present but `ttl` is omitted (`{"type":"ephemeral"}`), built-in Claude defaults use 5m
 
 If request has no explicit breakpoint and no top-level `cache_control`, affinity hint is not generated.
 

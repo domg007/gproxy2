@@ -2,7 +2,8 @@ use serde_json::Value;
 use wreq::{Client as WreqClient, Method as WreqMethod};
 
 use crate::channels::cache_control::{
-    CacheBreakpointRule, apply_magic_string_cache_control_triggers, ensure_cache_breakpoint_rules,
+    CacheBreakpointRule, apply_magic_string_cache_control_triggers, canonicalize_claude_body,
+    ensure_cache_breakpoint_rules,
 };
 use crate::channels::retry::{
     CacheAffinityProtocol, CredentialRetryDecision, cache_affinity_hint_from_transform_request,
@@ -359,6 +360,7 @@ impl AnthropicPreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_anthropic_system_prelude(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
                     path: path_with_optional_beta_query(
@@ -383,6 +385,7 @@ impl AnthropicPreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_anthropic_system_prelude(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -408,6 +411,7 @@ impl AnthropicPreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_anthropic_system_prelude(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -528,6 +532,7 @@ impl AnthropicPreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_anthropic_system_prelude(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: path_with_optional_beta_query(
@@ -550,6 +555,7 @@ impl AnthropicPreparedRequest {
                 if let Some(prelude_text) = prelude_text {
                     apply_anthropic_system_prelude(&mut body_json, prelude_text);
                 }
+                canonicalize_claude_body(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
@@ -786,6 +792,39 @@ mod tests {
             serde_json::from_slice(prepared.body.as_deref().expect("body bytes"))
                 .expect("valid json");
         assert_eq!(body["system"][0]["text"], json!("system prelude"));
+    }
+
+    #[test]
+    fn payload_wrapper_canonicalizes_claude_shorthand_content_blocks() {
+        let payload = serde_json::to_vec(&json!({
+            "body": {
+                "model": "claude-3-7-sonnet-latest",
+                "max_tokens": 32,
+                "system": "sys",
+                "messages": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": {"type": "text", "text": "there"}}
+                ]
+            }
+        }))
+        .expect("serialize payload");
+
+        let prepared = AnthropicPreparedRequest::from_payload(
+            OperationFamily::GenerateContent,
+            ProtocolKind::Claude,
+            payload.as_slice(),
+            false,
+            None,
+            &[],
+        )
+        .expect("prepare payload");
+
+        let body: serde_json::Value =
+            serde_json::from_slice(prepared.body.as_deref().expect("body bytes"))
+                .expect("valid json");
+        assert_eq!(body["system"][0]["text"], json!("sys"));
+        assert_eq!(body["messages"][0]["content"][0]["text"], json!("hi"));
+        assert_eq!(body["messages"][1]["content"][0]["text"], json!("there"));
     }
 
     #[test]

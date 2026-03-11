@@ -226,13 +226,15 @@ cargo run -p gproxy
 - 配置键：`channels.settings.cache_breakpoints`
 - 最多 4 条规则
 - 目标：`top_level`（别名 `global`）、`tools`、`system`、`messages`
+- `messages` 的索引基于扁平化后的 `messages[*].content` block；`content: "..."` 会先规范化成一个 text block
+- 对 `messages`，可额外指定 `content_position` / `content_index`；一旦出现这两个字段中的任意一个，就改为“先按 `position` / `index` 选 message，再在该 message 内按 `content_*` 选 block”
 - `ttl`：`auto` / `5m` / `1h`（`auto` 表示注入时不写 ttl 字段）
 - 请求体已有 `cache_control` 会始终保留，并计入 4 条上限
 
 无 ttl 的默认值说明：
 
-- `claudecode`：上游默认 `1h`
 - `anthropic`：上游默认 `5m`
+- `claudecode`：上游默认 `5m`
 - 需要确定性行为时请显式设置 ttl
 
 示例：
@@ -246,7 +248,8 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "5m" }
+  { target = "messages", position = "last_nth", index = 1, ttl = "5m" },
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "5m" }
 ]
 
 [[channels]]
@@ -257,7 +260,7 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
 

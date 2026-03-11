@@ -2,9 +2,13 @@ use serde_json::json;
 
 use super::{
     CodexPreparedRequest, SESSION_ID_HEADER, WreqMethod, apply_codex_priority_tier_override,
-    normalize_codex_response_request_body, stable_codex_session_id,
+    detect_codex_dead_credential_response, extract_codex_error_code,
+    is_codex_dead_credential_response, normalize_codex_response_request_body,
+    stable_codex_session_id,
 };
 use gproxy_middleware::{OperationFamily, ProtocolKind};
+use http::Response as HttpResponse;
+use tokio::runtime::Builder;
 
 #[test]
 fn codex_moves_system_and_developer_messages_into_instructions() {
@@ -304,4 +308,55 @@ fn codex_priority_tier_override_false_preserves_service_tier() {
             .and_then(|value| value.as_str()),
         Some("auto")
     );
+}
+
+#[test]
+fn codex_detects_deactivated_workspace_error_code() {
+    let bytes = br#"{"detail":{"code":"deactivated_workspace"}}"#;
+
+    assert_eq!(
+        extract_codex_error_code(bytes),
+        Some("deactivated_workspace".to_string())
+    );
+    assert!(is_codex_dead_credential_response(402, bytes));
+    assert!(!is_codex_dead_credential_response(
+        402,
+        br#"{"detail":{"code":"billing_required"}}"#
+    ));
+}
+
+#[test]
+fn codex_dead_credential_detection_preserves_response_body() {
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    runtime.block_on(async {
+        let response = wreq::Response::from(
+            HttpResponse::builder()
+                .status(402)
+                .header("content-type", "application/json")
+                .body(br#"{"detail":{"code":"deactivated_workspace"}}"#.to_vec())
+                .expect("response"),
+        );
+
+        let (response, dead_message) = detect_codex_dead_credential_response(response)
+            .await
+            .expect("detect");
+
+        assert_eq!(
+            dead_message.as_deref(),
+            Some("upstream status 402 (deactivated_workspace)")
+        );
+        assert_eq!(response.status().as_u16(), 402);
+        assert_eq!(
+            response
+                .bytes()
+                .await
+                .expect("response bytes")
+                .to_vec(),
+            br#"{"detail":{"code":"deactivated_workspace"}}"#
+        );
+    });
 }

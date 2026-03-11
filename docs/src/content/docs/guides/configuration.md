@@ -176,6 +176,8 @@ Rule model:
 - for non-`top_level` targets:
   - `position`: `nth` or `last_nth`
   - `index`: 1-based
+  - for `messages`, the index is resolved against flattened `messages[*].content` blocks after shorthand normalization (`content: "..."` -> one text block)
+  - for `messages`, if `content_position` / `content_index` is set, `position` / `index` first selects a message and `content_*` then selects a block inside that message
 - for `top_level` target, `position` / `index` are ignored
 - `ttl`: `auto` | `5m` | `1h`
   - `auto` injects `{"type":"ephemeral"}` without `ttl`
@@ -185,13 +187,13 @@ Rewrite behavior:
 - existing request-side `cache_control` is preserved and counts toward the 4-breakpoint budget
 - gproxy only fills remaining slots and never overwrites existing block/top-level `cache_control`
 - magic-string-triggered insertion shares the same 4-breakpoint budget
-- only `claude` / `claudecode` message-generation requests are rewritten
+- only `anthropic` / `claudecode` message-generation requests are rewritten
 - Admin UI sorts rules before submit (`top_level -> tools -> system -> messages`), then server keeps the first 4
 
 Default TTL note when `ttl` is omitted (`auto`):
 
-- `claudecode`: upstream default is `1h`
-- `claude`: upstream default is `5m`
+- `anthropic`: upstream default is `5m`
+- `claudecode`: upstream default is `5m`
 - if you need deterministic behavior, set `ttl` explicitly to `5m` or `1h`
 
 Example:
@@ -207,7 +209,7 @@ cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "system", position = "last_nth", index = 1, ttl = "auto" },
   { target = "messages", position = "last_nth", index = 11, ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 2, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "5m" }
 ]
 
 [[channels]]
@@ -218,7 +220,7 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
 

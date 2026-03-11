@@ -250,3 +250,35 @@ fn prepared_request_appends_beta_query_when_enabled() {
 
     assert_eq!(prepared.path, "/v1/messages?beta=true");
 }
+
+#[test]
+fn prepared_request_canonicalizes_claude_shorthand_content_blocks() {
+    let payload = serde_json::to_vec(&json!({
+        "body": {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 32,
+            "system": "sys",
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": {"type": "text", "text": "there"}}
+            ]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(prepared.body.as_deref().expect("body bytes")).expect("valid json");
+    assert_eq!(body["system"][0]["text"], json!("sys"));
+    assert_eq!(body["messages"][0]["content"][0]["text"], json!("hi"));
+    assert_eq!(body["messages"][1]["content"][0]["text"], json!("there"));
+}

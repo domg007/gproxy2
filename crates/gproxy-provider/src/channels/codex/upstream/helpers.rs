@@ -1,4 +1,6 @@
 use super::*;
+use http::Response as HttpResponse;
+use http_body_util::BodyExt as _;
 
 pub(super) fn transform_openai_ws_request_to_stream(
     request: TransformRequest,
@@ -116,9 +118,8 @@ pub(super) fn apply_codex_priority_tier_override(
     body: Option<&[u8]>,
     priority_tier: Option<bool>,
 ) -> Option<Vec<u8>> {
-    let Some(body) = body else {
-        return None;
-    };
+    let body = body?;
+
     let Some(true) = priority_tier else {
         return Some(body.to_vec());
     };
@@ -509,6 +510,13 @@ pub(super) fn find_model_in_openai_list(list: &Value, target: &str) -> Option<Va
 pub(super) fn extract_upstream_error_message(bytes: &[u8]) -> Option<String> {
     let value = serde_json::from_slice::<Value>(bytes).ok()?;
     if let Some(message) = value
+        .get("detail")
+        .and_then(|detail| detail.get("message"))
+        .and_then(Value::as_str)
+    {
+        return Some(message.to_string());
+    }
+    if let Some(message) = value
         .get("error")
         .and_then(|error| error.get("message"))
         .and_then(Value::as_str)
@@ -522,6 +530,58 @@ pub(super) fn extract_upstream_error_message(bytes: &[u8]) -> Option<String> {
         .get("message")
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+pub(super) fn extract_codex_error_code(bytes: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(bytes).ok()?;
+    value
+        .pointer("/detail/code")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/error/code").and_then(Value::as_str))
+        .or_else(|| value.get("code").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+}
+
+pub(super) fn is_codex_dead_credential_response(status_code: u16, bytes: &[u8]) -> bool {
+    status_code == 402
+        && extract_codex_error_code(bytes).as_deref() == Some("deactivated_workspace")
+}
+
+pub(super) fn codex_dead_credential_message(status_code: u16, bytes: &[u8]) -> String {
+    if let Some(message) = extract_upstream_error_message(bytes)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return message;
+    }
+
+    if let Some(code) = extract_codex_error_code(bytes) {
+        return format!("upstream status {status_code} ({code})");
+    }
+
+    format!("upstream status {status_code}")
+}
+
+pub(super) async fn detect_codex_dead_credential_response(
+    response: wreq::Response,
+) -> Result<(wreq::Response, Option<String>), wreq::Error> {
+    let status_code = response.status().as_u16();
+    if status_code != 402 {
+        return Ok((response, None));
+    }
+
+    let raw: HttpResponse<wreq::Body> = response.into();
+    let (parts, body) = raw.into_parts();
+    let bytes = body.collect().await?.to_bytes().to_vec();
+    let response = wreq::Response::from(HttpResponse::from_parts(parts, bytes.clone()));
+    if !is_codex_dead_credential_response(status_code, bytes.as_slice()) {
+        return Ok((response, None));
+    }
+
+    let message = codex_dead_credential_message(status_code, bytes.as_slice());
+    Ok((response, Some(message)))
 }
 
 pub(super) fn model_list_error_response(status_code: u16, message: &str) -> TransformResponse {

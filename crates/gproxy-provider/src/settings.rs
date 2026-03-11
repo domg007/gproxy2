@@ -596,12 +596,16 @@ mod tests {
                         target: CacheBreakpointTarget::TopLevel,
                         position: CacheBreakpointPositionKind::Nth,
                         index: 1,
+                        content_position: None,
+                        content_index: None,
                         ttl: CacheBreakpointTtl::Auto,
                     },
                     CacheBreakpointRule {
                         target: CacheBreakpointTarget::Messages,
                         position: CacheBreakpointPositionKind::LastNth,
                         index: 1,
+                        content_position: Some(CacheBreakpointPositionKind::LastNth),
+                        content_index: Some(2),
                         ttl: CacheBreakpointTtl::Ttl1h,
                     },
                 ],
@@ -621,6 +625,14 @@ mod tests {
             Some(2)
         );
         assert_eq!(
+            value["cache_breakpoints"][1]["content_position"],
+            serde_json::json!("last_nth")
+        );
+        assert_eq!(
+            value["cache_breakpoints"][1]["content_index"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
             value
                 .get("anthropic_append_beta_query")
                 .and_then(serde_json::Value::as_bool),
@@ -637,6 +649,8 @@ mod tests {
                     target: CacheBreakpointTarget::System,
                     position: CacheBreakpointPositionKind::Nth,
                     index: 2,
+                    content_position: None,
+                    content_index: None,
                     ttl: CacheBreakpointTtl::Ttl5m,
                 }],
                 ..Default::default()

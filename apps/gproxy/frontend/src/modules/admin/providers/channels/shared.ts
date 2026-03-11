@@ -10,6 +10,8 @@ export type CacheBreakpointRuleDraft = {
   target: CacheBreakpointTargetDraft;
   position: CacheBreakpointPositionDraft;
   index: number;
+  content_position?: CacheBreakpointPositionDraft;
+  content_index?: number;
   ttl: CacheBreakpointTtlDraft;
 };
 
@@ -121,6 +123,10 @@ function sortCacheBreakpointRules(rules: CacheBreakpointRuleDraft[]): CacheBreak
   });
 }
 
+function hasMessageContentSelector(rule: CacheBreakpointRuleDraft): boolean {
+  return rule.target === "messages" && (rule.content_position !== undefined || rule.content_index !== undefined);
+}
+
 export function normalizeCacheBreakpointRulesDraft(value: unknown): CacheBreakpointRuleDraft[] {
   let source: unknown = value;
   if (typeof value === "string") {
@@ -139,8 +145,24 @@ export function normalizeCacheBreakpointRulesDraft(value: unknown): CacheBreakpo
       const target = normalizeCacheBreakpointTarget(item.target);
       const position = normalizeCacheBreakpointPosition(item.position);
       const index = normalizeCacheBreakpointIndex(item.index);
+      const contentSelectorEnabled =
+        target === "messages" &&
+        ("content_position" in item || "content_index" in item);
+      const content_position = contentSelectorEnabled
+        ? normalizeCacheBreakpointPosition(item.content_position)
+        : undefined;
+      const content_index = contentSelectorEnabled
+        ? normalizeCacheBreakpointIndex(item.content_index)
+        : undefined;
       const ttl = normalizeCacheBreakpointTtl(item.ttl);
-      return { target, position, index, ttl } satisfies CacheBreakpointRuleDraft;
+      return {
+        target,
+        position,
+        index,
+        content_position,
+        content_index,
+        ttl
+      } satisfies CacheBreakpointRuleDraft;
     });
   return sortCacheBreakpointRules(normalized).slice(0, 4);
 }
@@ -159,6 +181,10 @@ export function cacheBreakpointRulesDraftToSettingsValue(value: unknown): Array<
     if (rule.target !== "top_level") {
       base.position = rule.position;
       base.index = rule.index;
+    }
+    if (hasMessageContentSelector(rule)) {
+      base.content_position = rule.content_position ?? "nth";
+      base.content_index = rule.content_index ?? 1;
     }
     return base;
   });

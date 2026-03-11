@@ -198,6 +198,41 @@ pub(super) async fn execute_codex_with_prepared(
                         status_code,
                     );
                 }
+                let (checked_response, dead_message) =
+                    match detect_codex_dead_credential_response(response).await {
+                        Ok(result) => result,
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                model.as_deref(),
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: Some(status_code),
+                                last_error: Some(message),
+                                last_request_meta: None,
+                            };
+                        }
+                    };
+                response = checked_response;
+                status_code = response.status().as_u16();
+                if let Some(message) = dead_message {
+                    state_manager.mark_auth_dead(
+                        credential_states,
+                        &provider.channel,
+                        attempt.credential_id,
+                        Some(message.clone()),
+                    );
+                    return CredentialRetryDecision::Retry {
+                        last_status: Some(status_code),
+                        last_error: Some(message),
+                        last_request_meta: None,
+                    };
+                }
                 if is_auth_failure(status_code) {
                     let refreshed_token = match resolve_codex_access_token(
                         client,
@@ -285,6 +320,41 @@ pub(super) async fn execute_codex_with_prepared(
                             model.as_deref(),
                             status_code,
                         );
+                    }
+                    let (checked_response, dead_message) =
+                        match detect_codex_dead_credential_response(response).await {
+                            Ok(result) => result,
+                            Err(err) => {
+                                let message = err.to_string();
+                                state_manager.mark_transient_failure(
+                                    credential_states,
+                                    &provider.channel,
+                                    attempt.credential_id,
+                                    model.as_deref(),
+                                    None,
+                                    Some(message.clone()),
+                                );
+                                return CredentialRetryDecision::Retry {
+                                    last_status: Some(status_code),
+                                    last_error: Some(message),
+                                    last_request_meta: None,
+                                };
+                            }
+                        };
+                    response = checked_response;
+                    status_code = response.status().as_u16();
+                    if let Some(message) = dead_message {
+                        state_manager.mark_auth_dead(
+                            credential_states,
+                            &provider.channel,
+                            attempt.credential_id,
+                            Some(message.clone()),
+                        );
+                        return CredentialRetryDecision::Retry {
+                            last_status: Some(status_code),
+                            last_error: Some(message),
+                            last_request_meta: None,
+                        };
                     }
                     if is_auth_failure(status_code) {
                         let message = format!(
