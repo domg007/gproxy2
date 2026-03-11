@@ -229,6 +229,7 @@ For `anthropic` and `claudecode`, configure cache-control rewrite with:
 - max 4 rules
 - targets: `top_level` (`global` alias), `tools`, `system`, `messages`
 - `messages` indexing uses flattened `messages[*].content` blocks after normalizing Claude shorthands (`content: "..."` becomes one text block)
+- for `messages`, you may also set `content_position` / `content_index`; when either field is present, `position` / `index` first select a message, then `content_*` selects a block inside that message
 - `ttl`: `auto` / `5m` / `1h` (`auto` means no ttl field is injected)
 - existing request-side `cache_control` is always preserved and counts toward the 4-rule limit
 
@@ -249,7 +250,8 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "5m" }
+  { target = "messages", position = "last_nth", index = 1, ttl = "5m" },
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "5m" }
 ]
 
 [[channels]]
@@ -260,7 +262,7 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
 

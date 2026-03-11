@@ -177,6 +177,7 @@ secret = "sk-replace-me"
   - `position`：`nth` 或 `last_nth`
   - `index`：从 1 开始
   - 对 `messages`，索引基于扁平化后的 `messages[*].content` block；`content: "..."` 会先规范化为一个 text block
+  - 对 `messages`，如果配置了 `content_position` / `content_index`，则 `position` / `index` 先选 message，再由 `content_*` 在该 message 内选 block
 - `top_level` 目标会忽略 `position` / `index`
 - `ttl`：`auto` | `5m` | `1h`
   - `auto` 会注入 `{"type":"ephemeral"}`（不带 `ttl`）
@@ -208,7 +209,7 @@ cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "system", position = "last_nth", index = 1, ttl = "auto" },
   { target = "messages", position = "last_nth", index = 11, ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 2, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "5m" }
 ]
 
 [[channels]]
@@ -219,7 +220,7 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
 

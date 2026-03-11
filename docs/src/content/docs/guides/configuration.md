@@ -177,6 +177,7 @@ Rule model:
   - `position`: `nth` or `last_nth`
   - `index`: 1-based
   - for `messages`, the index is resolved against flattened `messages[*].content` blocks after shorthand normalization (`content: "..."` -> one text block)
+  - for `messages`, if `content_position` / `content_index` is set, `position` / `index` first selects a message and `content_*` then selects a block inside that message
 - for `top_level` target, `position` / `index` are ignored
 - `ttl`: `auto` | `5m` | `1h`
   - `auto` injects `{"type":"ephemeral"}` without `ttl`
@@ -208,7 +209,7 @@ cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "system", position = "last_nth", index = 1, ttl = "auto" },
   { target = "messages", position = "last_nth", index = 11, ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 2, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "5m" }
 ]
 
 [[channels]]
@@ -219,7 +220,7 @@ enabled = true
 base_url = "https://api.anthropic.com"
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
-  { target = "messages", position = "last_nth", index = 1, ttl = "1h" }
+  { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
 
