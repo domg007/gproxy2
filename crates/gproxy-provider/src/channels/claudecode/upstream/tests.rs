@@ -137,6 +137,19 @@ fn normalize_claudecode_unsupported_fields_removes_context_management() {
 }
 
 #[test]
+fn normalize_claudecode_unsupported_fields_removes_speed() {
+    let mut body = json!({
+        "model": "claude-opus-4-6",
+        "speed": "fast",
+        "messages": []
+    });
+
+    normalize_claudecode_unsupported_fields(&mut body);
+
+    assert!(body.get("speed").is_none());
+}
+
+#[test]
 fn ensure_oauth_beta_keeps_custom_and_only_adds_required_oauth_beta() {
     let mut headers = vec![(
         "anthropic-beta".to_string(),
