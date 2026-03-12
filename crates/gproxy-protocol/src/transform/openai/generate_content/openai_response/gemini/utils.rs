@@ -129,7 +129,7 @@ pub fn gemini_grounding_to_web_search_item(
 
     Some(rt::ResponseOutputItem::FunctionWebSearch(
         ot::ResponseFunctionWebSearch {
-            id: format!("web_search_{candidate_index}"),
+            id: Some(format!("web_search_{candidate_index}")),
             action: ot::ResponseFunctionWebSearchAction::Search {
                 query: queries.first().cloned(),
                 queries: if queries.len() > 1 {

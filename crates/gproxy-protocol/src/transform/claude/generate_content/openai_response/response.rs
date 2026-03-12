@@ -20,6 +20,30 @@ use crate::transform::claude::generate_content::utils::{
 use crate::transform::claude::utils::beta_error_response_from_status_message;
 use crate::transform::utils::TransformError;
 
+fn web_search_tool_use_id(
+    id: Option<String>,
+    action: &crate::openai::count_tokens::types::ResponseFunctionWebSearchAction,
+) -> String {
+    id.unwrap_or_else(|| match action {
+        crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::Search {
+            query,
+            queries,
+            ..
+        } => query
+            .clone()
+            .or_else(|| queries.as_ref().and_then(|items| items.first().cloned()))
+            .unwrap_or_else(|| "web_search".to_string()),
+        crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::OpenPage { url } => {
+            url.clone()
+                .unwrap_or_else(|| "web_search_open_page".to_string())
+        }
+        crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::FindInPage {
+            pattern,
+            url,
+        } => format!("web_search_find_in_page:{pattern}:{url}"),
+    })
+}
+
 impl TryFrom<OpenAiCreateResponseResponse> for ClaudeCreateMessageResponse {
     type Error = TransformError;
 
@@ -185,9 +209,14 @@ impl TryFrom<OpenAiCreateResponseResponse> for ClaudeCreateMessageResponse {
                         }
                         ResponseOutputItem::FunctionWebSearch(call) => {
                             has_tool_use = true;
+                            let crate::openai::count_tokens::types::ResponseFunctionWebSearch {
+                                id,
+                                action,
+                                ..
+                            } = call;
                             content.push(BetaContentBlock::ServerToolUse(
                                 crate::claude::create_message::types::BetaServerToolUseBlock {
-                                    id: call.id,
+                                    id: web_search_tool_use_id(id, &action),
                                     input: Default::default(),
                                     name: BetaServerToolUseName::WebSearch,
                                     type_: BetaServerToolUseBlockType::ServerToolUse,

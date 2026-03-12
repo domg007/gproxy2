@@ -188,6 +188,50 @@ mod tests {
     }
 
     #[test]
+    fn request_body_accepts_web_search_item_without_id() {
+        let value = json!({
+            "model": "gpt-5.3-codex",
+            "stream": true,
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "search docs"
+                        }
+                    ]
+                },
+                {
+                    "type": "web_search_call",
+                    "status": "completed",
+                    "action": {
+                        "type": "search",
+                        "query": "site:docs.astro.build Astro v6 upgrade guide migration",
+                        "queries": [
+                            "site:docs.astro.build Astro v6 upgrade guide migration"
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let body: RequestBody = serde_json::from_value(value).expect("request body should parse");
+        let Some(ResponseInput::Items(ref items)) = body.input else {
+            panic!("expected input items");
+        };
+
+        let Some(ResponseInputItem::FunctionWebSearch(web_search)) = items.get(1) else {
+            panic!("expected web search item");
+        };
+        assert!(web_search.id.is_none());
+
+        let encoded = serde_json::to_value(body).expect("request body should serialize");
+        assert!(encoded["input"][1].get("id").is_none());
+    }
+
+    #[test]
     fn request_body_preserves_empty_reasoning_summary() {
         let value = json!({
             "model": "gpt-5.3-codex",

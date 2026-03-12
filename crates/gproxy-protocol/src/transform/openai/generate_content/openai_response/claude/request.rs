@@ -37,6 +37,25 @@ fn push_block_message(
     });
 }
 
+fn web_search_tool_use_id(
+    id: Option<String>,
+    action: &ot::ResponseFunctionWebSearchAction,
+    sequence: usize,
+) -> String {
+    id.unwrap_or_else(|| match action {
+        ot::ResponseFunctionWebSearchAction::Search { query, queries, .. } => query
+            .clone()
+            .or_else(|| queries.as_ref().and_then(|items| items.first().cloned()))
+            .unwrap_or_else(|| format!("web_search_{sequence}")),
+        ot::ResponseFunctionWebSearchAction::OpenPage { url } => url
+            .clone()
+            .unwrap_or_else(|| format!("web_search_open_page_{sequence}")),
+        ot::ResponseFunctionWebSearchAction::FindInPage { pattern, url } => {
+            format!("web_search_find_in_page_{sequence}:{pattern}:{url}")
+        }
+    })
+}
+
 impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
     type Error = TransformError;
 
@@ -232,7 +251,8 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     }
                 }
                 ot::ResponseInputItem::FunctionWebSearch(call) => {
-                    let tool_use_id = call.id.clone();
+                    let tool_use_id =
+                        web_search_tool_use_id(call.id.clone(), &call.action, messages.len());
                     match call.action {
                         ot::ResponseFunctionWebSearchAction::Search {
                             query,

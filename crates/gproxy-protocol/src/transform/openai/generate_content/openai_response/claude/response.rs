@@ -172,7 +172,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                                 let (query, queries) = search_queries(&block.input);
                                 output.push(rt::ResponseOutputItem::FunctionWebSearch(
                                     ot::ResponseFunctionWebSearch {
-                                        id: call_id.clone(),
+                                        id: Some(call_id.clone()),
                                         action: ot::ResponseFunctionWebSearchAction::Search {
                                             query,
                                             queries,
@@ -198,7 +198,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                                     .map(ToString::to_string);
                                 output.push(rt::ResponseOutputItem::FunctionWebSearch(
                                     ot::ResponseFunctionWebSearch {
-                                        id: call_id.clone(),
+                                        id: Some(call_id.clone()),
                                         action: ot::ResponseFunctionWebSearchAction::OpenPage { url },
                                         status: ot::ResponseFunctionWebSearchStatus::InProgress,
                                         type_: ot::ResponseFunctionWebSearchType::WebSearchCall,
@@ -434,7 +434,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                         if !recorded_calls.contains_key(&block.tool_use_id) {
                             output.push(rt::ResponseOutputItem::FunctionWebSearch(
                                 ot::ResponseFunctionWebSearch {
-                                    id: block.tool_use_id,
+                                    id: Some(block.tool_use_id),
                                     action: ot::ResponseFunctionWebSearchAction::Search {
                                         query: None,
                                         queries: None,
@@ -461,7 +461,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                                 } else {
                                     output.push(rt::ResponseOutputItem::FunctionWebSearch(
                                         ot::ResponseFunctionWebSearch {
-                                            id: block.tool_use_id,
+                                            id: Some(block.tool_use_id),
                                             action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                 url: Some(result.url),
                                             },
@@ -481,7 +481,7 @@ impl TryFrom<ClaudeCreateMessageResponse> for OpenAiCreateResponseResponse {
                                 } else {
                                     output.push(rt::ResponseOutputItem::FunctionWebSearch(
                                         ot::ResponseFunctionWebSearch {
-                                            id: block.tool_use_id,
+                                            id: Some(block.tool_use_id),
                                             action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                 url: None,
                                             },

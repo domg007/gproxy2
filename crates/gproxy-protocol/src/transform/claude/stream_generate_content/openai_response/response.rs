@@ -69,6 +69,31 @@ impl Default for OpenAiResponseToClaudeStream {
 }
 
 impl OpenAiResponseToClaudeStream {
+    fn web_search_item_id(
+        id: Option<String>,
+        action: &crate::openai::count_tokens::types::ResponseFunctionWebSearchAction,
+    ) -> String {
+        id.unwrap_or_else(|| match action {
+            crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::Search {
+                query,
+                queries,
+                ..
+            } => query
+                .clone()
+                .or_else(|| queries.as_ref().and_then(|items| items.first().cloned()))
+                .unwrap_or_else(|| "web_search".to_string()),
+            crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::OpenPage {
+                url,
+            } => url
+                .clone()
+                .unwrap_or_else(|| "web_search_open_page".to_string()),
+            crate::openai::count_tokens::types::ResponseFunctionWebSearchAction::FindInPage {
+                pattern,
+                url,
+            } => format!("web_search_find_in_page:{pattern}:{url}"),
+        })
+    }
+
     pub fn is_finished(&self) -> bool {
         matches!(self.state, StreamState::Finished)
     }
@@ -281,7 +306,7 @@ impl OpenAiResponseToClaudeStream {
                 }
             }
             ResponseOutputItem::FunctionWebSearch(call) => {
-                let item_id = call.id;
+                let item_id = Self::web_search_item_id(call.id, &call.action);
                 let block_index = self.ensure_tool_block(out, &item_id, "web_search");
                 if let Ok(action_json) = serde_json::to_string(&call.action)
                     && !action_json.is_empty()

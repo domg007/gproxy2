@@ -567,7 +567,8 @@ pub enum ResponseToolSearchOutputType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseFunctionWebSearch {
-    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub action: ResponseFunctionWebSearchAction,
     pub status: ResponseFunctionWebSearchStatus,
     #[serde(rename = "type")]

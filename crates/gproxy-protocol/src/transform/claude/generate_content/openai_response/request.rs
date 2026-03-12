@@ -1113,7 +1113,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                 if !recorded_calls.contains_key(&block.tool_use_id) {
                                     input_items.push(ResponseInputItem::FunctionWebSearch(
                                         ot::ResponseFunctionWebSearch {
-                                            id: block.tool_use_id,
+                                            id: Some(block.tool_use_id),
                                             action: ot::ResponseFunctionWebSearchAction::Search {
                                                 query: None,
                                                 queries: None,
@@ -1146,7 +1146,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                         } else {
                                             input_items.push(ResponseInputItem::FunctionWebSearch(
                                                 ot::ResponseFunctionWebSearch {
-                                                    id: block.tool_use_id,
+                                                    id: Some(block.tool_use_id),
                                                     action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                         url: Some(result.url),
                                                     },
@@ -1166,7 +1166,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                         } else {
                                             input_items.push(ResponseInputItem::FunctionWebSearch(
                                                 ot::ResponseFunctionWebSearch {
-                                                    id: block.tool_use_id,
+                                                    id: Some(block.tool_use_id),
                                                     action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                         url: None,
                                                     },
@@ -1539,7 +1539,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                     ),
                                     ClaudeToolKind::WebSearch => ResponseInputItem::FunctionWebSearch(
                                         ot::ResponseFunctionWebSearch {
-                                            id: call_id.clone(),
+                                            id: Some(call_id.clone()),
                                             action: ot::ResponseFunctionWebSearchAction::Search {
                                                 query: str_field(&block.input, "query")
                                                     .map(ToString::to_string),
@@ -1555,7 +1555,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                     ),
                                     ClaudeToolKind::WebFetch => ResponseInputItem::FunctionWebSearch(
                                         ot::ResponseFunctionWebSearch {
-                                            id: call_id.clone(),
+                                            id: Some(call_id.clone()),
                                             action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                 url: str_field(&block.input, "url")
                                                     .map(ToString::to_string),
@@ -1606,7 +1606,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                     }
                                     ct::BetaServerToolUseName::WebSearch => {
                                         ResponseInputItem::FunctionWebSearch(ot::ResponseFunctionWebSearch {
-                                            id: call_id.clone(),
+                                            id: Some(call_id.clone()),
                                             action: ot::ResponseFunctionWebSearchAction::Search {
                                                 query: str_field(&block.input, "query")
                                                     .map(ToString::to_string),
@@ -1622,7 +1622,7 @@ impl TryFrom<ClaudeCreateMessageRequest> for OpenAiCreateResponseRequest {
                                     }
                                     ct::BetaServerToolUseName::WebFetch => {
                                         ResponseInputItem::FunctionWebSearch(ot::ResponseFunctionWebSearch {
-                                            id: call_id.clone(),
+                                            id: Some(call_id.clone()),
                                             action: ot::ResponseFunctionWebSearchAction::OpenPage {
                                                 url: str_field(&block.input, "url")
                                                     .map(ToString::to_string),
