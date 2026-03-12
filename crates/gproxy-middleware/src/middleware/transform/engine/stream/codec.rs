@@ -63,6 +63,23 @@ pub(super) fn parse_sse_fields(
     Ok(Some((event, data_lines.join("\n"))))
 }
 
+fn is_openai_keepalive_frame(event_name: Option<&str>, data: &str) -> bool {
+    if matches!(event_name, Some("keepalive")) {
+        return true;
+    }
+
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .as_deref()
+        == Some("keepalive")
+}
+
 pub(super) fn decode_sse_frame(
     protocol: ProtocolKind,
     frame: &[u8],
@@ -72,21 +89,27 @@ pub(super) fn decode_sse_frame(
     };
 
     Ok(Some(match protocol {
-        ProtocolKind::OpenAi => SourceStreamEvent::OpenAiResponse(OpenAiCreateResponseSseEvent {
-            event: event_name,
-            data: if data == "[DONE]" {
-                OpenAiCreateResponseSseData::Done(data)
-            } else {
-                OpenAiCreateResponseSseData::Event(serde_json::from_str(&data).map_err(|err| {
-                    MiddlewareTransformError::JsonDecode {
-                        kind: "response_stream",
-                        operation: OperationFamily::StreamGenerateContent,
-                        protocol,
-                        message: err.to_string(),
-                    }
-                })?)
-            },
-        }),
+        ProtocolKind::OpenAi => {
+            if is_openai_keepalive_frame(event_name.as_deref(), &data) {
+                return Ok(None);
+            }
+
+            SourceStreamEvent::OpenAiResponse(OpenAiCreateResponseSseEvent {
+                event: event_name,
+                data: if data == "[DONE]" {
+                    OpenAiCreateResponseSseData::Done(data)
+                } else {
+                    OpenAiCreateResponseSseData::Event(serde_json::from_str(&data).map_err(
+                        |err| MiddlewareTransformError::JsonDecode {
+                            kind: "response_stream",
+                            operation: OperationFamily::StreamGenerateContent,
+                            protocol,
+                            message: err.to_string(),
+                        },
+                    )?)
+                },
+            })
+        }
         ProtocolKind::OpenAiChatCompletion => {
             SourceStreamEvent::OpenAiChat(OpenAiChatCompletionsSseEvent {
                 event: event_name,
@@ -326,4 +349,20 @@ pub(super) fn encode_openai_chat_sse_event(
         OpenAiChatCompletionsSseData::Done(done) => done,
     };
     Ok(encode_sse_frame(event.event.as_deref(), &data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_openai_sse_frame_ignores_keepalive_events() {
+        let frame = b"event: keepalive\ndata: {\"type\":\"keepalive\",\"sequence_number\":3}\n\n";
+
+        let event = decode_sse_frame(ProtocolKind::OpenAi, frame)
+            .expect("keepalive frame should decode")
+            .is_none();
+
+        assert!(event);
+    }
 }
