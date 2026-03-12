@@ -10,9 +10,9 @@ use crate::openai::count_tokens::types as ot;
 use crate::openai::create_chat_completions::request::OpenAiChatCompletionsRequest;
 use crate::openai::create_chat_completions::types as oct;
 use crate::transform::openai::count_tokens::claude::utils::{
-    mcp_allowed_tools_to_configs, openai_mcp_tool_to_server, openai_message_content_to_claude,
-    openai_reasoning_to_claude, openai_role_to_claude, openai_tool_choice_to_claude,
-    parallel_disable, tool_from_function,
+    ClaudeToolUseIdMapper, mcp_allowed_tools_to_configs, openai_mcp_tool_to_server,
+    openai_message_content_to_claude, openai_reasoning_to_claude, openai_role_to_claude,
+    openai_tool_choice_to_claude, parallel_disable, tool_from_function,
 };
 use crate::transform::openai::count_tokens::openai::utils::openai_message_content_to_text;
 use crate::transform::openai::generate_content::openai_chat_completions::openai::utils::{
@@ -63,6 +63,7 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
         let mut messages = Vec::new();
         let mut system_blocks = Vec::new();
         let mut seen_non_system = false;
+        let mut tool_use_ids = ClaudeToolUseIdMapper::default();
 
         for (message_index, message) in chat_messages.into_iter().enumerate() {
             match message {
@@ -162,9 +163,11 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                     }
 
                     if let Some(function_call) = function_call {
+                        let tool_use_id =
+                            tool_use_ids.tool_use_id(format!("function_call_{message_index}"));
                         blocks.push(ct::BetaContentBlockParam::ToolUse(
                             ct::BetaToolUseBlockParam {
-                                id: format!("function_call_{}", function_call.name),
+                                id: tool_use_id,
                                 input: parse_tool_use_input(function_call.arguments),
                                 name: function_call.name,
                                 type_: ct::BetaToolUseBlockType::ToolUse,
@@ -178,9 +181,10 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                         for call in tool_calls {
                             match call {
                                 oct::ChatCompletionMessageToolCall::Function(call) => {
+                                    let tool_use_id = tool_use_ids.tool_use_id(call.id);
                                     blocks.push(ct::BetaContentBlockParam::ToolUse(
                                         ct::BetaToolUseBlockParam {
-                                            id: call.id,
+                                            id: tool_use_id,
                                             input: parse_tool_use_input(call.function.arguments),
                                             name: call.function.name,
                                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -190,9 +194,10 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                                     ));
                                 }
                                 oct::ChatCompletionMessageToolCall::Custom(call) => {
+                                    let tool_use_id = tool_use_ids.tool_use_id(call.id);
                                     blocks.push(ct::BetaContentBlockParam::ToolUse(
                                         ct::BetaToolUseBlockParam {
-                                            id: call.id,
+                                            id: tool_use_id,
                                             input: parse_tool_use_input(call.custom.input),
                                             name: call.custom.name,
                                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -215,10 +220,11 @@ impl TryFrom<OpenAiChatCompletionsRequest> for ClaudeCreateMessageRequest {
                 oct::ChatCompletionMessageParam::Tool(message) => {
                     seen_non_system = true;
                     let text = chat_text_content_to_plain_text(&message.content);
+                    let tool_use_id = tool_use_ids.tool_use_id(message.tool_call_id);
                     messages.push(ct::BetaMessageParam {
                         content: ct::BetaMessageContent::Blocks(vec![
                             ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                                tool_use_id: message.tool_call_id,
+                                tool_use_id,
                                 type_: ct::BetaToolResultBlockType::ToolResult,
                                 cache_control: None,
                                 content: if text.is_empty() {

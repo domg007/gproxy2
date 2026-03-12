@@ -1,7 +1,110 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::claude::count_tokens::types as ct;
 use crate::openai::count_tokens::types as ot;
+
+const CLAUDE_TOOL_USE_ID_PREFIX: &str = "toolu_";
+const CLAUDE_SERVER_TOOL_USE_ID_PREFIX: &str = "srvtoolu_";
+
+fn claude_tool_use_id_matches(id: &str, prefix: &str) -> bool {
+    id.strip_prefix(prefix).is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    })
+}
+
+fn sanitize_claude_tool_use_suffix(id: &str) -> String {
+    let mut suffix = String::new();
+    let mut previous_was_underscore = false;
+
+    for ch in id.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() || ch == '_' {
+            ch
+        } else {
+            '_'
+        };
+
+        if mapped == '_' {
+            if suffix.is_empty() || previous_was_underscore {
+                continue;
+            }
+            previous_was_underscore = true;
+        } else {
+            previous_was_underscore = false;
+        }
+
+        suffix.push(mapped);
+    }
+
+    while suffix.ends_with('_') {
+        suffix.pop();
+    }
+
+    if suffix.is_empty() {
+        "generated".to_string()
+    } else {
+        suffix
+    }
+}
+
+fn normalize_claude_tool_use_id(
+    mappings: &mut BTreeMap<String, String>,
+    used_ids: &mut BTreeSet<String>,
+    original: String,
+    prefix: &str,
+) -> String {
+    if let Some(existing) = mappings.get(&original) {
+        return existing.clone();
+    }
+
+    let base = if claude_tool_use_id_matches(&original, prefix) {
+        original.clone()
+    } else {
+        let raw_suffix = original.strip_prefix(prefix).unwrap_or(&original);
+        format!("{prefix}{}", sanitize_claude_tool_use_suffix(raw_suffix))
+    };
+
+    let mut candidate = base.clone();
+    let mut suffix = 1usize;
+    while used_ids.contains(&candidate) {
+        candidate = format!("{base}_{suffix}");
+        suffix += 1;
+    }
+
+    mappings.insert(original, candidate.clone());
+    used_ids.insert(candidate.clone());
+    candidate
+}
+
+#[derive(Debug, Default)]
+pub struct ClaudeToolUseIdMapper {
+    tool_use_ids: BTreeMap<String, String>,
+    used_tool_use_ids: BTreeSet<String>,
+    server_tool_use_ids: BTreeMap<String, String>,
+    used_server_tool_use_ids: BTreeSet<String>,
+}
+
+impl ClaudeToolUseIdMapper {
+    pub fn tool_use_id(&mut self, original: impl Into<String>) -> String {
+        normalize_claude_tool_use_id(
+            &mut self.tool_use_ids,
+            &mut self.used_tool_use_ids,
+            original.into(),
+            CLAUDE_TOOL_USE_ID_PREFIX,
+        )
+    }
+
+    pub fn server_tool_use_id(&mut self, original: impl Into<String>) -> String {
+        normalize_claude_tool_use_id(
+            &mut self.server_tool_use_ids,
+            &mut self.used_server_tool_use_ids,
+            original.into(),
+            CLAUDE_SERVER_TOOL_USE_ID_PREFIX,
+        )
+    }
+}
 
 fn text_block(text: String) -> ct::BetaContentBlockParam {
     ct::BetaContentBlockParam::Text(ct::BetaTextBlockParam {
@@ -344,6 +447,41 @@ pub fn openai_tool_choice_to_claude(
             }))
         }
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tool_use_id_tests {
+    use super::ClaudeToolUseIdMapper;
+
+    #[test]
+    fn tool_use_id_mapper_preserves_valid_ids_and_sanitizes_invalid_ones() {
+        let mut mapper = ClaudeToolUseIdMapper::default();
+
+        assert_eq!(mapper.tool_use_id("toolu_valid_1"), "toolu_valid_1");
+        assert_eq!(mapper.tool_use_id("call-1"), "toolu_call_1");
+        assert_eq!(
+            mapper.server_tool_use_id("srvtoolu_valid_2"),
+            "srvtoolu_valid_2"
+        );
+        assert_eq!(mapper.server_tool_use_id("bash 1"), "srvtoolu_bash_1");
+    }
+
+    #[test]
+    fn tool_use_id_mapper_reuses_existing_mappings_and_avoids_collisions() {
+        let mut mapper = ClaudeToolUseIdMapper::default();
+
+        let first = mapper.tool_use_id("call-1");
+        let repeated = mapper.tool_use_id("call-1");
+        let colliding = mapper.tool_use_id("call_1");
+        let server_first = mapper.server_tool_use_id("web/search");
+        let server_colliding = mapper.server_tool_use_id("web search");
+
+        assert_eq!(first, "toolu_call_1");
+        assert_eq!(repeated, first);
+        assert_eq!(colliding, "toolu_call_1_1");
+        assert_eq!(server_first, "srvtoolu_web_search");
+        assert_eq!(server_colliding, "srvtoolu_web_search_1");
     }
 }
 

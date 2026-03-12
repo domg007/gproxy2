@@ -9,9 +9,10 @@ use crate::openai::count_tokens::types as ot;
 use crate::openai::create_response::request::OpenAiCreateResponseRequest;
 use crate::openai::create_response::types::{ResponseContextManagementType, ResponseServiceTier};
 use crate::transform::openai::count_tokens::claude::utils::{
-    mcp_allowed_tools_to_configs, openai_mcp_tool_to_server, openai_message_content_to_claude,
-    openai_reasoning_to_claude, openai_role_to_claude, openai_tool_choice_to_claude,
-    parallel_disable, response_input_contents_to_tool_result_content, tool_from_function,
+    ClaudeToolUseIdMapper, mcp_allowed_tools_to_configs, openai_mcp_tool_to_server,
+    openai_message_content_to_claude, openai_reasoning_to_claude, openai_role_to_claude,
+    openai_tool_choice_to_claude, parallel_disable, response_input_contents_to_tool_result_content,
+    tool_from_function,
 };
 use crate::transform::openai::count_tokens::openai::utils::{
     openai_input_to_items, openai_reasoning_summary_to_text,
@@ -43,15 +44,12 @@ fn web_search_tool_use_id(
     sequence: usize,
 ) -> String {
     id.unwrap_or_else(|| match action {
-        ot::ResponseFunctionWebSearchAction::Search { query, queries, .. } => query
-            .clone()
-            .or_else(|| queries.as_ref().and_then(|items| items.first().cloned()))
-            .unwrap_or_else(|| format!("web_search_{sequence}")),
-        ot::ResponseFunctionWebSearchAction::OpenPage { url } => url
-            .clone()
-            .unwrap_or_else(|| format!("web_search_open_page_{sequence}")),
-        ot::ResponseFunctionWebSearchAction::FindInPage { pattern, url } => {
-            format!("web_search_find_in_page_{sequence}:{pattern}:{url}")
+        ot::ResponseFunctionWebSearchAction::Search { .. } => format!("web_search_{sequence}"),
+        ot::ResponseFunctionWebSearchAction::OpenPage { .. } => {
+            format!("web_search_open_page_{sequence}")
+        }
+        ot::ResponseFunctionWebSearchAction::FindInPage { .. } => {
+            format!("web_search_find_in_page_{sequence}")
         }
     })
 }
@@ -62,6 +60,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
     fn try_from(value: OpenAiCreateResponseRequest) -> Result<Self, TransformError> {
         let body = value.body;
         let mut messages = Vec::new();
+        let mut tool_use_ids = ClaudeToolUseIdMapper::default();
 
         for item in openai_input_to_items(body.input.clone()) {
             match item {
@@ -90,11 +89,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     }
                 }
                 ot::ResponseInputItem::FunctionToolCall(tool_call) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                            id: tool_call.call_id,
+                            id: tool_use_id,
                             input: parse_tool_use_input(tool_call.arguments),
                             name: tool_call.name,
                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -104,11 +104,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     );
                 }
                 ot::ResponseInputItem::CustomToolCall(tool_call) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                            id: tool_call.call_id,
+                            id: tool_use_id,
                             input: parse_tool_use_input(tool_call.input),
                             name: tool_call.name,
                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -118,6 +119,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     );
                 }
                 ot::ResponseInputItem::FunctionCallOutput(tool_result) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_result.call_id);
                     let content = match tool_result.output {
                         ot::ResponseFunctionCallOutputContent::Text(text) => (!text.is_empty())
                             .then_some(ct::BetaToolResultBlockParamContent::Text(text)),
@@ -129,7 +131,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         &mut messages,
                         ct::BetaMessageRole::User,
                         ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                            tool_use_id: tool_result.call_id,
+                            tool_use_id,
                             type_: ct::BetaToolResultBlockType::ToolResult,
                             cache_control: None,
                             content,
@@ -138,6 +140,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     );
                 }
                 ot::ResponseInputItem::CustomToolCallOutput(tool_result) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_result.call_id);
                     let content = match tool_result.output {
                         ot::ResponseCustomToolCallOutputContent::Text(text) => (!text.is_empty())
                             .then_some(ct::BetaToolResultBlockParamContent::Text(text)),
@@ -149,7 +152,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         &mut messages,
                         ct::BetaMessageRole::User,
                         ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                            tool_use_id: tool_result.call_id,
+                            tool_use_id,
                             type_: ct::BetaToolResultBlockType::ToolResult,
                             cache_control: None,
                             content,
@@ -199,7 +202,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             serde_json::Value::String(call.container_id),
                         );
                     }
-                    let tool_use_id = call.id.clone();
+                    let tool_use_id = tool_use_ids.server_tool_use_id(call.id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
@@ -251,7 +254,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     }
                 }
                 ot::ResponseInputItem::FunctionWebSearch(call) => {
-                    let tool_use_id =
+                    let raw_tool_use_id =
                         web_search_tool_use_id(call.id.clone(), &call.action, messages.len());
                     match call.action {
                         ot::ResponseFunctionWebSearchAction::Search {
@@ -259,6 +262,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             queries,
                             sources,
                         } => {
+                            let tool_use_id = tool_use_ids.server_tool_use_id(raw_tool_use_id);
                             let mut input = ct::JsonObject::new();
                             if let Some(query) = query.clone() {
                                 input.insert("query".to_string(), serde_json::Value::String(query));
@@ -313,6 +317,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             }
                         }
                         ot::ResponseFunctionWebSearchAction::OpenPage { url } => {
+                            let tool_use_id = tool_use_ids.server_tool_use_id(raw_tool_use_id);
                             let mut input = ct::JsonObject::new();
                             if let Some(url) = url.clone() {
                                 input.insert("url".to_string(), serde_json::Value::String(url));
@@ -333,6 +338,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             );
                         }
                         ot::ResponseFunctionWebSearchAction::FindInPage { pattern, url } => {
+                            let tool_use_id = tool_use_ids.tool_use_id(raw_tool_use_id);
                             let mut input = ct::JsonObject::new();
                             input.insert("pattern".to_string(), serde_json::Value::String(pattern));
                             input.insert("url".to_string(), serde_json::Value::String(url));
@@ -369,11 +375,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             serde_json::Value::Number(timeout_ms.into()),
                         );
                     }
+                    let tool_use_id = tool_use_ids.server_tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ServerToolUse(ct::BetaServerToolUseBlockParam {
-                            id: call.call_id,
+                            id: tool_use_id,
                             input,
                             name: ct::BetaServerToolUseName::BashCodeExecution,
                             type_: ct::BetaServerToolUseBlockType::ServerToolUse,
@@ -384,6 +391,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                 }
                 ot::ResponseInputItem::ShellCallOutput(call) => {
                     if let Some(first) = call.output.into_iter().next() {
+                        let tool_use_id = tool_use_ids.server_tool_use_id(call.call_id);
                         let content = match first.outcome {
                             ot::ResponseShellCallOutcome::Timeout => {
                                 ct::BetaBashCodeExecutionToolResultBlockParamContent::Error(
@@ -411,7 +419,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             ct::BetaContentBlockParam::BashCodeExecutionToolResult(
                                 ct::BetaBashCodeExecutionToolResultBlockParam {
                                     content,
-                                    tool_use_id: call.call_id,
+                                    tool_use_id,
                                     type_: ct::BetaBashCodeExecutionToolResultBlockType::BashCodeExecutionToolResult,
                                     cache_control: None,
                                 },
@@ -424,11 +432,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         .ok()
                         .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
                         .unwrap_or_default();
+                    let tool_use_id = tool_use_ids.tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                            id: call.call_id,
+                            id: tool_use_id,
                             input,
                             name: "bash".to_string(),
                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -438,11 +447,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     );
                 }
                 ot::ResponseInputItem::LocalShellCallOutput(call) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(call.id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::User,
                         ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                            tool_use_id: call.id,
+                            tool_use_id,
                             type_: ct::BetaToolResultBlockType::ToolResult,
                             cache_control: None,
                             content: (!call.output.is_empty())
@@ -456,11 +466,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         .ok()
                         .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
                         .unwrap_or_default();
+                    let tool_use_id = tool_use_ids.tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                            id: call.call_id,
+                            id: tool_use_id,
                             input,
                             name: "str_replace_based_edit_tool".to_string(),
                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -473,11 +484,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                     let text = call
                         .output
                         .unwrap_or_else(|| format!("status:{:?}", call.status));
+                    let tool_use_id = tool_use_ids.tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::User,
                         ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                            tool_use_id: call.call_id,
+                            tool_use_id,
                             type_: ct::BetaToolResultBlockType::ToolResult,
                             cache_control: None,
                             content: (!text.is_empty())
@@ -491,11 +503,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                         .ok()
                         .and_then(|value| serde_json::from_value::<ct::JsonObject>(value).ok())
                         .unwrap_or_default();
+                    let tool_use_id = tool_use_ids.tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
                         ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                            id: call.call_id,
+                            id: tool_use_id,
                             input,
                             name: "computer".to_string(),
                             type_: ct::BetaToolUseBlockType::ToolUse,
@@ -521,11 +534,12 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             image_url: Some(image_url),
                         }));
                     }
+                    let tool_use_id = tool_use_ids.tool_use_id(call.call_id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::User,
                         ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                            tool_use_id: call.call_id,
+                            tool_use_id,
                             type_: ct::BetaToolResultBlockType::ToolResult,
                             cache_control: None,
                             content: response_input_contents_to_tool_result_content(parts),
@@ -550,7 +564,7 @@ impl TryFrom<OpenAiCreateResponseRequest> for ClaudeCreateMessageRequest {
                             ),
                         );
                     }
-                    let tool_use_id = call.id.clone();
+                    let tool_use_id = tool_use_ids.server_tool_use_id(call.id);
                     push_block_message(
                         &mut messages,
                         ct::BetaMessageRole::Assistant,
@@ -993,7 +1007,7 @@ mod tests {
                 input: Some(ot::ResponseInput::Items(vec![
                     ot::ResponseInputItem::CodeInterpreterToolCall(
                         ot::ResponseCodeInterpreterToolCall {
-                            id: "code_1".to_string(),
+                            id: "code-1".to_string(),
                             code: "print(1)".to_string(),
                             container_id: "container_1".to_string(),
                             outputs: Some(vec![ot::ResponseCodeInterpreterOutputItem::Logs {
@@ -1009,14 +1023,14 @@ mod tests {
                             max_output_length: None,
                             timeout_ms: Some(3_000),
                         },
-                        call_id: "bash_1".to_string(),
+                        call_id: "bash 1".to_string(),
                         type_: ot::ResponseShellCallType::ShellCall,
-                        id: Some("bash_1".to_string()),
+                        id: Some("bash 1".to_string()),
                         environment: None,
                         status: Some(ot::ResponseItemStatus::Completed),
                     }),
                     ot::ResponseInputItem::ShellCallOutput(ot::ResponseShellCallOutput {
-                        call_id: "bash_1".to_string(),
+                        call_id: "bash 1".to_string(),
                         output: vec![ot::ResponseFunctionShellCallOutputContent {
                             outcome: ot::ResponseShellCallOutcome::Exit { exit_code: 0 },
                             stderr: String::new(),
@@ -1028,24 +1042,24 @@ mod tests {
                         status: Some(ot::ResponseItemStatus::Completed),
                     }),
                     ot::ResponseInputItem::ApplyPatchCall(ot::ResponseApplyPatchCall {
-                        call_id: "edit_1".to_string(),
+                        call_id: "edit:1".to_string(),
                         operation: ot::ResponseApplyPatchOperation::UpdateFile {
                             diff: "@@ -1 +1 @@".to_string(),
                             path: "src/lib.rs".to_string(),
                         },
                         status: ot::ResponseApplyPatchCallStatus::Completed,
                         type_: ot::ResponseApplyPatchCallType::ApplyPatchCall,
-                        id: Some("edit_1".to_string()),
+                        id: Some("edit:1".to_string()),
                     }),
                     ot::ResponseInputItem::ApplyPatchCallOutput(ot::ResponseApplyPatchCallOutput {
-                        call_id: "edit_1".to_string(),
+                        call_id: "edit:1".to_string(),
                         status: ot::ResponseApplyPatchCallOutputStatus::Completed,
                         type_: ot::ResponseApplyPatchCallOutputType::ApplyPatchCallOutput,
                         id: None,
                         output: Some("patched".to_string()),
                     }),
                     ot::ResponseInputItem::FileSearchToolCall(ot::ResponseFileSearchToolCall {
-                        id: "search_1".to_string(),
+                        id: "search/1".to_string(),
                         queries: vec!["needle".to_string()],
                         status: ot::ResponseFileSearchToolCallStatus::Completed,
                         type_: ot::ResponseFileSearchToolCallType::FileSearchCall,
@@ -1070,33 +1084,104 @@ mod tests {
 
         assert_eq!(messages[0]["content"][0]["type"], json!("server_tool_use"));
         assert_eq!(messages[0]["content"][0]["name"], json!("code_execution"));
+        assert_eq!(messages[0]["content"][0]["id"], json!("srvtoolu_code_1"));
         assert_eq!(
             messages[1]["content"][0]["type"],
             json!("code_execution_tool_result")
+        );
+        assert_eq!(
+            messages[1]["content"][0]["tool_use_id"],
+            json!("srvtoolu_code_1")
         );
         assert_eq!(messages[2]["content"][0]["type"], json!("server_tool_use"));
         assert_eq!(
             messages[2]["content"][0]["name"],
             json!("bash_code_execution")
         );
+        assert_eq!(messages[2]["content"][0]["id"], json!("srvtoolu_bash_1"));
         assert_eq!(
             messages[3]["content"][0]["type"],
             json!("bash_code_execution_tool_result")
+        );
+        assert_eq!(
+            messages[3]["content"][0]["tool_use_id"],
+            json!("srvtoolu_bash_1")
         );
         assert_eq!(messages[4]["content"][0]["type"], json!("tool_use"));
         assert_eq!(
             messages[4]["content"][0]["name"],
             json!("str_replace_based_edit_tool")
         );
+        assert_eq!(messages[4]["content"][0]["id"], json!("toolu_edit_1"));
         assert_eq!(messages[5]["content"][0]["type"], json!("tool_result"));
+        assert_eq!(
+            messages[5]["content"][0]["tool_use_id"],
+            json!("toolu_edit_1")
+        );
         assert_eq!(messages[6]["content"][0]["type"], json!("server_tool_use"));
         assert_eq!(
             messages[6]["content"][0]["name"],
             json!("tool_search_tool_bm25")
         );
+        assert_eq!(messages[6]["content"][0]["id"], json!("srvtoolu_search_1"));
         assert_eq!(
             messages[7]["content"][0]["type"],
             json!("tool_search_tool_result")
+        );
+        assert_eq!(
+            messages[7]["content"][0]["tool_use_id"],
+            json!("srvtoolu_search_1")
+        );
+    }
+
+    #[test]
+    fn response_web_search_history_generates_unique_server_tool_use_ids() {
+        let request = OpenAiCreateResponseRequest {
+            body: oreq::RequestBody {
+                model: Some("claude-sonnet-4-6".to_string()),
+                input: Some(ot::ResponseInput::Items(vec![
+                    ot::ResponseInputItem::FunctionWebSearch(ot::ResponseFunctionWebSearch {
+                        id: None,
+                        action: ot::ResponseFunctionWebSearchAction::Search {
+                            query: Some("rust".to_string()),
+                            queries: None,
+                            sources: None,
+                        },
+                        status: ot::ResponseFunctionWebSearchStatus::Completed,
+                        type_: ot::ResponseFunctionWebSearchType::WebSearchCall,
+                    }),
+                    ot::ResponseInputItem::FunctionWebSearch(ot::ResponseFunctionWebSearch {
+                        id: None,
+                        action: ot::ResponseFunctionWebSearchAction::Search {
+                            query: Some("rust".to_string()),
+                            queries: None,
+                            sources: None,
+                        },
+                        status: ot::ResponseFunctionWebSearchStatus::Completed,
+                        type_: ot::ResponseFunctionWebSearchType::WebSearchCall,
+                    }),
+                ])),
+                ..oreq::RequestBody::default()
+            },
+            ..OpenAiCreateResponseRequest::default()
+        };
+
+        let converted = ClaudeCreateMessageRequest::try_from(request)
+            .expect("response request should convert to claude");
+        let encoded = serde_json::to_value(converted).expect("claude request should serialize");
+        let messages = encoded["body"]["messages"]
+            .as_array()
+            .expect("claude messages should be an array");
+
+        assert_eq!(messages[0]["content"][0]["type"], json!("server_tool_use"));
+        assert_eq!(
+            messages[0]["content"][0]["id"],
+            json!("srvtoolu_web_search_0")
+        );
+        assert_eq!(messages[1]["content"][0]["type"], json!("server_tool_use"));
+        assert_eq!(
+            messages[1]["content"][0]["id"],
+            json!("srvtoolu_web_search_1")
         );
     }
 }

@@ -5,9 +5,9 @@ use crate::claude::count_tokens::types as ct;
 use crate::openai::count_tokens::request::OpenAiCountTokensRequest;
 use crate::openai::count_tokens::types as ot;
 use crate::transform::openai::count_tokens::claude::utils::{
-    mcp_allowed_tools_to_configs, openai_mcp_tool_to_server, openai_message_content_to_claude,
-    openai_reasoning_to_claude, openai_role_to_claude, openai_tool_choice_to_claude,
-    parallel_disable, tool_from_function,
+    ClaudeToolUseIdMapper, mcp_allowed_tools_to_configs, openai_mcp_tool_to_server,
+    openai_message_content_to_claude, openai_reasoning_to_claude, openai_role_to_claude,
+    openai_tool_choice_to_claude, parallel_disable, tool_from_function,
 };
 use crate::transform::openai::count_tokens::openai::utils::{
     openai_function_call_output_content_to_text, openai_input_to_items,
@@ -21,6 +21,7 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
     fn try_from(value: OpenAiCountTokensRequest) -> Result<Self, TransformError> {
         let body = value.body;
         let mut messages = Vec::new();
+        let mut tool_use_ids = ClaudeToolUseIdMapper::default();
 
         for item in openai_input_to_items(body.input) {
             match item {
@@ -49,12 +50,13 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
                     }
                 }
                 ot::ResponseInputItem::FunctionToolCall(tool_call) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_call.call_id);
                     let input = serde_json::from_str::<ct::JsonObject>(&tool_call.arguments)
                         .unwrap_or_default();
                     messages.push(ct::BetaMessageParam {
                         content: ct::BetaMessageContent::Blocks(vec![
                             ct::BetaContentBlockParam::ToolUse(ct::BetaToolUseBlockParam {
-                                id: tool_call.call_id,
+                                id: tool_use_id,
                                 input,
                                 name: tool_call.name,
                                 type_: ct::BetaToolUseBlockType::ToolUse,
@@ -66,12 +68,13 @@ impl TryFrom<OpenAiCountTokensRequest> for ClaudeCountTokensRequest {
                     });
                 }
                 ot::ResponseInputItem::FunctionCallOutput(tool_result) => {
+                    let tool_use_id = tool_use_ids.tool_use_id(tool_result.call_id);
                     let output_text =
                         openai_function_call_output_content_to_text(&tool_result.output);
                     messages.push(ct::BetaMessageParam {
                         content: ct::BetaMessageContent::Blocks(vec![
                             ct::BetaContentBlockParam::ToolResult(ct::BetaToolResultBlockParam {
-                                tool_use_id: tool_result.call_id,
+                                tool_use_id,
                                 type_: ct::BetaToolResultBlockType::ToolResult,
                                 cache_control: None,
                                 content: if output_text.is_empty() {
