@@ -169,9 +169,12 @@ fn transform_request_gemini_live_to_openai_ws_direct() {
 fn transform_response_openai_ws_to_gemini_live_direct() {
     let input = TransformResponse::OpenAiResponseWebSocket(vec![
         OpenAiCreateResponseWebSocketServerMessage::StreamEvent(ResponseStreamEvent::Error {
-            code: "invalid_prompt".to_string(),
-            message: "bad prompt".to_string(),
-            param: None,
+            error: gproxy_protocol::openai::create_response::stream::ResponseStreamErrorPayload {
+                type_: "stream_error".to_string(),
+                code: Some("invalid_prompt".to_string()),
+                message: "bad prompt".to_string(),
+                param: None,
+            },
             sequence_number: 1,
         }),
     ]);

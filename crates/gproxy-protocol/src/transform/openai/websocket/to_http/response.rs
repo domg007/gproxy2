@@ -31,14 +31,17 @@ fn wrapped_error_to_stream_event(
     }
     let payload = event.error.unwrap_or_default();
     ResponseStreamEvent::Error {
-        code: payload
-            .code
-            .or(payload.type_)
-            .unwrap_or_else(|| FALLBACK_WS_ERROR_CODE.to_string()),
-        message: payload
-            .message
-            .unwrap_or_else(|| FALLBACK_WS_ERROR_MESSAGE.to_string()),
-        param: payload.param,
+        error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+            type_: payload
+                .type_
+                .or_else(|| payload.code.clone())
+                .unwrap_or_else(|| FALLBACK_WS_ERROR_CODE.to_string()),
+            code: payload.code,
+            message: payload
+                .message
+                .unwrap_or_else(|| FALLBACK_WS_ERROR_MESSAGE.to_string()),
+            param: payload.param,
+        },
         sequence_number,
     }
 }
@@ -48,13 +51,12 @@ fn api_error_to_stream_event(
     sequence_number: u64,
 ) -> ResponseStreamEvent {
     ResponseStreamEvent::Error {
-        code: event
-            .error
-            .code
-            .clone()
-            .unwrap_or_else(|| event.error.type_.clone()),
-        message: event.error.message,
-        param: event.error.param,
+        error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+            type_: event.error.type_,
+            code: event.error.code,
+            message: event.error.message,
+            param: event.error.param,
+        },
         sequence_number,
     }
 }
@@ -204,8 +206,8 @@ mod tests {
         assert_eq!(sse.events.len(), 1);
 
         match &sse.events[0].data {
-            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error { code, .. }) => {
-                assert_eq!(code, "rate_limit_exceeded");
+            OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error { error, .. }) => {
+                assert_eq!(error.code.as_deref(), Some("rate_limit_exceeded"));
             }
             _ => panic!("expected OpenAI SSE error event"),
         }
@@ -233,9 +235,12 @@ mod tests {
     fn stream_event_passes_through() {
         let message =
             OpenAiCreateResponseWebSocketServerMessage::StreamEvent(ResponseStreamEvent::Error {
-                code: "invalid_prompt".to_string(),
-                message: "bad prompt".to_string(),
-                param: None,
+                error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+                    type_: "stream_error".to_string(),
+                    code: Some("invalid_prompt".to_string()),
+                    message: "bad prompt".to_string(),
+                    param: None,
+                },
                 sequence_number: 1,
             });
 

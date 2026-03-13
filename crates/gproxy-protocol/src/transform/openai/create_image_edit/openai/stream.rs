@@ -77,17 +77,18 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateImageEditSseStre
                     });
                 }
                 OpenAiCreateResponseSseData::Event(event) => match event {
-                    ResponseStreamEvent::Error {
-                        code,
-                        message,
-                        param,
-                        ..
-                    } => events.push(OpenAiCreateImageEditSseEvent {
-                        event: sse_event.event,
-                        data: OpenAiCreateImageEditSseData::Event(ImageEditStreamEvent::Error {
-                            error: stream_error_from_response_error(code, message, param),
-                        }),
-                    }),
+                    ResponseStreamEvent::Error { error, .. } => {
+                        events.push(OpenAiCreateImageEditSseEvent {
+                            event: sse_event.event,
+                            data: OpenAiCreateImageEditSseData::Event(ImageEditStreamEvent::Error {
+                                error: stream_error_from_response_error(
+                                    Some(error.code_or_type().to_string()),
+                                    error.message,
+                                    error.param,
+                                ),
+                            }),
+                        });
+                    }
                     ResponseStreamEvent::ImageGenerationCallPartialImage {
                         partial_image_b64,
                         partial_image_index,
@@ -293,9 +294,12 @@ mod tests {
                 OpenAiCreateResponseSseEvent {
                     event: None,
                     data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error {
-                        code: "invalid_image".to_string(),
-                        message: "bad image".to_string(),
-                        param: Some("image".to_string()),
+                        error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+                            type_: "stream_error".to_string(),
+                            code: Some("invalid_image".to_string()),
+                            message: "bad image".to_string(),
+                            param: Some("image".to_string()),
+                        },
                         sequence_number: 0,
                     }),
                 },

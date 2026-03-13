@@ -977,9 +977,12 @@ impl TryFrom<GeminiStreamGenerateContentResponse> for OpenAiCreateResponseSseStr
                 push_stream_event(
                     &mut out,
                     ResponseStreamEvent::Error {
-                        code: code.clone(),
-                        message: message.clone(),
-                        param: None,
+                        error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+                            type_: "stream_error".to_string(),
+                            code: Some(code.clone()),
+                            message: message.clone(),
+                            param: None,
+                        },
                         sequence_number: error_sequence,
                     },
                 );

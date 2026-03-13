@@ -1056,9 +1056,9 @@ impl OpenAiResponseToClaudeStream {
                 self.emit_text_block(&mut out, format!("mcp_list_tools_failed({item_id})"));
                 self.close_tool_block(&mut out, &item_id);
             }
-            ResponseStreamEvent::Error { message, .. } => {
+            ResponseStreamEvent::Error { error, .. } => {
                 self.has_refusal = true;
-                out.push(stream_error_event(message));
+                out.push(stream_error_event(error.message));
                 self.stop_reason = Some(BetaStopReason::Refusal);
             }
         }

@@ -574,7 +574,7 @@ pub(crate) fn best_effort_image_usage_from_response_usage(
 }
 
 pub(crate) fn stream_error_from_response_error(
-    code: String,
+    code: Option<String>,
     message: String,
     param: Option<String>,
 ) -> crate::openai::types::OpenAiApiError {
@@ -582,6 +582,6 @@ pub(crate) fn stream_error_from_response_error(
         message,
         type_: "stream_error".to_string(),
         param,
-        code: Some(code),
+        code,
     }
 }

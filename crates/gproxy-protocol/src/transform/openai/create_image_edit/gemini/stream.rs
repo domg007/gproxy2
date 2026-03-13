@@ -35,7 +35,7 @@ fn error_event(code: String, message: String) -> OpenAiCreateImageEditSseEvent {
     OpenAiCreateImageEditSseEvent {
         event: None,
         data: OpenAiCreateImageEditSseData::Event(ImageEditStreamEvent::Error {
-            error: stream_error_from_response_error(code, message, None),
+            error: stream_error_from_response_error(Some(code), message, None),
         }),
     }
 }

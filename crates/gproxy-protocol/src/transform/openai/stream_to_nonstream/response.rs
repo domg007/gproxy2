@@ -2,7 +2,7 @@ use http::StatusCode;
 
 use crate::openai::create_response::response::OpenAiCreateResponseResponse;
 use crate::openai::create_response::stream::{
-    OpenAiCreateResponseSseData, OpenAiCreateResponseSseStreamBody,
+    OpenAiCreateResponseSseData, OpenAiCreateResponseSseStreamBody, ResponseStreamErrorPayload,
 };
 use crate::openai::create_response::types::{OpenAiApiError, OpenAiApiErrorResponse};
 use crate::openai::types::OpenAiResponseHeaders;
@@ -13,7 +13,7 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateResponseResponse
 
     fn try_from(value: OpenAiCreateResponseSseStreamBody) -> Result<Self, TransformError> {
         let mut latest_response = None;
-        let mut stream_error = None::<(String, String, Option<String>)>;
+        let mut stream_error = None::<ResponseStreamErrorPayload>;
 
         for event in value.events {
             match event.data {
@@ -44,11 +44,9 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateResponseResponse
                         ..
                     } => latest_response = Some(response),
                     crate::openai::create_response::stream::ResponseStreamEvent::Error {
-                        code,
-                        message,
-                        param,
+                        error,
                         ..
-                    } => stream_error = Some((code, message, param)),
+                    } => stream_error = Some(error),
                     _ => {}
                 },
             }
@@ -60,16 +58,16 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateResponseResponse
                 headers: OpenAiResponseHeaders::default(),
                 body,
             })
-        } else if let Some((code, message, param)) = stream_error {
+        } else if let Some(error) = stream_error {
             Ok(OpenAiCreateResponseResponse::Error {
                 stats_code: StatusCode::BAD_REQUEST,
                 headers: OpenAiResponseHeaders::default(),
                 body: OpenAiApiErrorResponse {
                     error: OpenAiApiError {
-                        message,
-                        type_: "stream_error".to_string(),
-                        param,
-                        code: Some(code),
+                        message: error.message,
+                        type_: error.type_,
+                        param: error.param,
+                        code: error.code,
                     },
                 },
             })

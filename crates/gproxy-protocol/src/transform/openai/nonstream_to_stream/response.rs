@@ -103,18 +103,17 @@ impl TryFrom<OpenAiCreateResponseResponse> for OpenAiCreateResponseSseStreamBody
             }
             OpenAiCreateResponseResponse::Error { body, .. } => {
                 let mut events = Vec::new();
-                let code = body
-                    .error
-                    .code
-                    .clone()
-                    .unwrap_or_else(|| body.error.type_.clone());
+                let error = body.error;
 
                 events.push(OpenAiCreateResponseSseEvent {
                     event: None,
                     data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error {
-                        code,
-                        message: body.error.message,
-                        param: body.error.param,
+                        error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+                            type_: error.type_,
+                            code: error.code,
+                            message: error.message,
+                            param: error.param,
+                        },
                         sequence_number: 0,
                     }),
                 });

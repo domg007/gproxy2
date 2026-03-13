@@ -516,8 +516,8 @@ impl OpenAiResponseToGeminiStream {
                     out.push(chunk_event(chunk));
                 }
             }
-            ResponseStreamEvent::Error { message, .. } => {
-                if let Some(chunk) = self.text_chunk(message) {
+            ResponseStreamEvent::Error { error, .. } => {
+                if let Some(chunk) = self.text_chunk(error.message) {
                     out.push(chunk_event(chunk));
                 }
             }

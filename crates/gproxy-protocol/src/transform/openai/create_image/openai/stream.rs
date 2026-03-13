@@ -73,17 +73,20 @@ impl TryFrom<OpenAiCreateResponseSseStreamBody> for OpenAiCreateImageSseStreamBo
                     });
                 }
                 OpenAiCreateResponseSseData::Event(event) => match event {
-                    ResponseStreamEvent::Error {
-                        code,
-                        message,
-                        param,
-                        ..
-                    } => events.push(OpenAiCreateImageSseEvent {
-                        event: sse_event.event,
-                        data: OpenAiCreateImageSseData::Event(ImageGenerationStreamEvent::Error {
-                            error: stream_error_from_response_error(code, message, param),
-                        }),
-                    }),
+                    ResponseStreamEvent::Error { error, .. } => {
+                        events.push(OpenAiCreateImageSseEvent {
+                            event: sse_event.event,
+                            data: OpenAiCreateImageSseData::Event(
+                                ImageGenerationStreamEvent::Error {
+                                    error: stream_error_from_response_error(
+                                        Some(error.code_or_type().to_string()),
+                                        error.message,
+                                        error.param,
+                                    ),
+                                },
+                            ),
+                        });
+                    }
                     ResponseStreamEvent::ImageGenerationCallPartialImage {
                         partial_image_b64,
                         partial_image_index,

@@ -524,17 +524,21 @@ impl OpenAiResponseToOpenAiChatCompletionsStream {
                     self.finished = true;
                 }
             }
-            ResponseStreamEvent::Error {
-                code,
-                message,
-                param,
-                ..
-            } => {
+            ResponseStreamEvent::Error { error, .. } => {
                 if !self.finished {
-                    let detail = if let Some(param) = param {
-                        format!("openai_response_error code={code} param={param} message={message}")
-                    } else {
-                        format!("openai_response_error code={code} message={message}")
+                    let detail = match error.param.as_deref() {
+                        Some(param) => format!(
+                            "openai_response_error code={} param={param} message={}",
+                            error.code_or_type(),
+                            error.message
+                        ),
+                        None => {
+                            format!(
+                                "openai_response_error code={} message={}",
+                                error.code_or_type(),
+                                error.message
+                            )
+                        }
                     };
                     self.emit_error_refusal(detail, &mut out);
                     out.push(OpenAiChatCompletionsSseEvent {
@@ -815,9 +819,12 @@ mod tests {
             events: vec![OpenAiCreateResponseSseEvent {
                 event: None,
                 data: OpenAiCreateResponseSseData::Event(ResponseStreamEvent::Error {
-                    code: "invalid_request_error".to_string(),
-                    message: "bad input".to_string(),
-                    param: Some("input".to_string()),
+                    error: crate::openai::create_response::stream::ResponseStreamErrorPayload {
+                        type_: "stream_error".to_string(),
+                        code: Some("invalid_request_error".to_string()),
+                        message: "bad input".to_string(),
+                        param: Some("input".to_string()),
+                    },
                     sequence_number: 0,
                 }),
             }],

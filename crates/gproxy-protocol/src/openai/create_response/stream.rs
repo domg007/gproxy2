@@ -42,6 +42,23 @@ impl OpenAiCreateResponseSseData {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponseStreamErrorPayload {
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
+}
+
+impl ResponseStreamErrorPayload {
+    pub fn code_or_type(&self) -> &str {
+        self.code.as_deref().unwrap_or(self.type_.as_str())
+    }
+}
+
 /// Stream event union documented by Responses API.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -424,10 +441,7 @@ pub enum ResponseStreamEvent {
 
     #[serde(rename = "error")]
     Error {
-        code: String,
-        message: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        param: Option<String>,
+        error: ResponseStreamErrorPayload,
         sequence_number: u64,
     },
 }
@@ -479,5 +493,48 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn error_event_accepts_nested_error_object() {
+        let event = serde_json::from_str::<ResponseStreamEvent>(
+            r#"{
+                "type":"error",
+                "error":{
+                    "type":"invalid_request_error",
+                    "code":"context_length_exceeded",
+                    "message":"input too long",
+                    "param":"input"
+                },
+                "sequence_number":2
+            }"#,
+        )
+        .unwrap();
+
+        match event {
+            ResponseStreamEvent::Error { error, .. } => {
+                assert_eq!(error.type_, "invalid_request_error");
+                assert_eq!(error.code.as_deref(), Some("context_length_exceeded"));
+                assert_eq!(error.message, "input too long");
+                assert_eq!(error.param.as_deref(), Some("input"));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_event_rejects_flat_error_shape() {
+        let err = serde_json::from_str::<ResponseStreamEvent>(
+            r#"{
+                "type":"error",
+                "code":"context_length_exceeded",
+                "message":"input too long",
+                "param":"input",
+                "sequence_number":2
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("missing field `error`"));
     }
 }
