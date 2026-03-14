@@ -78,8 +78,6 @@ impl ProviderDefinition {
                 rate_limit_tier,
                 user_email,
                 cookie,
-                enable_claude_1m_sonnet,
-                enable_claude_1m_opus,
             } => {
                 let Some(credential) = self
                     .credentials
@@ -128,12 +126,6 @@ impl ProviderDefinition {
                     if let Some(cookie) = cookie {
                         value.cookie = Some(cookie.clone());
                     }
-                }
-                if let Some(enabled) = enable_claude_1m_sonnet {
-                    value.enable_claude_1m_sonnet = Some(*enabled);
-                }
-                if let Some(enabled) = enable_claude_1m_opus {
-                    value.enable_claude_1m_opus = Some(*enabled);
                 }
                 true
             }

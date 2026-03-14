@@ -16,8 +16,6 @@ pub struct ClaudeCodeCredential {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: i64,
-    pub enable_claude_1m_sonnet: Option<bool>,
-    pub enable_claude_1m_opus: Option<bool>,
     pub subscription_type: String,
     pub rate_limit_tier: String,
     #[serde(alias = "session_key")]

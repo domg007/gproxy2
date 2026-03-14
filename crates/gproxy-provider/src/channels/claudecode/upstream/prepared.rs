@@ -1,12 +1,6 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub(super) enum ClaudeCode1mTarget {
-    Sonnet,
-    Opus,
-}
-
-#[derive(Debug, Clone)]
 pub(super) struct ClaudeCodePreparedRequest {
     pub(super) method: WreqMethod,
     pub(super) path: String,
@@ -14,7 +8,6 @@ pub(super) struct ClaudeCodePreparedRequest {
     pub(super) model: Option<String>,
     pub(super) request_headers: Vec<(String, String)>,
     pub(super) extra_headers: Vec<(String, String)>,
-    pub(super) context_1m_target: Option<ClaudeCode1mTarget>,
 }
 
 impl ClaudeCodePreparedRequest {
@@ -43,7 +36,7 @@ impl ClaudeCodePreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?;
-                ensure_oauth_beta(&mut request_headers, false);
+                ensure_oauth_beta(&mut request_headers);
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -52,7 +45,6 @@ impl ClaudeCodePreparedRequest {
                     model: None,
                     request_headers,
                     extra_headers: Vec::new(),
-                    context_1m_target: None,
                 })
             }
             gproxy_middleware::TransformRequest::ModelGetClaude(value) => {
@@ -60,7 +52,7 @@ impl ClaudeCodePreparedRequest {
                     &value.headers.anthropic_version,
                     value.headers.anthropic_beta.as_ref(),
                 )?;
-                ensure_oauth_beta(&mut request_headers, false);
+                ensure_oauth_beta(&mut request_headers);
                 let model_id = value.path.model_id.trim().to_string();
 
                 Ok(Self {
@@ -73,7 +65,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model_id),
                     request_headers,
                     extra_headers: Vec::new(),
-                    context_1m_target: None,
                 })
             }
             gproxy_middleware::TransformRequest::CountTokenClaude(value) => {
@@ -91,8 +82,7 @@ impl ClaudeCodePreparedRequest {
                 canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
-                let context_1m_target = claude_1m_target_for_model(model.as_str());
-                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                ensure_oauth_beta(&mut request_headers);
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -107,7 +97,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model),
                     request_headers,
                     extra_headers: Vec::new(),
-                    context_1m_target,
                 })
             }
             gproxy_middleware::TransformRequest::GenerateContentClaude(value) => {
@@ -130,8 +119,7 @@ impl ClaudeCodePreparedRequest {
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
-                let context_1m_target = claude_1m_target_for_model(model.as_str());
-                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                ensure_oauth_beta(&mut request_headers);
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -143,7 +131,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model),
                     request_headers,
                     extra_headers: Vec::new(),
-                    context_1m_target,
                 })
             }
             gproxy_middleware::TransformRequest::StreamGenerateContentClaude(value) => {
@@ -166,8 +153,7 @@ impl ClaudeCodePreparedRequest {
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
-                let context_1m_target = claude_1m_target_for_model(model.as_str());
-                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                ensure_oauth_beta(&mut request_headers);
 
                 Ok(Self {
                     method: to_wreq_method(&value.method)?,
@@ -179,7 +165,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model),
                     request_headers,
                     extra_headers: Vec::new(),
-                    context_1m_target,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
@@ -235,7 +220,7 @@ impl ClaudeCodePreparedRequest {
                     &["anthropic-beta", "anthropic_beta"],
                 );
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
-                ensure_oauth_beta(&mut request_headers, false);
+                ensure_oauth_beta(&mut request_headers);
                 let path = path_with_optional_beta_query("/v1/models", append_beta_query);
                 Ok(Self {
                     method: WreqMethod::GET,
@@ -244,7 +229,6 @@ impl ClaudeCodePreparedRequest {
                     model: None,
                     request_headers,
                     extra_headers,
-                    context_1m_target: None,
                 })
             }
             (OperationFamily::ModelGet, ProtocolKind::Claude) => {
@@ -269,7 +253,7 @@ impl ClaudeCodePreparedRequest {
                     &["anthropic-beta", "anthropic_beta"],
                 );
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
-                ensure_oauth_beta(&mut request_headers, false);
+                ensure_oauth_beta(&mut request_headers);
                 Ok(Self {
                     method: WreqMethod::GET,
                     path: path_with_optional_beta_query(
@@ -280,7 +264,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model_id),
                     request_headers,
                     extra_headers,
-                    context_1m_target: None,
                 })
             }
             (OperationFamily::CountToken, ProtocolKind::Claude) => {
@@ -296,9 +279,8 @@ impl ClaudeCodePreparedRequest {
                 })?;
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
-                let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
-                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                ensure_oauth_beta(&mut request_headers);
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: path_with_optional_beta_query(
@@ -312,7 +294,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model),
                     request_headers,
                     extra_headers,
-                    context_1m_target,
                 })
             }
             (OperationFamily::GenerateContent, ProtocolKind::Claude)
@@ -334,9 +315,8 @@ impl ClaudeCodePreparedRequest {
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
-                let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
-                ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
+                ensure_oauth_beta(&mut request_headers);
                 Ok(Self {
                     method: WreqMethod::POST,
                     path: path_with_optional_beta_query("/v1/messages", append_beta_query),
@@ -347,7 +327,6 @@ impl ClaudeCodePreparedRequest {
                     model: Some(model),
                     request_headers,
                     extra_headers,
-                    context_1m_target,
                 })
             }
             _ => Err(UpstreamError::UnsupportedRequest),
