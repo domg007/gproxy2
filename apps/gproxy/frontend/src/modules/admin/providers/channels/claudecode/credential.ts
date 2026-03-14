@@ -22,16 +22,6 @@ export const CREDENTIAL_SCHEMA: ChannelCredentialSchema = {
       "type": "integer"
     },
     {
-      "key": "enable_claude_1m_sonnet",
-      "label": "enable_claude_1m_sonnet",
-      "type": "optional_boolean"
-    },
-    {
-      "key": "enable_claude_1m_opus",
-      "label": "enable_claude_1m_opus",
-      "type": "optional_boolean"
-    },
-    {
       "key": "subscription_type",
       "label": "subscription_type",
       "type": "string"

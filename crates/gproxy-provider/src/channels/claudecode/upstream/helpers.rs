@@ -1,13 +1,12 @@
 use super::*;
 
-pub(super) fn ensure_oauth_beta(headers: &mut Vec<(String, String)>, allow_context_1m: bool) {
-    merge_claudecode_beta_headers(headers, &[], allow_context_1m);
+pub(super) fn ensure_oauth_beta(headers: &mut Vec<(String, String)>) {
+    merge_claudecode_beta_headers(headers, &[]);
 }
 
 pub(super) fn merge_claudecode_beta_headers(
     headers: &mut Vec<(String, String)>,
     preferred: &[String],
-    allow_context_1m: bool,
 ) {
     let values = normalized_claudecode_beta_values(
         preferred,
@@ -16,27 +15,10 @@ pub(super) fn merge_claudecode_beta_headers(
             .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
             .map(|(_, value)| parse_anthropic_beta_values(value))
             .unwrap_or_default(),
-        allow_context_1m,
     );
 
     headers.retain(|(name, _)| !name.eq_ignore_ascii_case("anthropic-beta"));
     headers.push(("anthropic-beta".to_string(), values.join(",")));
-}
-
-pub(super) fn is_context_1m_beta(value: &str) -> bool {
-    value.trim().to_ascii_lowercase().starts_with("context-1m")
-}
-
-pub(super) fn has_context_1m_beta(headers: &[(String, String)]) -> bool {
-    headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-        .map(|(_, value)| value.split(',').any(is_context_1m_beta))
-        .unwrap_or(false)
-}
-
-pub(super) fn strip_context_1m_beta(headers: &mut Vec<(String, String)>) {
-    merge_claudecode_beta_headers(headers, &[], false);
 }
 
 pub(super) fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
@@ -51,7 +33,6 @@ pub(super) fn parse_anthropic_beta_values(value: &str) -> Vec<String> {
 pub(super) fn normalized_claudecode_beta_values(
     preferred: &[String],
     values: Vec<String>,
-    allow_context_1m: bool,
 ) -> Vec<String> {
     let mut merged = Vec::new();
 
@@ -62,9 +43,6 @@ pub(super) fn normalized_claudecode_beta_values(
     {
         let value = raw.trim();
         if value.is_empty() {
-            continue;
-        }
-        if !allow_context_1m && is_context_1m_beta(value) {
             continue;
         }
         if !merged
@@ -83,17 +61,6 @@ pub(super) fn normalized_claudecode_beta_values(
     }
 
     merged
-}
-
-pub(super) fn claude_1m_target_for_model(model: &str) -> Option<ClaudeCode1mTarget> {
-    let lower = model.to_ascii_lowercase();
-    if lower.starts_with("claude-sonnet-4") {
-        return Some(ClaudeCode1mTarget::Sonnet);
-    }
-    if lower.starts_with("claude-opus-4-6") {
-        return Some(ClaudeCode1mTarget::Opus);
-    }
-    None
 }
 
 pub(super) fn apply_claudecode_system(body: &mut Value, prelude_text: &str) {
@@ -153,72 +120,6 @@ pub(super) fn json_text_block(text: &str) -> Value {
         "type": "text",
         "text": text,
     })
-}
-
-pub(super) fn claudecode_1m_enabled_for_credential(
-    provider: &ProviderDefinition,
-    credential_id: i64,
-    target: Option<&ClaudeCode1mTarget>,
-) -> bool {
-    let Some(target) = target else {
-        return false;
-    };
-    let Some(credential) = provider.credentials.credential(credential_id) else {
-        return true;
-    };
-    let ChannelCredential::Builtin(BuiltinChannelCredential::ClaudeCode(value)) =
-        &credential.credential
-    else {
-        return true;
-    };
-
-    match target {
-        ClaudeCode1mTarget::Sonnet => value.enable_claude_1m_sonnet.unwrap_or(true),
-        ClaudeCode1mTarget::Opus => value.enable_claude_1m_opus.unwrap_or(true),
-    }
-}
-
-pub(super) fn disable_claudecode_1m_for_target(
-    update: &mut Option<UpstreamCredentialUpdate>,
-    credential_id: i64,
-    target: Option<&ClaudeCode1mTarget>,
-) {
-    let Some(target) = target else {
-        return;
-    };
-
-    let (disable_sonnet, disable_opus) = match target {
-        ClaudeCode1mTarget::Sonnet => (Some(false), None),
-        ClaudeCode1mTarget::Opus => (None, Some(false)),
-    };
-
-    if let Some(UpstreamCredentialUpdate::ClaudeCodeTokenRefresh {
-        enable_claude_1m_sonnet,
-        enable_claude_1m_opus,
-        ..
-    }) = update
-    {
-        if disable_sonnet.is_some() {
-            *enable_claude_1m_sonnet = disable_sonnet;
-        }
-        if disable_opus.is_some() {
-            *enable_claude_1m_opus = disable_opus;
-        }
-        return;
-    }
-
-    *update = Some(UpstreamCredentialUpdate::ClaudeCodeTokenRefresh {
-        credential_id,
-        access_token: None,
-        refresh_token: None,
-        expires_at_unix_ms: None,
-        subscription_type: None,
-        rate_limit_tier: None,
-        user_email: None,
-        cookie: None,
-        enable_claude_1m_sonnet: disable_sonnet,
-        enable_claude_1m_opus: disable_opus,
-    });
 }
 
 pub(super) fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
@@ -363,7 +264,5 @@ pub(super) fn claudecode_credential_update(
         rate_limit_tier: refreshed.rate_limit_tier.clone(),
         user_email: refreshed.user_email.clone(),
         cookie: refreshed.cookie.clone(),
-        enable_claude_1m_sonnet: None,
-        enable_claude_1m_opus: None,
     }
 }

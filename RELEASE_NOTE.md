@@ -1,5 +1,35 @@
 # Release Notes
 
+## v0.3.37
+
+### English
+
+#### Changed
+
+- Removed per-credential `enable_claude_1m_sonnet` / `enable_claude_1m_opus` permission fields from ClaudeCode credentials. All ClaudeCode credentials now unconditionally support 1M context — no per-account capability check is performed.
+- Removed model-based automatic `context-1m-2025-08-07` beta header injection and filtering. Whether the `context-1m` beta is sent upstream is now controlled entirely by request headers or the channel-level `claudecode_extra_beta_headers` setting, consistent with all other beta headers.
+- Removed the automatic fallback retry logic that stripped `context-1m` and retried on upstream failure, along with the mechanism that disabled 1M for a credential after such a failure.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing credentials that still contain `enable_claude_1m_sonnet` / `enable_claude_1m_opus` in storage will deserialize without error (the fields are simply ignored).
+- If you previously relied on the proxy automatically injecting `context-1m-2025-08-07` for supported models, you should now add it to `claudecode_extra_beta_headers` in your channel settings to preserve the same behavior.
+
+### 中文
+
+#### 变更
+
+- 移除 ClaudeCode 凭证中的 `enable_claude_1m_sonnet` / `enable_claude_1m_opus` 权限字段。所有 ClaudeCode 凭证现在无条件支持 1M 上下文，不再执行按账号的能力检查。
+- 移除根据目标模型自动注入或过滤 `context-1m-2025-08-07` beta 头的逻辑。是否发送 `context-1m` beta 现完全由请求头或渠道级 `claudecode_extra_beta_headers` 设置控制，与其他 beta 头行为一致。
+- 移除上游失败后自动剥离 `context-1m` 并重试的降级逻辑，以及失败后自动为凭证禁用 1M 的机制。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 存储中仍包含 `enable_claude_1m_sonnet` / `enable_claude_1m_opus` 的旧凭证可正常反序列化（字段会被忽略）。
+- 如果此前依赖代理为支持的模型自动注入 `context-1m-2025-08-07`，现在需要在渠道设置的 `claudecode_extra_beta_headers` 中手动添加该值以保持相同行为。
+
 ## v0.3.36
 
 ### English
