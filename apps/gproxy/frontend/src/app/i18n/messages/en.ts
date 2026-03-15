@@ -376,6 +376,8 @@ export const enMessages = {
     "field.client_id": "client_id",
     "field.client_secret": "client_secret",
     "field.client_x509_cert_url": "client_x509_cert_url",
+    "field.enable_claude_1m_opus": "enable_claude_1m_opus",
+    "field.enable_claude_1m_sonnet": "enable_claude_1m_sonnet",
     "field.expires_at": "expires_at",
     "field.id_token": "id_token",
     "field.private_key": "private_key",

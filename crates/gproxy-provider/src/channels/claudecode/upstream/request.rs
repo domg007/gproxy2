@@ -28,6 +28,7 @@ pub(super) async fn execute_claudecode_with_prepared(
     let model_template = prepared.model.clone();
     let request_headers_template = prepared.request_headers.clone();
     let extra_headers_template = prepared.extra_headers.clone();
+    let context_1m_target_template = prepared.context_1m_target.clone();
     let url_template = url.clone();
     let base_url_template = base_url.to_string();
     let claude_ai_base_url_template = claude_ai_base_url.clone();
@@ -61,6 +62,7 @@ pub(super) async fn execute_claudecode_with_prepared(
             let model = model_template.clone();
             let mut request_headers = request_headers_template.clone();
             let extra_headers = extra_headers_template.clone();
+            let context_1m_target = context_1m_target_template.clone();
             let url = url_template.clone();
             let base_url = base_url_template.clone();
             let claude_ai_base_url = claude_ai_base_url_template.clone();
@@ -76,10 +78,20 @@ pub(super) async fn execute_claudecode_with_prepared(
                 };
                 let cache_key = format!("{}::{}", provider.channel.as_str(), attempt.credential_id);
                 let mut credential_update = None;
+                let context_1m_enabled = claudecode_1m_enabled_for_credential(
+                    provider,
+                    attempt.credential_id,
+                    context_1m_target.as_ref(),
+                );
                 merge_claudecode_beta_headers(
                     &mut request_headers,
                     configured_beta_headers.as_slice(),
+                    context_1m_enabled,
                 );
+                if !context_1m_enabled {
+                    strip_context_1m_beta(&mut request_headers);
+                }
+                let sent_with_context_1m = has_context_1m_beta(request_headers.as_slice());
 
                 let mut active_access_token = match resolve_claudecode_access_token(
                     active_client,
@@ -263,6 +275,53 @@ pub(super) async fn execute_claudecode_with_prepared(
                             last_error: Some(message),
                             last_request_meta: request_meta.clone(),
                         };
+                    }
+                }
+
+                if sent_with_context_1m && context_1m_enabled && status_code >= 400 {
+                    let mut retry_headers_without_context = request_headers.clone();
+                    strip_context_1m_beta(&mut retry_headers_without_context);
+                    let (retry_response, retry_meta) = match send_claudecode_request(
+                        active_client,
+                        ClaudeCodeRequestParams {
+                            method: method.clone(),
+                            url: url.as_str(),
+                            access_token: active_access_token.as_str(),
+                            user_agent: request_user_agent.as_str(),
+                            extra_headers: extra_headers.as_slice(),
+                            request_headers: retry_headers_without_context.as_slice(),
+                            body: body.as_deref(),
+                        },
+                    )
+                    .await
+                    {
+                        Ok((response, request_meta)) => (response, Some(request_meta)),
+                        Err(err) => {
+                            let message = err.to_string();
+                            state_manager.mark_transient_failure(
+                                credential_states,
+                                &provider.channel,
+                                attempt.credential_id,
+                                model.as_deref(),
+                                None,
+                                Some(message.clone()),
+                            );
+                            return CredentialRetryDecision::Retry {
+                                last_status: None,
+                                last_error: Some(message),
+                                last_request_meta: request_meta.clone(),
+                            };
+                        }
+                    };
+                    response = retry_response;
+                    request_meta = retry_meta;
+                    status_code = response.status().as_u16();
+                    if response.status().is_success() {
+                        disable_claudecode_1m_for_target(
+                            &mut credential_update,
+                            attempt.credential_id,
+                            context_1m_target.as_ref(),
+                        );
                     }
                 }
 

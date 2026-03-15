@@ -5,6 +5,7 @@ use super::{
     CLAUDECODE_THINKING_BUDGET_TOKENS, ensure_oauth_beta, extend_model_list_with_thinking_variants,
     merge_claudecode_beta_headers, normalize_claudecode_model_and_thinking,
     normalize_claudecode_unsupported_fields, prepared::ClaudeCodePreparedRequest,
+    strip_context_1m_beta,
 };
 use crate::channels::claudecode::constants::{CLAUDECODE_REFERENCE_BETAS, OAUTH_BETA};
 
@@ -119,7 +120,7 @@ fn model_list_does_not_duplicate_existing_thinking_entries() {
 }
 
 #[test]
-fn normalize_claudecode_unsupported_fields_removes_context_management() {
+fn normalize_claudecode_unsupported_fields_preserves_context_management() {
     let mut body = json!({
         "model": "claude-sonnet-4-5",
         "context_management": {
@@ -132,7 +133,7 @@ fn normalize_claudecode_unsupported_fields_removes_context_management() {
 
     normalize_claudecode_unsupported_fields(&mut body);
 
-    assert!(body.get("context_management").is_none());
+    assert!(body.get("context_management").is_some());
 }
 
 #[test]
@@ -155,7 +156,7 @@ fn ensure_oauth_beta_keeps_custom_and_only_adds_required_oauth_beta() {
         "custom-beta,effort-2025-11-24".to_string(),
     )];
 
-    ensure_oauth_beta(&mut headers);
+    ensure_oauth_beta(&mut headers, false);
 
     assert_eq!(
         headers,
@@ -179,6 +180,7 @@ fn merge_claudecode_beta_headers_puts_selected_values_in_front() {
             CLAUDECODE_REFERENCE_BETAS[1].to_string(),
             CLAUDECODE_REFERENCE_BETAS[0].to_string(),
         ],
+        false,
     );
 
     assert_eq!(
@@ -192,6 +194,24 @@ fn merge_claudecode_beta_headers_puts_selected_values_in_front() {
                 OAUTH_BETA,
             ]
             .join(","),
+        )]
+    );
+}
+
+#[test]
+fn strip_context_1m_beta_keeps_custom_beta_and_oauth() {
+    let mut headers = vec![(
+        "anthropic-beta".to_string(),
+        "context-1m-2025-08-07,custom-beta".to_string(),
+    )];
+
+    strip_context_1m_beta(&mut headers);
+
+    assert_eq!(
+        headers,
+        vec![(
+            "anthropic-beta".to_string(),
+            ["custom-beta", OAUTH_BETA].join(","),
         )]
     );
 }
@@ -275,6 +295,49 @@ fn prepared_request_preserves_explicit_context_1m_beta() {
             (
                 "anthropic-beta".to_string(),
                 ["context-1m-2025-08-07", OAUTH_BETA].join(","),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn prepared_request_preserves_flat_string_anthropic_beta_values() {
+    let payload = serde_json::to_vec(&json!({
+        "headers": {
+            "anthropic-beta": "output-128k-2025-02-19,context-1m-2025-08-07,context-management-2025-06-27,compact-2026-01-12"
+        },
+        "body": {
+            "model": "claude-opus-4-6",
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "hi"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    assert_eq!(
+        prepared.request_headers,
+        vec![
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            (
+                "anthropic-beta".to_string(),
+                [
+                    "output-128k-2025-02-19",
+                    "context-1m-2025-08-07",
+                    "context-management-2025-06-27",
+                    "compact-2026-01-12",
+                    OAUTH_BETA,
+                ]
+                .join(","),
             ),
         ]
     );

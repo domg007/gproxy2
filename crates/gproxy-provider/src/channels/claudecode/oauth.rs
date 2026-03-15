@@ -370,6 +370,8 @@ pub async fn execute_claudecode_oauth_callback(
                 access_token,
                 refresh_token,
                 expires_at: expires_at_unix_ms.min(i64::MAX as u64) as i64,
+                enable_claude_1m_sonnet: Some(true),
+                enable_claude_1m_opus: Some(true),
                 subscription_type: subscription_type.clone().unwrap_or_default(),
                 rate_limit_tier: rate_limit_tier.clone().unwrap_or_default(),
                 cookie: None,

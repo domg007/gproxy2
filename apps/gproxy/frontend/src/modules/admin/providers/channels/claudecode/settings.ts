@@ -27,6 +27,7 @@ export const ANTHROPIC_REFERENCE_BETA_HEADERS = [
   "model-context-window-exceeded-2025-08-26",
   "skills-2025-10-02",
   "fast-mode-2026-02-01",
+  "compact-2026-01-12",
   "claude-code-20250219",
   "adaptive-thinking-2026-01-28",
   "prompt-caching-scope-2026-01-05",

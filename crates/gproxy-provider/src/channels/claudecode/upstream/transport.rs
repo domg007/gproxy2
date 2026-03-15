@@ -12,6 +12,7 @@ pub(super) async fn send_claudecode_request(
             .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
             .map(|(_, value)| parse_anthropic_beta_values(value))
             .unwrap_or_default(),
+        true,
     );
 
     let mut sent_headers = Vec::new();

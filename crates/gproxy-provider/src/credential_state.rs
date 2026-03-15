@@ -6,6 +6,15 @@ use crate::{
 pub const DEFAULT_RATE_LIMIT_COOLDOWN_MS: u64 = 60_000;
 pub const DEFAULT_TRANSIENT_COOLDOWN_MS: u64 = 15_000;
 
+fn is_transport_send_failure_message(last_error: Option<&str>) -> bool {
+    let Some(last_error) = last_error else {
+        return false;
+    };
+    let normalized = last_error.trim().to_ascii_lowercase();
+    normalized.contains("error sending request for uri")
+        || normalized.contains("client error (sendrequest)")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CredentialStateManager {
     pub now_unix_ms: u64,
@@ -84,6 +93,10 @@ impl CredentialStateManager {
         cooldown_ms: Option<u64>,
         last_error: Option<String>,
     ) {
+        if is_transport_send_failure_message(last_error.as_deref()) {
+            self.preserve_current_health(states, channel, credential_id, last_error);
+            return;
+        }
         let until = self
             .now_unix_ms
             .saturating_add(cooldown_ms.unwrap_or(self.default_transient_cooldown_ms));
@@ -97,6 +110,26 @@ impl CredentialStateManager {
         );
     }
 
+    fn preserve_current_health(
+        &self,
+        states: &ChannelCredentialStateStore,
+        channel: &ChannelId,
+        credential_id: i64,
+        last_error: Option<String>,
+    ) {
+        let health = states
+            .get(channel, credential_id)
+            .map(|state| state.health)
+            .unwrap_or(CredentialHealth::Healthy);
+        states.upsert(ChannelCredentialState {
+            channel: channel.clone(),
+            credential_id,
+            health,
+            checked_at_unix_ms: Some(self.now_unix_ms),
+            last_error,
+        });
+    }
+
     fn mark_partial_with_model_cooldown(
         &self,
         states: &ChannelCredentialStateStore,
@@ -107,17 +140,7 @@ impl CredentialStateManager {
         last_error: Option<String>,
     ) {
         let Some(model) = model.and_then(normalize_model_cooldown_key) else {
-            let health = states
-                .get(channel, credential_id)
-                .map(|state| state.health)
-                .unwrap_or(CredentialHealth::Healthy);
-            states.upsert(ChannelCredentialState {
-                channel: channel.clone(),
-                credential_id,
-                health,
-                checked_at_unix_ms: Some(self.now_unix_ms),
-                last_error,
-            });
+            self.preserve_current_health(states, channel, credential_id, last_error);
             return;
         };
 
@@ -221,5 +244,76 @@ mod tests {
         assert!(matches!(state.health, CredentialHealth::Healthy));
         assert_eq!(state.last_error, None);
         assert_eq!(state.checked_at_unix_ms, Some(20_000));
+    }
+
+    #[test]
+    fn transport_send_failures_do_not_add_cooldown() {
+        let manager = CredentialStateManager::new(30_000);
+        let store = ChannelCredentialStateStore::new();
+        let channel = ChannelId::Builtin(BuiltinChannel::OpenAi);
+
+        let message =
+            "error sending request for uri (https://example.test/v1/responses): client error (SendRequest)"
+                .to_string();
+        manager.mark_transient_failure(
+            &store,
+            &channel,
+            1,
+            Some("gpt-4.1"),
+            None,
+            Some(message.clone()),
+        );
+
+        let state = store.get(&channel, 1).expect("state exists");
+        assert!(matches!(state.health, CredentialHealth::Healthy));
+        assert_eq!(state.last_error, Some(message));
+        assert_eq!(state.checked_at_unix_ms, Some(30_000));
+    }
+
+    #[test]
+    fn transport_send_failures_preserve_existing_partial_health() {
+        let manager = CredentialStateManager::new(40_000);
+        let store = ChannelCredentialStateStore::new();
+        let channel = ChannelId::Builtin(BuiltinChannel::OpenAi);
+
+        manager.mark_rate_limited(
+            &store,
+            &channel,
+            1,
+            Some("gpt-4.1"),
+            Some(5_000),
+            Some("rate-limited".to_string()),
+        );
+        manager.mark_transient_failure(
+            &store,
+            &channel,
+            1,
+            Some("gpt-4.1"),
+            None,
+            Some(
+                "error sending request for uri (https://example.test/v1/responses): client error (SendRequest)"
+                    .to_string(),
+            ),
+        );
+
+        let state = store.get(&channel, 1).expect("state exists");
+        let CredentialHealth::Partial { models } = state.health else {
+            panic!("expected partial");
+        };
+        assert_eq!(
+            models,
+            vec![ModelCooldown {
+                model: "gpt-4.1".to_string(),
+                until_unix_ms: 45_000,
+            }]
+        );
+        assert_eq!(
+            state.last_error,
+            Some(
+                "error sending request for uri (https://example.test/v1/responses): client error (SendRequest)"
+                    .to_string()
+            )
+        );
+        assert_eq!(state.checked_at_unix_ms, Some(40_000));
     }
 }
