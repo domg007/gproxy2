@@ -281,6 +281,49 @@ fn prepared_request_preserves_explicit_context_1m_beta() {
 }
 
 #[test]
+fn prepared_request_preserves_flat_string_anthropic_beta_values() {
+    let payload = serde_json::to_vec(&json!({
+        "headers": {
+            "anthropic-beta": "output-128k-2025-02-19,context-1m-2025-08-07,context-management-2025-06-27,compact-2026-01-12"
+        },
+        "body": {
+            "model": "claude-opus-4-6",
+            "max_tokens": 32,
+            "messages": [{"role": "user", "content": "hi"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    assert_eq!(
+        prepared.request_headers,
+        vec![
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            (
+                "anthropic-beta".to_string(),
+                [
+                    "output-128k-2025-02-19",
+                    "context-1m-2025-08-07",
+                    "context-management-2025-06-27",
+                    "compact-2026-01-12",
+                    OAUTH_BETA,
+                ]
+                .join(","),
+            ),
+        ]
+    );
+}
+
+#[test]
 fn prepared_request_canonicalizes_claude_shorthand_content_blocks() {
     let payload = serde_json::to_vec(&json!({
         "body": {

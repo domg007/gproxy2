@@ -295,17 +295,36 @@ pub fn payload_header_string(value: &Value, names: &[&str]) -> Option<String> {
 
 pub fn payload_header_string_array(value: &Value, names: &[&str]) -> Option<Vec<String>> {
     names.iter().find_map(|name| {
-        value
-            .pointer(format!("/headers/{name}").as_str())
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<_>>()
-            })
-            .filter(|items| !items.is_empty())
+        let raw = value.pointer(format!("/headers/{name}").as_str())?;
+        let mut parsed = Vec::new();
+
+        let mut push_items = |input: &str| {
+            parsed.extend(
+                input
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .map(ToOwned::to_owned),
+            );
+        };
+
+        match raw {
+            Value::String(item) => push_items(item),
+            Value::Array(items) => {
+                for item in items {
+                    if let Some(item) = item.as_str() {
+                        push_items(item);
+                    }
+                }
+            }
+            _ => return None,
+        }
+
+        if parsed.is_empty() {
+            None
+        } else {
+            Some(parsed)
+        }
     })
 }
 
@@ -656,5 +675,23 @@ mod tests {
                 Some("context-1m-2025-08-07")
             );
         }
+    }
+
+    #[test]
+    fn payload_header_string_array_accepts_flat_string_values() {
+        let payload = json!({
+            "headers": {
+                "anthropic-beta": "output-128k-2025-02-19, context-1m-2025-08-07, compact-2026-01-12"
+            }
+        });
+
+        assert_eq!(
+            payload_header_string_array(&payload, &["anthropic-beta", "anthropic_beta"]),
+            Some(vec![
+                "output-128k-2025-02-19".to_string(),
+                "context-1m-2025-08-07".to_string(),
+                "compact-2026-01-12".to_string(),
+            ])
+        );
     }
 }
