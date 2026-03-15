@@ -140,7 +140,7 @@ pub(super) fn normalize_claudecode_unsupported_fields(body: &mut Value) {
     };
 
     // Anthropic v1/messages on this upstream path currently rejects this field.
-    map.remove("context_management");
+    // map.remove("context_management");
     map.remove("speed");
 }
 
