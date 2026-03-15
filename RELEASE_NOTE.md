@@ -1,5 +1,47 @@
 # Release Notes
 
+## v0.3.38
+
+### English
+
+#### Added
+
+- Added per-credential `enable_claude_1m_sonnet` / `enable_claude_1m_opus` fields for ClaudeCode credentials in the admin credential workspace. Newly created ClaudeCode OAuth credentials initialize both flags as enabled.
+- Added the Anthropic `compact-2026-01-12` beta tag to the built-in ClaudeCode beta reference list / known beta values so it can be selected and normalized like other beta headers.
+
+#### Fixed
+
+- ClaudeCode requests now preserve `context_management` payloads instead of stripping them, allowing compact-mode related context edits to pass through upstream when requested.
+- ClaudeCode `anthropic-beta` request headers now accept both array values and a single comma-separated string, while still normalizing duplicates and keeping the required OAuth beta.
+- ClaudeCode `context-1m-*` beta forwarding is now guarded per credential and per model family again. If a request fails with `context-1m` enabled, the proxy retries once without that beta; when the retry succeeds, it automatically disables the corresponding 1M flag for that credential to avoid repeated failures.
+- Transport-level send failures such as `error sending request for uri ... client error (SendRequest)` no longer add cooldowns or downgrade credential health; the existing health state is preserved.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing ClaudeCode credentials that do not yet contain `enable_claude_1m_sonnet` / `enable_claude_1m_opus` remain compatible and default to enabled behavior until a successful fallback retry disables the matching flag.
+- Existing array-based `anthropic-beta` payloads continue to work unchanged; flat string values are now accepted as an additional compatible form.
+
+### 中文
+
+#### 新增
+
+- ClaudeCode 凭证在后台凭证工作区新增按凭证控制的 `enable_claude_1m_sonnet` / `enable_claude_1m_opus` 字段。新创建的 ClaudeCode OAuth 凭证会默认将这两个开关初始化为启用。
+- 内置 ClaudeCode beta 参考列表 / 已知 beta 值新增 Anthropic `compact-2026-01-12`，现在可像其他 beta 头一样直接选择并参与规范化。
+
+#### 修复
+
+- ClaudeCode 请求不再剥离 `context_management` 字段，启用 compact mode 等上下文编辑能力时，可按请求原样透传到上游。
+- ClaudeCode 的 `anthropic-beta` 请求头现在同时支持数组形式和单个逗号分隔字符串形式，并继续保留去重与自动补齐 OAuth beta 的行为。
+- ClaudeCode 的 `context-1m-*` beta 转发恢复为按凭证、按模型族控制。如果请求在启用 `context-1m` 时失败，代理会自动去掉该 beta 重试一次；若重试成功，会自动关闭该凭证对应的 1M 开关，避免后续重复失败。
+- `error sending request for uri ... client error (SendRequest)` 这类传输层发送失败不再给凭证追加 cooldown，也不会下调凭证健康状态；会保留当前健康状态，仅记录最新错误信息。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 尚未包含 `enable_claude_1m_sonnet` / `enable_claude_1m_opus` 字段的旧 ClaudeCode 凭证保持兼容；在未触发成功降级回退前，默认仍按启用状态处理。
+- 现有数组形式的 `anthropic-beta` 载荷无需调整；现在只是额外兼容单个逗号分隔字符串形式。
+
 ## v0.3.37
 
 ### English

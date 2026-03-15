@@ -1648,7 +1648,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gproxy"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-admin"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "gproxy-storage",
  "sea-orm",
@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-core"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "arc-swap",
  "async-stream",
@@ -1715,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-middleware"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1728,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-protocol"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "base64 0.22.1",
  "http",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-provider"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "gproxy-storage"
-version = "0.3.37"
+version = "0.3.38"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -4218,9 +4218,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa5fdc3bce6191a1dbc8c02d5c8bffcf557bafa17c124c5264a458f1b0613fa"
+checksum = "3e61e67053d25a4e82c844e8424039d9745781b3fc4f32b8d55ed50f5f667ef3"
 dependencies = [
  "tinyvec_macros",
 ]
