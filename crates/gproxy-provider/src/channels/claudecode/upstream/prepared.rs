@@ -113,7 +113,7 @@ impl ClaudeCodePreparedRequest {
                 }
                 canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
-                normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_sampling(&mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
@@ -147,7 +147,7 @@ impl ClaudeCodePreparedRequest {
                 }
                 canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
-                normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_sampling(&mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
@@ -309,7 +309,7 @@ impl ClaudeCodePreparedRequest {
                     )
                 })?;
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
-                normalize_claudecode_sampling(model.as_str(), &mut body_json);
+                normalize_claudecode_sampling(&mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {

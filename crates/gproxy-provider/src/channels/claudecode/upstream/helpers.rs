@@ -122,14 +122,14 @@ pub(super) fn json_text_block(text: &str) -> Value {
     })
 }
 
-pub(super) fn normalize_claudecode_sampling(model: &str, body: &mut Value) {
+pub(super) fn normalize_claudecode_sampling(body: &mut Value) {
     let Some(map) = body.as_object_mut() else {
         return;
     };
 
     let has_temperature = map.get("temperature").and_then(Value::as_f64).is_some();
     let has_top_p = map.get("top_p").and_then(Value::as_f64).is_some();
-    if has_temperature && has_top_p && requires_claudecode_sampling_guard(model) {
+    if has_temperature && has_top_p {
         map.remove("top_p");
     }
 }
@@ -241,14 +241,6 @@ pub(super) fn extend_model_list_with_thinking_variants(data: &mut Vec<Value>) {
     }
 
     *data = out;
-}
-
-pub(super) fn requires_claudecode_sampling_guard(model: &str) -> bool {
-    let lower = model.to_ascii_lowercase();
-    lower.contains("opus-4-1")
-        || lower.contains("opus-4-5")
-        || lower.contains("opus-4-6")
-        || lower.contains("sonnet-4-5")
 }
 
 pub(super) fn claudecode_credential_update(
