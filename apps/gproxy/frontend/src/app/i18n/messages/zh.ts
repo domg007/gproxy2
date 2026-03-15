@@ -371,6 +371,8 @@ export const zhMessages = {
     "field.client_id": "客户端 ID",
     "field.client_secret": "客户端密钥",
     "field.client_x509_cert_url": "客户端 X509 证书 URL",
+    "field.enable_claude_1m_opus": "启用 Claude 1M Opus",
+    "field.enable_claude_1m_sonnet": "启用 Claude 1M Sonnet",
     "field.expires_at": "过期时间",
     "field.id_token": "ID Token",
     "field.private_key": "私钥",
