@@ -15,6 +15,8 @@ pub struct ClaudeCodeSettings {
     pub platform_base_url: String,
     pub prelude_text: Option<String>,
     #[serde(default)]
+    pub enable_billing_header: bool,
+    #[serde(default)]
     pub append_beta_query: bool,
     #[serde(default)]
     pub extra_beta_headers: Vec<String>,
@@ -30,6 +32,7 @@ impl Default for ClaudeCodeSettings {
             claude_ai_base_url: DEFAULT_CLAUDE_AI_BASE_URL.to_string(),
             platform_base_url: DEFAULT_PLATFORM_BASE_URL.to_string(),
             prelude_text: None,
+            enable_billing_header: false,
             append_beta_query: false,
             extra_beta_headers: Vec::new(),
             cache_breakpoints: Vec::new(),
@@ -65,6 +68,8 @@ impl ClaudeCodeSettings {
         }
         settings.prelude_text =
             clean_opt(patch.claudecode_prelude_text.as_deref()).map(ToOwned::to_owned);
+        settings.enable_billing_header =
+            parse_bool_flag(value.get("claudecode_enable_billing_header"));
         settings.append_beta_query = parse_bool_flag(value.get("claudecode_append_beta_query"));
         settings.extra_beta_headers =
             parse_extra_beta_headers(value.get("claudecode_extra_beta_headers"));

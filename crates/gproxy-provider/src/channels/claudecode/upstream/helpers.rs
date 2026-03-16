@@ -1,4 +1,9 @@
 use super::*;
+use crate::channels::claudecode::constants::{
+    CLAUDE_CODE_BILLING_CCH, CLAUDE_CODE_BILLING_ENTRYPOINT, CLAUDE_CODE_BILLING_HEADER_PREFIX,
+    CLAUDE_CODE_BILLING_SALT, CLAUDE_CODE_VERSION,
+};
+use sha2::{Digest as _, Sha256};
 
 pub(super) fn ensure_oauth_beta(headers: &mut Vec<(String, String)>, allow_context_1m: bool) {
     merge_claudecode_beta_headers(headers, &[], allow_context_1m);
@@ -124,6 +129,126 @@ pub(super) fn apply_claudecode_system(body: &mut Value, prelude_text: &str) {
             map.insert("system".to_string(), Value::Array(vec![prelude_block]));
         }
     }
+}
+
+pub(super) fn apply_claudecode_billing_header_system_block(body: &mut Value) {
+    canonicalize_claude_body(body);
+    let header_text = build_claudecode_billing_header_text(body);
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+
+    let header_block = json_text_block(header_text.as_str());
+    match map.remove("system") {
+        Some(Value::Array(mut blocks)) => {
+            blocks.retain(|block| !is_claudecode_billing_header_block(block));
+            blocks.insert(0, header_block);
+            map.insert("system".to_string(), Value::Array(blocks));
+        }
+        Some(value) => {
+            let mut blocks = vec![header_block];
+            if !is_claudecode_billing_header_block(&value) {
+                blocks.push(value);
+            }
+            map.insert("system".to_string(), Value::Array(blocks));
+        }
+        None => {
+            map.insert("system".to_string(), Value::Array(vec![header_block]));
+        }
+    }
+}
+
+fn build_claudecode_billing_header_text(body: &Value) -> String {
+    let user_text = first_claudecode_user_text(body);
+    let version_hash = claudecode_billing_version_hash(user_text.as_str());
+    format!(
+        "{} cc_version={}.{}; cc_entrypoint={}; cch={};",
+        CLAUDE_CODE_BILLING_HEADER_PREFIX,
+        CLAUDE_CODE_VERSION,
+        version_hash,
+        CLAUDE_CODE_BILLING_ENTRYPOINT,
+        CLAUDE_CODE_BILLING_CCH,
+    )
+}
+
+fn first_claudecode_user_text(body: &Value) -> String {
+    body.get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| {
+            messages.iter().find_map(|message| {
+                let message_map = message.as_object()?;
+                if message_map.get("role").and_then(Value::as_str) != Some("user") {
+                    return None;
+                }
+                message_map
+                    .get("content")
+                    .and_then(first_text_from_claude_content)
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn first_text_from_claude_content(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => blocks.iter().find_map(first_text_from_claude_block),
+        Value::Object(_) => first_text_from_claude_block(content),
+        _ => None,
+    }
+}
+
+fn first_text_from_claude_block(block: &Value) -> Option<String> {
+    let block_map = block.as_object()?;
+    if block_map.get("type").and_then(Value::as_str) != Some("text") {
+        return None;
+    }
+    block_map
+        .get("text")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn claudecode_billing_version_hash(message_text: &str) -> String {
+    let sampled = sampled_js_utf16_positions(message_text, &[4, 7, 20]);
+    sha256_hex_prefix(
+        format!(
+            "{}{}{}",
+            CLAUDE_CODE_BILLING_SALT, sampled, CLAUDE_CODE_VERSION
+        )
+        .as_str(),
+        3,
+    )
+}
+
+fn sampled_js_utf16_positions(text: &str, indices: &[usize]) -> String {
+    let utf16 = text.encode_utf16().collect::<Vec<_>>();
+    let mut sampled = String::new();
+    for index in indices {
+        match utf16.get(*index).copied() {
+            Some(unit) => sampled.push(js_utf16_unit_char(unit)),
+            None => sampled.push('0'),
+        }
+    }
+    sampled
+}
+
+fn js_utf16_unit_char(unit: u16) -> char {
+    char::from_u32(unit as u32).unwrap_or(char::REPLACEMENT_CHARACTER)
+}
+
+fn sha256_hex_prefix(value: &str, len: usize) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    let hex = format!("{digest:x}");
+    hex[..len.min(hex.len())].to_string()
+}
+
+fn is_claudecode_billing_header_block(block: &Value) -> bool {
+    block
+        .as_object()
+        .and_then(|block_map| block_map.get("text"))
+        .and_then(Value::as_str)
+        .map(str::trim_start)
+        .is_some_and(|text| text.starts_with(CLAUDE_CODE_BILLING_HEADER_PREFIX))
 }
 
 pub(super) fn system_has_known_claudecode_prelude(system: Option<&Value>) -> bool {

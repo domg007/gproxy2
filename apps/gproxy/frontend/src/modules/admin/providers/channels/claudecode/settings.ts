@@ -37,9 +37,10 @@ export const ANTHROPIC_REFERENCE_BETA_HEADERS = [
 
 const DEFAULTS = {
   base_url: "https://api.anthropic.com",
-  user_agent: "claude-code/2.1.62",
+  user_agent: "claude-code/2.1.76",
   claudecode_ai_base_url: "https://claude.ai",
   claudecode_platform_base_url: "https://platform.claude.com",
+  claudecode_enable_billing_header: "false",
   claudecode_append_beta_query: "false",
   claudecode_prelude_text: "",
   claudecode_extra_beta_headers: "",
@@ -124,6 +125,11 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if (typeof value.claudecode_platform_base_url === "string") {
     out.claudecode_platform_base_url = value.claudecode_platform_base_url;
   }
+  if ("claudecode_enable_billing_header" in value) {
+    out.claudecode_enable_billing_header = normalizeBooleanDraft(
+      value.claudecode_enable_billing_header
+    );
+  }
   if ("claudecode_append_beta_query" in value) {
     out.claudecode_append_beta_query = normalizeBooleanDraft(value.claudecode_append_beta_query);
   }
@@ -164,6 +170,13 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
   ).trim();
   if (platformBaseUrl && platformBaseUrl !== DEFAULTS.claudecode_platform_base_url.trim()) {
     payload.claudecode_platform_base_url = platformBaseUrl;
+  }
+
+  if (
+    (settings.claudecode_enable_billing_header ?? DEFAULTS.claudecode_enable_billing_header) ===
+    "true"
+  ) {
+    payload.claudecode_enable_billing_header = true;
   }
 
   if (

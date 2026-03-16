@@ -4,13 +4,18 @@ pub const DEFAULT_PLATFORM_BASE_URL: &str = "https://platform.claude.com";
 
 pub const DEFAULT_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 
+pub const CLAUDE_CODE_VERSION: &str = "2.1.76";
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 pub const OAUTH_SCOPE: &str = "user:profile user:inference user:sessions:claude_code";
 pub const OAUTH_BETA: &str = "oauth-2025-04-20";
 pub const CLAUDE_API_VERSION: &str = "2023-06-01";
+pub const CLAUDE_CODE_BILLING_HEADER_PREFIX: &str = "x-anthropic-billing-header:";
+pub const CLAUDE_CODE_BILLING_ENTRYPOINT: &str = "cli";
+pub const CLAUDE_CODE_BILLING_SALT: &str = "59cf53e54c78";
+pub const CLAUDE_CODE_BILLING_CCH: &str = "00000";
 
-pub const TOKEN_UA: &str = "claude-cli/2.1.62 (external, cli)";
-pub const CLAUDE_CODE_UA: &str = "claude-code/2.1.62";
+pub const TOKEN_UA: &str = "claude-cli/2.1.76 (external, cli)";
+pub const CLAUDE_CODE_UA: &str = "claude-code/2.1.76";
 
 pub const OAUTH_STATE_TTL_MS: u64 = 600_000;
 pub const TOKEN_REFRESH_SKEW_MS: u64 = 60_000;

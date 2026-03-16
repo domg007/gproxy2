@@ -22,6 +22,7 @@ impl ClaudeCodePreparedRequest {
         request: &gproxy_middleware::TransformRequest,
         append_beta_query: bool,
         prelude_text: Option<&str>,
+        enable_billing_header: bool,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
         let extra_headers = extra_headers_from_transform_request(request);
@@ -91,6 +92,9 @@ impl ClaudeCodePreparedRequest {
                 canonicalize_claude_body(&mut body_json);
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
+                if enable_billing_header {
+                    apply_claudecode_billing_header_system_block(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -130,6 +134,9 @@ impl ClaudeCodePreparedRequest {
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
+                if enable_billing_header {
+                    apply_claudecode_billing_header_system_block(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -166,6 +173,9 @@ impl ClaudeCodePreparedRequest {
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
                 }
+                if enable_billing_header {
+                    apply_claudecode_billing_header_system_block(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
 
@@ -194,6 +204,7 @@ impl ClaudeCodePreparedRequest {
         body: &[u8],
         append_beta_query: bool,
         prelude_text: Option<&str>,
+        enable_billing_header: bool,
         cache_breakpoints: &[CacheBreakpointRule],
     ) -> Result<Self, UpstreamError> {
         fn json_pointer_string(value: &Value, pointer: &str) -> Option<String> {
@@ -296,6 +307,9 @@ impl ClaudeCodePreparedRequest {
                 })?;
                 let model = normalize_claudecode_model_and_thinking(model.as_str(), &mut body_json);
                 normalize_claudecode_unsupported_fields(&mut body_json);
+                if enable_billing_header {
+                    apply_claudecode_billing_header_system_block(&mut body_json);
+                }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;
                 ensure_oauth_beta(&mut request_headers, context_1m_target.is_some());
@@ -333,6 +347,9 @@ impl ClaudeCodePreparedRequest {
                 apply_magic_string_cache_control_triggers(&mut body_json);
                 if !cache_breakpoints.is_empty() {
                     ensure_cache_breakpoint_rules(&mut body_json, cache_breakpoints);
+                }
+                if enable_billing_header {
+                    apply_claudecode_billing_header_system_block(&mut body_json);
                 }
                 let context_1m_target = claude_1m_target_for_model(model.as_str());
                 let mut request_headers = anthropic_header_pairs(&version, beta.as_ref())?;

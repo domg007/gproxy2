@@ -192,6 +192,13 @@ impl ChannelSettings {
         }
     }
 
+    pub fn claudecode_enable_billing_header(&self) -> bool {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => value.enable_billing_header,
+            _ => false,
+        }
+    }
+
     pub fn claudecode_extra_beta_headers(&self) -> &[String] {
         match self {
             Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => &value.extra_beta_headers,

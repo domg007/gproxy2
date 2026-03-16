@@ -117,6 +117,8 @@ export function ConfigTab({
   const orderedAnthropicReferenceBetas = orderAnthropicReferenceBetas(anthropicExtraBetaHeaders);
   const orderedClaudecodeReferenceBetas = orderAnthropicReferenceBetas(claudecodeExtraBetaHeaders);
   const anthropicAppendBetaQuery = (providerForm.settings.anthropic_append_beta_query ?? "false") === "true";
+  const claudecodeEnableBillingHeader =
+    (providerForm.settings.claudecode_enable_billing_header ?? "false") === "true";
   const claudecodeAppendBetaQuery =
     (providerForm.settings.claudecode_append_beta_query ?? "false") === "true";
 
@@ -190,7 +192,7 @@ export function ConfigTab({
       label: t("providers.uaTemplate.channel.gproxy")
     },
     { value: "codex_vscode/0.99.0", label: t("providers.uaTemplate.channel.codex") },
-    { value: "claude-code/2.1.62", label: t("providers.uaTemplate.channel.claudecode") },
+    { value: "claude-code/2.1.76", label: t("providers.uaTemplate.channel.claudecode") },
     { value: geminiCliTemplate, label: t("providers.uaTemplate.channel.geminicli") },
     {
       value: "antigravity/1.15.8 (Windows; AMD64)",
@@ -727,6 +729,30 @@ export function ConfigTab({
                   }))
                 }
               />
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="claudecode-enable-billing-header"
+                  type="checkbox"
+                  checked={claudecodeEnableBillingHeader}
+                  onChange={(event) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: {
+                        ...prev.settings,
+                        claudecode_enable_billing_header: event.target.checked ? "true" : "false"
+                      }
+                    }))
+                  }
+                />
+                <label htmlFor="claudecode-enable-billing-header" className="text-sm text-muted">
+                  {t("field.claudecode_enable_billing_header")}
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                {t("providers.claudecode.billingHeaderHint")}
+              </p>
             </div>
             <div className="md:col-span-2">
               <div className="flex items-center gap-2">
