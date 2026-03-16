@@ -1,5 +1,41 @@
 # Release Notes
 
+## v0.3.39
+
+### English
+
+#### Added
+
+- Added an optional channel-level `claudecode_enable_billing_header` setting for ClaudeCode. When enabled, gproxy injects the Claude Code `x-anthropic-billing-header` as the first upstream `system` block and computes the `cc_version` hash suffix dynamically from the first user message, matching Claude Code `2.1.76` behavior.
+
+#### Changed
+
+- Updated the built-in ClaudeCode user-agent defaults/templates to `claude-code/2.1.76` and `claude-cli/2.1.76 (external, cli)`.
+- ClaudeCode billing-header insertion now runs after upstream `cache_control` rewrite and cache-breakpoint processing, ensuring the injected billing `system` block never receives `cache_control`.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing ClaudeCode providers remain unchanged unless `claudecode_enable_billing_header` is explicitly enabled.
+- Existing cache-breakpoint behavior remains unchanged for user-defined payload blocks; only the injected billing header is kept free of `cache_control`.
+
+### 中文
+
+#### 新增
+
+- ClaudeCode 渠道新增可选的 `claudecode_enable_billing_header` 设置。启用后，gproxy 会在上游请求中把 Claude Code 的 `x-anthropic-billing-header` 作为第一个 `system` block 注入，并按 Claude Code `2.1.76` 规则基于首条 user 消息动态计算 `cc_version` 的 hash 后缀。
+
+#### 变更
+
+- 内置 ClaudeCode 的 User-Agent 默认值 / 模板已更新为 `claude-code/2.1.76` 和 `claude-cli/2.1.76 (external, cli)`。
+- ClaudeCode billing header 的注入时机已调整到上游 `cache_control` 改写和 cache breakpoint 处理之后，确保该 billing `system` block 不会被附加 `cache_control`。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 现有 ClaudeCode provider 默认行为不变；只有显式开启 `claudecode_enable_billing_header` 后才会注入该 billing header。
+- 现有 cache breakpoint 对用户自定义 payload block 的行为保持不变；仅新增的 billing header 会被明确保持为不带 `cache_control`。
+
 ## v0.3.38
 
 ### English
