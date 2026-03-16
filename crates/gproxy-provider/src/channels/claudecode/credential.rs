@@ -8,6 +8,7 @@ pub struct ClaudeCodeTokenRefresh<'a> {
     pub subscription_type: Option<&'a str>,
     pub rate_limit_tier: Option<&'a str>,
     pub user_email: Option<&'a str>,
+    pub organization_uuid: Option<&'a str>,
     pub cookie: Option<&'a str>,
 }
 
@@ -23,6 +24,7 @@ pub struct ClaudeCodeCredential {
     #[serde(alias = "session_key")]
     pub cookie: Option<String>,
     pub user_email: Option<String>,
+    pub organization_uuid: Option<String>,
 }
 
 impl ClaudeCodeCredential {
@@ -45,6 +47,16 @@ impl ClaudeCodeCredential {
                 .unwrap_or(true);
             if email_missing {
                 self.user_email = Some(user_email.to_string());
+            }
+        }
+        if let Some(organization_uuid) = refresh.organization_uuid {
+            let org_missing = self
+                .organization_uuid
+                .as_ref()
+                .map(|existing| existing.trim().is_empty())
+                .unwrap_or(true);
+            if org_missing {
+                self.organization_uuid = Some(organization_uuid.to_string());
             }
         }
         if let Some(cookie) = refresh.cookie {

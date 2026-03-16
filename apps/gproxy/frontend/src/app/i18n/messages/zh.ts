@@ -377,6 +377,7 @@ export const zhMessages = {
     "field.enable_claude_1m_sonnet": "启用 Claude 1M Sonnet",
     "field.expires_at": "过期时间",
     "field.id_token": "ID Token",
+    "field.organization_uuid": "组织 UUID",
     "field.private_key": "私钥",
     "field.private_key_id": "私钥 ID",
     "field.project_id": "项目 ID",

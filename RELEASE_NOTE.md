@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.3.40
+
+### English
+
+#### Fixed
+
+- OAuth credential persistence now distinguishes same-email Codex logins by `account_id` and same-email ClaudeCode logins by `organization_uuid`, preventing different workspaces/subscriptions from collapsing into a single stored credential. ClaudeCode OAuth profile parsing also records `organization_uuid` and prefers the upstream `organization_type` when available.
+
+#### Compatibility
+
+- No storage migration is required.
+
+### 中文
+
+#### 修复
+
+- OAuth 凭证持久化现在会用 `account_id` 区分同邮箱的 Codex 登录，并用 `organization_uuid` 区分同邮箱的 ClaudeCode 登录，避免不同 workspace / 订阅被折叠成同一条凭证。ClaudeCode 的 OAuth profile 解析也会记录 `organization_uuid`，并在上游返回时优先采用 `organization_type` 作为订阅类型。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+
 ## v0.3.39
 
 ### English

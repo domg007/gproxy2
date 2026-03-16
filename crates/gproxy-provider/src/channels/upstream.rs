@@ -44,6 +44,7 @@ pub enum UpstreamCredentialUpdate {
         subscription_type: Option<String>,
         rate_limit_tier: Option<String>,
         user_email: Option<String>,
+        organization_uuid: Option<String>,
         cookie: Option<String>,
         enable_claude_1m_sonnet: Option<bool>,
         enable_claude_1m_opus: Option<bool>,

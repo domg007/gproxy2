@@ -53,6 +53,8 @@ struct OAuthProfileAccount {
 
 #[derive(Debug, Default, Deserialize)]
 struct OAuthProfileOrg {
+    uuid: Option<String>,
+    organization_type: Option<String>,
     rate_limit_tier: Option<String>,
 }
 
@@ -65,6 +67,7 @@ pub(crate) struct ClaudeCodeAuthMaterial {
     subscription_type: Option<String>,
     rate_limit_tier: Option<String>,
     user_email: Option<String>,
+    organization_uuid: Option<String>,
 }
 
 impl ClaudeCodeAuthMaterial {
@@ -85,6 +88,7 @@ pub(crate) struct ClaudeCodeRefreshedToken {
     pub(crate) subscription_type: Option<String>,
     pub(crate) rate_limit_tier: Option<String>,
     pub(crate) user_email: Option<String>,
+    pub(crate) organization_uuid: Option<String>,
     pub(crate) cookie: Option<String>,
 }
 
@@ -143,6 +147,7 @@ pub(crate) fn claudecode_access_token_from_credential(
         rate_limit_tier: (!credential.rate_limit_tier.trim().is_empty())
             .then(|| credential.rate_limit_tier.clone()),
         user_email: credential.user_email.clone(),
+        organization_uuid: credential.organization_uuid.clone(),
     })
 }
 
@@ -317,7 +322,11 @@ pub async fn execute_claudecode_oauth_callback(
     .await?;
 
     let mut user_email = None;
-    if (tokens.subscription_type.is_none() || tokens.rate_limit_tier.is_none())
+    let mut organization_uuid = None;
+    if (tokens.subscription_type.is_none()
+        || tokens.rate_limit_tier.is_none()
+        || user_email.is_none()
+        || organization_uuid.is_none())
         && let Ok(profile) = fetch_oauth_profile(
             client,
             oauth_state.api_base_url.as_str(),
@@ -332,6 +341,7 @@ pub async fn execute_claudecode_oauth_callback(
             tokens.rate_limit_tier = profile.rate_limit_tier;
         }
         user_email = profile.email;
+        organization_uuid = profile.organization_uuid;
     }
 
     let Some(access_token) = tokens
@@ -376,6 +386,7 @@ pub async fn execute_claudecode_oauth_callback(
                 rate_limit_tier: rate_limit_tier.clone().unwrap_or_default(),
                 cookie: None,
                 user_email,
+                organization_uuid: organization_uuid.clone(),
             },
         )),
     };
@@ -388,6 +399,7 @@ pub async fn execute_claudecode_oauth_callback(
             "expires_in": tokens.expires_in,
             "subscriptionType": subscription_type,
             "rateLimitTier": rate_limit_tier,
+            "organizationUuid": organization_uuid,
         }),
     );
     let mut response = response;
@@ -488,6 +500,7 @@ pub(crate) async fn refresh_claudecode_access_token(
                 .rate_limit_tier
                 .or_else(|| material.rate_limit_tier.clone()),
             user_email: material.user_email.clone(),
+            organization_uuid: material.organization_uuid.clone(),
             cookie: material.cookie.clone(),
         };
         fill_missing_refresh_fields_from_profile(client, api_base_url, &mut refreshed).await;
@@ -552,6 +565,7 @@ async fn parse_refreshed_token_response(
                 .and_then(|value| value.rate_limit_tier.clone())
                 .or_else(|| material.rate_limit_tier.clone()),
             user_email: material.user_email.clone(),
+            organization_uuid: material.organization_uuid.clone(),
             cookie: material.cookie.clone(),
         });
     }
@@ -714,6 +728,7 @@ async fn fill_missing_refresh_fields_from_profile(
     if refreshed.subscription_type.is_some()
         && refreshed.rate_limit_tier.is_some()
         && refreshed.user_email.is_some()
+        && refreshed.organization_uuid.is_some()
     {
         return;
     }
@@ -733,6 +748,9 @@ async fn fill_missing_refresh_fields_from_profile(
     if refreshed.user_email.is_none() {
         refreshed.user_email = profile.email;
     }
+    if refreshed.organization_uuid.is_none() {
+        refreshed.organization_uuid = profile.organization_uuid;
+    }
 }
 
 #[derive(Debug, Default)]
@@ -740,21 +758,30 @@ struct OAuthProfileParsed {
     email: Option<String>,
     subscription_type: Option<String>,
     rate_limit_tier: Option<String>,
+    organization_uuid: Option<String>,
 }
 
 fn parse_profile(profile: OAuthProfile) -> OAuthProfileParsed {
-    let subscription_type = if profile.account.has_claude_max {
-        Some("claude_max".to_string())
-    } else if profile.account.has_claude_pro {
-        Some("claude_pro".to_string())
-    } else {
-        None
-    };
+    let subscription_type = profile
+        .organization
+        .organization_type
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            if profile.account.has_claude_max {
+                Some("claude_max".to_string())
+            } else if profile.account.has_claude_pro {
+                Some("claude_pro".to_string())
+            } else {
+                None
+            }
+        });
 
     OAuthProfileParsed {
         email: profile.account.email,
         subscription_type,
         rate_limit_tier: profile.organization.rate_limit_tier,
+        organization_uuid: profile.organization.uuid,
     }
 }
 

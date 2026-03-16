@@ -77,6 +77,7 @@ impl ProviderDefinition {
                 subscription_type,
                 rate_limit_tier,
                 user_email,
+                organization_uuid,
                 cookie,
                 enable_claude_1m_sonnet,
                 enable_claude_1m_opus,
@@ -106,6 +107,7 @@ impl ProviderDefinition {
                         subscription_type: subscription_type.as_deref(),
                         rate_limit_tier: rate_limit_tier.as_deref(),
                         user_email: user_email.as_deref(),
+                        organization_uuid: organization_uuid.as_deref(),
                         cookie: cookie.as_deref(),
                     });
                 } else {
@@ -123,6 +125,16 @@ impl ProviderDefinition {
                             .unwrap_or(true);
                         if email_missing {
                             value.user_email = Some(user_email.clone());
+                        }
+                    }
+                    if let Some(organization_uuid) = organization_uuid {
+                        let org_missing = value
+                            .organization_uuid
+                            .as_ref()
+                            .map(|existing| existing.trim().is_empty())
+                            .unwrap_or(true);
+                        if org_missing {
+                            value.organization_uuid = Some(organization_uuid.clone());
                         }
                     }
                     if let Some(cookie) = cookie {

@@ -382,6 +382,7 @@ export const enMessages = {
     "field.enable_claude_1m_sonnet": "enable_claude_1m_sonnet",
     "field.expires_at": "expires_at",
     "field.id_token": "id_token",
+    "field.organization_uuid": "organization_uuid",
     "field.private_key": "private_key",
     "field.private_key_id": "private_key_id",
     "field.project_id": "project_id",

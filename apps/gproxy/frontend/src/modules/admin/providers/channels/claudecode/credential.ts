@@ -50,6 +50,11 @@ export const CREDENTIAL_SCHEMA: ChannelCredentialSchema = {
       "key": "user_email",
       "label": "user_email",
       "type": "optional_string"
+    },
+    {
+      "key": "organization_uuid",
+      "label": "organization_uuid",
+      "type": "optional_string"
     }
   ]
 };
