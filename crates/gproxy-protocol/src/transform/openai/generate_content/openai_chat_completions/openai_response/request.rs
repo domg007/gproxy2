@@ -371,7 +371,7 @@ mod tests {
             })
             .expect("reasoning item");
 
-        assert_eq!(reasoning.id.as_deref(), Some("gproxy_reasoning_0_0"));
+        assert_eq!(reasoning.id.as_deref(), Some("rs_0_0"));
         assert_eq!(reasoning.summary.len(), 1);
         assert_eq!(reasoning.summary[0].text, "reasoning text");
         assert_eq!(reasoning.content.as_ref().map(|parts| parts.len()), Some(1));

@@ -556,7 +556,7 @@ mod tests {
             })
             .expect("thinking block");
 
-        assert_eq!(thinking_block.signature, "gproxy_reasoning_0_0");
+        assert_eq!(thinking_block.signature, "rs_0_0");
         assert_eq!(thinking_block.thinking, "reasoning text");
     }
 

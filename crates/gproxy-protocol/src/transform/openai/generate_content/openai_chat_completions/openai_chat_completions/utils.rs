@@ -237,7 +237,7 @@ pub fn chat_reasoning_to_response_reasoning(
 }
 
 pub fn pseudo_reasoning_signature(message_index: usize, reasoning_ordinal: usize) -> String {
-    format!("gproxy_reasoning_{message_index}_{reasoning_ordinal}")
+    format!("rs_{message_index}_{reasoning_ordinal}")
 }
 
 pub fn chat_response_text_config(
@@ -359,7 +359,7 @@ mod tests {
         let first = pseudo_reasoning_signature(3, 2);
         let second = pseudo_reasoning_signature(3, 2);
         assert_eq!(first, second);
-        assert_eq!(first, "gproxy_reasoning_3_2");
+        assert_eq!(first, "rs_3_2");
     }
 
     #[test]

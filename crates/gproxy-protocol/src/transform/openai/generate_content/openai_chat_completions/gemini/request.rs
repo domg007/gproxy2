@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(part.thought, Some(true));
         assert_eq!(
             part.thought_signature.as_deref(),
-            Some("gproxy_reasoning_0_0")
+            Some("rs_0_0")
         );
         assert_eq!(part.text.as_deref(), Some("reasoning text"));
     }
