@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.3.41
+
+### English
+
+#### Added
+
+- Added true request-log deletion actions in the admin Requests workspace. `Delete Selected Logs` and `Delete All Logs` now remove upstream/downstream request rows entirely instead of only clearing stored headers/bodies.
+
+#### Changed
+
+- ClaudeCode now always ensures the Claude Code `x-anthropic-billing-header` system block is present upstream when missing. The old channel-level `claudecode_enable_billing_header` toggle has been removed from both provider settings and the admin UI.
+- If a ClaudeCode request already contains an `x-anthropic-billing-header` system block, gproxy now preserves that existing block instead of recomputing or overwriting it.
+- The admin Requests workspace now separates `Clear Payload` from `Delete Logs` so payload wiping and row deletion are no longer conflated in the UI.
+
+#### Fixed
+
+- Fixed ClaudeCode bulk credential import/export mismatch in the admin workspace. Copying a ClaudeCode credential and pasting it back into bulk import now round-trips as JSON correctly instead of being misread as a cookie-only line import.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing provider settings that still contain `claudecode_enable_billing_header` remain readable; the flag is now ignored because billing-header insertion is default behavior.
+- Request-log deletion is permanent and removes the full stored row, unlike payload clearing which still keeps the row metadata.
+
+### 中文
+
+#### 新增
+
+- 后台 Requests 工作区新增真正的请求日志删除操作。`删除选中日志` 和 `删除全部日志` 现在会直接删除 upstream/downstream 请求记录整行，而不再只是清空已存储的 header/body。
+
+#### 变更
+
+- ClaudeCode 现在默认会在上游请求中确保存在 Claude Code 的 `x-anthropic-billing-header` system block；原有渠道级 `claudecode_enable_billing_header` 开关已从 provider settings 和后台 UI 中移除。
+- 如果 ClaudeCode 请求本身已经带有 `x-anthropic-billing-header` system block，gproxy 现在会保留原值，不再重新计算或覆盖。
+- 后台 Requests 工作区现已将 `清空载荷` 与 `删除日志` 两类操作分开展示，避免 UI 上把 payload 清理和整行删除混为一谈。
+
+#### 修复
+
+- 修复后台 ClaudeCode 凭证批量导入/导出格式不一致的问题。现在从卡片复制 ClaudeCode 凭证后，直接粘贴回批量导入框可以按 JSON 正确回导，不会再被误判成仅 cookie 的单行导入。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 旧 provider settings 中如果仍包含 `claudecode_enable_billing_header`，仍可正常读取；该字段现在会被忽略，因为 billing header 注入已成为默认行为。
+- 请求日志删除为永久删除，会移除完整记录；若只想保留元信息，应继续使用 `清空载荷`。
+
 ## v0.3.40
 
 ### English
