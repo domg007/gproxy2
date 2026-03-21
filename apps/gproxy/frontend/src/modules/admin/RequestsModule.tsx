@@ -28,6 +28,7 @@ export function RequestsModule({
     loadingRows,
     loadingCount,
     clearingPayload,
+    deletingLogs,
     selectedTraceIds,
     bodyByTraceId,
     bodyLoadingByTraceId,
@@ -41,7 +42,8 @@ export function RequestsModule({
     runQuery,
     ensureBodyLoaded,
     toggleTraceIdSelected,
-    clearPayload
+    clearPayload,
+    deleteLogs
   } = useRequestsModuleState({
     apiKey,
     notify,
@@ -65,9 +67,11 @@ export function RequestsModule({
         loadingRows={loadingRows}
         loadingCount={loadingCount}
         clearingPayload={clearingPayload}
+        deletingLogs={deletingLogs}
         selectedCount={selectedTraceIds.length}
         onRunQuery={runQuery}
         onClearPayload={(all) => void clearPayload(all)}
+        onDeleteLogs={(all) => void deleteLogs(all)}
         t={t}
       />
       <RequestsTable
@@ -79,6 +83,7 @@ export function RequestsModule({
         ensureBodyLoaded={ensureBodyLoaded}
         selectedTraceIds={selectedTraceIds}
         clearingPayload={clearingPayload}
+        deletingLogs={deletingLogs}
         onToggleTraceIdSelected={toggleTraceIdSelected}
         totalRows={totalRows}
         pageSize={pageSize}

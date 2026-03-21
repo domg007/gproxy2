@@ -287,13 +287,20 @@ export const enMessages = {
     "requests.clear.selectedCount": "{count} selected",
     "requests.clear.selectRow": "Select",
     "requests.clear.unselectRow": "Unselect",
-    "requests.clear.selected": "Clear Selected",
-    "requests.clear.all": "Clear All",
+    "requests.clear.selected": "Clear Selected Payload",
+    "requests.clear.all": "Clear All Payload",
     "requests.clear.confirmSelected":
       "Clear headers/bodies for {count} selected logs?",
     "requests.clear.confirmAll":
       "Clear headers/bodies for all logs of this request kind?",
     "requests.clear.done": "Cleared headers/bodies for {count} logs",
+    "requests.delete.selected": "Delete Selected Logs",
+    "requests.delete.all": "Delete All Logs",
+    "requests.delete.confirmSelected":
+      "Delete {count} selected logs permanently? This cannot be undone.",
+    "requests.delete.confirmAll":
+      "Delete all logs of this request kind permanently? This cannot be undone.",
+    "requests.delete.done": "Deleted {count} logs",
     "usage.title": "Usage",
     "usage.subtitle": "Query usage rows and summaries",
     "usage.rows": "Usage Rows",

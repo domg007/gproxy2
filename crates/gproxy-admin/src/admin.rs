@@ -244,6 +244,20 @@ pub async fn clear_downstream_request_payloads(
     Ok(storage.clear_downstream_request_payloads(trace_ids).await?)
 }
 
+pub async fn delete_upstream_requests(
+    storage: &gproxy_storage::SeaOrmStorage,
+    trace_ids: Option<&[i64]>,
+) -> Result<u64, AdminApiError> {
+    Ok(storage.delete_upstream_requests(trace_ids).await?)
+}
+
+pub async fn delete_downstream_requests(
+    storage: &gproxy_storage::SeaOrmStorage,
+    trace_ids: Option<&[i64]>,
+) -> Result<u64, AdminApiError> {
+    Ok(storage.delete_downstream_requests(trace_ids).await?)
+}
+
 pub async fn query_usages(
     storage: &gproxy_storage::SeaOrmStorage,
     query: UsageQuery,

@@ -15,9 +15,11 @@ export function RequestFilters({
   loadingRows,
   loadingCount,
   clearingPayload,
+  deletingLogs,
   selectedCount,
   onRunQuery,
   onClearPayload,
+  onDeleteLogs,
   t
 }: {
   kind: RequestKind;
@@ -33,9 +35,11 @@ export function RequestFilters({
   loadingRows: boolean;
   loadingCount: boolean;
   clearingPayload: boolean;
+  deletingLogs: boolean;
   selectedCount: number;
   onRunQuery: () => void;
   onClearPayload: (all: boolean) => void;
+  onDeleteLogs: (all: boolean) => void;
   t: TranslateFn;
 }) {
   return (
@@ -125,7 +129,10 @@ export function RequestFilters({
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Button onClick={onRunQuery} disabled={loadingRows || loadingCount || clearingPayload}>
+          <Button
+            onClick={onRunQuery}
+            disabled={loadingRows || loadingCount || clearingPayload || deletingLogs}
+          >
             {loadingRows || loadingCount ? t("common.loading") : t("common.query")}
           </Button>
         </div>
@@ -134,14 +141,32 @@ export function RequestFilters({
             {t("requests.clear.selectedCount", { count: selectedCount })}
           </span>
           <Button
-            variant="danger"
-            disabled={selectedCount === 0 || clearingPayload}
+            variant="neutral"
+            disabled={selectedCount === 0 || clearingPayload || deletingLogs}
             onClick={() => onClearPayload(false)}
           >
             {t("requests.clear.selected")}
           </Button>
-          <Button variant="danger" disabled={clearingPayload} onClick={() => onClearPayload(true)}>
+          <Button
+            variant="neutral"
+            disabled={clearingPayload || deletingLogs}
+            onClick={() => onClearPayload(true)}
+          >
             {t("requests.clear.all")}
+          </Button>
+          <Button
+            variant="danger"
+            disabled={selectedCount === 0 || clearingPayload || deletingLogs}
+            onClick={() => onDeleteLogs(false)}
+          >
+            {t("requests.delete.selected")}
+          </Button>
+          <Button
+            variant="danger"
+            disabled={clearingPayload || deletingLogs}
+            onClick={() => onDeleteLogs(true)}
+          >
+            {t("requests.delete.all")}
           </Button>
         </div>
       </div>

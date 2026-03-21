@@ -256,6 +256,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/requests/upstream/clear",
             post(clear_upstream_request_payloads),
         )
+        .route("/requests/upstream/delete", post(delete_upstream_requests))
         .route(
             "/requests/downstream/query",
             post(query_downstream_requests),
@@ -267,6 +268,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/requests/downstream/clear",
             post(clear_downstream_request_payloads),
+        )
+        .route(
+            "/requests/downstream/delete",
+            post(delete_downstream_requests),
         )
         .route("/usages/query", post(query_usages))
         .route("/usages/count", post(count_usages))

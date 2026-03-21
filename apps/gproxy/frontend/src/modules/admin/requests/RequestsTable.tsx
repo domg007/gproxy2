@@ -19,6 +19,7 @@ export function RequestsTable({
   ensureBodyLoaded,
   selectedTraceIds,
   clearingPayload,
+  deletingLogs,
   onToggleTraceIdSelected,
   totalRows,
   pageSize,
@@ -40,6 +41,7 @@ export function RequestsTable({
   ensureBodyLoaded: (row: RequestRow) => Promise<RequestBodyPayload | undefined>;
   selectedTraceIds: number[];
   clearingPayload: boolean;
+  deletingLogs: boolean;
   onToggleTraceIdSelected: (traceId: number) => void;
   totalRows: number;
   pageSize: number;
@@ -99,7 +101,7 @@ export function RequestsTable({
                 <input
                   type="checkbox"
                   checked={selected}
-                  disabled={clearingPayload}
+                  disabled={clearingPayload || deletingLogs}
                   onChange={() => onToggleTraceIdSelected(row.trace_id)}
                   aria-label={selected ? t("requests.clear.unselectRow") : t("requests.clear.selectRow")}
                   className="h-4 w-4"

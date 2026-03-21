@@ -111,6 +111,60 @@ pub(super) async fn clear_downstream_request_payloads(
     Ok(Json(ClearRequestAck { ok: true, cleared }))
 }
 
+pub(super) async fn delete_upstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<ClearRequestPayload>,
+) -> Result<Json<ClearRequestAck>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let ids = normalize_trace_ids(payload.trace_ids);
+    if !payload.all && ids.is_empty() {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "trace_ids must be non-empty when all=false",
+        ));
+    }
+
+    let storage = state.load_storage();
+    let cleared = gproxy_admin::delete_upstream_requests(
+        &storage,
+        if payload.all {
+            None
+        } else {
+            Some(ids.as_slice())
+        },
+    )
+    .await?;
+    Ok(Json(ClearRequestAck { ok: true, cleared }))
+}
+
+pub(super) async fn delete_downstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<ClearRequestPayload>,
+) -> Result<Json<ClearRequestAck>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let ids = normalize_trace_ids(payload.trace_ids);
+    if !payload.all && ids.is_empty() {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "trace_ids must be non-empty when all=false",
+        ));
+    }
+
+    let storage = state.load_storage();
+    let cleared = gproxy_admin::delete_downstream_requests(
+        &storage,
+        if payload.all {
+            None
+        } else {
+            Some(ids.as_slice())
+        },
+    )
+    .await?;
+    Ok(Json(ClearRequestAck { ok: true, cleared }))
+}
+
 fn normalize_trace_ids(raw: Vec<i64>) -> Vec<i64> {
     let mut ids: Vec<i64> = raw.into_iter().filter(|id| *id > 0).collect();
     ids.sort_unstable();

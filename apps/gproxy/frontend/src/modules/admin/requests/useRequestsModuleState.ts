@@ -154,6 +154,12 @@ function requestClearPath(kind: RequestKind): string {
   return kind === "upstream" ? "/admin/requests/upstream/clear" : "/admin/requests/downstream/clear";
 }
 
+function requestDeletePath(kind: RequestKind): string {
+  return kind === "upstream"
+    ? "/admin/requests/upstream/delete"
+    : "/admin/requests/downstream/delete";
+}
+
 function toPositiveOrNull(value: number | null): number | null {
   if (value === null || value <= 0) {
     return null;
@@ -186,6 +192,7 @@ export function useRequestsModuleState({
   const [bodyErrorByTraceId, setBodyErrorByTraceId] = useState<Record<number, string>>({});
   const [selectedTraceIds, setSelectedTraceIds] = useState<number[]>([]);
   const [clearingPayload, setClearingPayload] = useState(false);
+  const [deletingLogs, setDeletingLogs] = useState(false);
   const rowsRequestSeq = useRef(0);
   const countRequestSeq = useRef(0);
 
@@ -547,6 +554,52 @@ export function useRequestsModuleState({
     }
   }, [activeQuery, apiKey, kind, notify, selectedTraceIds, t]);
 
+  const deleteLogs = useCallback(async (all: boolean) => {
+    const normalizedIds = Array.from(
+      new Set(selectedTraceIds.filter((id) => Number.isInteger(id) && id > 0))
+    ).sort((a, b) => a - b);
+
+    if (!all && normalizedIds.length === 0) {
+      notify("info", t("common.none"));
+      return;
+    }
+
+    const confirmed = all
+      ? window.confirm(t("requests.delete.confirmAll"))
+      : window.confirm(t("requests.delete.confirmSelected", { count: normalizedIds.length }));
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingLogs(true);
+    try {
+      const result = await apiRequest<RequestClearAck>(requestDeletePath(kind), {
+        apiKey,
+        method: "POST",
+        body: {
+          all,
+          trace_ids: all ? [] : normalizedIds
+        }
+      });
+      notify("success", t("requests.delete.done", { count: result.cleared }));
+      setSelectedTraceIds([]);
+      setBodyByTraceId({});
+      setBodyLoadingByTraceId({});
+      setBodyErrorByTraceId({});
+
+      if (activeQuery) {
+        setActiveQuery({ ...activeQuery });
+      } else {
+        setRows([]);
+        setTotalRows(0);
+      }
+    } catch (error) {
+      notify("error", formatError(error));
+    } finally {
+      setDeletingLogs(false);
+    }
+  }, [activeQuery, apiKey, kind, notify, selectedTraceIds, t]);
+
   const updateFilter = useCallback((key: keyof RequestsFilterState, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -567,6 +620,7 @@ export function useRequestsModuleState({
     loadingRows,
     loadingCount,
     clearingPayload,
+    deletingLogs,
     selectedTraceIds,
     bodyByTraceId,
     bodyLoadingByTraceId,
@@ -580,6 +634,7 @@ export function useRequestsModuleState({
     runQuery,
     ensureBodyLoaded,
     toggleTraceIdSelected,
-    clearPayload
+    clearPayload,
+    deleteLogs
   };
 }

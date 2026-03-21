@@ -215,4 +215,37 @@ impl SeaOrmStorage {
 
         Ok(stmt.exec(self.connection()).await?.rows_affected)
     }
+
+    pub async fn delete_upstream_requests(&self, trace_ids: Option<&[i64]>) -> Result<u64, DbErr> {
+        if let Some(ids) = trace_ids
+            && ids.is_empty()
+        {
+            return Ok(0);
+        }
+
+        let mut stmt = upstream_requests::Entity::delete_many();
+        if let Some(ids) = trace_ids {
+            stmt = stmt.filter(upstream_requests::Column::TraceId.is_in(ids.iter().copied()));
+        }
+
+        Ok(stmt.exec(self.connection()).await?.rows_affected)
+    }
+
+    pub async fn delete_downstream_requests(
+        &self,
+        trace_ids: Option<&[i64]>,
+    ) -> Result<u64, DbErr> {
+        if let Some(ids) = trace_ids
+            && ids.is_empty()
+        {
+            return Ok(0);
+        }
+
+        let mut stmt = downstream_requests::Entity::delete_many();
+        if let Some(ids) = trace_ids {
+            stmt = stmt.filter(downstream_requests::Column::TraceId.is_in(ids.iter().copied()));
+        }
+
+        Ok(stmt.exec(self.connection()).await?.rows_affected)
+    }
 }
