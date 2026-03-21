@@ -127,7 +127,7 @@ export const enMessages = {
     "providers.anthropic.betaQueryHint": "Append the ?beta=true query parameter to Anthropic upstream paths",
     "providers.claudecode.betaQueryHint": "Append the ?beta=true query parameter to ClaudeCode upstream paths",
     "providers.claudecode.billingHeaderHint":
-      "Inject the Claude Code x-anthropic-billing-header system block upstream after cache_control rewrites, with a dynamic version hash from the first user message.",
+      "Check for the Claude Code x-anthropic-billing-header system block upstream after cache_control rewrites; add it only when missing, using a dynamic version hash from the first user message.",
     "providers.uaTemplate.placeholder": "Select a User-Agent template",
     "providers.uaTemplate.channel.gproxy": "Channel: gproxy",
     "providers.uaTemplate.channel.codex": "Channel: Codex",
@@ -434,7 +434,6 @@ export const enMessages = {
     "field.anthropic_extra_beta_headers": "anthropic_extra_beta_headers",
     "field.anthropic_prelude_text": "anthropic_prelude_text",
     "field.claudecode_ai_base_url": "claudecode_ai_base_url",
-    "field.claudecode_enable_billing_header": "claudecode_enable_billing_header",
     "field.claudecode_append_beta_query": "claudecode_append_beta_query",
     "field.claudecode_platform_base_url": "claudecode_platform_base_url",
     "field.claudecode_extra_beta_headers": "claudecode_extra_beta_headers",

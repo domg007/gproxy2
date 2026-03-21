@@ -236,7 +236,6 @@ fn prepared_request_skips_beta_query_when_disabled() {
         payload.as_slice(),
         false,
         None,
-        false,
         &[],
     )
     .expect("prepare payload");
@@ -261,7 +260,6 @@ fn prepared_request_appends_beta_query_when_enabled() {
         payload.as_slice(),
         true,
         None,
-        false,
         &[],
     )
     .expect("prepare payload");
@@ -289,7 +287,6 @@ fn prepared_request_preserves_explicit_context_1m_beta() {
         payload.as_slice(),
         false,
         None,
-        false,
         &[],
     )
     .expect("prepare payload");
@@ -326,7 +323,6 @@ fn prepared_request_preserves_flat_string_anthropic_beta_values() {
         payload.as_slice(),
         false,
         None,
-        false,
         &[],
     )
     .expect("prepare payload");
@@ -371,7 +367,6 @@ fn prepared_request_canonicalizes_claude_shorthand_content_blocks() {
         payload.as_slice(),
         false,
         None,
-        false,
         &[],
     )
     .expect("prepare payload");
@@ -401,6 +396,30 @@ fn billing_header_uses_dynamic_version_hash_and_fixed_cch() {
 }
 
 #[test]
+fn billing_header_preserves_existing_system_block() {
+    let mut body = json!({
+        "model": "claude-sonnet-4-5",
+        "system": [{
+            "type": "text",
+            "text": "x-anthropic-billing-header: cc_version=custom.keep; cc_entrypoint=cli; cch=12345;"
+        }],
+        "messages": [
+            {"role": "user", "content": "hey"}
+        ]
+    });
+
+    apply_claudecode_billing_header_system_block(&mut body);
+
+    assert_eq!(
+        body["system"],
+        json!([{
+            "type": "text",
+            "text": "x-anthropic-billing-header: cc_version=custom.keep; cc_entrypoint=cli; cch=12345;"
+        }])
+    );
+}
+
+#[test]
 fn prepared_request_inserts_billing_header_after_cache_rules() {
     let payload = serde_json::to_vec(&json!({
         "body": {
@@ -418,7 +437,6 @@ fn prepared_request_inserts_billing_header_after_cache_rules() {
         payload.as_slice(),
         false,
         None,
-        true,
         &[CacheBreakpointRule {
             target: CacheBreakpointTarget::System,
             position: CacheBreakpointPositionKind::Nth,
@@ -445,4 +463,43 @@ fn prepared_request_inserts_billing_header_after_cache_rules() {
             "ttl": "5m"
         })
     );
+}
+
+#[test]
+fn prepared_request_keeps_existing_billing_header() {
+    let payload = serde_json::to_vec(&json!({
+        "body": {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 32,
+            "system": [{
+                "type": "text",
+                "text": "x-anthropic-billing-header: cc_version=already.there; cc_entrypoint=cli; cch=99999;"
+            }, {
+                "type": "text",
+                "text": "sys"
+            }],
+            "messages": [{"role": "user", "content": "hey"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        &[],
+    )
+    .expect("prepare payload");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(prepared.body.as_deref().expect("body bytes")).expect("valid json");
+    assert_eq!(
+        body["system"][0]["text"],
+        json!(
+            "x-anthropic-billing-header: cc_version=already.there; cc_entrypoint=cli; cch=99999;"
+        )
+    );
+    assert_eq!(body["system"][1]["text"], json!("sys"));
 }

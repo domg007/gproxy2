@@ -17,7 +17,6 @@ pub async fn execute_claudecode_with_retry(
         request,
         provider.settings.claudecode_append_beta_query(),
         prelude_text,
-        provider.settings.claudecode_enable_billing_header(),
         provider.settings.cache_breakpoints(),
     )?;
     let cache_affinity_hint = if configured_pick_mode_uses_cache(provider.credential_pick_mode) {
@@ -63,7 +62,6 @@ pub async fn execute_claudecode_payload_with_retry(
         payload.body,
         provider.settings.claudecode_append_beta_query(),
         prelude_text,
-        provider.settings.claudecode_enable_billing_header(),
         provider.settings.cache_breakpoints(),
     )?;
     execute_claudecode_with_prepared(

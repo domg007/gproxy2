@@ -127,7 +127,7 @@ export const zhMessages = {
     "providers.anthropic.betaQueryHint": "为 Anthropic 上游路径追加 ?beta=true query 参数",
     "providers.claudecode.betaQueryHint": "为 ClaudeCode 上游路径追加 ?beta=true query 参数",
     "providers.claudecode.billingHeaderHint":
-      "在上游请求阶段、cache_control 改写完成后注入 Claude Code 的 x-anthropic-billing-header system 块，并根据首条 user 消息动态计算 version hash。",
+      "在上游请求阶段、cache_control 改写完成后检测 Claude Code 的 x-anthropic-billing-header system 块；若请求里不存在则补上，并根据首条 user 消息动态计算 version hash。",
     "providers.uaTemplate.placeholder": "选择 User-Agent 模板",
     "providers.uaTemplate.channel.gproxy": "渠道模板：gproxy",
     "providers.uaTemplate.channel.codex": "渠道模板：Codex",
@@ -427,7 +427,6 @@ export const zhMessages = {
     "field.anthropic_extra_beta_headers": "Anthropic 额外 Anthropic beta 头",
     "field.anthropic_prelude_text": "Anthropic 前置文本",
     "field.claudecode_ai_base_url": "ClaudeCode AI 基础 URL",
-    "field.claudecode_enable_billing_header": "启用 ClaudeCode billing system 块",
     "field.claudecode_append_beta_query": "ClaudeCode 追加 beta query 参数",
     "field.claudecode_platform_base_url": "ClaudeCode 平台基础 URL",
     "field.claudecode_extra_beta_headers": "ClaudeCode 额外 Anthropic beta 头",

@@ -133,6 +133,9 @@ pub(super) fn apply_claudecode_system(body: &mut Value, prelude_text: &str) {
 
 pub(super) fn apply_claudecode_billing_header_system_block(body: &mut Value) {
     canonicalize_claude_body(body);
+    if system_has_claudecode_billing_header(body.get("system")) {
+        return;
+    }
     let header_text = build_claudecode_billing_header_text(body);
     let Some(map) = body.as_object_mut() else {
         return;
@@ -155,6 +158,17 @@ pub(super) fn apply_claudecode_billing_header_system_block(body: &mut Value) {
         None => {
             map.insert("system".to_string(), Value::Array(vec![header_block]));
         }
+    }
+}
+
+fn system_has_claudecode_billing_header(system: Option<&Value>) -> bool {
+    let Some(system) = system else {
+        return false;
+    };
+
+    match system {
+        Value::Array(blocks) => blocks.iter().any(is_claudecode_billing_header_block),
+        value => is_claudecode_billing_header_block(value),
     }
 }
 
