@@ -373,7 +373,11 @@ fn prepared_request_canonicalizes_claude_shorthand_content_blocks() {
 
     let body: serde_json::Value =
         serde_json::from_slice(prepared.body.as_deref().expect("body bytes")).expect("valid json");
-    assert_eq!(body["system"][0]["text"], json!("sys"));
+    assert_eq!(
+        body["system"][0]["text"],
+        json!("x-anthropic-billing-header: cc_version=2.1.76.4dc; cc_entrypoint=cli; cch=00000;")
+    );
+    assert_eq!(body["system"][1]["text"], json!("sys"));
     assert_eq!(body["messages"][0]["content"][0]["text"], json!("hi"));
     assert_eq!(body["messages"][1]["content"][0]["text"], json!("there"));
 }
