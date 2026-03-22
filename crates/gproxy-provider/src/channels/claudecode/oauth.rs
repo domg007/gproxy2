@@ -44,6 +44,7 @@ struct OAuthProfile {
 
 #[derive(Debug, Default, Deserialize)]
 struct OAuthProfileAccount {
+    uuid: Option<String>,
     email: Option<String>,
     #[serde(default)]
     has_claude_max: bool,
@@ -60,14 +61,15 @@ struct OAuthProfileOrg {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ClaudeCodeAuthMaterial {
-    access_token: String,
-    refresh_token: String,
-    expires_at_unix_ms: u64,
-    cookie: Option<String>,
-    subscription_type: Option<String>,
-    rate_limit_tier: Option<String>,
-    user_email: Option<String>,
-    organization_uuid: Option<String>,
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: String,
+    pub(crate) expires_at_unix_ms: u64,
+    pub(crate) cookie: Option<String>,
+    pub(crate) subscription_type: Option<String>,
+    pub(crate) rate_limit_tier: Option<String>,
+    pub(crate) user_email: Option<String>,
+    pub(crate) account_uuid: Option<String>,
+    pub(crate) organization_uuid: Option<String>,
 }
 
 impl ClaudeCodeAuthMaterial {
@@ -88,6 +90,7 @@ pub(crate) struct ClaudeCodeRefreshedToken {
     pub(crate) subscription_type: Option<String>,
     pub(crate) rate_limit_tier: Option<String>,
     pub(crate) user_email: Option<String>,
+    pub(crate) account_uuid: Option<String>,
     pub(crate) organization_uuid: Option<String>,
     pub(crate) cookie: Option<String>,
 }
@@ -147,6 +150,7 @@ pub(crate) fn claudecode_access_token_from_credential(
         rate_limit_tier: (!credential.rate_limit_tier.trim().is_empty())
             .then(|| credential.rate_limit_tier.clone()),
         user_email: credential.user_email.clone(),
+        account_uuid: credential.account_uuid.clone(),
         organization_uuid: credential.organization_uuid.clone(),
     })
 }
@@ -322,10 +326,12 @@ pub async fn execute_claudecode_oauth_callback(
     .await?;
 
     let mut user_email = None;
+    let mut account_uuid = None;
     let mut organization_uuid = None;
     if (tokens.subscription_type.is_none()
         || tokens.rate_limit_tier.is_none()
         || user_email.is_none()
+        || account_uuid.is_none()
         || organization_uuid.is_none())
         && let Ok(profile) = fetch_oauth_profile(
             client,
@@ -341,6 +347,7 @@ pub async fn execute_claudecode_oauth_callback(
             tokens.rate_limit_tier = profile.rate_limit_tier;
         }
         user_email = profile.email;
+        account_uuid = profile.account_uuid;
         organization_uuid = profile.organization_uuid;
     }
 
@@ -386,6 +393,7 @@ pub async fn execute_claudecode_oauth_callback(
                 rate_limit_tier: rate_limit_tier.clone().unwrap_or_default(),
                 cookie: None,
                 user_email,
+                account_uuid: account_uuid.clone(),
                 organization_uuid: organization_uuid.clone(),
             },
         )),
@@ -399,6 +407,7 @@ pub async fn execute_claudecode_oauth_callback(
             "expires_in": tokens.expires_in,
             "subscriptionType": subscription_type,
             "rateLimitTier": rate_limit_tier,
+            "accountUuid": account_uuid,
             "organizationUuid": organization_uuid,
         }),
     );
@@ -500,6 +509,7 @@ pub(crate) async fn refresh_claudecode_access_token(
                 .rate_limit_tier
                 .or_else(|| material.rate_limit_tier.clone()),
             user_email: material.user_email.clone(),
+            account_uuid: material.account_uuid.clone(),
             organization_uuid: material.organization_uuid.clone(),
             cookie: material.cookie.clone(),
         };
@@ -565,6 +575,7 @@ async fn parse_refreshed_token_response(
                 .and_then(|value| value.rate_limit_tier.clone())
                 .or_else(|| material.rate_limit_tier.clone()),
             user_email: material.user_email.clone(),
+            account_uuid: material.account_uuid.clone(),
             organization_uuid: material.organization_uuid.clone(),
             cookie: material.cookie.clone(),
         });
@@ -728,6 +739,7 @@ async fn fill_missing_refresh_fields_from_profile(
     if refreshed.subscription_type.is_some()
         && refreshed.rate_limit_tier.is_some()
         && refreshed.user_email.is_some()
+        && refreshed.account_uuid.is_some()
         && refreshed.organization_uuid.is_some()
     {
         return;
@@ -748,6 +760,9 @@ async fn fill_missing_refresh_fields_from_profile(
     if refreshed.user_email.is_none() {
         refreshed.user_email = profile.email;
     }
+    if refreshed.account_uuid.is_none() {
+        refreshed.account_uuid = profile.account_uuid;
+    }
     if refreshed.organization_uuid.is_none() {
         refreshed.organization_uuid = profile.organization_uuid;
     }
@@ -756,6 +771,7 @@ async fn fill_missing_refresh_fields_from_profile(
 #[derive(Debug, Default)]
 struct OAuthProfileParsed {
     email: Option<String>,
+    account_uuid: Option<String>,
     subscription_type: Option<String>,
     rate_limit_tier: Option<String>,
     organization_uuid: Option<String>,
@@ -779,6 +795,7 @@ fn parse_profile(profile: OAuthProfile) -> OAuthProfileParsed {
 
     OAuthProfileParsed {
         email: profile.account.email,
+        account_uuid: profile.account.uuid,
         subscription_type,
         rate_limit_tier: profile.organization.rate_limit_tier,
         organization_uuid: profile.organization.uuid,

@@ -3,7 +3,8 @@ use serde_json::json;
 
 use super::{
     CLAUDECODE_THINKING_BUDGET_TOKENS, apply_claudecode_billing_header_system_block,
-    ensure_oauth_beta, extend_model_list_with_thinking_variants, merge_claudecode_beta_headers,
+    apply_claudecode_metadata_user_id_json, ensure_oauth_beta,
+    extend_model_list_with_thinking_variants, merge_claudecode_beta_headers,
     normalize_claudecode_model_and_thinking, normalize_claudecode_unsupported_fields,
     prepared::ClaudeCodePreparedRequest, strip_context_1m_beta,
 };
@@ -11,6 +12,7 @@ use crate::channels::cache_control::{
     CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
 };
 use crate::channels::claudecode::constants::{CLAUDECODE_REFERENCE_BETAS, OAUTH_BETA};
+use crate::channels::claudecode::oauth::ClaudeCodeAuthMaterial;
 
 #[test]
 fn thinking_suffix_sets_fixed_budget_and_strips_model_suffix() {
@@ -216,6 +218,65 @@ fn strip_context_1m_beta_keeps_custom_beta_and_oauth() {
             "anthropic-beta".to_string(),
             ["custom-beta", OAUTH_BETA].join(","),
         )]
+    );
+}
+
+fn sample_auth_material() -> ClaudeCodeAuthMaterial {
+    ClaudeCodeAuthMaterial {
+        access_token: "token".to_string(),
+        refresh_token: "refresh".to_string(),
+        expires_at_unix_ms: 0,
+        cookie: None,
+        subscription_type: None,
+        rate_limit_tier: None,
+        user_email: Some("user@example.com".to_string()),
+        account_uuid: Some("acct_123".to_string()),
+        organization_uuid: Some("org_123".to_string()),
+    }
+}
+
+#[test]
+fn injects_metadata_user_id_when_missing() {
+    let mut body = json!({
+        "system": "system prompt",
+        "messages": [
+            {"role":"user","content":"hello world"}
+        ]
+    });
+
+    apply_claudecode_metadata_user_id_json(&mut body, 7, &sample_auth_material());
+
+    let user_id = body["metadata"]["user_id"].as_str().expect("user_id");
+    let parsed: serde_json::Value = serde_json::from_str(user_id).expect("json");
+    assert_eq!(parsed["account_uuid"], json!("acct_123"));
+    assert!(
+        parsed["device_id"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(
+        parsed["session_id"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+}
+
+#[test]
+fn preserves_existing_metadata_user_id() {
+    let mut body = json!({
+        "metadata": {
+            "user_id": "{\"device_id\":\"x\",\"account_uuid\":\"y\",\"session_id\":\"z\"}"
+        },
+        "messages": [
+            {"role":"user","content":"hello world"}
+        ]
+    });
+
+    apply_claudecode_metadata_user_id_json(&mut body, 7, &sample_auth_material());
+
+    assert_eq!(
+        body["metadata"]["user_id"].as_str(),
+        Some("{\"device_id\":\"x\",\"account_uuid\":\"y\",\"session_id\":\"z\"}")
     );
 }
 

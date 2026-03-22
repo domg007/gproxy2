@@ -76,6 +76,12 @@ pub(super) async fn execute_claudecode_with_prepared(
                 } else {
                     client
                 };
+                let body = inject_claudecode_metadata_user_id(
+                    body.as_deref(),
+                    attempt.credential_id,
+                    &attempt.material,
+                )
+                .or(body.clone());
                 let cache_key = format!("{}::{}", provider.channel.as_str(), attempt.credential_id);
                 let mut credential_update = None;
                 let context_1m_enabled = claudecode_1m_enabled_for_credential(

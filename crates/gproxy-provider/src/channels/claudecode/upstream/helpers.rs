@@ -3,6 +3,7 @@ use crate::channels::claudecode::constants::{
     CLAUDE_CODE_BILLING_CCH, CLAUDE_CODE_BILLING_ENTRYPOINT, CLAUDE_CODE_BILLING_HEADER_PREFIX,
     CLAUDE_CODE_BILLING_SALT, CLAUDE_CODE_VERSION,
 };
+use crate::channels::claudecode::oauth;
 use sha2::{Digest as _, Sha256};
 
 pub(super) fn ensure_oauth_beta(headers: &mut Vec<(String, String)>, allow_context_1m: bool) {
@@ -161,6 +162,79 @@ pub(super) fn apply_claudecode_billing_header_system_block(body: &mut Value) {
     }
 }
 
+pub(super) fn inject_claudecode_metadata_user_id(
+    body: Option<&[u8]>,
+    credential_id: i64,
+    material: &oauth::ClaudeCodeAuthMaterial,
+) -> Option<Vec<u8>> {
+    let body = body?;
+    let mut body_json = serde_json::from_slice::<Value>(body).ok()?;
+    apply_claudecode_metadata_user_id_json(&mut body_json, credential_id, material);
+    serde_json::to_vec(&body_json).ok()
+}
+
+pub(super) fn apply_claudecode_metadata_user_id_json(
+    body: &mut Value,
+    credential_id: i64,
+    material: &oauth::ClaudeCodeAuthMaterial,
+) {
+    canonicalize_claude_body(body);
+    let session_seed = session_seed_from_body(body)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| credential_id.to_string());
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+
+    if map
+        .get("metadata")
+        .and_then(Value::as_object)
+        .and_then(|metadata| metadata.get("user_id"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return;
+    }
+
+    let metadata = map
+        .entry("metadata".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(metadata_map) = metadata.as_object_mut() else {
+        return;
+    };
+
+    let account_uuid = material.account_uuid.clone().unwrap_or_default();
+    let device_seed = material
+        .account_uuid
+        .as_deref()
+        .filter(|value: &&str| !value.trim().is_empty())
+        .or_else(|| {
+            material
+                .organization_uuid
+                .as_deref()
+                .filter(|value: &&str| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            material
+                .user_email
+                .as_deref()
+                .filter(|value: &&str| !value.trim().is_empty())
+        })
+        .unwrap_or("claudecode");
+
+    metadata_map.insert(
+        "user_id".to_string(),
+        serde_json::Value::String(
+            serde_json::json!({
+                "device_id": sha256_hex(format!("gproxy.claudecode.device:{device_seed}").as_str()),
+                "account_uuid": account_uuid,
+                "session_id": stable_session_uuid(session_seed.as_str()),
+            })
+            .to_string(),
+        ),
+    );
+}
+
 fn system_has_claudecode_billing_header(system: Option<&Value>) -> bool {
     let Some(system) = system else {
         return false;
@@ -222,6 +296,46 @@ fn first_text_from_claude_block(block: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn session_seed_from_body(body: &Value) -> Option<String> {
+    system_session_seed(body).or_else(|| first_message_session_seed(body))
+}
+
+fn system_session_seed(body: &Value) -> Option<String> {
+    match body.get("system")? {
+        Value::String(text) => non_empty_owned(text),
+        Value::Array(blocks) => {
+            let text = blocks
+                .iter()
+                .filter_map(first_text_from_claude_block)
+                .collect::<Vec<_>>()
+                .join("\n");
+            non_empty_owned(text.as_str())
+        }
+        Value::Object(_) => first_text_from_claude_block(body.get("system")?),
+        _ => None,
+    }
+}
+
+fn first_message_session_seed(body: &Value) -> Option<String> {
+    let messages = body.get("messages")?.as_array()?;
+    let first = messages.first()?.as_object()?;
+    first
+        .get("content")
+        .and_then(first_text_from_claude_content)
+        .or_else(|| {
+            first
+                .get("role")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .and_then(|value| non_empty_owned(value.as_str()))
+}
+
+fn non_empty_owned(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 fn claudecode_billing_version_hash(message_text: &str) -> String {
     let sampled = sampled_js_utf16_positions(message_text, &[4, 7, 20]);
     sha256_hex_prefix(
@@ -254,6 +368,37 @@ fn sha256_hex_prefix(value: &str, len: usize) -> String {
     let digest = Sha256::digest(value.as_bytes());
     let hex = format!("{digest:x}");
     hex[..len.min(hex.len())].to_string()
+}
+
+fn sha256_hex(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn stable_session_uuid(seed: &str) -> String {
+    let digest = Sha256::digest(format!("gproxy.claudecode.session:{seed}").as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
 }
 
 fn is_claudecode_billing_header_block(block: &Value) -> bool {
@@ -354,6 +499,7 @@ pub(super) fn disable_claudecode_1m_for_target(
         subscription_type: None,
         rate_limit_tier: None,
         user_email: None,
+        account_uuid: None,
         organization_uuid: None,
         cookie: None,
         enable_claude_1m_sonnet: disable_sonnet,
@@ -494,6 +640,7 @@ pub(super) fn claudecode_credential_update(
         subscription_type: refreshed.subscription_type.clone(),
         rate_limit_tier: refreshed.rate_limit_tier.clone(),
         user_email: refreshed.user_email.clone(),
+        account_uuid: refreshed.account_uuid.clone(),
         organization_uuid: refreshed.organization_uuid.clone(),
         cookie: refreshed.cookie.clone(),
         enable_claude_1m_sonnet: None,
