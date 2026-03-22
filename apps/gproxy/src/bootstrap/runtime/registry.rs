@@ -10,12 +10,19 @@ pub(super) async fn build_seeded_provider_registry(
     config_for_providers: &BootstrapConfig,
 ) -> Result<ProviderRegistry> {
     let mut registry = build_provider_registry(config_for_providers);
-    let provider_ids = seed_registry_providers(storage, &mut registry)
-        .await
-        .context("seed provider registry into storage")?;
+    let (provider_ids, enabled_by_channel) =
+        seed_registry_providers(storage, config_for_providers, &mut registry)
+            .await
+            .context("seed provider registry into storage")?;
     seed_registry_credentials_and_statuses(storage, &mut registry, &provider_ids)
         .await
         .context("seed registry credentials and statuses into storage")?;
+    registry.providers.retain(|provider| {
+        enabled_by_channel
+            .get(provider.channel.as_str())
+            .copied()
+            .unwrap_or(false)
+    });
     Ok(registry)
 }
 
@@ -188,5 +195,107 @@ fn credential_health_from_config(health: &CredentialHealthConfigFile) -> Credent
             models: models.clone(),
         },
         CredentialHealthConfigFile::Dead => CredentialHealth::Dead,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gproxy_provider::{BuiltinChannel, ProviderDispatchTable};
+    use gproxy_storage::{CredentialQuery, ProviderQuery, Scope, SeaOrmStorage};
+
+    use super::*;
+    use crate::bootstrap::config::{BootstrapConfig, ChannelConfigFile, CredentialConfigFile};
+
+    async fn memory_storage() -> SeaOrmStorage {
+        let storage = SeaOrmStorage::connect("sqlite::memory:", None)
+            .await
+            .expect("connect memory storage");
+        storage.sync().await.expect("sync memory storage");
+        storage
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn disabled_config_channel_is_persisted_but_not_loaded() {
+        let storage = memory_storage().await;
+        let registry = build_seeded_provider_registry(
+            &storage,
+            &BootstrapConfig {
+                channels: vec![ChannelConfigFile {
+                    id: "openai".to_string(),
+                    enabled: false,
+                    settings: serde_json::json!({}),
+                    dispatch: None,
+                    credentials: vec![CredentialConfigFile {
+                        id: None,
+                        label: Some("primary".to_string()),
+                        secret: Some("sk-test".to_string()),
+                        builtin: None,
+                        state: None,
+                    }],
+                }],
+                ..BootstrapConfig::default()
+            },
+        )
+        .await
+        .expect("build seeded provider registry");
+
+        assert!(registry.get(&ChannelId::parse("openai")).is_none());
+
+        let providers = storage
+            .list_providers(&ProviderQuery {
+                channel: Scope::Eq("openai".to_string()),
+                name: Scope::All,
+                enabled: Scope::All,
+                limit: None,
+            })
+            .await
+            .expect("query providers");
+        assert_eq!(providers.len(), 1);
+        assert!(!providers[0].enabled);
+
+        let credentials = storage
+            .list_credentials(&CredentialQuery {
+                id: Scope::All,
+                provider_id: Scope::Eq(providers[0].id),
+                kind: Scope::All,
+                enabled: Scope::All,
+                name_contains: None,
+                limit: None,
+                offset: None,
+            })
+            .await
+            .expect("query credentials");
+        assert_eq!(credentials.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn disabled_storage_channel_stays_disabled_after_bootstrap() {
+        let storage = memory_storage().await;
+        let dispatch_json = serde_json::to_string(&ProviderDispatchTable::default_for_builtin(
+            BuiltinChannel::OpenAi,
+        ))
+        .expect("serialize dispatch");
+        storage
+            .create_provider("openai", "openai", "{}", dispatch_json.as_str(), false)
+            .await
+            .expect("create provider");
+
+        let registry = build_seeded_provider_registry(&storage, &BootstrapConfig::default())
+            .await
+            .expect("build seeded provider registry");
+
+        assert!(registry.get(&ChannelId::parse("openai")).is_none());
+
+        let providers = storage
+            .list_providers(&ProviderQuery {
+                channel: Scope::Eq("openai".to_string()),
+                name: Scope::All,
+                enabled: Scope::All,
+                limit: None,
+            })
+            .await
+            .expect("query providers");
+        assert_eq!(providers.len(), 1);
+        assert!(!providers[0].enabled);
     }
 }

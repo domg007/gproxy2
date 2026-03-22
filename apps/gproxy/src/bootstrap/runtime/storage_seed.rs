@@ -15,6 +15,8 @@ use gproxy_storage::{
     StorageWriteEvent, StorageWriteSink,
 };
 
+use crate::bootstrap::config::BootstrapConfig;
+
 use super::registry::resolve_provider_settings;
 
 const BUILTIN_PROVIDER_ID_OPENAI: i64 = 1;
@@ -63,8 +65,12 @@ fn claim_next_available_provider_id(
 
 pub(super) async fn seed_registry_providers(
     storage: &SeaOrmStorage,
+    config: &BootstrapConfig,
     registry: &mut ProviderRegistry,
-) -> Result<std::collections::HashMap<String, i64>> {
+) -> Result<(
+    std::collections::HashMap<String, i64>,
+    std::collections::BTreeMap<String, bool>,
+)> {
     let existing = storage
         .list_providers(&ProviderQuery {
             channel: Scope::All,
@@ -85,6 +91,11 @@ pub(super) async fn seed_registry_providers(
         .collect::<std::collections::HashSet<_>>();
     let mut next_builtin_fallback_id = existing.iter().map(|row| row.id).max().unwrap_or(-1) + 1;
     let mut next_custom_id = next_builtin_fallback_id.max(CUSTOM_PROVIDER_ID_START);
+
+    let mut enabled_by_channel = existing
+        .iter()
+        .map(|row| (row.channel.clone(), row.enabled))
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     // Prefer existing storage provider settings/pick mode/dispatch so runtime does
     // not overwrite admin updates on restart when config.toml is absent.
@@ -126,6 +137,9 @@ pub(super) async fn seed_registry_providers(
     // Ensure builtin channels always exist.
     for builtin in BUILTIN_CHANNELS {
         let channel_id = ChannelId::builtin(builtin);
+        enabled_by_channel
+            .entry(channel_id.as_str().to_string())
+            .or_insert(false);
         provider_by_channel
             .entry(channel_id.as_str().to_string())
             .or_insert_with(|| ProviderDefinition {
@@ -141,6 +155,12 @@ pub(super) async fn seed_registry_providers(
     // config.toml providers (if present) override storage values.
     for provider in &registry.providers {
         provider_by_channel.insert(provider.channel.as_str().to_string(), provider.clone());
+    }
+    for channel_cfg in &config.channels {
+        if channel_cfg.id.trim().is_empty() {
+            continue;
+        }
+        enabled_by_channel.insert(channel_cfg.id.trim().to_string(), channel_cfg.enabled);
     }
 
     let mut batch = StorageWriteBatch::default();
@@ -183,7 +203,7 @@ pub(super) async fn seed_registry_providers(
             channel: channel.to_string(),
             settings_json,
             dispatch_json,
-            enabled: true,
+            enabled: enabled_by_channel.get(channel).copied().unwrap_or(false),
         }));
     }
 
@@ -196,7 +216,7 @@ pub(super) async fn seed_registry_providers(
 
     registry.providers = provider_by_channel.into_values().collect();
 
-    Ok(id_by_channel)
+    Ok((id_by_channel, enabled_by_channel))
 }
 
 pub(super) async fn seed_global_settings(
