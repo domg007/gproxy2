@@ -260,11 +260,18 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
+claudecode_flatten_system_text_before_cache_control = true
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
+
+ClaudeCode also supports an optional setting:
+
+- `channels.settings.claudecode_flatten_system_text_before_cache_control`
+- when `true`, after cache breakpoint rewrite and before billing-header injection, gproxy concatenates consecutive `system` text blocks before the first `system` `cache_control` block into one text block
+- the Claude Code billing header remains a separate `system` block and is not merged into that prefix
 
 ### `channels.credentials`
 

@@ -206,6 +206,15 @@ impl ChannelSettings {
         }
     }
 
+    pub fn claudecode_flatten_system_text_before_cache_control(&self) -> bool {
+        match self {
+            Self::Builtin(BuiltinChannelSettings::ClaudeCode(value)) => {
+                value.flatten_system_text_before_cache_control
+            }
+            _ => false,
+        }
+    }
+
     pub fn cache_breakpoints(&self) -> &[CacheBreakpointRule] {
         match self {
             Self::Builtin(BuiltinChannelSettings::Anthropic(value)) => &value.cache_breakpoints,

@@ -258,11 +258,18 @@ enabled = true
 
 [channels.settings]
 base_url = "https://api.anthropic.com"
+claudecode_flatten_system_text_before_cache_control = true
 cache_breakpoints = [
   { target = "top_level", ttl = "auto" },
   { target = "messages", position = "last_nth", index = 1, content_position = "last_nth", content_index = 1, ttl = "1h" }
 ]
 ```
+
+ClaudeCode 还支持一个可选设置：
+
+- `channels.settings.claudecode_flatten_system_text_before_cache_control`
+- 为 `true` 时，gproxy 会在 cache breakpoint 改写之后、billing header 注入之前，把第一个 `system` `cache_control` block 之前的连续 text blocks 直接拼接成一条
+- Claude Code 的 billing header 仍会保持独立 `system` block，不会并入这段前缀
 
 ### `channels.credentials`
 

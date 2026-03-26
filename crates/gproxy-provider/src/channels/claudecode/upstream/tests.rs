@@ -4,9 +4,10 @@ use serde_json::json;
 use super::{
     CLAUDECODE_THINKING_BUDGET_TOKENS, apply_claudecode_billing_header_system_block,
     apply_claudecode_metadata_user_id_json, ensure_oauth_beta,
-    extend_model_list_with_thinking_variants, merge_claudecode_beta_headers,
-    normalize_claudecode_model_and_thinking, normalize_claudecode_unsupported_fields,
-    prepared::ClaudeCodePreparedRequest, strip_context_1m_beta,
+    extend_model_list_with_thinking_variants, flatten_system_text_before_cache_control,
+    merge_claudecode_beta_headers, normalize_claudecode_model_and_thinking,
+    normalize_claudecode_unsupported_fields, prepared::ClaudeCodePreparedRequest,
+    strip_context_1m_beta,
 };
 use crate::channels::cache_control::{
     CacheBreakpointPositionKind, CacheBreakpointRule, CacheBreakpointTarget, CacheBreakpointTtl,
@@ -297,6 +298,7 @@ fn prepared_request_skips_beta_query_when_disabled() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -321,6 +323,7 @@ fn prepared_request_appends_beta_query_when_enabled() {
         payload.as_slice(),
         true,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -348,6 +351,7 @@ fn prepared_request_preserves_explicit_context_1m_beta() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -384,6 +388,7 @@ fn prepared_request_preserves_flat_string_anthropic_beta_values() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -428,6 +433,7 @@ fn prepared_request_canonicalizes_claude_shorthand_content_blocks() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -502,6 +508,7 @@ fn prepared_request_inserts_billing_header_after_cache_rules() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[CacheBreakpointRule {
             target: CacheBreakpointTarget::System,
             position: CacheBreakpointPositionKind::Nth,
@@ -554,6 +561,7 @@ fn prepared_request_keeps_existing_billing_header() {
         payload.as_slice(),
         false,
         None,
+        false,
         &[],
     )
     .expect("prepare payload");
@@ -567,4 +575,135 @@ fn prepared_request_keeps_existing_billing_header() {
         )
     );
     assert_eq!(body["system"][1]["text"], json!("sys"));
+}
+
+#[test]
+fn flatten_system_text_before_cache_control_merges_text_blocks_before_first_cache_point() {
+    let mut body = json!({
+        "system": [
+            {"type":"text","text":"a"},
+            {"type":"text","text":"b"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}},
+            {"type":"text","text":"d"}
+        ]
+    });
+
+    flatten_system_text_before_cache_control(&mut body);
+
+    assert_eq!(
+        body["system"],
+        json!([
+            {"type":"text","text":"ab"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}},
+            {"type":"text","text":"d"}
+        ])
+    );
+}
+
+#[test]
+fn flatten_system_text_before_cache_control_preserves_leading_billing_header() {
+    let mut body = json!({
+        "system": [
+            {
+                "type":"text",
+                "text":"x-anthropic-billing-header: cc_version=custom.keep; cc_entrypoint=cli; cch=12345;"
+            },
+            {"type":"text","text":"a"},
+            {"type":"text","text":"b"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}}
+        ]
+    });
+
+    flatten_system_text_before_cache_control(&mut body);
+
+    assert_eq!(
+        body["system"],
+        json!([
+            {
+                "type":"text",
+                "text":"x-anthropic-billing-header: cc_version=custom.keep; cc_entrypoint=cli; cch=12345;"
+            },
+            {"type":"text","text":"ab"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}}
+        ])
+    );
+}
+
+#[test]
+fn flatten_system_text_before_cache_control_handles_multiple_cache_points() {
+    let mut body = json!({
+        "system": [
+            {"type":"text","text":"a"},
+            {"type":"text","text":"b"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}},
+            {"type":"text","text":"d"},
+            {"type":"text","text":"e"},
+            {"type":"text","text":"f","cache_control":{"type":"ephemeral","ttl":"1h"}},
+            {"type":"text","text":"g"}
+        ]
+    });
+
+    flatten_system_text_before_cache_control(&mut body);
+
+    assert_eq!(
+        body["system"],
+        json!([
+            {"type":"text","text":"ab"},
+            {"type":"text","text":"c","cache_control":{"type":"ephemeral","ttl":"5m"}},
+            {"type":"text","text":"de"},
+            {"type":"text","text":"f","cache_control":{"type":"ephemeral","ttl":"1h"}},
+            {"type":"text","text":"g"}
+        ])
+    );
+}
+
+#[test]
+fn prepared_request_flattens_system_text_before_cache_control_when_enabled() {
+    let payload = serde_json::to_vec(&json!({
+        "body": {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 32,
+            "system": [
+                {"type": "text", "text": "sys-a"},
+                {"type": "text", "text": "sys-b"},
+                {"type": "text", "text": "sys-c"}
+            ],
+            "messages": [{"role": "user", "content": "hey"}]
+        }
+    }))
+    .expect("serialize payload");
+
+    let prepared = ClaudeCodePreparedRequest::from_payload(
+        OperationFamily::GenerateContent,
+        ProtocolKind::Claude,
+        payload.as_slice(),
+        false,
+        None,
+        true,
+        &[CacheBreakpointRule {
+            target: CacheBreakpointTarget::System,
+            position: CacheBreakpointPositionKind::Nth,
+            index: 3,
+            content_position: None,
+            content_index: None,
+            ttl: CacheBreakpointTtl::Ttl5m,
+        }],
+    )
+    .expect("prepare payload");
+
+    let body: serde_json::Value =
+        serde_json::from_slice(prepared.body.as_deref().expect("body bytes")).expect("valid json");
+    assert_eq!(
+        body["system"][0]["text"],
+        json!("x-anthropic-billing-header: cc_version=2.1.76.4dc; cc_entrypoint=cli; cch=00000;")
+    );
+    assert_eq!(body["system"][1]["text"], json!("sys-asys-b"));
+    assert_eq!(body["system"][2]["text"], json!("sys-c"));
+    assert_eq!(
+        body["system"][2]["cache_control"],
+        json!({
+            "type": "ephemeral",
+            "ttl": "5m"
+        })
+    );
 }

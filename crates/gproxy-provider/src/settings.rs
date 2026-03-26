@@ -307,6 +307,12 @@ pub fn provider_settings_to_json_value_with_routing(
                 "claudecode_prelude_text".to_string(),
                 serde_json::Value::String(prelude.to_string()),
             );
+            if value.flatten_system_text_before_cache_control {
+                root.insert(
+                    "claudecode_flatten_system_text_before_cache_control".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
             if value.append_beta_query {
                 root.insert(
                     "claudecode_append_beta_query".to_string(),
@@ -645,6 +651,7 @@ mod tests {
         let settings = ChannelSettings::Builtin(BuiltinChannelSettings::ClaudeCode(
             claudecode::ClaudeCodeSettings {
                 append_beta_query: true,
+                flatten_system_text_before_cache_control: true,
                 cache_breakpoints: vec![CacheBreakpointRule {
                     target: CacheBreakpointTarget::System,
                     position: CacheBreakpointPositionKind::Nth,
@@ -671,6 +678,12 @@ mod tests {
         assert_eq!(
             value
                 .get("claudecode_append_beta_query")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value
+                .get("claudecode_flatten_system_text_before_cache_control")
                 .and_then(serde_json::Value::as_bool),
             Some(true)
         );

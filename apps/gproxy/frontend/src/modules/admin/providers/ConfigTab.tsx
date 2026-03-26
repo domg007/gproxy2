@@ -119,6 +119,9 @@ export function ConfigTab({
   const anthropicAppendBetaQuery = (providerForm.settings.anthropic_append_beta_query ?? "false") === "true";
   const claudecodeAppendBetaQuery =
     (providerForm.settings.claudecode_append_beta_query ?? "false") === "true";
+  const claudecodeFlattenSystemTextBeforeCacheControl =
+    (providerForm.settings.claudecode_flatten_system_text_before_cache_control ?? "false") ===
+    "true";
 
   const buildNextAnthropicReferenceBetas = (
     current: string[],
@@ -754,6 +757,35 @@ export function ConfigTab({
                 </label>
               </div>
               <p className="mt-2 text-xs text-muted">{t("providers.claudecode.betaQueryHint")}</p>
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2">
+                <input
+                  id="claudecode-flatten-system-text-before-cache-control"
+                  type="checkbox"
+                  checked={claudecodeFlattenSystemTextBeforeCacheControl}
+                  onChange={(event) =>
+                    setProviderForm((prev) => ({
+                      ...prev,
+                      settings: {
+                        ...prev.settings,
+                        claudecode_flatten_system_text_before_cache_control: event.target.checked
+                          ? "true"
+                          : "false"
+                      }
+                    }))
+                  }
+                />
+                <label
+                  htmlFor="claudecode-flatten-system-text-before-cache-control"
+                  className="text-sm text-muted"
+                >
+                  {t("field.claudecode_flatten_system_text_before_cache_control")}
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                {t("providers.claudecode.flattenSystemTextBeforeCacheControlHint")}
+              </p>
             </div>
             <div className="md:col-span-2">
               <div className="flex flex-wrap items-center gap-2">
