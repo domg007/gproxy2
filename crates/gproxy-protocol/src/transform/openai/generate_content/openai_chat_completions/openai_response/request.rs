@@ -447,8 +447,7 @@ mod tests {
                                         name: "get_weather".to_string(),
                                         arguments: "{\"city\":\"Boston\"}".to_string(),
                                     },
-                                    type_:
-                                        ct::ChatCompletionMessageFunctionToolCallType::Function,
+                                    type_: ct::ChatCompletionMessageFunctionToolCallType::Function,
                                 },
                             ),
                             ct::ChatCompletionMessageToolCall::Custom(
