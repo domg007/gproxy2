@@ -712,7 +712,10 @@ mod tests {
         merge_extra_headers(
             &mut headers,
             &[
-                ("HTTP-Referer".to_string(), "https://example.com".to_string()),
+                (
+                    "HTTP-Referer".to_string(),
+                    "https://example.com".to_string(),
+                ),
                 ("x-title".to_string(), "Example".to_string()),
                 ("x-trace-id".to_string(), "trace-1".to_string()),
             ],
