@@ -41,6 +41,7 @@ const DEFAULTS = {
   claudecode_ai_base_url: "https://claude.ai",
   claudecode_platform_base_url: "https://platform.claude.com",
   claudecode_append_beta_query: "false",
+  claudecode_flatten_system_text_before_cache_control: "false",
   claudecode_prelude_text: "",
   claudecode_extra_beta_headers: "",
   cache_breakpoints: "[]"
@@ -127,6 +128,11 @@ export function parseSettingsDraft(value: unknown): ChannelSettingsDraft {
   if ("claudecode_append_beta_query" in value) {
     out.claudecode_append_beta_query = normalizeBooleanDraft(value.claudecode_append_beta_query);
   }
+  if ("claudecode_flatten_system_text_before_cache_control" in value) {
+    out.claudecode_flatten_system_text_before_cache_control = normalizeBooleanDraft(
+      value.claudecode_flatten_system_text_before_cache_control
+    );
+  }
   if (typeof value.claudecode_prelude_text === "string") {
     out.claudecode_prelude_text = value.claudecode_prelude_text;
   }
@@ -170,6 +176,14 @@ export function buildSettingsJson(settings: ChannelSettingsDraft): Record<string
     (settings.claudecode_append_beta_query ?? DEFAULTS.claudecode_append_beta_query) === "true"
   ) {
     payload.claudecode_append_beta_query = true;
+  }
+  if (
+    (
+      settings.claudecode_flatten_system_text_before_cache_control ??
+      DEFAULTS.claudecode_flatten_system_text_before_cache_control
+    ) === "true"
+  ) {
+    payload.claudecode_flatten_system_text_before_cache_control = true;
   }
 
   const preludeText = (settings.claudecode_prelude_text ?? DEFAULTS.claudecode_prelude_text).trim();

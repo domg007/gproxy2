@@ -126,6 +126,8 @@ export const zhMessages = {
     "providers.anthropic.betaHint": "为请求添加可选的固定 Anthropic beta 头",
     "providers.anthropic.betaQueryHint": "为 Anthropic 上游路径追加 ?beta=true query 参数",
     "providers.claudecode.betaQueryHint": "为 ClaudeCode 上游路径追加 ?beta=true query 参数",
+    "providers.claudecode.flattenSystemTextBeforeCacheControlHint":
+      "在 system 的第一个 cache_control block 之前，把连续 text blocks 直接拼接为一条；执行顺序在 cache breakpoint 改写之后、billing header 注入之前。",
     "providers.claudecode.billingHeaderHint":
       "在上游请求阶段、cache_control 改写完成后检测 Claude Code 的 x-anthropic-billing-header system 块；若请求里不存在则补上，并根据首条 user 消息动态计算 version hash。",
     "providers.uaTemplate.placeholder": "选择 User-Agent 模板",
@@ -428,6 +430,8 @@ export const zhMessages = {
     "field.anthropic_prelude_text": "Anthropic 前置文本",
     "field.claudecode_ai_base_url": "ClaudeCode AI 基础 URL",
     "field.claudecode_append_beta_query": "ClaudeCode 追加 beta query 参数",
+    "field.claudecode_flatten_system_text_before_cache_control":
+      "ClaudeCode 在 cache_control 前展平 system text",
     "field.claudecode_platform_base_url": "ClaudeCode 平台基础 URL",
     "field.claudecode_extra_beta_headers": "ClaudeCode 额外 Anthropic beta 头",
     "field.claudecode_prelude_text": "ClaudeCode 前置文本",

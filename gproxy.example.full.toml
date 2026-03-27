@@ -185,6 +185,10 @@ claudecode_ai_base_url = "https://claude.ai"
 claudecode_platform_base_url = "https://platform.claude.com"
 # Optional: append ?beta=true to ClaudeCode upstream paths.
 claudecode_append_beta_query = false
+# Optional: after cache breakpoint rewrite, merge system text blocks before the
+# first system cache_control block into one text block. Billing header injection
+# still runs later and stays separate.
+claudecode_flatten_system_text_before_cache_control = false
 # Cache rewrite rules (max 4). "auto" means {"type":"ephemeral"} without ttl.
 # `messages` defaults to flattened block indexing unless `content_*` is set.
 cache_breakpoints = [

@@ -126,6 +126,8 @@ export const enMessages = {
     "providers.anthropic.betaHint": "Add optional fixed Anthropic beta headers to requests",
     "providers.anthropic.betaQueryHint": "Append the ?beta=true query parameter to Anthropic upstream paths",
     "providers.claudecode.betaQueryHint": "Append the ?beta=true query parameter to ClaudeCode upstream paths",
+    "providers.claudecode.flattenSystemTextBeforeCacheControlHint":
+      "Before the first system cache_control block, concatenate consecutive text blocks into one block. This runs after cache breakpoint rewrites and before billing-header injection.",
     "providers.claudecode.billingHeaderHint":
       "Check for the Claude Code x-anthropic-billing-header system block upstream after cache_control rewrites; add it only when missing, using a dynamic version hash from the first user message.",
     "providers.uaTemplate.placeholder": "Select a User-Agent template",
@@ -435,6 +437,8 @@ export const enMessages = {
     "field.anthropic_prelude_text": "anthropic_prelude_text",
     "field.claudecode_ai_base_url": "claudecode_ai_base_url",
     "field.claudecode_append_beta_query": "claudecode_append_beta_query",
+    "field.claudecode_flatten_system_text_before_cache_control":
+      "claudecode_flatten_system_text_before_cache_control",
     "field.claudecode_platform_base_url": "claudecode_platform_base_url",
     "field.claudecode_extra_beta_headers": "claudecode_extra_beta_headers",
     "field.claudecode_prelude_text": "claudecode_prelude_text",

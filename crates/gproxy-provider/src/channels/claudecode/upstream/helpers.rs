@@ -162,6 +162,51 @@ pub(super) fn apply_claudecode_billing_header_system_block(body: &mut Value) {
     }
 }
 
+pub(super) fn flatten_system_text_before_cache_control(body: &mut Value) {
+    canonicalize_claude_body(body);
+    let Some(blocks) = body.get_mut("system").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    let mut merge_ranges = Vec::new();
+    let mut run_start = None;
+    let mut run_text = String::new();
+
+    for (index, block) in blocks.iter().enumerate() {
+        if is_claudecode_billing_header_block(block) {
+            run_start = None;
+            run_text.clear();
+            continue;
+        }
+
+        if block_has_cache_control(block) {
+            if let Some(start) = run_start.take()
+                && index.saturating_sub(start) > 1
+            {
+                merge_ranges.push((start, index, std::mem::take(&mut run_text)));
+            } else {
+                run_text.clear();
+            }
+            continue;
+        }
+
+        if let Some(text) = block_text(block) {
+            if run_start.is_none() {
+                run_start = Some(index);
+            }
+            run_text.push_str(text);
+            continue;
+        }
+
+        run_start = None;
+        run_text.clear();
+    }
+
+    for (start, end, text) in merge_ranges.into_iter().rev() {
+        blocks.splice(start..end, [json_text_block(text.as_str())]);
+    }
+}
+
 pub(super) fn inject_claudecode_metadata_user_id(
     body: Option<&[u8]>,
     credential_id: i64,
@@ -274,6 +319,20 @@ fn first_claudecode_user_text(body: &Value) -> String {
             })
         })
         .unwrap_or_default()
+}
+
+fn block_has_cache_control(block: &Value) -> bool {
+    block
+        .as_object()
+        .is_some_and(|block_map| block_map.contains_key("cache_control"))
+}
+
+fn block_text(block: &Value) -> Option<&str> {
+    let block_map = block.as_object()?;
+    if block_map.get("type").and_then(Value::as_str) != Some("text") {
+        return None;
+    }
+    block_map.get("text").and_then(Value::as_str)
 }
 
 fn first_text_from_claude_content(content: &Value) -> Option<String> {
