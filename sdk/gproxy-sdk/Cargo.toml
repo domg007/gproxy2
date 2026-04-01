@@ -1,0 +1,29 @@
+[package]
+name = "gproxy-sdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "SDK for building LLM proxy applications with multi-channel support."
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["all-channels"]
+all-channels = ["gproxy-provider/all-channels"]
+openai = ["gproxy-provider/openai"]
+anthropic = ["gproxy-provider/anthropic"]
+aistudio = ["gproxy-provider/aistudio"]
+vertexexpress = ["gproxy-provider/vertexexpress"]
+vertex = ["gproxy-provider/vertex"]
+geminicli = ["gproxy-provider/geminicli"]
+claudecode = ["gproxy-provider/claudecode"]
+codex = ["gproxy-provider/codex"]
+antigravity = ["gproxy-provider/antigravity"]
+nvidia = ["gproxy-provider/nvidia"]
+deepseek = ["gproxy-provider/deepseek"]
+groq = ["gproxy-provider/groq"]
+
+[dependencies]
+gproxy-protocol = { workspace = true }
+gproxy-middleware = { workspace = true }
+gproxy-provider = { workspace = true }
