@@ -3,7 +3,7 @@ use crate::{
     ChannelCredentialState, ChannelCredentialStateStore, ChannelId, CredentialHealth, ModelCooldown,
 };
 
-pub const DEFAULT_RATE_LIMIT_COOLDOWN_MS: u64 = 60_000;
+pub const DEFAULT_RATE_LIMIT_COOLDOWN_MS: u64 = 15_000;
 pub const DEFAULT_TRANSIENT_COOLDOWN_MS: u64 = 15_000;
 
 fn is_transport_send_failure_message(last_error: Option<&str>) -> bool {
