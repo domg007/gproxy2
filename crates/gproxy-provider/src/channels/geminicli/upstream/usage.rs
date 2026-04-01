@@ -204,15 +204,35 @@ pub async fn execute_geminicli_upstream_usage_with_retry(
                 }
                 if status_code == 429 {
                     let retry_after_ms = retry_after_to_millis(response.headers());
-                    let message = format!("upstream status {status_code}");
-                    state_manager.mark_rate_limited(
-                        credential_states,
-                        &channel,
-                        attempt.credential_id,
-                        None,
-                        retry_after_ms,
-                        Some(message.clone()),
-                    );
+                    let explicit_quota = response
+                        .bytes()
+                        .await
+                        .map(|body| geminicli_response_indicates_quota_exhausted(body.as_ref()))
+                        .unwrap_or(false);
+                    let message = if explicit_quota {
+                        format!("upstream status {status_code} (quota exhausted)")
+                    } else {
+                        format!("upstream status {status_code} (transient overload)")
+                    };
+                    if explicit_quota {
+                        state_manager.mark_rate_limited(
+                            credential_states,
+                            &channel,
+                            attempt.credential_id,
+                            None,
+                            retry_after_ms,
+                            Some(message.clone()),
+                        );
+                    } else {
+                        state_manager.mark_transient_failure(
+                            credential_states,
+                            &channel,
+                            attempt.credential_id,
+                            None,
+                            retry_after_ms,
+                            Some(message.clone()),
+                        );
+                    }
                     return CredentialRetryDecision::Retry {
                         last_status: Some(status_code),
                         last_error: Some(message),

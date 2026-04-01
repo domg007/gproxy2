@@ -154,6 +154,42 @@ pub(super) fn usage_models_from_quota_payload(
     Ok(models)
 }
 
+pub(super) fn geminicli_response_indicates_quota_exhausted(body: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    let Some(error) = value.get("error").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(details) = error.get("details").and_then(Value::as_array) else {
+        return false;
+    };
+
+    details.iter().any(|detail| {
+        let Some(detail_obj) = detail.as_object() else {
+            return false;
+        };
+        if detail_obj.get("@type").and_then(Value::as_str)
+            != Some("type.googleapis.com/google.rpc.ErrorInfo")
+        {
+            return false;
+        }
+
+        if detail_obj.get("reason").and_then(Value::as_str) == Some("QUOTA_EXHAUSTED") {
+            return true;
+        }
+
+        detail_obj
+            .get("metadata")
+            .and_then(Value::as_object)
+            .map(|metadata| {
+                metadata.contains_key("quotaResetTimeStamp")
+                    || metadata.contains_key("quotaResetDelay")
+            })
+            .unwrap_or(false)
+    })
+}
+
 pub(super) fn normalize_model_name(model: &str) -> String {
     let model = model.trim().trim_start_matches('/');
     if model.starts_with("models/") {
