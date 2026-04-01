@@ -1,5 +1,59 @@
 # Release Notes
 
+## v0.3.42
+
+### English
+
+#### Added
+
+- Added CORS handling for provider routes. Provider endpoints now respond to browser preflight requests and include permissive `access-control-allow-origin` headers on proxied responses.
+- Added the optional ClaudeCode setting `claudecode_flatten_system_text_before_cache_control`, allowing system text blocks to be merged before cache-control processing when needed.
+
+#### Changed
+
+- ClaudeCode account handling now records and propagates `account_uuid` in more places, improving account-scoped metadata generation and reducing ambiguity between different ClaudeCode identities.
+- Bootstrap provider-registry seeding now also carries each channel's enabled/disabled status into runtime storage, so disabled built-in channels are preserved correctly during seeding.
+- Extra headers forwarded through provider requests now strip `http-referer` and `x-title`, and header formatting has been cleaned up for more predictable upstream behavior.
+
+#### Fixed
+
+- Fixed OpenAI Responses request conversion so tool calls are no longer assigned synthetic `id` values during conversion, avoiding upstream validation problems caused by proxy-generated tool-call IDs.
+- Fixed Gemini CLI credential health handling for upstream `429` responses. gproxy now distinguishes explicit quota exhaustion from transient upstream overload by inspecting Gemini error details, and only applies credential/model cooldowns when the response carries concrete quota-reset signals.
+- Gemini CLI `429` responses that do not include quota metadata are now treated as transient upstream overload instead of per-credential rate limiting, reducing false cooldowns and unnecessary credential eviction during upstream saturation.
+
+#### Compatibility
+
+- No storage migration is required.
+- Existing Gemini CLI credentials remain compatible; only the runtime retry/cooldown classification for `429` responses has changed.
+- Existing ClaudeCode providers remain compatible. `claudecode_flatten_system_text_before_cache_control` is opt-in and defaults to disabled.
+- If you previously relied on passing `http-referer` or `x-title` through provider `extra_headers`, those headers are now intentionally stripped before the upstream request is sent.
+
+### 中文
+
+#### 新增
+
+- provider 路由新增 CORS 处理。现在 provider 端点会正确响应浏览器预检请求，并在代理响应中附带宽松的 `access-control-allow-origin` 头。
+- ClaudeCode 新增可选设置 `claudecode_flatten_system_text_before_cache_control`，可在需要时先合并 system text block，再执行 cache-control 处理。
+
+#### 变更
+
+- ClaudeCode 的账号信息处理现在会在更多链路中记录和透传 `account_uuid`，从而改进按账号生成的 metadata，并减少不同 ClaudeCode 身份之间的歧义。
+- 启动阶段的 provider registry seeding 现在会同时写入各 channel 的 enabled/disabled 状态，因此被禁用的内置渠道在 seed 过程中也能被正确保留。
+- provider 请求透传的 extra headers 现在会移除 `http-referer` 和 `x-title`，同时 header 格式化输出也做了整理，使上游行为更可预测。
+
+#### 修复
+
+- 修复 OpenAI Responses 请求转换中为 tool calls 人为补写 `id` 的问题。现在代理不再注入伪造的 tool-call ID，避免因此触发上游校验失败。
+- 修复 Gemini CLI 凭证健康状态对上游 `429` 的处理。gproxy 现在会解析 Gemini 错误详情，区分“明确的额度耗尽”和“瞬时上游过载”，只有在响应中带有明确 quota 重置信号时才会对凭证或模型施加 cooldown。
+- 对于不包含 quota metadata 的 Gemini CLI `429`，现在会按上游瞬时过载处理，而不再误判为按凭证限流，从而减少上游拥塞时的误冷却和不必要的凭证切换。
+
+#### 兼容性
+
+- 无需执行存储迁移。
+- 现有 Gemini CLI 凭证保持兼容；本次仅调整 `429` 响应的运行时重试与 cooldown 分类逻辑。
+- 现有 ClaudeCode provider 保持兼容；`claudecode_flatten_system_text_before_cache_control` 为可选开关，默认关闭。
+- 如果你此前依赖通过 provider `extra_headers` 透传 `http-referer` 或 `x-title`，这些头现在会在发送到上游前被主动移除。
+
 ## v0.3.41
 
 ### English
