@@ -17,22 +17,41 @@ use crate::har::HarStreamEvent;
 use crate::mitm::MitmAcceptor;
 use crate::recorder::Recorder;
 
+/// Connect to an upstream host, optionally through a SOCKS5 proxy.
+async fn connect_upstream(
+    host: &str,
+    port: u16,
+    upstream_proxy: &Option<String>,
+) -> Result<TcpStream, Box<dyn std::error::Error + Send + Sync>> {
+    let addr = format!("{}:{}", host, port);
+    if let Some(proxy_url) = upstream_proxy {
+        let proxy_addr = proxy_url.strip_prefix("socks5://").unwrap_or(proxy_url);
+        let stream = tokio_socks::tcp::Socks5Stream::connect(proxy_addr, addr.as_str()).await?;
+        Ok(stream.into_inner())
+    } else {
+        Ok(TcpStream::connect(&addr).await?)
+    }
+}
+
 /// Start the HTTP forward proxy listener.
 pub async fn run_http_proxy(
     listen_addr: String,
     mitm: Arc<MitmAcceptor>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&listen_addr).await?;
+    let upstream_proxy = Arc::new(upstream_proxy);
     info!("HTTP proxy listening on {}", listen_addr);
 
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         let mitm = Arc::clone(&mitm);
         let recorder = Arc::clone(&recorder);
+        let upstream_proxy = Arc::clone(&upstream_proxy);
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(stream, mitm, recorder).await {
+            if let Err(e) = handle_connection(stream, mitm, recorder, upstream_proxy).await {
                 warn!("Connection from {} error: {}", peer_addr, e);
             }
         });
@@ -43,14 +62,17 @@ async fn handle_connection(
     stream: TcpStream,
     mitm: Arc<MitmAcceptor>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mitm2 = Arc::clone(&mitm);
     let recorder2 = Arc::clone(&recorder);
+    let upstream_proxy2 = Arc::clone(&upstream_proxy);
 
     let service = service_fn(move |req: Request<Incoming>| {
         let mitm = Arc::clone(&mitm2);
         let recorder = Arc::clone(&recorder2);
-        async move { handle_request(req, mitm, recorder).await }
+        let upstream_proxy = Arc::clone(&upstream_proxy2);
+        async move { handle_request(req, mitm, recorder, upstream_proxy).await }
     });
 
     http1::Builder::new()
@@ -67,9 +89,10 @@ async fn handle_request(
     req: Request<Incoming>,
     mitm: Arc<MitmAcceptor>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
     if req.method() == Method::CONNECT {
-        match handle_connect(req, mitm, recorder).await {
+        match handle_connect(req, mitm, recorder, upstream_proxy).await {
             Ok(resp) => Ok(resp),
             Err(e) => {
                 error!("CONNECT error: {}", e);
@@ -80,7 +103,7 @@ async fn handle_request(
             }
         }
     } else {
-        match handle_plain_http(req, recorder).await {
+        match handle_plain_http(req, recorder, upstream_proxy).await {
             Ok(resp) => Ok(resp),
             Err(e) => {
                 error!("HTTP forward error: {}", e);
@@ -97,6 +120,7 @@ async fn handle_connect(
     req: Request<Incoming>,
     mitm: Arc<MitmAcceptor>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<Response<Full<bytes::Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
     let target = req
         .uri()
@@ -113,7 +137,7 @@ async fn handle_connect(
             Ok(upgraded) => {
                 let io = TokioIo::new(upgraded);
 
-                if let Err(e) = handle_connect_tunnel(io, &host, port, mitm, recorder).await {
+                if let Err(e) = handle_connect_tunnel(io, &host, port, mitm, recorder, upstream_proxy).await {
                     warn!("Tunnel error for {}:{}: {}", host, port, e);
                 }
             }
@@ -135,6 +159,7 @@ async fn handle_connect_tunnel(
     port: u16,
     mitm: Arc<MitmAcceptor>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Convert the upgraded client stream into a TcpStream-like pair via a local
     // TCP loopback so we can hand the server-side to the MITM TLS acceptor.
@@ -169,11 +194,13 @@ async fn handle_connect_tunnel(
     let host_for_service = host_owned.clone();
     let port_for_service = port;
     let recorder_for_service = Arc::clone(&recorder);
+    let upstream_proxy_for_service = Arc::clone(&upstream_proxy);
 
     let service = service_fn(move |req: Request<Incoming>| {
         let host = host_for_service.clone();
         let recorder = Arc::clone(&recorder_for_service);
-        async move { handle_tunneled_request(req, &host, port_for_service, recorder).await }
+        let upstream_proxy = Arc::clone(&upstream_proxy_for_service);
+        async move { handle_tunneled_request(req, &host, port_for_service, recorder, upstream_proxy).await }
     });
 
     let result: Result<(), hyper::Error> = http1::Builder::new()
@@ -198,6 +225,7 @@ async fn handle_tunneled_request(
     host: &str,
     port: u16,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
     let method = req.method().to_string();
     let path = req
@@ -244,6 +272,7 @@ async fn handle_tunneled_request(
         &path,
         &parts.headers,
         &request_body_bytes,
+        &upstream_proxy,
     )
     .await
     {
@@ -300,6 +329,7 @@ async fn connect_and_forward_tls(
     path: &str,
     headers: &hyper::HeaderMap,
     body: &[u8],
+    upstream_proxy: &Option<String>,
 ) -> Result<
     (
         u16,
@@ -311,8 +341,7 @@ async fn connect_and_forward_tls(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    let addr = format!("{}:{}", host, port);
-    let tcp_stream = TcpStream::connect(&addr).await?;
+    let tcp_stream = connect_upstream(host, port, upstream_proxy).await?;
 
     // TLS connect to upstream
     let mut root_store = rustls::RootCertStore::empty();
@@ -604,6 +633,7 @@ fn record_chunk_events(events: &mut Vec<HarStreamEvent>, chunk: &[u8], stream_st
 async fn handle_plain_http(
     req: Request<Incoming>,
     recorder: Arc<Recorder>,
+    upstream_proxy: Arc<Option<String>>,
 ) -> Result<Response<Full<bytes::Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
     let method = req.method().to_string();
     let url = req.uri().to_string();
@@ -640,8 +670,7 @@ async fn handle_plain_http(
     };
 
     // Connect to upstream
-    let addr = format!("{}:{}", host, port);
-    let tcp_stream = TcpStream::connect(&addr).await?;
+    let tcp_stream = connect_upstream(&host, port, &upstream_proxy).await?;
 
     let path = uri
         .path_and_query()

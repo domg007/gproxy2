@@ -41,6 +41,10 @@ enum Commands {
         /// HAR output file path
         #[arg(long, default_value = "recording.har")]
         output: PathBuf,
+
+        /// Upstream proxy (e.g. socks5://127.0.0.1:10808)
+        #[arg(long)]
+        upstream_proxy: Option<String>,
     },
 }
 
@@ -70,16 +74,17 @@ fn main() {
             listen,
             ca: ca_path,
             output,
+            upstream_proxy,
         } => {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async move {
-                run_record(listen, ca_path, output).await;
+                run_record(listen, ca_path, output, upstream_proxy).await;
             });
         }
     }
 }
 
-async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf) {
+async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf, upstream_proxy: Option<String>) {
     let ca = match ca::load_ca(&ca_path) {
         Ok(ca) => Arc::new(ca),
         Err(e) => {
@@ -115,7 +120,7 @@ async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf) {
     });
 
     info!("Starting recording proxy");
-    if let Err(e) = proxy::run_http_proxy(listen, mitm, recorder).await {
+    if let Err(e) = proxy::run_http_proxy(listen, mitm, recorder, upstream_proxy).await {
         eprintln!("Proxy error: {}", e);
     }
 
