@@ -14,6 +14,7 @@ use crate::utils::oauth2_refresh;
 /// Codex CLI channel (OpenAI Responses API with OAuth).
 pub struct CodexChannel;
 
+const DEFAULT_CODEX_ORIGINATOR: &str = "codex_cli_rs";
 const DEFAULT_CODEX_VERSION: &str = "0.1.2025061300";
 const DEFAULT_CODEX_OS_TYPE: &str = "Linux";
 const DEFAULT_CODEX_OS_VERSION: &str = "6.6";
@@ -49,13 +50,20 @@ fn default_codex_base_url() -> String {
 impl CodexSettings {
     /// Build the default Codex CLI user-agent string.
     fn computed_user_agent(&self) -> String {
-        format!(
-            "codex_cli_rs/{} ({} {}; {})",
+        let prefix = format!(
+            "{}/{} ({} {}; {})",
+            DEFAULT_CODEX_ORIGINATOR,
             DEFAULT_CODEX_VERSION,
             DEFAULT_CODEX_OS_TYPE,
             DEFAULT_CODEX_OS_VERSION,
             DEFAULT_CODEX_ARCH
-        )
+        );
+        let terminal_token = codex_terminal_user_agent();
+        if terminal_token.is_empty() {
+            prefix
+        } else {
+            format!("{prefix} {terminal_token}")
+        }
     }
 
     /// Return the effective User-Agent: explicit override wins, otherwise computed.
@@ -65,6 +73,31 @@ impl CodexSettings {
             None => self.computed_user_agent(),
         }
     }
+}
+
+fn is_codex_managed_header(name: &http::HeaderName) -> bool {
+    matches!(name.as_str(), "x-client-request-id" | "session_id")
+}
+
+fn codex_terminal_user_agent() -> String {
+    let token = if let Ok(term_program) = std::env::var("TERM_PROGRAM") {
+        let version = std::env::var("TERM_PROGRAM_VERSION").ok();
+        match version.as_deref().filter(|v| !v.is_empty()) {
+            Some(version) => format!("{term_program}/{version}"),
+            None => term_program,
+        }
+    } else if let Ok(term) = std::env::var("TERM") {
+        term
+    } else {
+        "unknown".to_string()
+    };
+
+    token
+        .chars()
+        .map(|ch| if matches!(ch, ' '..='~') { ch } else { '_' })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 fn request_session_id(request: &PreparedRequest) -> String {
@@ -265,19 +298,24 @@ impl Channel for CodexChannel {
             )
             .header("Content-Type", "application/json")
             .header("User-Agent", settings.effective_user_agent())
-            .header("originator", "codex_cli_rs")
+            .header("originator", DEFAULT_CODEX_ORIGINATOR)
             .header("x-client-request-id", &session_id)
             .header("session_id", &session_id);
 
         if let Some(account_id) = &credential.account_id {
             if !account_id.is_empty() {
-                builder = builder.header("ChatGPT-Account-ID", account_id.as_str());
+                builder = builder.header("chatgpt-account-id", account_id.as_str());
             }
         }
 
         // Forward caller-provided headers (x-codex-turn-state, x-codex-turn-metadata,
         // x-codex-beta-features, OpenAI-Organization, OpenAI-Project, etc.)
+        // Keep conversation identity authoritative: upstream expects both
+        // x-client-request-id and session_id to equal the same conversation id.
         for (key, value) in request.headers.iter() {
+            if is_codex_managed_header(key) {
+                continue;
+            }
             builder = builder.header(key, value);
         }
 
