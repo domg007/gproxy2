@@ -1,3 +1,7 @@
+use std::sync::OnceLock;
+
+use dashmap::DashMap;
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
@@ -8,10 +12,14 @@ use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 
-/// Vertex AI (Google Cloud) channel using OAuth2 Bearer token authentication.
+const DEFAULT_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+
+/// Vertex AI (Google Cloud) channel using OAuth2 service account authentication.
 ///
-/// OAuth token refresh is handled externally by the engine/runtime layer.
-/// The channel expects `access_token` to be pre-populated on the credential.
+/// Token refresh is automatic: `refresh_credential` is called before each
+/// request and only contacts the token endpoint when the cached token is
+/// expired or about to expire.
 pub struct VertexChannel;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -60,21 +68,136 @@ pub struct VertexCredential {
     pub client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_uri: Option<String>,
-    /// Current OAuth2 access token (populated by runtime token refresh).
+    /// Current OAuth2 access token (populated by token refresh).
     #[serde(default)]
     pub access_token: String,
+    /// Token expiry as unix timestamp in milliseconds.
+    #[serde(default)]
+    pub expires_at_ms: u64,
 }
 
 impl ChannelCredential for VertexCredential {
     fn apply_update(&mut self, update: &serde_json::Value) -> bool {
         if let Some(token) = update.get("access_token").and_then(|v| v.as_str()) {
             self.access_token = token.to_string();
+            if let Some(exp) = update.get("expires_at_ms").and_then(|v| v.as_u64()) {
+                self.expires_at_ms = exp;
+            }
             true
         } else {
             false
         }
     }
 }
+
+// === Token cache ===
+
+#[derive(Clone)]
+struct CachedToken {
+    access_token: String,
+    expires_at_ms: u64,
+}
+
+fn token_cache() -> &'static DashMap<String, CachedToken> {
+    static CACHE: OnceLock<DashMap<String, CachedToken>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+// === JWT + token exchange ===
+
+#[derive(Serialize)]
+struct JwtClaims<'a> {
+    iss: &'a str,
+    scope: &'a str,
+    aud: &'a str,
+    iat: u64,
+    exp: u64,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: Option<String>,
+    expires_in: Option<u64>,
+}
+
+async fn refresh_access_token(
+    client: &wreq::Client,
+    credential: &VertexCredential,
+) -> Result<CachedToken, UpstreamError> {
+    let token_uri = credential
+        .token_uri
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_TOKEN_URI);
+
+    let now_s = now_ms() / 1000;
+    let claims = JwtClaims {
+        iss: &credential.client_email,
+        scope: DEFAULT_SCOPE,
+        aud: token_uri,
+        iat: now_s,
+        exp: now_s.saturating_add(3600),
+    };
+
+    let pem = credential.private_key.replace("\\n", "\n");
+    let key = EncodingKey::from_rsa_pem(pem.as_bytes())
+        .map_err(|e| UpstreamError::Channel(format!("invalid private key: {e}")))?;
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.typ = Some("JWT".to_string());
+    let assertion = encode(&header, &claims, &key)
+        .map_err(|e| UpstreamError::Channel(format!("jwt sign failed: {e}")))?;
+
+    let body = format!(
+        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={assertion}"
+    );
+
+    let resp = client
+        .post(token_uri)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("token refresh: {e}")))?;
+
+    let status = resp.status().as_u16();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("token refresh body: {e}")))?;
+
+    if !(200..300).contains(&status) {
+        let text = String::from_utf8_lossy(&bytes);
+        return Err(UpstreamError::Channel(format!(
+            "token endpoint status {status}: {text}"
+        )));
+    }
+
+    let parsed: TokenResponse = serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("token response parse: {e}")))?;
+
+    let access_token = parsed
+        .access_token
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| UpstreamError::Channel("token response missing access_token".into()))?;
+
+    let expires_in = parsed.expires_in.unwrap_or(3600);
+    let expires_at_ms = now_ms().saturating_add(expires_in.saturating_mul(1000));
+
+    Ok(CachedToken {
+        access_token,
+        expires_at_ms,
+    })
+}
+
+// === Channel impl ===
 
 impl Channel for VertexChannel {
     const ID: &'static str = "vertex";
@@ -147,6 +270,30 @@ impl Channel for VertexChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn refresh_credential<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        credential: &'a mut Self::Credential,
+    ) -> impl std::future::Future<Output = Result<bool, UpstreamError>> + Send + 'a {
+        let client = client.clone();
+        async move {
+            // No valid refresh material → can't refresh
+            if credential.client_email.is_empty() || credential.private_key.is_empty() {
+                return Ok(false);
+            }
+
+            // Invalidate any cached token for this email (it just failed)
+            token_cache().remove(&credential.client_email);
+
+            // Force refresh
+            let token = refresh_access_token(&client, credential).await?;
+            credential.access_token = token.access_token.clone();
+            credential.expires_at_ms = token.expires_at_ms;
+            token_cache().insert(credential.client_email.clone(), token);
+            Ok(true)
+        }
     }
 
     fn prepare_request(

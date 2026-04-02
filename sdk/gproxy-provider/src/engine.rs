@@ -106,15 +106,17 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
                 &self.settings,
                 &request,
                 max_retries,
+                client,
                 |req| crate::http_client::send_request(client, req),
             )
             .await;
 
-            // Write back health state changes
+            // Write back credential and health state changes
             {
                 let mut guard = self.credentials.lock().unwrap();
-                for (i, (_, health)) in creds.into_iter().enumerate() {
-                    if let Some((_, stored_health)) = guard.get_mut(i) {
+                for (i, (cred, health)) in creds.into_iter().enumerate() {
+                    if let Some((stored_cred, stored_health)) = guard.get_mut(i) {
+                        *stored_cred = cred;
                         *stored_health = health;
                     }
                 }

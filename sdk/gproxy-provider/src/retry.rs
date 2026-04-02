@@ -12,12 +12,17 @@ const DEFAULT_MAX_RETRIES_PER_CREDENTIAL: u32 = 3;
 /// without `retry-after`. If 429 includes `retry-after`, the credential
 /// is marked with a cooldown and skipped immediately.
 ///
+/// On 401/403 (AuthDead), calls `channel.refresh_credential` to attempt
+/// a token refresh. If refresh succeeds, retries once. If the retry also
+/// fails with AuthDead, the credential is marked dead.
+///
 /// The caller provides a `send` closure that performs the actual HTTP request.
 pub async fn retry_with_credentials<C, F, Fut>(
     channel: &C,
     credentials: &mut [(C::Credential, C::Health)],
     settings: &C::Settings,
     request: &PreparedRequest,
+    http_client: &wreq::Client,
     send: F,
 ) -> Result<UpstreamResponse, UpstreamError>
 where
@@ -31,6 +36,7 @@ where
         settings,
         request,
         DEFAULT_MAX_RETRIES_PER_CREDENTIAL,
+        http_client,
         send,
     )
     .await
@@ -43,6 +49,7 @@ pub async fn retry_with_credentials_max<C, F, Fut>(
     settings: &C::Settings,
     request: &PreparedRequest,
     max_retries: u32,
+    http_client: &wreq::Client,
     send: F,
 ) -> Result<UpstreamResponse, UpstreamError>
 where
@@ -103,8 +110,57 @@ where
                     return Ok(response);
                 }
                 ResponseClassification::AuthDead => {
-                    health.record_error(response.status, model, None);
-                    tracing::warn!("Credential {} auth dead ({})", idx, response.status);
+                    // Try refreshing the credential (OAuth token exchange, etc.)
+                    let (credential, health) = &mut credentials[idx];
+                    let refreshed = channel
+                        .refresh_credential(http_client, credential)
+                        .await
+                        .unwrap_or(false);
+
+                    if refreshed {
+                        // Retry once with the refreshed credential
+                        let retry_request =
+                            match channel.prepare_request(credential, settings, request) {
+                                Ok(req) => req,
+                                Err(e) => {
+                                    tracing::warn!("Failed to prepare retry request after refresh for credential {}: {}", idx, e);
+                                    last_error = Some(e);
+                                    break;
+                                }
+                            };
+
+                        match send(retry_request).await {
+                            Ok(retry_response) => {
+                                let retry_class = channel.classify_response(
+                                    retry_response.status,
+                                    &retry_response.headers,
+                                    &retry_response.body,
+                                );
+                                if matches!(retry_class, ResponseClassification::Success) {
+                                    health.record_success(model);
+                                    return Ok(retry_response);
+                                }
+                                // Still failing after refresh — mark dead
+                                health.record_error(retry_response.status, model, None);
+                                tracing::warn!(
+                                    "Credential {} auth dead after refresh ({})",
+                                    idx,
+                                    retry_response.status
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "HTTP error after refresh for credential {}: {}",
+                                    idx,
+                                    e
+                                );
+                                last_error = Some(e);
+                            }
+                        }
+                    } else {
+                        health.record_error(response.status, model, None);
+                        tracing::warn!("Credential {} auth dead ({})", idx, response.status);
+                    }
                     break;
                 }
                 ResponseClassification::RateLimited { retry_after_ms } => {
@@ -147,4 +203,3 @@ where
 
     Err(last_error.unwrap_or(UpstreamError::AllCredentialsExhausted))
 }
-

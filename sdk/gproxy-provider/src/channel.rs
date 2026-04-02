@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::dispatch::DispatchTable;
@@ -60,6 +62,18 @@ pub trait Channel: Send + Sync + 'static {
         _body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>> {
         None
+    }
+
+    /// Attempt to refresh a credential after an auth failure (401/403).
+    /// Called when upstream returns AuthDead. Returns `true` if the credential
+    /// was updated and the request should be retried once more.
+    /// Default: no refresh capability, returns `false`.
+    fn refresh_credential<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        _credential: &'a mut Self::Credential,
+    ) -> impl Future<Output = Result<bool, UpstreamError>> + Send + 'a {
+        async { Ok(false) }
     }
 
     /// Start an OAuth flow (optional, most channels return None).
