@@ -24,7 +24,7 @@ pub struct ExecuteResult {
     pub headers: http::HeaderMap,
     pub body: Vec<u8>,
     pub usage: Option<Usage>,
-    pub meta: UpstreamRequestMeta,
+    pub meta: Option<UpstreamRequestMeta>,
 }
 
 /// Token usage extracted from upstream response.
@@ -111,11 +111,15 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
 pub struct GproxyEngine {
     providers: HashMap<String, Arc<dyn AnyProvider>>,
     client: wreq::Client,
+    pub enable_usage: bool,
+    pub enable_upstream_log: bool,
 }
 
 pub struct GproxyEngineBuilder {
     providers: HashMap<String, Arc<dyn AnyProvider>>,
     client: Option<wreq::Client>,
+    enable_usage: bool,
+    enable_upstream_log: bool,
 }
 
 impl GproxyEngineBuilder {
@@ -123,12 +127,26 @@ impl GproxyEngineBuilder {
         Self {
             providers: HashMap::new(),
             client: None,
+            enable_usage: true,
+            enable_upstream_log: true,
         }
     }
 
     /// Set the HTTP client.
     pub fn http_client(mut self, client: wreq::Client) -> Self {
         self.client = Some(client);
+        self
+    }
+
+    /// Control whether usage is extracted from responses (default: true).
+    pub fn enable_usage(mut self, enabled: bool) -> Self {
+        self.enable_usage = enabled;
+        self
+    }
+
+    /// Control whether upstream request metadata is collected (default: true).
+    pub fn enable_upstream_log(mut self, enabled: bool) -> Self {
+        self.enable_upstream_log = enabled;
         self
     }
 
@@ -153,6 +171,8 @@ impl GproxyEngineBuilder {
         GproxyEngine {
             providers: self.providers,
             client: self.client.unwrap_or_default(),
+            enable_usage: self.enable_usage,
+            enable_upstream_log: self.enable_upstream_log,
         }
     }
 }
@@ -192,12 +212,14 @@ impl GproxyEngine {
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
-        Ok(ExecuteResult {
-            status: response.status,
-            headers: response.headers.clone(),
-            body: response.body,
-            usage: None, // TODO: channel.extract_usage()
-            meta: UpstreamRequestMeta {
+        let usage = if self.enable_usage {
+            None // TODO: channel.extract_usage()
+        } else {
+            None
+        };
+
+        let meta = if self.enable_upstream_log {
+            Some(UpstreamRequestMeta {
                 method: "POST".to_string(),
                 url: String::new(), // TODO: fill from prepared request
                 request_headers: Vec::new(),
@@ -211,7 +233,17 @@ impl GproxyEngine {
                 model: request.model,
                 latency_ms,
                 credential_index: None,
-            },
+            })
+        } else {
+            None
+        };
+
+        Ok(ExecuteResult {
+            status: response.status,
+            headers: response.headers,
+            body: response.body,
+            usage,
+            meta,
         })
     }
 }
