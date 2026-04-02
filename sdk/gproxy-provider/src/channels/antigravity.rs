@@ -1,15 +1,20 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
-use crate::utils::{code_assist_envelope, oauth2_refresh, vertex_normalize};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use crate::utils::{code_assist_envelope, oauth2_refresh, vertex_normalize};
 
-const DEFAULT_USER_AGENT: &str = "antigravity/2.15.8 (Windows; AMD64)";
+const DEFAULT_VERSION: &str = "2.15.8";
+const DEFAULT_PLATFORM: &str = "Windows";
+const DEFAULT_ARCH: &str = "AMD64";
+const ANTIGRAVITY_REQUEST_NAMESPACE: uuid::Uuid =
+    uuid::uuid!("3649aa15-8c2d-51dc-b95c-f4b79d1db453");
 
 /// Antigravity channel (Google internal Code Assist API with Antigravity credentials).
 pub struct AntigravityChannel;
@@ -32,6 +37,20 @@ fn default_antigravity_base_url() -> String {
 
 fn default_antigravity_api_version() -> String {
     "v1internal".to_string()
+}
+
+impl AntigravitySettings {
+    /// Build the effective User-Agent string.
+    fn effective_user_agent(&self) -> String {
+        if let Some(ref ua) = self.user_agent {
+            ua.clone()
+        } else {
+            format!(
+                "antigravity/{} ({}; {})",
+                DEFAULT_VERSION, DEFAULT_PLATFORM, DEFAULT_ARCH
+            )
+        }
+    }
 }
 
 impl ChannelSettings for AntigravitySettings {
@@ -87,14 +106,58 @@ impl ChannelCredential for AntigravityCredential {
     }
 }
 
-/// Generate a simple request ID in the format `req-{random_hex}`.
-fn generate_request_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+fn generate_request_id(
+    request: &PreparedRequest,
+    wrapped_body: &[u8],
+    request_type: &str,
+) -> String {
+    if let Some(request_id) = request
+        .headers
+        .get("requestId")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+    {
+        return request_id.to_owned();
+    }
+
+    let body = serde_json::from_slice::<Value>(wrapped_body).unwrap_or(Value::Null);
+    let seed = format!(
+        "{}\n{}\n{}\n{}\n{}",
+        antigravity_instruction_fingerprint(&body),
+        antigravity_first_message_fingerprint(&body),
+        request.model.as_deref().unwrap_or_default(),
+        request.path,
+        request_type
+    );
+    format!(
+        "req-{}",
+        uuid::Uuid::new_v5(&ANTIGRAVITY_REQUEST_NAMESPACE, seed.as_bytes())
+    )
+}
+
+fn antigravity_instruction_fingerprint(body: &Value) -> String {
+    body.get("system_instruction")
+        .map(json_fingerprint_text)
         .unwrap_or_default()
-        .as_nanos();
-    format!("req-{:032x}", ts)
+}
+
+fn antigravity_first_message_fingerprint(body: &Value) -> String {
+    match body.get("contents") {
+        Some(Value::Array(contents)) => contents
+            .first()
+            .map(json_fingerprint_text)
+            .unwrap_or_default(),
+        Some(value) => json_fingerprint_text(value),
+        None => String::new(),
+    }
+}
+
+fn json_fingerprint_text(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
 }
 
 impl Channel for AntigravityChannel {
@@ -106,9 +169,8 @@ impl Channel for AntigravityChannel {
     fn dispatch_table(&self) -> DispatchTable {
         // Same as geminicli / vertex — native protocol is "gemini"
         let mut t = DispatchTable::new();
-        let pass = |op: &str, proto: &str| {
-            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
             (
                 RouteKey::new(op, proto),
@@ -125,33 +187,66 @@ impl Channel for AntigravityChannel {
             pass("model_get", "gemini"),
             xform("model_get", "claude", "model_get", "gemini"),
             xform("model_get", "openai", "model_get", "gemini"),
-
             pass("count_tokens", "gemini"),
             xform("count_tokens", "claude", "count_tokens", "gemini"),
             xform("count_tokens", "openai", "count_tokens", "gemini"),
-
             pass("generate_content", "gemini"),
             xform("generate_content", "claude", "generate_content", "gemini"),
-            xform("generate_content", "openai_chat_completions", "generate_content", "gemini"),
-            xform("generate_content", "openai_response", "generate_content", "gemini"),
-
+            xform(
+                "generate_content",
+                "openai_chat_completions",
+                "generate_content",
+                "gemini",
+            ),
+            xform(
+                "generate_content",
+                "openai_response",
+                "generate_content",
+                "gemini",
+            ),
             pass("stream_generate_content", "gemini"),
             pass("stream_generate_content", "gemini_ndjson"),
-            xform("stream_generate_content", "claude", "stream_generate_content", "gemini"),
-            xform("stream_generate_content", "openai_chat_completions", "stream_generate_content", "gemini"),
-            xform("stream_generate_content", "openai_response", "stream_generate_content", "gemini"),
-
+            xform(
+                "stream_generate_content",
+                "claude",
+                "stream_generate_content",
+                "gemini",
+            ),
+            xform(
+                "stream_generate_content",
+                "openai_chat_completions",
+                "stream_generate_content",
+                "gemini",
+            ),
+            xform(
+                "stream_generate_content",
+                "openai_response",
+                "stream_generate_content",
+                "gemini",
+            ),
             pass("gemini_live", "gemini"),
-            xform("openai_response_websocket", "openai", "stream_generate_content", "gemini"),
-
+            xform(
+                "openai_response_websocket",
+                "openai",
+                "stream_generate_content",
+                "gemini",
+            ),
             xform("create_image", "openai", "create_image", "gemini"),
-            xform("stream_create_image", "openai", "stream_create_image", "gemini"),
+            xform(
+                "stream_create_image",
+                "openai",
+                "stream_create_image",
+                "gemini",
+            ),
             xform("create_image_edit", "openai", "create_image_edit", "gemini"),
-            xform("stream_create_image_edit", "openai", "stream_create_image_edit", "gemini"),
-
+            xform(
+                "stream_create_image_edit",
+                "openai",
+                "stream_create_image_edit",
+                "gemini",
+            ),
             pass("embeddings", "gemini"),
             xform("embeddings", "openai", "embeddings", "gemini"),
-
             xform("compact", "openai", "generate_content", "gemini"),
         ];
 
@@ -183,18 +278,20 @@ impl Channel for AntigravityChannel {
             .map(|_| "image_gen")
             .unwrap_or("agent");
 
-        let ua = settings
-            .user_agent()
-            .unwrap_or(DEFAULT_USER_AGENT);
+        let ua = settings.effective_user_agent();
+        let request_id = generate_request_id(request, &wrapped_body, request_type);
 
         let mut builder = http::Request::builder()
             .method(request.method.clone())
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Content-Type", "application/json")
-            .header("User-Agent", ua)
+            .header("User-Agent", &ua)
             .header("Accept-Encoding", "gzip")
-            .header("requestId", generate_request_id())
+            .header("requestId", request_id)
             .header("requestType", request_type);
 
         for (key, value) in request.headers.iter() {

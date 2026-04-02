@@ -1,29 +1,113 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use uuid::Uuid;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
-use crate::utils::oauth2_refresh;
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use crate::utils::oauth2_refresh;
 
 /// Codex CLI channel (OpenAI Responses API with OAuth).
 pub struct CodexChannel;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+const DEFAULT_CODEX_VERSION: &str = "0.1.2025061300";
+const DEFAULT_CODEX_OS_TYPE: &str = "Linux";
+const DEFAULT_CODEX_OS_VERSION: &str = "6.6";
+const DEFAULT_CODEX_ARCH: &str = "x86_64";
+const CODEX_SESSION_NAMESPACE: uuid::Uuid = uuid::uuid!("aef2ff08-4585-5e42-a831-1cb53cb6ea8d");
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSettings {
     #[serde(default = "default_codex_base_url")]
     pub base_url: String,
+    /// Explicit override for the entire User-Agent header.
+    /// When set, this takes priority over the computed Codex UA string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_retries_on_429: Option<u32>,
 }
 
+impl Default for CodexSettings {
+    fn default() -> Self {
+        Self {
+            base_url: default_codex_base_url(),
+            user_agent: None,
+            max_retries_on_429: None,
+        }
+    }
+}
+
 fn default_codex_base_url() -> String {
     "https://api.openai.com".to_string()
+}
+
+impl CodexSettings {
+    /// Build the default Codex CLI user-agent string.
+    fn computed_user_agent(&self) -> String {
+        format!(
+            "codex_cli_rs/{} ({} {}; {})",
+            DEFAULT_CODEX_VERSION,
+            DEFAULT_CODEX_OS_TYPE,
+            DEFAULT_CODEX_OS_VERSION,
+            DEFAULT_CODEX_ARCH
+        )
+    }
+
+    /// Return the effective User-Agent: explicit override wins, otherwise computed.
+    fn effective_user_agent(&self) -> String {
+        match &self.user_agent {
+            Some(ua) => ua.clone(),
+            None => self.computed_user_agent(),
+        }
+    }
+}
+
+fn request_session_id(request: &PreparedRequest) -> String {
+    if let Some(session_id) = request
+        .headers
+        .get("session_id")
+        .or_else(|| request.headers.get("x-client-request-id"))
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+    {
+        return session_id.to_owned();
+    }
+
+    let body = serde_json::from_slice::<Value>(&request.body).unwrap_or(Value::Null);
+    let session_seed = format!(
+        "{}\n{}\n{}",
+        codex_instructions_fingerprint(&body),
+        codex_first_input_fingerprint(&body),
+        request.path
+    );
+    Uuid::new_v5(&CODEX_SESSION_NAMESPACE, session_seed.as_bytes()).to_string()
+}
+
+fn codex_instructions_fingerprint(body: &Value) -> String {
+    body.get("instructions")
+        .map(json_fingerprint_text)
+        .unwrap_or_default()
+}
+
+fn codex_first_input_fingerprint(body: &Value) -> String {
+    match body.get("input") {
+        Some(Value::Array(items)) => items.first().map(json_fingerprint_text).unwrap_or_default(),
+        Some(value) => json_fingerprint_text(value),
+        None => String::new(),
+    }
+}
+
+fn json_fingerprint_text(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
 }
 
 impl ChannelSettings for CodexSettings {
@@ -79,9 +163,8 @@ impl Channel for CodexChannel {
     fn dispatch_table(&self) -> DispatchTable {
         // Same as openai — native protocol is openai_response / openai_chat_completions
         let mut t = DispatchTable::new();
-        let pass = |op: &str, proto: &str| {
-            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
             (
                 RouteKey::new(op, proto),
@@ -99,39 +182,62 @@ impl Channel for CodexChannel {
             pass("model_get", "openai"),
             xform("model_get", "claude", "model_get", "openai"),
             xform("model_get", "gemini", "model_get", "openai"),
-
             // Count tokens
             pass("count_tokens", "openai"),
             xform("count_tokens", "claude", "count_tokens", "openai"),
             xform("count_tokens", "gemini", "count_tokens", "openai"),
-
             // Generate content (non-stream)
             pass("generate_content", "openai_response"),
             pass("generate_content", "openai_chat_completions"),
-            xform("generate_content", "claude", "generate_content", "openai_response"),
-            xform("generate_content", "gemini", "generate_content", "openai_response"),
-
+            xform(
+                "generate_content",
+                "claude",
+                "generate_content",
+                "openai_response",
+            ),
+            xform(
+                "generate_content",
+                "gemini",
+                "generate_content",
+                "openai_response",
+            ),
             // Generate content (stream)
             pass("stream_generate_content", "openai_response"),
             pass("stream_generate_content", "openai_chat_completions"),
-            xform("stream_generate_content", "claude", "stream_generate_content", "openai_response"),
-            xform("stream_generate_content", "gemini", "stream_generate_content", "openai_response"),
-            xform("stream_generate_content", "gemini_ndjson", "stream_generate_content", "openai_response"),
-
+            xform(
+                "stream_generate_content",
+                "claude",
+                "stream_generate_content",
+                "openai_response",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini",
+                "stream_generate_content",
+                "openai_response",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini_ndjson",
+                "stream_generate_content",
+                "openai_response",
+            ),
             // WebSocket
             pass("openai_response_websocket", "openai"),
-            xform("gemini_live", "gemini", "stream_generate_content", "openai_response"),
-
+            xform(
+                "gemini_live",
+                "gemini",
+                "stream_generate_content",
+                "openai_response",
+            ),
             // Images
             pass("create_image", "openai"),
             pass("stream_create_image", "openai"),
             pass("create_image_edit", "openai"),
             pass("stream_create_image_edit", "openai"),
-
             // Embeddings
             pass("embeddings", "openai"),
             xform("embeddings", "gemini", "embeddings", "openai"),
-
             // Compact
             pass("compact", "openai"),
         ];
@@ -149,16 +255,19 @@ impl Channel for CodexChannel {
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
         let url = format!("{}{}", settings.base_url(), request.path);
+        let session_id = request_session_id(request);
         let mut builder = http::Request::builder()
             .method(request.method.clone())
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Content-Type", "application/json")
-            .header("originator", "codex_cli_rs");
-
-        if let Some(ua) = settings.user_agent() {
-            builder = builder.header("User-Agent", ua);
-        }
+            .header("User-Agent", settings.effective_user_agent())
+            .header("originator", "codex_cli_rs")
+            .header("x-client-request-id", &session_id)
+            .header("session_id", &session_id);
 
         if let Some(account_id) = &credential.account_id {
             if !account_id.is_empty() {
@@ -167,7 +276,7 @@ impl Channel for CodexChannel {
         }
 
         // Forward caller-provided headers (x-codex-turn-state, x-codex-turn-metadata,
-        // x-codex-beta-features, x-client-request-id, session_id, etc.)
+        // x-codex-beta-features, OpenAI-Organization, OpenAI-Project, etc.)
         for (key, value) in request.headers.iter() {
             builder = builder.header(key, value);
         }
