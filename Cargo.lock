@@ -1834,6 +1834,7 @@ version = "1.0.0"
 dependencies = [
  "bytes",
  "dashmap",
+ "getrandom 0.3.4",
  "gproxy-protocol",
  "http",
  "inventory",

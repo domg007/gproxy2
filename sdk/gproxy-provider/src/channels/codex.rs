@@ -15,7 +15,7 @@ use crate::utils::oauth2_refresh;
 pub struct CodexChannel;
 
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex_cli_rs";
-const DEFAULT_CODEX_VERSION: &str = "0.1.2025061300";
+const DEFAULT_CODEX_VERSION: &str = "0.118.0";
 const DEFAULT_CODEX_OS_TYPE: &str = "Linux";
 const DEFAULT_CODEX_OS_VERSION: &str = "6.6";
 const DEFAULT_CODEX_ARCH: &str = "x86_64";
@@ -302,10 +302,10 @@ impl Channel for CodexChannel {
             .header("x-client-request-id", &session_id)
             .header("session_id", &session_id);
 
-        if let Some(account_id) = &credential.account_id {
-            if !account_id.is_empty() {
-                builder = builder.header("chatgpt-account-id", account_id.as_str());
-            }
+        if let Some(account_id) = &credential.account_id
+            && !account_id.is_empty()
+        {
+            builder = builder.header("chatgpt-account-id", account_id.as_str());
         }
 
         // Forward caller-provided headers (x-codex-turn-state, x-codex-turn-metadata,

@@ -32,6 +32,7 @@ custom = []
 gproxy-protocol = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
+getrandom = { workspace = true }
 http = { workspace = true }
 inventory = { workspace = true }
 jsonwebtoken = { workspace = true }

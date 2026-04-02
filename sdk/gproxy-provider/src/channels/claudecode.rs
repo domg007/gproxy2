@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::sync::LazyLock;
 use uuid::Uuid;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
@@ -27,15 +26,23 @@ const BILLING_VERSION_CHAR_OFFSETS: [usize; 3] = [4, 7, 20];
 const CLAUDECODE_SESSION_NAMESPACE: uuid::Uuid =
     uuid::uuid!("f348ca5a-091f-5e75-aec7-c6d7c1b8c3d6");
 
-static CLAUDECODE_DEVICE_ID: LazyLock<String> =
-    LazyLock::new(|| Uuid::now_v7().simple().to_string());
-
 // ---------------------------------------------------------------------------
 // Default-value helpers
 // ---------------------------------------------------------------------------
 
 fn default_claudecode_base_url() -> String {
     "https://api.anthropic.com".to_string()
+}
+
+fn default_claudecode_device_id() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("device_id entropy should be available");
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut output, "{byte:02x}");
+    }
+    output
 }
 
 // ---------------------------------------------------------------------------
@@ -84,13 +91,15 @@ impl ChannelSettings for ClaudeCodeSettings {
 // Credential
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeCodeCredential {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: String,
     #[serde(default)]
     pub expires_at_ms: u64,
+    #[serde(default = "default_claudecode_device_id")]
+    pub device_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -101,6 +110,22 @@ pub struct ClaudeCodeCredential {
     pub cookie: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_email: Option<String>,
+}
+
+impl Default for ClaudeCodeCredential {
+    fn default() -> Self {
+        Self {
+            access_token: String::new(),
+            refresh_token: String::new(),
+            expires_at_ms: 0,
+            device_id: default_claudecode_device_id(),
+            account_uuid: None,
+            subscription_type: None,
+            rate_limit_tier: None,
+            cookie: None,
+            user_email: None,
+        }
+    }
 }
 
 impl ChannelCredential for ClaudeCodeCredential {
@@ -115,6 +140,9 @@ impl ChannelCredential for ClaudeCodeCredential {
             }
             if let Some(account_uuid) = update.get("account_uuid").and_then(|v| v.as_str()) {
                 self.account_uuid = Some(account_uuid.to_string());
+            }
+            if let Some(device_id) = update.get("device_id").and_then(|v| v.as_str()) {
+                self.device_id = device_id.to_string();
             }
             true
         } else {
@@ -131,7 +159,7 @@ impl ChannelCredential for ClaudeCodeCredential {
 fn build_metadata_user_id(credential: &ClaudeCodeCredential, session_id: &str) -> String {
     // The value is itself a JSON-encoded string
     serde_json::json!({
-        "device_id": CLAUDECODE_DEVICE_ID.as_str(),
+        "device_id": credential.device_id.as_str(),
         "account_uuid": credential.account_uuid.as_deref().unwrap_or(""),
         "session_id": session_id,
     })
