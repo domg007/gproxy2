@@ -16,7 +16,9 @@
 pub mod channel;
 pub mod channels;
 pub mod dispatch;
+pub mod engine;
 pub mod health;
+pub mod http_client;
 pub mod provider;
 pub mod registry;
 pub mod request;
@@ -25,6 +27,7 @@ pub mod retry;
 
 pub use channel::{Channel, ChannelCredential, ChannelSettings};
 pub use dispatch::DispatchTable;
+pub use engine::{ExecuteRequest, ExecuteResult, GproxyEngine, Usage};
 pub use health::CredentialHealth;
 pub use provider::ProviderDefinition;
 pub use registry::{ChannelRegistration, ChannelRegistry};

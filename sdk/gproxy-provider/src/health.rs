@@ -6,7 +6,7 @@ use std::time::Instant;
 /// Each channel defines its own health shape via this trait's associated type
 /// on [`Channel`](crate::Channel). Channels with per-model rate limits use
 /// a map of cooldowns; simpler channels can use a boolean.
-pub trait CredentialHealth: Send + Sync + Default + 'static {
+pub trait CredentialHealth: Send + Sync + Clone + Default + 'static {
     /// Whether this credential is available for a request targeting `model`.
     /// Pass `None` if the request doesn't specify a model.
     fn is_available(&self, model: Option<&str>) -> bool;

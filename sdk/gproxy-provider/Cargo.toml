@@ -29,6 +29,7 @@ groq = []
 
 [dependencies]
 gproxy-protocol = { workspace = true }
+bytes = { workspace = true }
 http = { workspace = true }
 inventory = { workspace = true }
 serde = { workspace = true }
@@ -36,3 +37,4 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+wreq = { workspace = true }
