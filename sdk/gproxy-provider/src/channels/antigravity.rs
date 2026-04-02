@@ -160,6 +160,25 @@ fn json_fingerprint_text(value: &Value) -> String {
     }
 }
 
+fn strip_antigravity_unsupported_generation_config(body: &mut Value, model: Option<&str>) {
+    let Some(config_obj) = body
+        .as_object_mut()
+        .and_then(|root| root.get_mut("generationConfig"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+
+    config_obj.remove("maxOutputTokens");
+    config_obj.remove("max_output_tokens");
+
+    if model.is_some_and(|value| value.to_ascii_lowercase().contains("gemini")) {
+        config_obj.remove("logprobs");
+        config_obj.remove("responseLogprobs");
+        config_obj.remove("response_logprobs");
+    }
+}
+
 impl Channel for AntigravityChannel {
     const ID: &'static str = "antigravity";
     type Settings = AntigravitySettings;
@@ -262,8 +281,19 @@ impl Channel for AntigravityChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
+        let cleaned_body = {
+            let mut body_json: Value = serde_json::from_slice(&request.body)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+            strip_antigravity_unsupported_generation_config(
+                &mut body_json,
+                request.model.as_deref(),
+            );
+            serde_json::to_vec(&body_json)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?
+        };
+
         let wrapped_body = code_assist_envelope::wrap_request(
-            &request.body,
+            &cleaned_body,
             request.model.as_deref(),
             &credential.project_id,
         )?;

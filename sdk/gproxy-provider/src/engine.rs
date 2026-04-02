@@ -9,6 +9,40 @@ use crate::request::PreparedRequest;
 use crate::response::{UpstreamError, UpstreamResponse};
 use crate::retry::retry_with_credentials_max;
 
+fn is_stream_aggregation_route(
+    src_operation: &str,
+    dst_operation: &str,
+    src_protocol: &str,
+    dst_protocol: &str,
+) -> bool {
+    src_operation == "generate_content"
+        && dst_operation == "stream_generate_content"
+        && src_protocol == dst_protocol
+}
+
+fn aggregate_stream_body(protocol: &str, body: &[u8]) -> Result<Vec<u8>, UpstreamError> {
+    let ndjson = match protocol {
+        "openai_response" | "openai_chat_completions" | "claude" => {
+            gproxy_protocol::stream::sse_to_ndjson_stream(&String::from_utf8_lossy(body))
+        }
+        "gemini" | "gemini_ndjson" => String::from_utf8_lossy(body).into_owned(),
+        _ => {
+            return Err(UpstreamError::Channel(format!(
+                "no stream aggregation for protocol: {protocol}"
+            )));
+        }
+    };
+
+    let owned_chunks: Vec<Vec<u8>> = ndjson
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.as_bytes().to_vec())
+        .collect();
+    let chunk_refs: Vec<&[u8]> = owned_chunks.iter().map(Vec::as_slice).collect();
+    crate::transform_dispatch::stream_to_nonstream(protocol, &chunk_refs)
+}
+
 /// Execution request passed to the engine.
 pub struct ExecuteRequest {
     pub provider: String,
@@ -272,13 +306,19 @@ impl GproxyEngine {
                 )));
             }
         };
+        let force_stream_aggregation =
+            is_stream_aggregation_route(&request.operation, &dst_op, &request.protocol, &dst_proto);
 
         // Transform request if needed
         let body = if needs_transform {
             crate::transform_dispatch::transform_request(
                 &request.operation,
                 &request.protocol,
-                &dst_op,
+                if force_stream_aggregation {
+                    &request.operation
+                } else {
+                    &dst_op
+                },
                 &dst_proto,
                 request.body,
             )?
@@ -298,10 +338,21 @@ impl GproxyEngine {
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);
+        let response_transform_dst_op = if force_stream_aggregation {
+            request.operation.as_str()
+        } else {
+            dst_op.as_str()
+        };
+        let normalized_nonstream_body =
+            if force_stream_aggregation && (200..=299).contains(&response.status) {
+                aggregate_stream_body(&dst_proto, &normalized_body)?
+            } else {
+                normalized_body
+            };
 
         // 2. Extract usage from normalized upstream body (before protocol transform)
         let usage = if self.enable_usage {
-            crate::usage::extract_usage(&dst_proto, &normalized_body)
+            crate::usage::extract_usage(&dst_proto, &normalized_nonstream_body)
         } else {
             None
         };
@@ -311,12 +362,12 @@ impl GproxyEngine {
             crate::transform_dispatch::transform_response(
                 &request.operation,
                 &request.protocol,
-                &dst_op,
+                response_transform_dst_op,
                 &dst_proto,
-                normalized_body,
+                normalized_nonstream_body,
             )?
         } else {
-            normalized_body
+            normalized_nonstream_body
         };
 
         let latency_ms = start.elapsed().as_millis() as u64;

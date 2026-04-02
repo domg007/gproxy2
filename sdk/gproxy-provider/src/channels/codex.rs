@@ -229,6 +229,54 @@ fn json_fingerprint_text(value: &Value) -> String {
     }
 }
 
+fn normalize_codex_request_body(body: &[u8], is_stream: bool) -> Vec<u8> {
+    let Ok(mut body_json) = serde_json::from_slice::<Value>(body) else {
+        return body.to_vec();
+    };
+    let Some(map) = body_json.as_object_mut() else {
+        return body.to_vec();
+    };
+
+    map.insert("store".to_string(), Value::Bool(false));
+    map.remove("max_output_tokens");
+    map.remove("metadata");
+    map.remove("stream_options");
+    map.remove("temperature");
+    map.remove("top_p");
+    map.remove("top_logprobs");
+    map.remove("safety_identifier");
+    map.remove("truncation");
+    map.insert("stream".to_string(), Value::Bool(is_stream));
+
+    if map
+        .get("instructions")
+        .is_some_and(|value| !value.is_string())
+    {
+        map.insert("instructions".to_string(), Value::String(String::new()));
+    }
+
+    if !map.contains_key("instructions") {
+        map.insert("instructions".to_string(), Value::String(String::new()));
+    }
+
+    if let Some(input) = map.get("input")
+        && let Some(text) = input.as_str()
+    {
+        map.insert(
+            "input".to_string(),
+            json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": text,
+                }
+            ]),
+        );
+    }
+
+    serde_json::to_vec(&body_json).unwrap_or_else(|_| body.to_vec())
+}
+
 impl ChannelSettings for CodexSettings {
     fn base_url(&self) -> &str {
         &self.base_url
@@ -304,24 +352,29 @@ impl Channel for CodexChannel {
             xform("model_get", "gemini", "model_get", "openai"),
             // === No count_tokens routes — uses CountStrategy::Local ===
 
-            // Generate content (non-stream)
-            pass("generate_content", "openai_response"),
+            // Generate content (internally force stream, then aggregate back)
+            xform(
+                "generate_content",
+                "openai_response",
+                "stream_generate_content",
+                "openai_response",
+            ),
             xform(
                 "generate_content",
                 "openai_chat_completions",
-                "generate_content",
+                "stream_generate_content",
                 "openai_response",
             ),
             xform(
                 "generate_content",
                 "claude",
-                "generate_content",
+                "stream_generate_content",
                 "openai_response",
             ),
             xform(
                 "generate_content",
                 "gemini",
-                "generate_content",
+                "stream_generate_content",
                 "openai_response",
             ),
             // Generate content (stream)
@@ -384,6 +437,11 @@ impl Channel for CodexChannel {
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
         let url = format!("{}{}", settings.base_url(), request.path);
         let session_id = request_session_id(request);
+        let body = match request.path.as_str() {
+            "/generate_content" => normalize_codex_request_body(&request.body, false),
+            "/stream_generate_content" => normalize_codex_request_body(&request.body, true),
+            _ => request.body.clone(),
+        };
         let mut builder = http::Request::builder()
             .method(request.method.clone())
             .uri(&url)
@@ -415,7 +473,7 @@ impl Channel for CodexChannel {
         }
 
         builder
-            .body(request.body.clone())
+            .body(body)
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
     }
 

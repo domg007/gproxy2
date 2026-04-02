@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
@@ -69,6 +70,19 @@ fn build_x_goog_api_client() -> String {
         "google-genai-sdk/{} gl-node/{}",
         DEFAULT_GOOGLE_GENAI_SDK_VERSION, DEFAULT_GL_NODE_VERSION
     )
+}
+
+fn strip_geminicli_unsupported_generation_config(body: &mut Value) {
+    let Some(generation_config) = body
+        .get_mut("generationConfig")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+
+    generation_config.remove("logprobs");
+    generation_config.remove("responseLogprobs");
+    generation_config.remove("maxOutputTokens");
 }
 
 impl ChannelSettings for GeminiCliSettings {
@@ -244,9 +258,17 @@ impl Channel for GeminiCliChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
+        let cleaned_body = {
+            let mut body_json: Value = serde_json::from_slice(&request.body)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+            strip_geminicli_unsupported_generation_config(&mut body_json);
+            serde_json::to_vec(&body_json)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?
+        };
+
         // --- body: Code Assist envelope wrapping ---
         let wrapped_body = code_assist_envelope::wrap_request(
-            &request.body,
+            &cleaned_body,
             request.model.as_deref(),
             &credential.project_id,
         )?;
