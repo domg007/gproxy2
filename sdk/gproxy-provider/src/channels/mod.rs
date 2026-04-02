@@ -1,7 +1,11 @@
 pub mod aistudio;
 pub mod anthropic;
+pub mod antigravity;
+pub mod claudecode;
+pub mod codex;
 pub mod custom;
 pub mod deepseek;
+pub mod geminicli;
 pub mod groq;
 pub mod nvidia;
 pub mod openai;
