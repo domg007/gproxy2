@@ -55,15 +55,11 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::InitCa { output } => match ca::generate_ca() {
-            Ok((cert_pem, key_pem)) => {
-                let combined = format!("{}{}", cert_pem, key_pem);
-                std::fs::write(&output, &combined).expect("Failed to write CA PEM file");
-                info!("CA certificate and key written to {}", output.display());
-                println!("CA certificate and key written to {}", output.display());
-                println!(
-                    "Import this CA certificate into your browser/system trust store for HTTPS interception."
-                );
+        Commands::InitCa { output } => match ca::generate_ca(&output) {
+            Ok(()) => {
+                info!("CA certificate written to {}", output.display());
+                println!("CA cert: {}", output.display());
+                println!("CA key:  {}.key.der", output.display());
             }
             Err(e) => {
                 eprintln!("Failed to generate CA: {}", e);
