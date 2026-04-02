@@ -28,24 +28,11 @@ deepseek = []
 groq = []
 
 [dependencies]
-gproxy-middleware = { workspace = true }
-async-stream = { workspace = true }
-base64 = { workspace = true }
-bytes = { workspace = true }
-dashmap = { workspace = true }
-futures-util = { workspace = true }
+gproxy-protocol = { workspace = true }
 http = { workspace = true }
-http-body-util = { workspace = true }
-jsonwebtoken = { workspace = true }
-rand = { workspace = true }
+inventory = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-tiktoken-rs = { workspace = true }
-tokenizers = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
-wreq = { workspace = true }

@@ -1,0 +1,86 @@
+use std::collections::HashMap;
+use std::time::Instant;
+
+/// Per-credential health tracking.
+///
+/// Each channel defines its own health shape via this trait's associated type
+/// on [`Channel`](crate::Channel). Channels with per-model rate limits use
+/// a map of cooldowns; simpler channels can use a boolean.
+pub trait CredentialHealth: Send + Sync + Default + 'static {
+    /// Whether this credential is available for a request targeting `model`.
+    /// Pass `None` if the request doesn't specify a model.
+    fn is_available(&self, model: Option<&str>) -> bool;
+
+    /// Record a failed upstream response.
+    fn record_error(&mut self, status: u16, model: Option<&str>, retry_after_ms: Option<u64>);
+
+    /// Record a successful upstream response.
+    fn record_success(&mut self, model: Option<&str>);
+}
+
+/// Simple health implementation: globally healthy or dead.
+#[derive(Debug, Clone, Default)]
+pub struct SimpleHealth {
+    pub dead: bool,
+}
+
+impl CredentialHealth for SimpleHealth {
+    fn is_available(&self, _model: Option<&str>) -> bool {
+        !self.dead
+    }
+
+    fn record_error(&mut self, status: u16, _model: Option<&str>, _retry_after_ms: Option<u64>) {
+        if status == 401 || status == 403 {
+            self.dead = true;
+        }
+    }
+
+    fn record_success(&mut self, _model: Option<&str>) {
+        self.dead = false;
+    }
+}
+
+/// Per-model cooldown health: tracks rate limits per model name.
+#[derive(Debug, Clone, Default)]
+pub struct ModelCooldownHealth {
+    pub dead: bool,
+    pub model_cooldowns: HashMap<String, Instant>,
+    pub global_cooldown: Option<Instant>,
+}
+
+impl CredentialHealth for ModelCooldownHealth {
+    fn is_available(&self, model: Option<&str>) -> bool {
+        if self.dead {
+            return false;
+        }
+        let now = Instant::now();
+        if self.global_cooldown.is_some_and(|until| now < until) {
+            return false;
+        }
+        if let Some(model) = model
+            && let Some(until) = self.model_cooldowns.get(model)
+            && now < *until
+        {
+            return false;
+        }
+        true
+    }
+
+    fn record_error(&mut self, status: u16, model: Option<&str>, retry_after_ms: Option<u64>) {
+        if status == 401 || status == 403 {
+            self.dead = true;
+            return;
+        }
+        let cooldown = retry_after_ms.unwrap_or(60_000);
+        let until = Instant::now() + std::time::Duration::from_millis(cooldown);
+        if let Some(model) = model {
+            self.model_cooldowns.insert(model.to_string(), until);
+        } else {
+            self.global_cooldown = Some(until);
+        }
+    }
+
+    fn record_success(&mut self, _model: Option<&str>) {
+        self.dead = false;
+    }
+}
