@@ -457,6 +457,14 @@ async fn connect_and_forward_tls(
         .as_deref()
         .is_some_and(is_streaming_content_type);
 
+    // If response is compressed, don't try to record per-chunk streaming events
+    // (compressed chunks are not individually decodable). We'll split after decompression.
+    let is_compressed = content_encoding.as_ref().is_some_and(|e| {
+        let l = e.to_lowercase();
+        l.contains("gzip") || l.contains("deflate") || l.contains("br")
+    });
+    let record_chunks = is_streaming && !is_compressed;
+
     // Body data starts after header_end + 4 bytes (\r\n\r\n)
     let body_start = header_end + 4;
     let initial_body = if body_start < response_buf.len() {
@@ -465,13 +473,20 @@ async fn connect_and_forward_tls(
         Vec::new()
     };
 
-    let (response_body, streaming_events) = if is_chunked {
-        read_chunked_body(&mut reader, &initial_body, is_streaming).await?
+    let (response_body, mut streaming_events) = if is_chunked {
+        read_chunked_body(&mut reader, &initial_body, record_chunks).await?
     } else if let Some(cl) = content_length {
-        read_fixed_body(&mut reader, &initial_body, cl, is_streaming).await?
+        read_fixed_body(&mut reader, &initial_body, cl, record_chunks).await?
     } else {
-        read_until_eof(&mut reader, &initial_body, is_streaming).await?
+        read_until_eof(&mut reader, &initial_body, record_chunks).await?
     };
+
+    // For compressed streaming responses: decompress full body, then split into SSE events
+    if is_streaming && is_compressed {
+        let decoded = decompress_body(&response_body, &content_encoding);
+        let text = String::from_utf8_lossy(&decoded);
+        streaming_events = Some(split_sse_events(&text));
+    }
 
     Ok((
         status,
@@ -829,7 +844,34 @@ fn parse_host_port(authority: &str, default_port: u16) -> (String, u16) {
     (authority.to_string(), default_port)
 }
 
+fn split_sse_events(text: &str) -> Vec<HarStreamEvent> {
+    let mut events = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        if line.is_empty() && !current.is_empty() {
+            events.push(HarStreamEvent {
+                timestamp_ms: 0,
+                data: current.trim().to_string(),
+            });
+            current.clear();
+        } else {
+            if !current.is_empty() {
+                current.push('\n');
+            }
+            current.push_str(line);
+        }
+    }
+    if !current.is_empty() {
+        events.push(HarStreamEvent {
+            timestamp_ms: 0,
+            data: current.trim().to_string(),
+        });
+    }
+    events
+}
+
 fn decompress_body(body: &[u8], encoding: &Option<String>) -> Vec<u8> {
+
     let enc = match encoding {
         Some(e) => e.to_lowercase(),
         None => return body.to_vec(),
