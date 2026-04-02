@@ -303,7 +303,7 @@ impl Channel for AntigravityChannel {
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
     }
 
-    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+    fn normalize_response(&self, _request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
         let unwrapped = code_assist_envelope::unwrap_response(&body);
         vertex_normalize::normalize_vertex_response(unwrapped)
     }

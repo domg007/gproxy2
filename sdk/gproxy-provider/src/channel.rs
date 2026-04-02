@@ -44,7 +44,7 @@ pub trait Channel: Send + Sync + 'static {
     /// Normalize the upstream response body (fix non-standard fields, etc.).
     /// Called before usage extraction and protocol transform.
     /// Default: no-op, return body as-is.
-    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+    fn normalize_response(&self, _request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
         body
     }
 

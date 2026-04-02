@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
@@ -77,6 +77,92 @@ impl CodexSettings {
 
 fn is_codex_managed_header(name: &http::HeaderName) -> bool {
     matches!(name.as_str(), "x-client-request-id" | "session_id")
+}
+
+fn is_codex_user_agent(request: &PreparedRequest) -> bool {
+    request
+        .headers
+        .get(http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains("codex"))
+}
+
+fn normalize_codex_model_entry(model: &Value) -> Option<Value> {
+    let id = model
+        .get("slug")
+        .or_else(|| model.get("id"))
+        .and_then(Value::as_str)?
+        .to_string();
+
+    Some(json!({
+        "id": id,
+        "created": 0,
+        "object": "model",
+        "owned_by": "openai"
+    }))
+}
+
+fn normalize_codex_model_list_response(body: Vec<u8>) -> Vec<u8> {
+    let Ok(value) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+
+    let Some(models) = value.get("models").and_then(Value::as_array) else {
+        return body;
+    };
+
+    let normalized_models: Vec<Value> = models
+        .iter()
+        .filter_map(normalize_codex_model_entry)
+        .collect();
+
+    serde_json::to_vec(&json!({
+        "object": "list",
+        "data": normalized_models,
+    }))
+    .unwrap_or(body)
+}
+
+fn requested_codex_model_id(request: &PreparedRequest) -> Option<String> {
+    let body = serde_json::from_slice::<Value>(&request.body).ok()?;
+    body.get("path")
+        .and_then(|path| path.get("model"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn normalize_codex_model_get_response(request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
+    let Ok(value) = serde_json::from_slice::<Value>(&body) else {
+        return body;
+    };
+
+    if let Some(model) = normalize_codex_model_entry(&value) {
+        return serde_json::to_vec(&model).unwrap_or(body);
+    }
+
+    let Some(models) = value.get("models").and_then(Value::as_array) else {
+        return body;
+    };
+
+    let requested_id = requested_codex_model_id(request);
+    let selected = requested_id.as_deref().and_then(|target| {
+        models.iter().find(|model| {
+            model
+                .get("slug")
+                .or_else(|| model.get("id"))
+                .and_then(Value::as_str)
+                .is_some_and(|id| id == target)
+        })
+    });
+
+    let selected = selected.or_else(|| models.first());
+    let Some(model) = selected.and_then(normalize_codex_model_entry) else {
+        return body;
+    };
+
+    serde_json::to_vec(&model).unwrap_or(body)
 }
 
 fn codex_terminal_user_agent() -> String {
@@ -331,6 +417,15 @@ impl Channel for CodexChannel {
         builder
             .body(request.body.clone())
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
+    }
+
+    fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
+        match request.path.as_str() {
+            "/model_list" if is_codex_user_agent(request) => body,
+            "/model_list" => normalize_codex_model_list_response(body),
+            "/model_get" => normalize_codex_model_get_response(request, body),
+            _ => body,
+        }
     }
 
     fn classify_response(

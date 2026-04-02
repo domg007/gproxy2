@@ -67,7 +67,7 @@ trait AnyProvider: Send + Sync {
         body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>>;
 
-    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8>;
+    fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8>;
 
     fn execute<'a>(
         &'a self,
@@ -97,8 +97,8 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
         self.channel.handle_local(operation, protocol, body)
     }
 
-    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
-        self.channel.normalize_response(body)
+    fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
+        self.channel.normalize_response(request, body)
     }
 
     fn execute<'a>(
@@ -294,10 +294,10 @@ impl GproxyEngine {
             headers: request.headers,
         };
 
-        let response = provider.execute(prepared, &self.client).await?;
+        let response = provider.execute(prepared.clone(), &self.client).await?;
 
         // 1. Normalize upstream response (channel-specific fixups)
-        let normalized_body = provider.normalize_response(response.body);
+        let normalized_body = provider.normalize_response(&prepared, response.body);
 
         // 2. Extract usage from normalized upstream body (before protocol transform)
         let usage = if self.enable_usage {

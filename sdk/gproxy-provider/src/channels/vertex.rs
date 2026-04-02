@@ -303,7 +303,7 @@ impl Channel for VertexChannel {
         t
     }
 
-    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+    fn normalize_response(&self, _request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
         crate::utils::vertex_normalize::normalize_vertex_response(body)
     }
 
