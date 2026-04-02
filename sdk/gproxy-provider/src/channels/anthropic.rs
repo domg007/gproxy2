@@ -99,6 +99,9 @@ impl Channel for AnthropicChannel {
             xform("stream_generate_content", "gemini", "stream_generate_content", "claude"),
             xform("stream_generate_content", "gemini_ndjson", "stream_generate_content", "claude"),
 
+            // Live API
+            xform("gemini_live", "gemini", "stream_generate_content", "claude"),
+
             // WebSocket → stream
             xform("openai_response_websocket", "openai", "stream_generate_content", "claude"),
 
