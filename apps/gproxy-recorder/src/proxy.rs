@@ -1,3 +1,4 @@
+use std::io::Read as _;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -283,9 +284,11 @@ async fn handle_tunneled_request(
             response_body,
             streaming_events,
             response_content_type,
+            response_content_encoding,
         )) => {
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
+            let decoded_body = decompress_body(&response_body, &response_content_encoding);
             let response_headers_for_client = response_headers.clone();
             recorder.record_entry(
                 &method,
@@ -297,7 +300,7 @@ async fn handle_tunneled_request(
                 status,
                 &status_text,
                 response_headers,
-                Some(String::from_utf8_lossy(&response_body).to_string()),
+                Some(String::from_utf8_lossy(&decoded_body).to_string()),
                 response_content_type,
                 streaming_events,
                 started,
@@ -342,6 +345,7 @@ async fn connect_and_forward_tls(
         Vec<u8>,
         Option<Vec<HarStreamEvent>>,
         Option<String>,
+        Option<String>,
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
@@ -369,17 +373,12 @@ async fn connect_and_forward_tls(
         if key_str.eq_ignore_ascii_case("host") {
             has_host = true;
         }
-        // Override accept-encoding to prevent compressed responses
-        if key_str.eq_ignore_ascii_case("accept-encoding") {
-            continue;
-        }
         raw_request.push_str(&format!(
             "{}: {}\r\n",
             key_str,
             value.to_str().unwrap_or("")
         ));
     }
-    raw_request.push_str("Accept-Encoding: identity\r\n");
     if !has_host {
         raw_request.push_str(&format!("Host: {}\r\n", host));
     }
@@ -426,6 +425,7 @@ async fn connect_and_forward_tls(
     let mut response_headers: Vec<(String, String)> = Vec::new();
     let mut content_type: Option<String> = None;
     let mut content_length: Option<usize> = None;
+    let mut content_encoding: Option<String> = None;
     let mut is_chunked = false;
 
     for line in lines {
@@ -440,6 +440,9 @@ async fn connect_and_forward_tls(
             }
             if key.eq_ignore_ascii_case("content-length") {
                 content_length = value.parse().ok();
+            }
+            if key.eq_ignore_ascii_case("content-encoding") {
+                content_encoding = Some(value.clone());
             }
             if key.eq_ignore_ascii_case("transfer-encoding")
                 && value.to_lowercase().contains("chunked")
@@ -477,6 +480,7 @@ async fn connect_and_forward_tls(
         response_body,
         streaming_events,
         content_type,
+        content_encoding,
     ))
 }
 
@@ -691,16 +695,12 @@ async fn handle_plain_http(
     // Build raw HTTP request
     let mut raw_request = format!("{} {} HTTP/1.1\r\n", method, path);
     for (key, value) in parts.headers.iter() {
-        if key.as_str().eq_ignore_ascii_case("accept-encoding") {
-            continue;
-        }
         raw_request.push_str(&format!(
             "{}: {}\r\n",
             key.as_str(),
             value.to_str().unwrap_or("")
         ));
     }
-    raw_request.push_str("Accept-Encoding: identity\r\n");
     if !request_body_bytes.is_empty() && !parts.headers.contains_key("content-length") {
         raw_request.push_str(&format!("Content-Length: {}\r\n", request_body_bytes.len()));
     }
@@ -743,6 +743,7 @@ async fn handle_plain_http(
     let mut response_headers: Vec<(String, String)> = Vec::new();
     let mut content_type: Option<String> = None;
     let mut content_length: Option<usize> = None;
+    let mut content_encoding: Option<String> = None;
     let mut is_chunked = false;
 
     for line in lines {
@@ -757,6 +758,9 @@ async fn handle_plain_http(
             }
             if key.eq_ignore_ascii_case("content-length") {
                 content_length = value.parse().ok();
+            }
+            if key.eq_ignore_ascii_case("content-encoding") {
+                content_encoding = Some(value.clone());
             }
             if key.eq_ignore_ascii_case("transfer-encoding")
                 && value.to_lowercase().contains("chunked")
@@ -788,6 +792,7 @@ async fn handle_plain_http(
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
+    let decoded_body = decompress_body(&response_body, &content_encoding);
     let response_headers_for_client = response_headers.clone();
     recorder.record_entry(
         &method,
@@ -799,7 +804,7 @@ async fn handle_plain_http(
         status,
         &status_text,
         response_headers,
-        Some(String::from_utf8_lossy(&response_body).to_string()),
+        Some(String::from_utf8_lossy(&decoded_body).to_string()),
         content_type,
         streaming_events,
         started,
@@ -822,4 +827,25 @@ fn parse_host_port(authority: &str, default_port: u16) -> (String, u16) {
         return (host.to_string(), port);
     }
     (authority.to_string(), default_port)
+}
+
+fn decompress_body(body: &[u8], encoding: &Option<String>) -> Vec<u8> {
+    let enc = match encoding {
+        Some(e) => e.to_lowercase(),
+        None => return body.to_vec(),
+    };
+    if enc.contains("gzip") {
+        let mut decoder = flate2::read::GzDecoder::new(body);
+        let mut out = Vec::new();
+        if decoder.read_to_end(&mut out).is_ok() {
+            return out;
+        }
+    } else if enc.contains("deflate") {
+        let mut decoder = flate2::read::DeflateDecoder::new(body);
+        let mut out = Vec::new();
+        if decoder.read_to_end(&mut out).is_ok() {
+            return out;
+        }
+    }
+    body.to_vec()
 }
