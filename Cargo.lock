@@ -1810,6 +1810,7 @@ dependencies = [
  "chrono",
  "clap",
  "dashmap",
+ "flate2",
  "http",
  "http-body-util",
  "hyper",
