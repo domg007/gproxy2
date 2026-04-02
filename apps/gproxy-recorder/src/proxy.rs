@@ -369,12 +369,17 @@ async fn connect_and_forward_tls(
         if key_str.eq_ignore_ascii_case("host") {
             has_host = true;
         }
+        // Override accept-encoding to prevent compressed responses
+        if key_str.eq_ignore_ascii_case("accept-encoding") {
+            continue;
+        }
         raw_request.push_str(&format!(
             "{}: {}\r\n",
             key_str,
             value.to_str().unwrap_or("")
         ));
     }
+    raw_request.push_str("Accept-Encoding: identity\r\n");
     if !has_host {
         raw_request.push_str(&format!("Host: {}\r\n", host));
     }
@@ -686,12 +691,16 @@ async fn handle_plain_http(
     // Build raw HTTP request
     let mut raw_request = format!("{} {} HTTP/1.1\r\n", method, path);
     for (key, value) in parts.headers.iter() {
+        if key.as_str().eq_ignore_ascii_case("accept-encoding") {
+            continue;
+        }
         raw_request.push_str(&format!(
             "{}: {}\r\n",
             key.as_str(),
             value.to_str().unwrap_or("")
         ));
     }
+    raw_request.push_str("Accept-Encoding: identity\r\n");
     if !request_body_bytes.is_empty() && !parts.headers.contains_key("content-length") {
         raw_request.push_str(&format!("Content-Length: {}\r\n", request_body_bytes.len()));
     }
