@@ -24,23 +24,32 @@ pub struct ExecuteResult {
     pub headers: http::HeaderMap,
     pub body: Vec<u8>,
     pub usage: Option<Usage>,
-    pub meta: RequestMeta,
+    pub meta: UpstreamRequestMeta,
 }
 
 /// Token usage extracted from upstream response.
 #[derive(Debug, Clone, Default)]
 pub struct Usage {
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
-    pub cached_tokens: Option<u64>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub cache_read_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens: Option<i64>,
+    pub cache_creation_input_tokens_5min: Option<i64>,
+    pub cache_creation_input_tokens_1h: Option<i64>,
 }
 
-/// Metadata about the upstream request for logging.
+/// Metadata about the upstream request for logging/storage.
 #[derive(Debug, Clone)]
-pub struct RequestMeta {
+pub struct UpstreamRequestMeta {
+    pub method: String,
+    pub url: String,
+    pub request_headers: Vec<(String, String)>,
+    pub request_body: Option<Vec<u8>>,
+    pub response_status: Option<u16>,
+    pub response_headers: Vec<(String, String)>,
     pub model: Option<String>,
     pub latency_ms: u64,
-    pub attempts: u32,
+    pub credential_index: Option<usize>,
 }
 
 // === Type-erased provider ===
@@ -185,13 +194,23 @@ impl GproxyEngine {
 
         Ok(ExecuteResult {
             status: response.status,
-            headers: response.headers,
+            headers: response.headers.clone(),
             body: response.body,
             usage: None, // TODO: channel.extract_usage()
-            meta: RequestMeta {
+            meta: UpstreamRequestMeta {
+                method: "POST".to_string(),
+                url: String::new(), // TODO: fill from prepared request
+                request_headers: Vec::new(),
+                request_body: None,
+                response_status: Some(response.status),
+                response_headers: response
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                    .collect(),
                 model: request.model,
                 latency_ms,
-                attempts: 1, // TODO: track from retry
+                credential_index: None,
             },
         })
     }
