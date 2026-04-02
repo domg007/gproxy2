@@ -119,15 +119,20 @@ where
 
                     if refreshed {
                         // Retry once with the refreshed credential
-                        let retry_request =
-                            match channel.prepare_request(credential, settings, request) {
-                                Ok(req) => req,
-                                Err(e) => {
-                                    tracing::warn!("Failed to prepare retry request after refresh for credential {}: {}", idx, e);
-                                    last_error = Some(e);
-                                    break;
-                                }
-                            };
+                        let retry_request = match channel
+                            .prepare_request(credential, settings, request)
+                        {
+                            Ok(req) => req,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to prepare retry request after refresh for credential {}: {}",
+                                    idx,
+                                    e
+                                );
+                                last_error = Some(e);
+                                break;
+                            }
+                        };
 
                         match send(retry_request).await {
                             Ok(retry_response) => {

@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use crate::response::UpstreamError;
+use serde::Deserialize;
 
 #[derive(Debug)]
 pub struct OAuth2TokenResponse {

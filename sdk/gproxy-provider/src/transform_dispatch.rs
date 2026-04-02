@@ -684,8 +684,8 @@ where
     let src: Src = serde_json::from_slice(body)
         .map_err(|e| UpstreamError::Channel(format!("request deserialize: {}", e)))?;
 
-    let dst = Dst::try_from(src)
-        .map_err(|e| UpstreamError::Channel(format!("transform: {}", e)))?;
+    let dst =
+        Dst::try_from(src).map_err(|e| UpstreamError::Channel(format!("transform: {}", e)))?;
 
     serde_json::to_vec(&dst)
         .map_err(|e| UpstreamError::Channel(format!("response serialize: {}", e)))
@@ -702,8 +702,8 @@ where
     let src: Src = serde_json::from_slice(body)
         .map_err(|e| UpstreamError::Channel(format!("request deserialize: {}", e)))?;
 
-    let dst = Dst::try_from(&src)
-        .map_err(|e| UpstreamError::Channel(format!("transform: {}", e)))?;
+    let dst =
+        Dst::try_from(&src).map_err(|e| UpstreamError::Channel(format!("transform: {}", e)))?;
 
     serde_json::to_vec(&dst)
         .map_err(|e| UpstreamError::Channel(format!("response serialize: {}", e)))
@@ -799,10 +799,7 @@ pub fn nonstream_to_stream(
 }
 
 /// Convert stream events (NDJSON lines) to a non-streaming response (same protocol).
-pub fn stream_to_nonstream(
-    protocol: &str,
-    chunks: &[&[u8]],
-) -> Result<Vec<u8>, UpstreamError> {
+pub fn stream_to_nonstream(protocol: &str, chunks: &[&[u8]]) -> Result<Vec<u8>, UpstreamError> {
     match protocol {
         "claude" => {
             use gproxy_protocol::claude::create_message::response::ClaudeCreateMessageResponse;
@@ -853,9 +850,9 @@ pub fn stream_to_nonstream(
                 .map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
         }
         "gemini" => {
-            use std::collections::BTreeMap;
             use gproxy_protocol::gemini::generate_content::response::ResponseBody;
             use gproxy_protocol::gemini::generate_content::types::GeminiCandidate;
+            use std::collections::BTreeMap;
 
             let mut merged = ResponseBody::default();
             let mut candidate_map: BTreeMap<u32, GeminiCandidate> = BTreeMap::new();
@@ -875,8 +872,7 @@ pub fn stream_to_nonstream(
                 candidate_map,
             );
 
-            serde_json::to_vec(&body)
-                .map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
+            serde_json::to_vec(&body).map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
         }
         _ => Err(UpstreamError::Channel(format!(
             "no stream_to_nonstream for protocol: {protocol}"

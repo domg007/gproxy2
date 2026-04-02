@@ -53,12 +53,8 @@ impl Channel for OpenAiChannel {
         let mut t = DispatchTable::new();
 
         // Helper: passthrough = src and dst are same
-        let pass = |op: &str, proto: &str| {
-            (
-                RouteKey::new(op, proto),
-                RouteImplementation::Passthrough,
-            )
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         // Helper: transform = src converts to different dst
         let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
             (
@@ -77,39 +73,62 @@ impl Channel for OpenAiChannel {
             pass("model_get", "openai"),
             xform("model_get", "claude", "model_get", "openai"),
             xform("model_get", "gemini", "model_get", "openai"),
-
             // === Count tokens ===
             pass("count_tokens", "openai"),
             xform("count_tokens", "claude", "count_tokens", "openai"),
             xform("count_tokens", "gemini", "count_tokens", "openai"),
-
             // === Generate content (non-stream) ===
             pass("generate_content", "openai_response"),
             pass("generate_content", "openai_chat_completions"),
-            xform("generate_content", "claude", "generate_content", "openai_response"),
-            xform("generate_content", "gemini", "generate_content", "openai_response"),
-
+            xform(
+                "generate_content",
+                "claude",
+                "generate_content",
+                "openai_response",
+            ),
+            xform(
+                "generate_content",
+                "gemini",
+                "generate_content",
+                "openai_response",
+            ),
             // === Generate content (stream) ===
             pass("stream_generate_content", "openai_response"),
             pass("stream_generate_content", "openai_chat_completions"),
-            xform("stream_generate_content", "claude", "stream_generate_content", "openai_response"),
-            xform("stream_generate_content", "gemini", "stream_generate_content", "openai_response"),
-            xform("stream_generate_content", "gemini_ndjson", "stream_generate_content", "openai_response"),
-
+            xform(
+                "stream_generate_content",
+                "claude",
+                "stream_generate_content",
+                "openai_response",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini",
+                "stream_generate_content",
+                "openai_response",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini_ndjson",
+                "stream_generate_content",
+                "openai_response",
+            ),
             // === WebSocket ===
             pass("openai_response_websocket", "openai"),
-            xform("gemini_live", "gemini", "stream_generate_content", "openai_response"),
-
+            xform(
+                "gemini_live",
+                "gemini",
+                "stream_generate_content",
+                "openai_response",
+            ),
             // === Images ===
             pass("create_image", "openai"),
             pass("stream_create_image", "openai"),
             pass("create_image_edit", "openai"),
             pass("stream_create_image_edit", "openai"),
-
             // === Embeddings ===
             pass("embeddings", "openai"),
             xform("embeddings", "gemini", "embeddings", "openai"),
-
             // === Compact (OpenAI Responses only) ===
             pass("compact", "openai"),
         ];

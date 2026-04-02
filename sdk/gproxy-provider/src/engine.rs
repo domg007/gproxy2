@@ -60,7 +60,12 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 trait AnyProvider: Send + Sync {
     fn dispatch_table(&self) -> &DispatchTable;
 
-    fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>>;
+    fn handle_local(
+        &self,
+        operation: &str,
+        protocol: &str,
+        body: &[u8],
+    ) -> Option<Result<Vec<u8>, UpstreamError>>;
 
     fn normalize_response(&self, body: Vec<u8>) -> Vec<u8>;
 
@@ -83,7 +88,12 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
         &self.dispatch_table
     }
 
-    fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>> {
+    fn handle_local(
+        &self,
+        operation: &str,
+        protocol: &str,
+        body: &[u8],
+    ) -> Option<Result<Vec<u8>, UpstreamError>> {
         self.channel.handle_local(operation, protocol, body)
     }
 
@@ -213,10 +223,9 @@ impl GproxyEngine {
 
     /// Execute a request against a named provider.
     pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
-        let provider = self
-            .providers
-            .get(&request.provider)
-            .ok_or_else(|| UpstreamError::Channel(format!("unknown provider: {}", request.provider)))?;
+        let provider = self.providers.get(&request.provider).ok_or_else(|| {
+            UpstreamError::Channel(format!("unknown provider: {}", request.provider))
+        })?;
 
         let start = std::time::Instant::now();
 
@@ -237,13 +246,17 @@ impl GproxyEngine {
             RouteImplementation::Passthrough => {
                 (request.operation.clone(), request.protocol.clone(), false)
             }
-            RouteImplementation::TransformTo { destination } => {
-                (destination.operation.clone(), destination.protocol.clone(), true)
-            }
+            RouteImplementation::TransformTo { destination } => (
+                destination.operation.clone(),
+                destination.protocol.clone(),
+                true,
+            ),
             RouteImplementation::Local => {
                 let body = provider
                     .handle_local(&request.operation, &request.protocol, &request.body)
-                    .unwrap_or_else(|| Err(UpstreamError::Channel("local route not implemented".into())))?;
+                    .unwrap_or_else(|| {
+                        Err(UpstreamError::Channel("local route not implemented".into()))
+                    })?;
                 return Ok(ExecuteResult {
                     status: 200,
                     headers: http::HeaderMap::new(),

@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::dispatch::DispatchTable;
 use crate::health::CredentialHealth;
@@ -83,7 +83,9 @@ pub trait Channel: Send + Sync + 'static {
 }
 
 /// Channel configuration (base URL, user agent, retry, etc.).
-pub trait ChannelSettings: Send + Sync + Clone + Default + Serialize + DeserializeOwned + 'static {
+pub trait ChannelSettings:
+    Send + Sync + Clone + Default + Serialize + DeserializeOwned + 'static
+{
     fn base_url(&self) -> &str;
     fn user_agent(&self) -> Option<&str> {
         None

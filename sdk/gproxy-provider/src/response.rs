@@ -14,9 +14,7 @@ pub enum ResponseClassification {
     /// 401/403 — credential permanently invalid.
     AuthDead,
     /// 429 — rate limited, retry with another credential.
-    RateLimited {
-        retry_after_ms: Option<u64>,
-    },
+    RateLimited { retry_after_ms: Option<u64> },
     /// 5xx transient — server error, worth retrying.
     TransientError,
     /// Other error — not worth retrying.

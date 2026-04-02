@@ -55,9 +55,8 @@ impl Channel for CustomChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass = |op: &str, proto: &str| {
-            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
 
         // Universal passthrough — all protocols supported as-is
         let ops = [
@@ -110,7 +109,13 @@ impl Channel for CustomChannel {
         let url = match settings.auth_scheme.as_str() {
             "query-key" => {
                 let sep = if request.path.contains('?') { "&" } else { "?" };
-                format!("{}{}{}key={}", settings.base_url(), request.path, sep, credential.api_key)
+                format!(
+                    "{}{}{}key={}",
+                    settings.base_url(),
+                    request.path,
+                    sep,
+                    credential.api_key
+                )
             }
             _ => format!("{}{}", settings.base_url(), request.path),
         };

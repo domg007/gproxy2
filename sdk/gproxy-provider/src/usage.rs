@@ -68,9 +68,7 @@ fn extract_gemini_usage(body: &[u8]) -> Option<Usage> {
     let usage = v.get("usageMetadata")?;
     Some(Usage {
         input_tokens: usage.get("promptTokenCount").and_then(|v| v.as_i64()),
-        output_tokens: usage
-            .get("candidatesTokenCount")
-            .and_then(|v| v.as_i64()),
+        output_tokens: usage.get("candidatesTokenCount").and_then(|v| v.as_i64()),
         cache_read_input_tokens: usage
             .get("cachedContentTokenCount")
             .and_then(|v| v.as_i64()),

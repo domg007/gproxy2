@@ -207,9 +207,8 @@ impl Channel for VertexChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass = |op: &str, proto: &str| {
-            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
             (
                 RouteKey::new(op, proto),
@@ -227,41 +226,73 @@ impl Channel for VertexChannel {
             pass("model_get", "gemini"),
             xform("model_get", "claude", "model_get", "gemini"),
             xform("model_get", "openai", "model_get", "gemini"),
-
             // Count tokens
             pass("count_tokens", "gemini"),
             xform("count_tokens", "claude", "count_tokens", "gemini"),
             xform("count_tokens", "openai", "count_tokens", "gemini"),
-
             // Generate content (non-stream)
             pass("generate_content", "gemini"),
             xform("generate_content", "claude", "generate_content", "gemini"),
-            xform("generate_content", "openai_chat_completions", "generate_content", "gemini"),
-            xform("generate_content", "openai_response", "generate_content", "gemini"),
-
+            xform(
+                "generate_content",
+                "openai_chat_completions",
+                "generate_content",
+                "gemini",
+            ),
+            xform(
+                "generate_content",
+                "openai_response",
+                "generate_content",
+                "gemini",
+            ),
             // Generate content (stream)
             pass("stream_generate_content", "gemini"),
             pass("stream_generate_content", "gemini_ndjson"),
-            xform("stream_generate_content", "claude", "stream_generate_content", "gemini"),
-            xform("stream_generate_content", "openai_chat_completions", "stream_generate_content", "gemini"),
-            xform("stream_generate_content", "openai_response", "stream_generate_content", "gemini"),
-
+            xform(
+                "stream_generate_content",
+                "claude",
+                "stream_generate_content",
+                "gemini",
+            ),
+            xform(
+                "stream_generate_content",
+                "openai_chat_completions",
+                "stream_generate_content",
+                "gemini",
+            ),
+            xform(
+                "stream_generate_content",
+                "openai_response",
+                "stream_generate_content",
+                "gemini",
+            ),
             // Live API (native)
             pass("gemini_live", "gemini"),
-
             // WebSocket -> stream
-            xform("openai_response_websocket", "openai", "stream_generate_content", "gemini"),
-
+            xform(
+                "openai_response_websocket",
+                "openai",
+                "stream_generate_content",
+                "gemini",
+            ),
             // Images
             xform("create_image", "openai", "create_image", "gemini"),
-            xform("stream_create_image", "openai", "stream_create_image", "gemini"),
+            xform(
+                "stream_create_image",
+                "openai",
+                "stream_create_image",
+                "gemini",
+            ),
             xform("create_image_edit", "openai", "create_image_edit", "gemini"),
-            xform("stream_create_image_edit", "openai", "stream_create_image_edit", "gemini"),
-
+            xform(
+                "stream_create_image_edit",
+                "openai",
+                "stream_create_image_edit",
+                "gemini",
+            ),
             // Embeddings
             pass("embeddings", "gemini"),
             xform("embeddings", "openai", "embeddings", "gemini"),
-
             // Compact -> generate
             xform("compact", "openai", "generate_content", "gemini"),
         ];
@@ -310,7 +341,10 @@ impl Channel for VertexChannel {
         let mut builder = http::Request::builder()
             .method(request.method.clone())
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Content-Type", "application/json");
 
         if let Some(ua) = settings.user_agent() {

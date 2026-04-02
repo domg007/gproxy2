@@ -138,7 +138,9 @@ async fn handle_connect(
             Ok(upgraded) => {
                 let io = TokioIo::new(upgraded);
 
-                if let Err(e) = handle_connect_tunnel(io, &host, port, mitm, recorder, upstream_proxy).await {
+                if let Err(e) =
+                    handle_connect_tunnel(io, &host, port, mitm, recorder, upstream_proxy).await
+                {
                     warn!("Tunnel error for {}:{}: {}", host, port, e);
                 }
             }
@@ -201,7 +203,9 @@ async fn handle_connect_tunnel(
         let host = host_for_service.clone();
         let recorder = Arc::clone(&recorder_for_service);
         let upstream_proxy = Arc::clone(&upstream_proxy_for_service);
-        async move { handle_tunneled_request(req, &host, port_for_service, recorder, upstream_proxy).await }
+        async move {
+            handle_tunneled_request(req, &host, port_for_service, recorder, upstream_proxy).await
+        }
     });
 
     let result: Result<(), hyper::Error> = http1::Builder::new()
@@ -871,7 +875,6 @@ fn split_sse_events(text: &str) -> Vec<HarStreamEvent> {
 }
 
 fn decompress_body(body: &[u8], encoding: &Option<String>) -> Vec<u8> {
-
     let enc = match encoding {
         Some(e) => e.to_lowercase(),
         None => return body.to_vec(),

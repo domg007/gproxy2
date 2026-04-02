@@ -89,7 +89,13 @@ fn main() {
     }
 }
 
-async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf, upstream_proxy: Option<String>, filter_host: Vec<String>) {
+async fn run_record(
+    listen: String,
+    ca_path: PathBuf,
+    output: PathBuf,
+    upstream_proxy: Option<String>,
+    filter_host: Vec<String>,
+) {
     let ca = match ca::load_ca(&ca_path) {
         Ok(ca) => Arc::new(ca),
         Err(e) => {

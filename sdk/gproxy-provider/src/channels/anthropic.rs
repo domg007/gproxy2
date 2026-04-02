@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
-use crate::utils::claude_cache_control as cache_control;
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use crate::utils::claude_cache_control as cache_control;
 
 /// Anthropic Claude API channel.
 pub struct AnthropicChannel;
@@ -60,9 +60,8 @@ impl Channel for AnthropicChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass = |op: &str, proto: &str| {
-            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
-        };
+        let pass =
+            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
             (
                 RouteKey::new(op, proto),
@@ -80,31 +79,60 @@ impl Channel for AnthropicChannel {
             pass("model_get", "claude"),
             xform("model_get", "openai", "model_get", "claude"),
             xform("model_get", "gemini", "model_get", "claude"),
-
             // Count tokens
             pass("count_tokens", "claude"),
             xform("count_tokens", "openai", "count_tokens", "claude"),
             xform("count_tokens", "gemini", "count_tokens", "claude"),
-
             // Generate content (non-stream)
             pass("generate_content", "claude"),
-            xform("generate_content", "openai_chat_completions", "generate_content", "claude"),
-            xform("generate_content", "openai_response", "generate_content", "claude"),
+            xform(
+                "generate_content",
+                "openai_chat_completions",
+                "generate_content",
+                "claude",
+            ),
+            xform(
+                "generate_content",
+                "openai_response",
+                "generate_content",
+                "claude",
+            ),
             xform("generate_content", "gemini", "generate_content", "claude"),
-
             // Generate content (stream)
             pass("stream_generate_content", "claude"),
-            xform("stream_generate_content", "openai_chat_completions", "stream_generate_content", "claude"),
-            xform("stream_generate_content", "openai_response", "stream_generate_content", "claude"),
-            xform("stream_generate_content", "gemini", "stream_generate_content", "claude"),
-            xform("stream_generate_content", "gemini_ndjson", "stream_generate_content", "claude"),
-
+            xform(
+                "stream_generate_content",
+                "openai_chat_completions",
+                "stream_generate_content",
+                "claude",
+            ),
+            xform(
+                "stream_generate_content",
+                "openai_response",
+                "stream_generate_content",
+                "claude",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini",
+                "stream_generate_content",
+                "claude",
+            ),
+            xform(
+                "stream_generate_content",
+                "gemini_ndjson",
+                "stream_generate_content",
+                "claude",
+            ),
             // Live API
             xform("gemini_live", "gemini", "stream_generate_content", "claude"),
-
             // WebSocket → stream
-            xform("openai_response_websocket", "openai", "stream_generate_content", "claude"),
-
+            xform(
+                "openai_response_websocket",
+                "openai",
+                "stream_generate_content",
+                "claude",
+            ),
             // Compact → generate
             xform("compact", "openai", "generate_content", "claude"),
         ];
