@@ -9,6 +9,7 @@ members = [
   "crates/gproxy-admin",
   "crates/gproxy-server",
   "apps/gproxy",
+  "apps/gproxy-recorder",
 ]
 
 [workspace.package]
@@ -71,6 +72,16 @@ uuid = { version = "1", features = ["serde", "v5", "v7"] }
 wreq = { version = "6.0.0-rc.28", features = ["json", "cookies", "socks", "stream", "deflate", "gzip", "zstd", "brotli"] }
 wreq-util = "3.0.0-rc.10"
 zip = "8"
+
+# Recorder-specific
+chrono = { version = "0.4", features = ["serde"] }
+hyper = { version = "1", features = ["http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "client-legacy"] }
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+webpki-roots = "1"
 
 [profile.release]
 strip = true
