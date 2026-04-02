@@ -45,6 +45,10 @@ enum Commands {
         /// Upstream proxy (e.g. socks5://127.0.0.1:10808)
         #[arg(long)]
         upstream_proxy: Option<String>,
+
+        /// Only record requests to these hosts (can be repeated)
+        #[arg(long)]
+        filter_host: Vec<String>,
     },
 }
 
@@ -75,16 +79,17 @@ fn main() {
             ca: ca_path,
             output,
             upstream_proxy,
+            filter_host,
         } => {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async move {
-                run_record(listen, ca_path, output, upstream_proxy).await;
+                run_record(listen, ca_path, output, upstream_proxy, filter_host).await;
             });
         }
     }
 }
 
-async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf, upstream_proxy: Option<String>) {
+async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf, upstream_proxy: Option<String>, filter_host: Vec<String>) {
     let ca = match ca::load_ca(&ca_path) {
         Ok(ca) => Arc::new(ca),
         Err(e) => {
@@ -95,7 +100,7 @@ async fn run_record(listen: String, ca_path: PathBuf, output: PathBuf, upstream_
     };
 
     let mitm = Arc::new(mitm::MitmAcceptor::new(ca));
-    let recorder = Arc::new(recorder::Recorder::new());
+    let recorder = Arc::new(recorder::Recorder::new(filter_host));
 
     let recorder_for_shutdown = Arc::clone(&recorder);
     let output_for_shutdown = output.clone();

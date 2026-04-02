@@ -8,12 +8,14 @@ use crate::har::{
 /// Accumulates recorded HTTP entries.
 pub struct Recorder {
     entries: Arc<Mutex<Vec<HarEntry>>>,
+    filter_hosts: Vec<String>,
 }
 
 impl Recorder {
-    pub fn new() -> Self {
+    pub fn new(filter_hosts: Vec<String>) -> Self {
         Self {
             entries: Arc::new(Mutex::new(Vec::new())),
+            filter_hosts,
         }
     }
 
@@ -36,6 +38,13 @@ impl Recorder {
         started: chrono::DateTime<chrono::Utc>,
         elapsed_ms: f64,
     ) {
+        if !self.filter_hosts.is_empty() {
+            let matches = self.filter_hosts.iter().any(|h| url.contains(h.as_str()));
+            if !matches {
+                return;
+            }
+        }
+
         let query_string = parse_query_string(url);
 
         let har_request_headers = to_har_headers(request_headers);
