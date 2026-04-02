@@ -462,40 +462,14 @@ impl Channel for ClaudeCodeChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
-        // -- 1. Parse and mutate the body --------------------------------
-        let (body, session_id) = {
-            let mut body_json: Value = serde_json::from_slice(&request.body)
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
-            let session_id = request_session_id(request, &body_json);
+        let mut body_json: Value = serde_json::from_slice(&request.body)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        let session_id = request_session_id(request, &body_json);
 
-            normalize_claudecode_sampling(&mut body_json);
-            normalize_claudecode_unsupported_fields(&mut body_json);
-
-            // Cache control transforms
-            if settings.enable_magic_cache {
-                cache_control::apply_magic_string_cache_control_triggers(&mut body_json);
-            }
-            if !settings.cache_breakpoints.is_empty() {
-                cache_control::ensure_cache_breakpoint_rules(
-                    &mut body_json,
-                    &settings.cache_breakpoints,
-                );
-            }
-
-            // Inject metadata.user_id
-            let user_id_value = build_metadata_user_id(credential, &session_id);
-            inject_metadata_user_id(&mut body_json, &user_id_value);
-
-            // Inject billing attribution into system
-            let attribution = build_attribution(&first_user_message_text(&body_json));
-            inject_system_attribution(&mut body_json, &attribution);
-
-            (
-                serde_json::to_vec(&body_json)
-                    .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?,
-                session_id,
-            )
-        };
+        let user_id_value = build_metadata_user_id(credential, &session_id);
+        inject_metadata_user_id(&mut body_json, &user_id_value);
+        let body = serde_json::to_vec(&body_json)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
 
         // -- 2. Build the User-Agent ------------------------------------
         let user_agent = match settings.user_agent() {
@@ -535,6 +509,40 @@ impl Channel for ClaudeCodeChannel {
         builder
             .body(body)
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
+    }
+
+    fn finalize_request(
+        &self,
+        settings: &Self::Settings,
+        mut request: PreparedRequest,
+    ) -> Result<PreparedRequest, UpstreamError> {
+        let mut body_json: Value = serde_json::from_slice(&request.body)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+
+        normalize_claudecode_sampling(&mut body_json);
+        normalize_claudecode_unsupported_fields(&mut body_json);
+
+        if settings.enable_magic_cache {
+            cache_control::apply_magic_string_cache_control_triggers(&mut body_json);
+        }
+        if !settings.cache_breakpoints.is_empty() {
+            cache_control::ensure_cache_breakpoint_rules(
+                &mut body_json,
+                &settings.cache_breakpoints,
+            );
+        }
+
+        let attribution = build_attribution(&first_user_message_text(&body_json));
+        inject_system_attribution(&mut body_json, &attribution);
+        let session_id = request_session_id(&request, &body_json);
+        let header_value = http::HeaderValue::from_str(&session_id)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        request
+            .headers
+            .insert("x-claude-code-session-id", header_value);
+        request.body = serde_json::to_vec(&body_json)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(request)
     }
 
     fn classify_response(

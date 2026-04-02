@@ -258,17 +258,9 @@ impl Channel for GeminiCliChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
-        let cleaned_body = {
-            let mut body_json: Value = serde_json::from_slice(&request.body)
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
-            strip_geminicli_unsupported_generation_config(&mut body_json);
-            serde_json::to_vec(&body_json)
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?
-        };
-
         // --- body: Code Assist envelope wrapping ---
         let wrapped_body = code_assist_envelope::wrap_request(
-            &cleaned_body,
+            &request.body,
             request.model.as_deref(),
             &credential.project_id,
         )?;
@@ -305,6 +297,19 @@ impl Channel for GeminiCliChannel {
         builder
             .body(wrapped_body)
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
+    }
+
+    fn finalize_request(
+        &self,
+        _settings: &Self::Settings,
+        mut request: PreparedRequest,
+    ) -> Result<PreparedRequest, UpstreamError> {
+        let mut body_json: Value = serde_json::from_slice(&request.body)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        strip_geminicli_unsupported_generation_config(&mut body_json);
+        request.body = serde_json::to_vec(&body_json)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(request)
     }
 
     fn normalize_response(&self, _request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {

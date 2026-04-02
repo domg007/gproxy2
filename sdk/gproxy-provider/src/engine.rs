@@ -101,6 +101,8 @@ trait AnyProvider: Send + Sync {
         body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>>;
 
+    fn finalize_request(&self, request: PreparedRequest) -> Result<PreparedRequest, UpstreamError>;
+
     fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8>;
 
     fn execute<'a>(
@@ -129,6 +131,10 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
         body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>> {
         self.channel.handle_local(operation, protocol, body)
+    }
+
+    fn finalize_request(&self, request: PreparedRequest) -> Result<PreparedRequest, UpstreamError> {
+        self.channel.finalize_request(&self.settings, request)
     }
 
     fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
@@ -333,6 +339,7 @@ impl GproxyEngine {
             body,
             headers: request.headers,
         };
+        let prepared = provider.finalize_request(prepared)?;
 
         let response = provider.execute(prepared.clone(), &self.client).await?;
 

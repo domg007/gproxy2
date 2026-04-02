@@ -149,24 +149,6 @@ impl Channel for AnthropicChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
-        let body = if settings.enable_magic_cache || !settings.cache_breakpoints.is_empty() {
-            let mut body_json: Value = serde_json::from_slice(&request.body)
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
-            if settings.enable_magic_cache {
-                cache_control::apply_magic_string_cache_control_triggers(&mut body_json);
-            }
-            if !settings.cache_breakpoints.is_empty() {
-                cache_control::ensure_cache_breakpoint_rules(
-                    &mut body_json,
-                    &settings.cache_breakpoints,
-                );
-            }
-            serde_json::to_vec(&body_json)
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?
-        } else {
-            request.body.clone()
-        };
-
         let url = format!("{}{}", settings.base_url(), request.path);
         let mut builder = http::Request::builder()
             .method(request.method.clone())
@@ -184,8 +166,33 @@ impl Channel for AnthropicChannel {
         }
 
         builder
-            .body(body)
+            .body(request.body.clone())
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
+    }
+
+    fn finalize_request(
+        &self,
+        settings: &Self::Settings,
+        mut request: PreparedRequest,
+    ) -> Result<PreparedRequest, UpstreamError> {
+        if !settings.enable_magic_cache && settings.cache_breakpoints.is_empty() {
+            return Ok(request);
+        }
+
+        let mut body_json: Value = serde_json::from_slice(&request.body)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        if settings.enable_magic_cache {
+            cache_control::apply_magic_string_cache_control_triggers(&mut body_json);
+        }
+        if !settings.cache_breakpoints.is_empty() {
+            cache_control::ensure_cache_breakpoint_rules(
+                &mut body_json,
+                &settings.cache_breakpoints,
+            );
+        }
+        request.body = serde_json::to_vec(&body_json)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(request)
     }
 
     fn classify_response(

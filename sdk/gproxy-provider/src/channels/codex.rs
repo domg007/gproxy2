@@ -437,11 +437,6 @@ impl Channel for CodexChannel {
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
         let url = format!("{}{}", settings.base_url(), request.path);
         let session_id = request_session_id(request);
-        let body = match request.path.as_str() {
-            "/generate_content" => normalize_codex_request_body(&request.body, false),
-            "/stream_generate_content" => normalize_codex_request_body(&request.body, true),
-            _ => request.body.clone(),
-        };
         let mut builder = http::Request::builder()
             .method(request.method.clone())
             .uri(&url)
@@ -473,8 +468,21 @@ impl Channel for CodexChannel {
         }
 
         builder
-            .body(body)
+            .body(request.body.clone())
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
+    }
+
+    fn finalize_request(
+        &self,
+        _settings: &Self::Settings,
+        mut request: PreparedRequest,
+    ) -> Result<PreparedRequest, UpstreamError> {
+        request.body = match request.path.as_str() {
+            "/generate_content" => normalize_codex_request_body(&request.body, false),
+            "/stream_generate_content" => normalize_codex_request_body(&request.body, true),
+            _ => request.body,
+        };
+        Ok(request)
     }
 
     fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {

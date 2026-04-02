@@ -33,6 +33,21 @@ pub trait Channel: Send + Sync + 'static {
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError>;
 
+    /// Finalize the semantic upstream request after protocol transform but
+    /// before credential selection and HTTP transport wrapping.
+    ///
+    /// This is the right place for protocol/body normalization that should be
+    /// visible to routing or cache-affinity logic. Transport-specific wrapping
+    /// (auth headers, private envelopes, request ids) should remain in
+    /// `prepare_request`.
+    fn finalize_request(
+        &self,
+        _settings: &Self::Settings,
+        request: PreparedRequest,
+    ) -> Result<PreparedRequest, UpstreamError> {
+        Ok(request)
+    }
+
     /// Classify an upstream response to decide retry behavior.
     fn classify_response(
         &self,
