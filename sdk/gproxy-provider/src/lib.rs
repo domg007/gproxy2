@@ -15,6 +15,7 @@
 
 pub mod channel;
 pub mod channels;
+pub mod count_tokens;
 pub mod dispatch;
 pub mod engine;
 pub mod health;
@@ -25,6 +26,7 @@ pub mod request;
 pub mod response;
 pub mod retry;
 pub mod transform_dispatch;
+pub mod usage;
 
 pub use channel::{Channel, ChannelCredential, ChannelSettings};
 pub use dispatch::DispatchTable;

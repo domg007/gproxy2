@@ -169,6 +169,10 @@ impl Channel for OpenAiChannel {
             _ => ResponseClassification::PermanentError,
         }
     }
+
+    fn count_strategy(&self) -> crate::count_tokens::CountStrategy {
+        crate::count_tokens::CountStrategy::UpstreamApi
+    }
 }
 
 fn openai_dispatch_table() -> DispatchTable {

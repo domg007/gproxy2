@@ -62,6 +62,8 @@ trait AnyProvider: Send + Sync {
 
     fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>>;
 
+    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8>;
+
     fn execute<'a>(
         &'a self,
         request: PreparedRequest,
@@ -83,6 +85,10 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
 
     fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>> {
         self.channel.handle_local(operation, protocol, body)
+    }
+
+    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+        self.channel.normalize_response(body)
     }
 
     fn execute<'a>(
@@ -275,23 +281,30 @@ impl GproxyEngine {
 
         let response = provider.execute(prepared, &self.client).await?;
 
-        // Transform response if needed
+        // 1. Normalize upstream response (channel-specific fixups)
+        let normalized_body = provider.normalize_response(response.body);
+
+        // 2. Extract usage from normalized upstream body (before protocol transform)
+        let usage = if self.enable_usage {
+            crate::usage::extract_usage(&dst_proto, &normalized_body)
+        } else {
+            None
+        };
+
+        // 3. Transform response if needed (cross-protocol)
         let response_body = if needs_transform {
             crate::transform_dispatch::transform_response(
                 &request.operation,
                 &request.protocol,
                 &dst_op,
                 &dst_proto,
-                response.body,
+                normalized_body,
             )?
         } else {
-            response.body
+            normalized_body
         };
 
         let latency_ms = start.elapsed().as_millis() as u64;
-
-        // TODO: extract usage from response body via channel.extract_usage()
-        let usage = None;
 
         let meta = if self.enable_upstream_log {
             Some(UpstreamRequestMeta {

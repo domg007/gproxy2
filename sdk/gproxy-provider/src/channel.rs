@@ -39,6 +39,19 @@ pub trait Channel: Send + Sync + 'static {
         body: &[u8],
     ) -> ResponseClassification;
 
+    /// Normalize the upstream response body (fix non-standard fields, etc.).
+    /// Called before usage extraction and protocol transform.
+    /// Default: no-op, return body as-is.
+    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+        body
+    }
+
+    /// Token counting strategy for this channel.
+    /// Default: local (tiktoken for GPT, DeepSeek fallback for others).
+    fn count_strategy(&self) -> crate::count_tokens::CountStrategy {
+        crate::count_tokens::CountStrategy::Local
+    }
+
     /// Handle a local route (no upstream call). Returns None if not supported.
     fn handle_local(
         &self,
