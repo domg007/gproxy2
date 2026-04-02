@@ -92,6 +92,8 @@ pub struct ClaudeCodeCredential {
     #[serde(default)]
     pub expires_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit_tier: Option<String>,
@@ -111,6 +113,9 @@ impl ChannelCredential for ClaudeCodeCredential {
             if let Some(rt) = update.get("refresh_token").and_then(|v| v.as_str()) {
                 self.refresh_token = rt.to_string();
             }
+            if let Some(account_uuid) = update.get("account_uuid").and_then(|v| v.as_str()) {
+                self.account_uuid = Some(account_uuid.to_string());
+            }
             true
         } else {
             false
@@ -123,11 +128,11 @@ impl ChannelCredential for ClaudeCodeCredential {
 // ---------------------------------------------------------------------------
 
 /// Build the `metadata.user_id` JSON string that Claude Code sends.
-fn build_metadata_user_id(session_id: &str) -> String {
+fn build_metadata_user_id(credential: &ClaudeCodeCredential, session_id: &str) -> String {
     // The value is itself a JSON-encoded string
     serde_json::json!({
         "device_id": CLAUDECODE_DEVICE_ID.as_str(),
-        "account_uuid": "",
+        "account_uuid": credential.account_uuid.as_deref().unwrap_or(""),
         "session_id": session_id,
     })
     .to_string()
@@ -427,7 +432,7 @@ impl Channel for ClaudeCodeChannel {
             }
 
             // Inject metadata.user_id
-            let user_id_value = build_metadata_user_id(&session_id);
+            let user_id_value = build_metadata_user_id(credential, &session_id);
             inject_metadata_user_id(&mut body_json, &user_id_value);
 
             // Inject billing attribution into system
@@ -465,6 +470,7 @@ impl Channel for ClaudeCodeChannel {
                 format!("Bearer {}", credential.access_token),
             )
             .header("anthropic-version", "2023-06-01")
+            .header("x-app", "cli")
             .header("User-Agent", &user_agent)
             .header("X-Claude-Code-Session-Id", &session_id)
             .header("x-client-request-id", &client_request_id)
