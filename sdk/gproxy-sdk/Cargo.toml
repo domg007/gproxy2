@@ -22,6 +22,7 @@ antigravity = ["gproxy-provider/antigravity"]
 nvidia = ["gproxy-provider/nvidia"]
 deepseek = ["gproxy-provider/deepseek"]
 groq = ["gproxy-provider/groq"]
+custom = ["gproxy-provider/custom"]
 
 [dependencies]
 gproxy-protocol = { workspace = true }

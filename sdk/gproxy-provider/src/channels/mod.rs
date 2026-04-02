@@ -1,5 +1,6 @@
 pub mod aistudio;
 pub mod anthropic;
+pub mod custom;
 pub mod deepseek;
 pub mod groq;
 pub mod nvidia;

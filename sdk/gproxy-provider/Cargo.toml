@@ -12,7 +12,7 @@ default = ["all-channels"]
 all-channels = [
     "openai", "anthropic", "aistudio", "vertexexpress",
     "vertex", "geminicli", "claudecode", "codex",
-    "antigravity", "nvidia", "deepseek", "groq"
+    "antigravity", "nvidia", "deepseek", "groq", "custom"
 ]
 openai = []
 anthropic = []
@@ -26,6 +26,7 @@ antigravity = []
 nvidia = []
 deepseek = []
 groq = []
+custom = []
 
 [dependencies]
 gproxy-protocol = { workspace = true }
