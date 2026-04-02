@@ -1,5 +1,5 @@
 use rcgen::{
-    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
     KeyUsagePurpose, SanType,
 };
 use std::path::Path;
@@ -41,7 +41,7 @@ pub fn generate_ca(out_path: &Path) -> Result<(), Box<dyn std::error::Error + Se
 /// A loaded CA certificate and its key pair, ready to sign leaf certs.
 pub struct CaAuthority {
     pub ca_key: KeyPair,
-    pub ca_cert: rcgen::Certificate,
+    pub ca_params: CertificateParams,
 }
 
 /// Load a CA certificate and private key.
@@ -53,11 +53,10 @@ pub fn load_ca(path: &Path) -> Result<CaAuthority, Box<dyn std::error::Error + S
 
     let ca_key = KeyPair::try_from(key_der.as_slice())?;
 
-    // Re-create the same CA params and self-sign with the loaded key
-    let params = ca_params();
-    let ca_cert = params.self_signed(&ca_key)?;
+    // Re-create the same CA params for use as issuer
+    let ca_params = ca_params();
 
-    Ok(CaAuthority { ca_key, ca_cert })
+    Ok(CaAuthority { ca_key, ca_params })
 }
 
 /// Issue a leaf certificate for a domain, signed by the CA.
@@ -74,7 +73,8 @@ pub fn issue_cert(
         .push(ExtendedKeyUsagePurpose::ServerAuth);
 
     let leaf_key = KeyPair::generate()?;
-    let leaf_cert = params.signed_by(&leaf_key, &ca.ca_cert, &ca.ca_key)?;
+    let issuer = Issuer::from_params(&ca.ca_params, &ca.ca_key);
+    let leaf_cert = params.signed_by(&leaf_key, &issuer)?;
 
     Ok((leaf_cert.pem(), leaf_key.serialize_pem()))
 }
