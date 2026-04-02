@@ -5,5 +5,6 @@ pub mod deepseek;
 pub mod groq;
 pub mod nvidia;
 pub mod openai;
+pub mod openrouter;
 pub mod vertex;
 pub mod vertexexpress;
