@@ -45,11 +45,15 @@ pub trait Channel: Send + Sync + 'static {
     }
 }
 
-/// Channel configuration (base URL, user agent, etc.).
+/// Channel configuration (base URL, user agent, retry, etc.).
 pub trait ChannelSettings: Send + Sync + Clone + Default + Serialize + DeserializeOwned + 'static {
     fn base_url(&self) -> &str;
     fn user_agent(&self) -> Option<&str> {
         None
+    }
+    /// Max retries per credential on 429 without retry-after header.
+    fn max_retries_on_429(&self) -> u32 {
+        3
     }
 }
 

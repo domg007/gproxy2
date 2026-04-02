@@ -14,6 +14,10 @@ pub struct OpenAiChannel;
 pub struct OpenAiSettings {
     #[serde(default = "default_openai_base_url")]
     pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_retries_on_429: Option<u32>,
 }
 
 fn default_openai_base_url() -> String {
@@ -23,6 +27,12 @@ fn default_openai_base_url() -> String {
 impl ChannelSettings for OpenAiSettings {
     fn base_url(&self) -> &str {
         &self.base_url
+    }
+    fn user_agent(&self) -> Option<&str> {
+        self.user_agent.as_deref()
+    }
+    fn max_retries_on_429(&self) -> u32 {
+        self.max_retries_on_429.unwrap_or(3)
     }
 }
 
@@ -122,6 +132,10 @@ impl Channel for OpenAiChannel {
             .uri(&url)
             .header("Authorization", format!("Bearer {}", credential.api_key))
             .header("Content-Type", "application/json");
+
+        if let Some(ua) = settings.user_agent() {
+            builder = builder.header("User-Agent", ua);
+        }
 
         for (key, value) in request.headers.iter() {
             builder = builder.header(key, value);
