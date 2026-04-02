@@ -286,6 +286,7 @@ async fn handle_tunneled_request(
         )) => {
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
+            let response_headers_for_client = response_headers.clone();
             recorder.record_entry(
                 &method,
                 &url,
@@ -303,8 +304,11 @@ async fn handle_tunneled_request(
                 elapsed,
             );
 
-            let resp = Response::builder()
-                .status(status)
+            let mut resp_builder = Response::builder().status(status);
+            for (key, value) in &response_headers_for_client {
+                resp_builder = resp_builder.header(key.as_str(), value.as_str());
+            }
+            let resp = resp_builder
                 .body(Full::new(bytes::Bytes::from(response_body)))
                 .unwrap();
 
@@ -775,6 +779,7 @@ async fn handle_plain_http(
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
+    let response_headers_for_client = response_headers.clone();
     recorder.record_entry(
         &method,
         &url,
@@ -792,8 +797,11 @@ async fn handle_plain_http(
         elapsed,
     );
 
-    Ok(Response::builder()
-        .status(status)
+    let mut resp_builder = Response::builder().status(status);
+    for (key, value) in &response_headers_for_client {
+        resp_builder = resp_builder.header(key.as_str(), value.as_str());
+    }
+    Ok(resp_builder
         .body(Full::new(bytes::Bytes::from(response_body)))
         .unwrap())
 }
