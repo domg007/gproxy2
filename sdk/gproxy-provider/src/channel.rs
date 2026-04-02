@@ -39,6 +39,16 @@ pub trait Channel: Send + Sync + 'static {
         body: &[u8],
     ) -> ResponseClassification;
 
+    /// Handle a local route (no upstream call). Returns None if not supported.
+    fn handle_local(
+        &self,
+        _operation: &str,
+        _protocol: &str,
+        _body: &[u8],
+    ) -> Option<Result<Vec<u8>, UpstreamError>> {
+        None
+    }
+
     /// Start an OAuth flow (optional, most channels return None).
     fn oauth_start(&self) -> Option<OAuthFlow> {
         None

@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::channel::{Channel, ChannelSettings};
+use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::request::PreparedRequest;
 use crate::response::{UpstreamError, UpstreamResponse};
 use crate::retry::retry_with_credentials_max;
@@ -57,6 +58,10 @@ pub struct UpstreamRequestMeta {
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 trait AnyProvider: Send + Sync {
+    fn dispatch_table(&self) -> &DispatchTable;
+
+    fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>>;
+
     fn execute<'a>(
         &'a self,
         request: PreparedRequest,
@@ -68,9 +73,18 @@ struct ProviderInstance<C: Channel> {
     channel: C,
     settings: C::Settings,
     credentials: std::sync::Mutex<Vec<(C::Credential, C::Health)>>,
+    dispatch_table: DispatchTable,
 }
 
 impl<C: Channel> AnyProvider for ProviderInstance<C> {
+    fn dispatch_table(&self) -> &DispatchTable {
+        &self.dispatch_table
+    }
+
+    fn handle_local(&self, operation: &str, protocol: &str, body: &[u8]) -> Option<Result<Vec<u8>, UpstreamError>> {
+        self.channel.handle_local(operation, protocol, body)
+    }
+
     fn execute<'a>(
         &'a self,
         request: PreparedRequest,
@@ -159,6 +173,7 @@ impl GproxyEngineBuilder {
         credentials: Vec<(C::Credential, C::Health)>,
     ) -> Self {
         let instance = Arc::new(ProviderInstance {
+            dispatch_table: channel.dispatch_table(),
             channel,
             settings,
             credentials: std::sync::Mutex::new(credentials),
@@ -197,26 +212,86 @@ impl GproxyEngine {
 
         let start = std::time::Instant::now();
 
-        // TODO: dispatch table lookup + transform
-        // For now, pass through directly
+        // Dispatch table lookup
+        let src_key = RouteKey::new(&request.operation, &request.protocol);
+        let route = provider
+            .dispatch_table()
+            .resolve(&src_key)
+            .ok_or_else(|| {
+                UpstreamError::Channel(format!(
+                    "unsupported route: ({}, {})",
+                    request.operation, request.protocol
+                ))
+            })?
+            .clone();
+
+        let (dst_op, dst_proto, needs_transform) = match &route {
+            RouteImplementation::Passthrough => {
+                (request.operation.clone(), request.protocol.clone(), false)
+            }
+            RouteImplementation::TransformTo { destination } => {
+                (destination.operation.clone(), destination.protocol.clone(), true)
+            }
+            RouteImplementation::Local => {
+                let body = provider
+                    .handle_local(&request.operation, &request.protocol, &request.body)
+                    .unwrap_or_else(|| Err(UpstreamError::Channel("local route not implemented".into())))?;
+                return Ok(ExecuteResult {
+                    status: 200,
+                    headers: http::HeaderMap::new(),
+                    body,
+                    usage: None,
+                    meta: None,
+                });
+            }
+            RouteImplementation::Unsupported => {
+                return Err(UpstreamError::Channel(format!(
+                    "unsupported: ({}, {})",
+                    request.operation, request.protocol
+                )));
+            }
+        };
+
+        // Transform request if needed
+        let body = if needs_transform {
+            crate::transform_dispatch::transform_request(
+                &request.operation,
+                &request.protocol,
+                &dst_op,
+                &dst_proto,
+                request.body,
+            )?
+        } else {
+            request.body
+        };
 
         let prepared = PreparedRequest {
             method: http::Method::POST,
-            path: format!("/{}", request.operation),
+            path: format!("/{}", dst_op),
             model: request.model.clone(),
-            body: request.body,
+            body,
             headers: request.headers,
         };
 
         let response = provider.execute(prepared, &self.client).await?;
 
+        // Transform response if needed
+        let response_body = if needs_transform {
+            crate::transform_dispatch::transform_response(
+                &request.operation,
+                &request.protocol,
+                &dst_op,
+                &dst_proto,
+                response.body,
+            )?
+        } else {
+            response.body
+        };
+
         let latency_ms = start.elapsed().as_millis() as u64;
 
-        let usage = if self.enable_usage {
-            None // TODO: channel.extract_usage()
-        } else {
-            None
-        };
+        // TODO: extract usage from response body via channel.extract_usage()
+        let usage = None;
 
         let meta = if self.enable_upstream_log {
             Some(UpstreamRequestMeta {
@@ -241,7 +316,7 @@ impl GproxyEngine {
         Ok(ExecuteResult {
             status: response.status,
             headers: response.headers,
-            body: response.body,
+            body: response_body,
             usage,
             meta,
         })
