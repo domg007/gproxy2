@@ -272,6 +272,10 @@ impl Channel for VertexChannel {
         t
     }
 
+    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+        crate::utils::vertex_normalize::normalize_vertex_response(body)
+    }
+
     fn refresh_credential<'a>(
         &'a self,
         client: &'a wreq::Client,

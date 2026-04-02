@@ -27,6 +27,7 @@ pub mod response;
 pub mod retry;
 pub mod transform_dispatch;
 pub mod usage;
+pub mod utils;
 
 pub use channel::{Channel, ChannelCredential, ChannelSettings};
 pub use dispatch::DispatchTable;

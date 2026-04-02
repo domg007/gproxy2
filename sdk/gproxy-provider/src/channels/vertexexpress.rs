@@ -172,6 +172,10 @@ impl Channel for VertexExpressChannel {
         }
     }
 
+    fn normalize_response(&self, body: Vec<u8>) -> Vec<u8> {
+        crate::utils::vertex_normalize::normalize_vertex_response(body)
+    }
+
     fn count_strategy(&self) -> CountStrategy {
         CountStrategy::UpstreamApi
     }

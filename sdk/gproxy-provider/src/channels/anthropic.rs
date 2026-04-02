@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
-use crate::channels::cache_control;
+use crate::utils::claude_cache_control as cache_control;
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
