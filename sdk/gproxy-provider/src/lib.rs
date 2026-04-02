@@ -13,6 +13,8 @@
 //!
 //! That's it — no other files need to change.
 
+mod affinity;
+
 pub mod channel;
 pub mod channels;
 pub mod count_tokens;

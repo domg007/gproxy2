@@ -2,7 +2,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
+use crate::affinity::{
+    CacheAffinityHint, CacheAffinityPool, DEFAULT_CACHE_AFFINITY_MAX_KEYS,
+    cache_affinity_hint_for_request,
+};
 use crate::channel::{Channel, ChannelSettings};
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::request::PreparedRequest;
@@ -108,6 +113,7 @@ trait AnyProvider: Send + Sync {
     fn execute<'a>(
         &'a self,
         request: PreparedRequest,
+        affinity_hint: Option<CacheAffinityHint>,
         client: &'a wreq::Client,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
 }
@@ -117,6 +123,8 @@ struct ProviderInstance<C: Channel> {
     settings: C::Settings,
     credentials: std::sync::Mutex<Vec<(C::Credential, C::Health)>>,
     dispatch_table: DispatchTable,
+    affinity_pool: CacheAffinityPool,
+    round_robin_cursor: AtomicUsize,
 }
 
 impl<C: Channel> AnyProvider for ProviderInstance<C> {
@@ -144,6 +152,7 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
     fn execute<'a>(
         &'a self,
         request: PreparedRequest,
+        affinity_hint: Option<CacheAffinityHint>,
         client: &'a wreq::Client,
     ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
         Box::pin(async move {
@@ -155,6 +164,9 @@ impl<C: Channel> AnyProvider for ProviderInstance<C> {
                 &mut creds,
                 &self.settings,
                 &request,
+                affinity_hint.as_ref(),
+                &self.affinity_pool,
+                &self.round_robin_cursor,
                 max_retries,
                 client,
                 |req| crate::http_client::send_request(client, req),
@@ -235,6 +247,8 @@ impl GproxyEngineBuilder {
             channel,
             settings,
             credentials: std::sync::Mutex::new(credentials),
+            affinity_pool: CacheAffinityPool::new(DEFAULT_CACHE_AFFINITY_MAX_KEYS),
+            round_robin_cursor: AtomicUsize::new(0),
         });
         self.providers.insert(name.into(), instance);
         self
@@ -340,8 +354,11 @@ impl GproxyEngine {
             headers: request.headers,
         };
         let prepared = provider.finalize_request(prepared)?;
+        let affinity_hint = cache_affinity_hint_for_request(&dst_proto, &prepared);
 
-        let response = provider.execute(prepared.clone(), &self.client).await?;
+        let response = provider
+            .execute(prepared.clone(), affinity_hint, &self.client)
+            .await?;
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);

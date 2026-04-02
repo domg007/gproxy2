@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::affinity::{CacheAffinityHint, CacheAffinityPool};
 use crate::channel::Channel;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
@@ -22,6 +26,9 @@ pub async fn retry_with_credentials<C, F, Fut>(
     credentials: &mut [(C::Credential, C::Health)],
     settings: &C::Settings,
     request: &PreparedRequest,
+    affinity_hint: Option<&CacheAffinityHint>,
+    affinity_pool: &CacheAffinityPool,
+    round_robin_cursor: &AtomicUsize,
     http_client: &wreq::Client,
     send: F,
 ) -> Result<UpstreamResponse, UpstreamError>
@@ -35,6 +42,9 @@ where
         credentials,
         settings,
         request,
+        affinity_hint,
+        affinity_pool,
+        round_robin_cursor,
         DEFAULT_MAX_RETRIES_PER_CREDENTIAL,
         http_client,
         send,
@@ -48,6 +58,9 @@ pub async fn retry_with_credentials_max<C, F, Fut>(
     credentials: &mut [(C::Credential, C::Health)],
     settings: &C::Settings,
     request: &PreparedRequest,
+    affinity_hint: Option<&CacheAffinityHint>,
+    affinity_pool: &CacheAffinityPool,
+    round_robin_cursor: &AtomicUsize,
     max_retries: u32,
     http_client: &wreq::Client,
     send: F,
@@ -71,9 +84,13 @@ where
         return Err(UpstreamError::NoEligibleCredentials);
     }
 
+    let mut remaining = build_remaining_candidates(&eligible, round_robin_cursor);
     let mut last_error = None;
 
-    for &idx in &eligible {
+    while !remaining.is_empty() {
+        let (remaining_idx, matched_affinity_idx) =
+            pick_candidate_index(&remaining, affinity_hint, affinity_pool);
+        let idx = remaining.remove(remaining_idx);
         let mut attempts = 0u32;
 
         loop {
@@ -107,6 +124,14 @@ where
             match classification {
                 ResponseClassification::Success => {
                     health.record_success(model);
+                    if let Some(hint) = affinity_hint {
+                        affinity_pool.bind(&hint.bind.key, idx, hint.bind.ttl_ms);
+                        if let Some(matched_idx) = matched_affinity_idx
+                            && let Some(hit) = hint.candidates.get(matched_idx)
+                        {
+                            affinity_pool.bind(&hit.key, idx, hit.ttl_ms);
+                        }
+                    }
                     return Ok(response);
                 }
                 ResponseClassification::AuthDead => {
@@ -143,6 +168,14 @@ where
                                 );
                                 if matches!(retry_class, ResponseClassification::Success) {
                                     health.record_success(model);
+                                    if let Some(hint) = affinity_hint {
+                                        affinity_pool.bind(&hint.bind.key, idx, hint.bind.ttl_ms);
+                                        if let Some(matched_idx) = matched_affinity_idx
+                                            && let Some(hit) = hint.candidates.get(matched_idx)
+                                        {
+                                            affinity_pool.bind(&hit.key, idx, hit.ttl_ms);
+                                        }
+                                    }
                                     return Ok(retry_response);
                                 }
                                 // Still failing after refresh — mark dead
@@ -166,6 +199,12 @@ where
                         health.record_error(response.status, model, None);
                         tracing::warn!("Credential {} auth dead ({})", idx, response.status);
                     }
+                    if let Some(matched_idx) = matched_affinity_idx
+                        && let Some(hint) = affinity_hint
+                        && let Some(hit) = hint.candidates.get(matched_idx)
+                    {
+                        affinity_pool.clear(&hit.key);
+                    }
                     break;
                 }
                 ResponseClassification::RateLimited { retry_after_ms } => {
@@ -173,6 +212,12 @@ where
                         // Has retry-after: cooldown this credential, move to next
                         health.record_error(response.status, model, retry_after_ms);
                         tracing::info!("Credential {} rate limited with retry-after", idx);
+                        if let Some(matched_idx) = matched_affinity_idx
+                            && let Some(hint) = affinity_hint
+                            && let Some(hit) = hint.candidates.get(matched_idx)
+                        {
+                            affinity_pool.clear(&hit.key);
+                        }
                         break;
                     }
                     // No retry-after: retry same credential up to max_retries
@@ -184,6 +229,12 @@ where
                             idx,
                             max_retries
                         );
+                        if let Some(matched_idx) = matched_affinity_idx
+                            && let Some(hint) = affinity_hint
+                            && let Some(hit) = hint.candidates.get(matched_idx)
+                        {
+                            affinity_pool.clear(&hit.key);
+                        }
                         break;
                     }
                     tracing::info!(
@@ -197,6 +248,12 @@ where
                 ResponseClassification::TransientError => {
                     health.record_error(response.status, model, None);
                     tracing::info!("Credential {} transient error ({})", idx, response.status);
+                    if let Some(matched_idx) = matched_affinity_idx
+                        && let Some(hint) = affinity_hint
+                        && let Some(hit) = hint.candidates.get(matched_idx)
+                    {
+                        affinity_pool.clear(&hit.key);
+                    }
                     break;
                 }
                 ResponseClassification::PermanentError => {
@@ -207,4 +264,82 @@ where
     }
 
     Err(last_error.unwrap_or(UpstreamError::AllCredentialsExhausted))
+}
+
+fn build_remaining_candidates(eligible: &[usize], round_robin_cursor: &AtomicUsize) -> Vec<usize> {
+    if eligible.is_empty() {
+        return Vec::new();
+    }
+
+    let start = round_robin_cursor.fetch_add(1, Ordering::Relaxed) % eligible.len();
+    (0..eligible.len())
+        .map(|offset| eligible[(start + offset) % eligible.len()])
+        .collect()
+}
+
+fn pick_candidate_index(
+    remaining: &[usize],
+    affinity_hint: Option<&CacheAffinityHint>,
+    affinity_pool: &CacheAffinityPool,
+) -> (usize, Option<usize>) {
+    let Some(hint) = affinity_hint else {
+        return (0, None);
+    };
+
+    let remaining_idx_by_credential = remaining
+        .iter()
+        .enumerate()
+        .map(|(idx, credential_idx)| (*credential_idx, idx))
+        .collect::<HashMap<_, _>>();
+    let mut score_by_credential = HashMap::<usize, usize>::new();
+    let mut representative_match = HashMap::<usize, (usize, usize)>::new();
+
+    for (candidate_idx, candidate) in hint.candidates.iter().enumerate() {
+        let Some(credential_idx) = affinity_pool.get(&candidate.key) else {
+            continue;
+        };
+        if !remaining_idx_by_credential.contains_key(&credential_idx) {
+            continue;
+        }
+
+        let score = score_by_credential.entry(credential_idx).or_default();
+        *score = score.saturating_add(candidate.key_len);
+
+        representative_match
+            .entry(credential_idx)
+            .and_modify(|(best_idx, best_len)| {
+                if candidate.key_len > *best_len {
+                    *best_idx = candidate_idx;
+                    *best_len = candidate.key_len;
+                }
+            })
+            .or_insert((candidate_idx, candidate.key_len));
+    }
+
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (credential_idx, score) in score_by_credential {
+        let Some(&remaining_idx) = remaining_idx_by_credential.get(&credential_idx) else {
+            continue;
+        };
+        let matched_idx = representative_match
+            .get(&credential_idx)
+            .map(|(idx, _)| *idx)
+            .unwrap_or_default();
+
+        match best {
+            None => best = Some((remaining_idx, score, matched_idx)),
+            Some((best_remaining_idx, best_score, _)) => {
+                if score > best_score || (score == best_score && remaining_idx < best_remaining_idx)
+                {
+                    best = Some((remaining_idx, score, matched_idx));
+                }
+            }
+        }
+    }
+
+    if let Some((remaining_idx, _, matched_idx)) = best {
+        (remaining_idx, Some(matched_idx))
+    } else {
+        (0, None)
+    }
 }
