@@ -44,7 +44,7 @@ impl Default for CodexSettings {
 }
 
 fn default_codex_base_url() -> String {
-    "https://api.openai.com".to_string()
+    "https://chatgpt.com/backend-api/codex".to_string()
 }
 
 impl CodexSettings {
@@ -194,7 +194,8 @@ impl Channel for CodexChannel {
     type Health = ModelCooldownHealth;
 
     fn dispatch_table(&self) -> DispatchTable {
-        // Same as openai — native protocol is openai_response / openai_chat_completions
+        // Native Codex traffic uses the Responses API, but the proxy can still
+        // transform other request protocols into openai_response.
         let mut t = DispatchTable::new();
         let pass =
             |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
@@ -215,13 +216,16 @@ impl Channel for CodexChannel {
             pass("model_get", "openai"),
             xform("model_get", "claude", "model_get", "openai"),
             xform("model_get", "gemini", "model_get", "openai"),
-            // Count tokens
-            pass("count_tokens", "openai"),
-            xform("count_tokens", "claude", "count_tokens", "openai"),
-            xform("count_tokens", "gemini", "count_tokens", "openai"),
+            // === No count_tokens routes — uses CountStrategy::Local ===
+
             // Generate content (non-stream)
             pass("generate_content", "openai_response"),
-            pass("generate_content", "openai_chat_completions"),
+            xform(
+                "generate_content",
+                "openai_chat_completions",
+                "generate_content",
+                "openai_response",
+            ),
             xform(
                 "generate_content",
                 "claude",
@@ -236,7 +240,12 @@ impl Channel for CodexChannel {
             ),
             // Generate content (stream)
             pass("stream_generate_content", "openai_response"),
-            pass("stream_generate_content", "openai_chat_completions"),
+            xform(
+                "stream_generate_content",
+                "openai_chat_completions",
+                "stream_generate_content",
+                "openai_response",
+            ),
             xform(
                 "stream_generate_content",
                 "claude",
@@ -349,7 +358,7 @@ impl Channel for CodexChannel {
     }
 
     fn count_strategy(&self) -> CountStrategy {
-        CountStrategy::UpstreamApi
+        CountStrategy::Local
     }
 
     fn refresh_credential<'a>(
@@ -380,7 +389,6 @@ impl Channel for CodexChannel {
         }
     }
 }
-
 fn codex_dispatch_table() -> DispatchTable {
     CodexChannel.dispatch_table()
 }
