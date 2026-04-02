@@ -1,6 +1,6 @@
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
-    KeyUsagePurpose, SanType,
+    KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
 };
 use std::path::Path;
 
@@ -50,7 +50,7 @@ pub fn load_ca(path: &Path) -> Result<CaAuthority, Box<dyn std::error::Error + S
     let pem_str = std::fs::read_to_string(path)?;
 
     // Extract the private key PEM section
-    let ca_key = KeyPair::from_pem(&pem_str)?;
+    let ca_key = KeyPair::from_pkcs8_pem_and_sign_algo(&pem_str, &PKCS_ECDSA_P256_SHA256)?;
 
     // Re-create the same CA params and self-sign with the loaded key
     let params = ca_params();
