@@ -3,8 +3,8 @@ resolver = "2"
 members = [
   "sdk/gproxy-sdk",
   "sdk/gproxy-protocol",
-  "sdk/gproxy-middleware",
   "sdk/gproxy-provider",
+  "crates/gproxy-middleware",
   "crates/gproxy-storage",
   "crates/gproxy-admin",
   "crates/gproxy-server",
@@ -26,7 +26,7 @@ readme = "README.md"
 # Internal SDK crates
 gproxy-sdk = { path = "sdk/gproxy-sdk" }
 gproxy-protocol = { path = "sdk/gproxy-protocol" }
-gproxy-middleware = { path = "sdk/gproxy-middleware" }
+gproxy-middleware = { path = "crates/gproxy-middleware" }
 gproxy-provider = { path = "sdk/gproxy-provider" }
 
 # Internal App crates

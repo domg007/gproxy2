@@ -1812,7 +1812,6 @@ dependencies = [
 name = "gproxy-sdk"
 version = "1.0.0"
 dependencies = [
- "gproxy-middleware",
  "gproxy-protocol",
  "gproxy-provider",
 ]

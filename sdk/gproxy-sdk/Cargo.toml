@@ -25,5 +25,4 @@ groq = ["gproxy-provider/groq"]
 
 [dependencies]
 gproxy-protocol = { workspace = true }
-gproxy-middleware = { workspace = true }
 gproxy-provider = { workspace = true }
