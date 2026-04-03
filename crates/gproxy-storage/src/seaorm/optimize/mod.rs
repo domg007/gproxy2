@@ -1,5 +1,5 @@
-use sea_orm::{ConnectOptions, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectOptions, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 
 pub(crate) fn configure_connect_options(options: &mut ConnectOptions) {
     let url = options.get_url().to_string();
@@ -13,10 +13,7 @@ pub(crate) fn configure_connect_options(options: &mut ConnectOptions) {
                 .statement_cache_capacity(512)
         });
     } else if url.starts_with("mysql:") {
-        options.map_sqlx_mysql_opts(|opts| {
-            opts.statement_cache_capacity(512)
-                .charset("utf8mb4")
-        });
+        options.map_sqlx_mysql_opts(|opts| opts.statement_cache_capacity(512).charset("utf8mb4"));
     } else if url.starts_with("postgres:") {
         options.map_sqlx_postgres_opts(|opts| {
             opts.application_name("gproxy")
@@ -52,24 +49,63 @@ fn common_indexes(backend: DatabaseBackend) -> Vec<(&'static str, &'static str, 
         _ => "IF NOT EXISTS ",
     };
     vec![
-        ("providers", "idx_providers_channel",
-            format!("CREATE INDEX {if_not_exists}idx_providers_channel ON providers (channel)")),
-        ("credentials", "idx_credentials_provider_id",
-            format!("CREATE INDEX {if_not_exists}idx_credentials_provider_id ON credentials (provider_id)")),
-        ("user_keys", "idx_user_keys_user_id",
-            format!("CREATE INDEX {if_not_exists}idx_user_keys_user_id ON user_keys (user_id)")),
-        ("usages", "idx_usages_at_trace",
-            format!("CREATE INDEX {if_not_exists}idx_usages_at_trace ON usages (at DESC, trace_id DESC)")),
-        ("upstream_requests", "idx_upstream_requests_at_trace",
-            format!("CREATE INDEX {if_not_exists}idx_upstream_requests_at_trace ON upstream_requests (at DESC, trace_id DESC)")),
-        ("downstream_requests", "idx_downstream_requests_at_trace",
-            format!("CREATE INDEX {if_not_exists}idx_downstream_requests_at_trace ON downstream_requests (at DESC, trace_id DESC)")),
-        ("models", "idx_models_provider_id",
-            format!("CREATE INDEX {if_not_exists}idx_models_provider_id ON models (provider_id)")),
-        ("user_model_permissions", "idx_user_model_permissions_user_id",
-            format!("CREATE INDEX {if_not_exists}idx_user_model_permissions_user_id ON user_model_permissions (user_id)")),
-        ("user_rate_limits", "idx_user_rate_limits_user_id",
-            format!("CREATE INDEX {if_not_exists}idx_user_rate_limits_user_id ON user_rate_limits (user_id)")),
+        (
+            "providers",
+            "idx_providers_channel",
+            format!("CREATE INDEX {if_not_exists}idx_providers_channel ON providers (channel)"),
+        ),
+        (
+            "credentials",
+            "idx_credentials_provider_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_credentials_provider_id ON credentials (provider_id)"
+            ),
+        ),
+        (
+            "user_keys",
+            "idx_user_keys_user_id",
+            format!("CREATE INDEX {if_not_exists}idx_user_keys_user_id ON user_keys (user_id)"),
+        ),
+        (
+            "usages",
+            "idx_usages_at_trace",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_usages_at_trace ON usages (at DESC, trace_id DESC)"
+            ),
+        ),
+        (
+            "upstream_requests",
+            "idx_upstream_requests_at_trace",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_upstream_requests_at_trace ON upstream_requests (at DESC, trace_id DESC)"
+            ),
+        ),
+        (
+            "downstream_requests",
+            "idx_downstream_requests_at_trace",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_downstream_requests_at_trace ON downstream_requests (at DESC, trace_id DESC)"
+            ),
+        ),
+        (
+            "models",
+            "idx_models_provider_id",
+            format!("CREATE INDEX {if_not_exists}idx_models_provider_id ON models (provider_id)"),
+        ),
+        (
+            "user_model_permissions",
+            "idx_user_model_permissions_user_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_user_model_permissions_user_id ON user_model_permissions (user_id)"
+            ),
+        ),
+        (
+            "user_rate_limits",
+            "idx_user_rate_limits_user_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_user_rate_limits_user_id ON user_rate_limits (user_id)"
+            ),
+        ),
     ]
 }
 

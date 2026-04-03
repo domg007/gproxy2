@@ -40,7 +40,7 @@ pub mod prelude {
     pub use super::Usages;
     pub use super::UserKeys;
     pub use super::UserModelPermissions;
-    pub use super::UserRateLimits;
     pub use super::UserQuotas;
+    pub use super::UserRateLimits;
     pub use super::Users;
 }

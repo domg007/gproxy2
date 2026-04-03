@@ -9,13 +9,17 @@ use gproxy_storage::{SeaOrmStorage, StorageWriteSender};
 use crate::config::GlobalConfig;
 use crate::middleware::model_alias::ModelAliasTarget;
 use crate::middleware::permission::{self, PermissionEntry};
-use crate::middleware::rate_limit::{RateLimitCounters, RateLimitRejection, RateLimitRule, find_matching_rule};
+use crate::middleware::rate_limit::{
+    RateLimitCounters, RateLimitRejection, RateLimitRule, find_matching_rule,
+};
 use crate::principal::{MemoryUser, MemoryUserKey};
 
 // Re-export middleware types
 pub use crate::middleware::model_alias::ModelAliasTarget as ModelAliasTargetExport;
 pub use crate::middleware::permission::PermissionEntry as PermissionEntryExport;
-pub use crate::middleware::rate_limit::{RateLimitRejection as RateLimitRejectionExport, RateLimitRule as RateLimitRuleExport};
+pub use crate::middleware::rate_limit::{
+    RateLimitRejection as RateLimitRejectionExport, RateLimitRule as RateLimitRuleExport,
+};
 
 /// In-memory model record (from models table).
 #[derive(Debug, Clone)]
@@ -115,17 +119,27 @@ impl AppState {
             return Ok(());
         };
         if let Some(rpm) = rule.rpm
-            && self.rate_counters.check_rpm(user_id, model) >= rpm as u32 {
-                return Err(RateLimitRejection::Rpm { limit: rpm });
-            }
+            && self.rate_counters.check_rpm(user_id, model) >= rpm as u32
+        {
+            return Err(RateLimitRejection::Rpm { limit: rpm });
+        }
         if let Some(rpd) = rule.rpd
-            && self.rate_counters.check_rpd(user_id, model) >= rpd as u32 {
-                return Err(RateLimitRejection::Rpd { limit: rpd });
-            }
+            && self.rate_counters.check_rpd(user_id, model) >= rpd as u32
+        {
+            return Err(RateLimitRejection::Rpd { limit: rpd });
+        }
         if let Some(total_tokens) = rule.total_tokens {
-            let used = self.user_quotas.load().get(&user_id).map(|(t, _)| *t).unwrap_or(0);
+            let used = self
+                .user_quotas
+                .load()
+                .get(&user_id)
+                .map(|(t, _)| *t)
+                .unwrap_or(0);
             if used >= total_tokens {
-                return Err(RateLimitRejection::TokenQuota { used, limit: total_tokens });
+                return Err(RateLimitRejection::TokenQuota {
+                    used,
+                    limit: total_tokens,
+                });
             }
         }
         Ok(())
@@ -275,9 +289,7 @@ impl AppStateBuilder {
             .collect();
 
         AppState {
-            engine: ArcSwap::from_pointee(
-                self.engine.expect("GproxyEngine is required"),
-            ),
+            engine: ArcSwap::from_pointee(self.engine.expect("GproxyEngine is required")),
             storage: Arc::new(ArcSwap::from_pointee(
                 (*self.storage.expect("SeaOrmStorage is required")).clone(),
             )),

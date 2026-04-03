@@ -58,7 +58,9 @@ pub fn strip_provider_from_body(
     let mut provider: Option<String> = None;
 
     for pointer in pointers {
-        let Some(slot) = value.pointer_mut(pointer) else { continue };
+        let Some(slot) = value.pointer_mut(pointer) else {
+            continue;
+        };
         let Some(raw) = slot.as_str() else { continue };
         let Some((has_models, prov, model)) = split_provider_prefixed_model(raw) else {
             continue;

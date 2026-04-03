@@ -1,5 +1,5 @@
-use sea_orm::*;
 use sea_orm::sea_query::Expr;
+use sea_orm::*;
 use time::OffsetDateTime;
 
 use crate::seaorm::SeaOrmStorage;
@@ -163,7 +163,9 @@ impl SeaOrmStorage {
             created_at: Set(now),
             ..Default::default()
         };
-        let result = user_model_permissions::Entity::insert(model).exec(&self.db).await?;
+        let result = user_model_permissions::Entity::insert(model)
+            .exec(&self.db)
+            .await?;
         Ok(result.last_insert_id)
     }
 
@@ -186,7 +188,9 @@ impl SeaOrmStorage {
             updated_at: Set(now),
             ..Default::default()
         };
-        let result = user_rate_limits::Entity::insert(model).exec(&self.db).await?;
+        let result = user_rate_limits::Entity::insert(model)
+            .exec(&self.db)
+            .await?;
         Ok(result.last_insert_id)
     }
 
@@ -195,8 +199,14 @@ impl SeaOrmStorage {
         trace_ids: Option<&[i64]>,
     ) -> Result<u64, DbErr> {
         let mut update = upstream_requests::Entity::update_many()
-            .col_expr(upstream_requests::Column::RequestBody, Expr::value(Option::<Vec<u8>>::None))
-            .col_expr(upstream_requests::Column::ResponseBody, Expr::value(Option::<Vec<u8>>::None));
+            .col_expr(
+                upstream_requests::Column::RequestBody,
+                Expr::value(Option::<Vec<u8>>::None),
+            )
+            .col_expr(
+                upstream_requests::Column::ResponseBody,
+                Expr::value(Option::<Vec<u8>>::None),
+            );
         if let Some(ids) = trace_ids {
             update = update.filter(upstream_requests::Column::TraceId.is_in(ids.to_vec()));
         }
@@ -209,8 +219,14 @@ impl SeaOrmStorage {
         trace_ids: Option<&[i64]>,
     ) -> Result<u64, DbErr> {
         let mut update = downstream_requests::Entity::update_many()
-            .col_expr(downstream_requests::Column::RequestBody, Expr::value(Option::<Vec<u8>>::None))
-            .col_expr(downstream_requests::Column::ResponseBody, Expr::value(Option::<Vec<u8>>::None));
+            .col_expr(
+                downstream_requests::Column::RequestBody,
+                Expr::value(Option::<Vec<u8>>::None),
+            )
+            .col_expr(
+                downstream_requests::Column::ResponseBody,
+                Expr::value(Option::<Vec<u8>>::None),
+            );
         if let Some(ids) = trace_ids {
             update = update.filter(downstream_requests::Column::TraceId.is_in(ids.to_vec()));
         }
@@ -218,10 +234,7 @@ impl SeaOrmStorage {
         Ok(result.rows_affected)
     }
 
-    pub async fn delete_upstream_requests(
-        &self,
-        trace_ids: Option<&[i64]>,
-    ) -> Result<u64, DbErr> {
+    pub async fn delete_upstream_requests(&self, trace_ids: Option<&[i64]>) -> Result<u64, DbErr> {
         let mut delete = upstream_requests::Entity::delete_many();
         if let Some(ids) = trace_ids {
             delete = delete.filter(upstream_requests::Column::TraceId.is_in(ids.to_vec()));
@@ -246,7 +259,9 @@ impl SeaOrmStorage {
 
     fn encrypt_string(&self, plaintext: &str) -> String {
         match &self.cipher {
-            Some(cipher) => cipher.encrypt_string(plaintext).unwrap_or_else(|_| plaintext.to_string()),
+            Some(cipher) => cipher
+                .encrypt_string(plaintext)
+                .unwrap_or_else(|_| plaintext.to_string()),
             None => plaintext.to_string(),
         }
     }

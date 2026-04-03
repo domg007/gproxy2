@@ -69,14 +69,26 @@ impl RateLimitCounters {
         Self::check(&self.day, &(user_id, model.to_string()), DAY)
     }
 
-    fn check(map: &DashMap<(i64, String), WindowCounter>, key: &(i64, String), window: Duration) -> u32 {
+    fn check(
+        map: &DashMap<(i64, String), WindowCounter>,
+        key: &(i64, String),
+        window: Duration,
+    ) -> u32 {
         let Some(entry) = map.get(key) else {
             return 0;
         };
-        if entry.window_start.elapsed() >= window { 0 } else { entry.count }
+        if entry.window_start.elapsed() >= window {
+            0
+        } else {
+            entry.count
+        }
     }
 
-    fn increment(map: &DashMap<(i64, String), WindowCounter>, key: &(i64, String), window: Duration) {
+    fn increment(
+        map: &DashMap<(i64, String), WindowCounter>,
+        key: &(i64, String),
+        window: Duration,
+    ) {
         let mut entry = map.entry(key.clone()).or_insert(WindowCounter {
             count: 0,
             window_start: Instant::now(),
@@ -120,7 +132,10 @@ pub async fn rate_limit_middleware(
 // ---------------------------------------------------------------------------
 
 /// Find the most specific matching rule. Priority: exact > prefix wildcard > `*`.
-pub fn find_matching_rule<'a>(rules: &'a [RateLimitRule], model: &str) -> Option<&'a RateLimitRule> {
+pub fn find_matching_rule<'a>(
+    rules: &'a [RateLimitRule],
+    model: &str,
+) -> Option<&'a RateLimitRule> {
     if let Some(r) = rules.iter().find(|r| r.model_pattern == model) {
         return Some(r);
     }

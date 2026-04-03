@@ -45,9 +45,7 @@ fn extract_model_from_request(
             // For now, return None for body-based models — handler extracts model.
             None
         }
-        ModelSource::BodyOrUriPath(_pointer) => {
-            extract_model_from_uri_path(request.uri().path())
-        }
+        ModelSource::BodyOrUriPath(_pointer) => extract_model_from_uri_path(request.uri().path()),
     }
 }
 
@@ -65,10 +63,9 @@ fn model_source(op: OperationFamily, proto: ProtocolKind) -> ModelSource {
             OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent,
             ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
         )
-        | (
-            OperationFamily::Embedding,
-            ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
-        ) => ModelSource::UriPath,
+        | (OperationFamily::Embedding, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => {
+            ModelSource::UriPath
+        }
         (OperationFamily::CountToken, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => {
             ModelSource::BodyOrUriPath("/generate_content_request/model")
         }

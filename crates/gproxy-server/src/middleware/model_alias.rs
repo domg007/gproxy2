@@ -37,9 +37,7 @@ pub async fn model_alias_middleware(
         .get::<super::request_model::ExtractedModel>()
         .and_then(|m| m.0.clone());
 
-    let resolved = model
-        .as_deref()
-        .and_then(|m| state.resolve_model_alias(m));
+    let resolved = model.as_deref().and_then(|m| state.resolve_model_alias(m));
 
     request.extensions_mut().insert(ResolvedAlias {
         provider_name: resolved.as_ref().map(|r| r.provider_name.clone()),

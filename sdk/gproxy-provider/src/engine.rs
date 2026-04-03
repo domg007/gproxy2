@@ -284,7 +284,12 @@ impl GproxyEngine {
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
         let provider_result = provider
-            .execute(prepared.clone(), affinity_hint, &self.client, self.spoof_client.as_ref())
+            .execute(
+                prepared.clone(),
+                affinity_hint,
+                &self.client,
+                self.spoof_client.as_ref(),
+            )
             .await?;
         let response = provider_result.response;
         let credential_updates = provider_result.credential_updates;

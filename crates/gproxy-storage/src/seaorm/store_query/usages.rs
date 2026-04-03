@@ -1,9 +1,9 @@
 use sea_orm::*;
 
+use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 use crate::query::*;
 use crate::seaorm::SeaOrmStorage;
 use crate::seaorm::entities::*;
-use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 
 /// Usage queries — always hit the database at runtime.
 /// Usage records are not cached in memory (too large).
@@ -43,25 +43,28 @@ impl SeaOrmStorage {
         }
 
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| UsageQueryRow {
-            trace_id: r.trace_id,
-            downstream_trace_id: r.downstream_trace_id,
-            at: r.at,
-            provider_id: r.provider_id,
-            provider_channel: None, // Would need join; skip for now
-            credential_id: r.credential_id,
-            user_id: r.user_id,
-            user_key_id: r.user_key_id,
-            operation: r.operation,
-            protocol: r.protocol,
-            model: r.model,
-            input_tokens: r.input_tokens,
-            output_tokens: r.output_tokens,
-            cache_read_input_tokens: r.cache_read_input_tokens,
-            cache_creation_input_tokens: r.cache_creation_input_tokens,
-            cache_creation_input_tokens_5min: r.cache_creation_input_tokens_5min,
-            cache_creation_input_tokens_1h: r.cache_creation_input_tokens_1h,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| UsageQueryRow {
+                trace_id: r.trace_id,
+                downstream_trace_id: r.downstream_trace_id,
+                at: r.at,
+                provider_id: r.provider_id,
+                provider_channel: None, // Would need join; skip for now
+                credential_id: r.credential_id,
+                user_id: r.user_id,
+                user_key_id: r.user_key_id,
+                operation: r.operation,
+                protocol: r.protocol,
+                model: r.model,
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cache_read_input_tokens: r.cache_read_input_tokens,
+                cache_creation_input_tokens: r.cache_creation_input_tokens,
+                cache_creation_input_tokens_5min: r.cache_creation_input_tokens_5min,
+                cache_creation_input_tokens_1h: r.cache_creation_input_tokens_1h,
+            })
+            .collect())
     }
 
     pub async fn count_usages(&self, query: &UsageQuery) -> Result<UsageQueryCount, DbErr> {

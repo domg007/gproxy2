@@ -25,13 +25,11 @@ where
         let cursor_at = unix_ms_to_offset_datetime(cursor_at_ms);
         if let Some(cursor_id) = cursor_trace_id {
             select = select.filter(
-                sea_orm::Condition::any()
-                    .add(at_column.lt(cursor_at))
-                    .add(
-                        sea_orm::Condition::all()
-                            .add(at_column.eq(cursor_at))
-                            .add(id_column.lt(cursor_id)),
-                    ),
+                sea_orm::Condition::any().add(at_column.lt(cursor_at)).add(
+                    sea_orm::Condition::all()
+                        .add(at_column.eq(cursor_at))
+                        .add(id_column.lt(cursor_id)),
+                ),
             );
         } else {
             select = select.filter(at_column.lt(cursor_at));

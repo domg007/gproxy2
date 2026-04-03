@@ -13,9 +13,7 @@ use crate::seaorm::entities::*;
 /// worker.
 impl SeaOrmStorage {
     pub async fn get_global_settings(&self) -> Result<Option<GlobalSettingsRow>, DbErr> {
-        let row = global_settings::Entity::find()
-            .one(&self.db)
-            .await?;
+        let row = global_settings::Entity::find().one(&self.db).await?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -35,7 +33,10 @@ impl SeaOrmStorage {
         }))
     }
 
-    pub async fn list_providers(&self, query: &ProviderQuery) -> Result<Vec<ProviderQueryRow>, DbErr> {
+    pub async fn list_providers(
+        &self,
+        query: &ProviderQuery,
+    ) -> Result<Vec<ProviderQueryRow>, DbErr> {
         let mut select = providers::Entity::find();
         if let Scope::Eq(ref v) = query.channel {
             select = select.filter(providers::Column::Channel.eq(v.clone()));
@@ -54,19 +55,25 @@ impl SeaOrmStorage {
             select = select.limit(limit);
         }
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| ProviderQueryRow {
-            id: r.id,
-            name: r.name,
-            channel: r.channel,
-            settings_json: r.settings_json,
-            dispatch_json: r.dispatch_json,
-            enabled: r.enabled,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| ProviderQueryRow {
+                id: r.id,
+                name: r.name,
+                channel: r.channel,
+                settings_json: r.settings_json,
+                dispatch_json: r.dispatch_json,
+                enabled: r.enabled,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
     }
 
-    pub async fn list_credentials(&self, query: &CredentialQuery) -> Result<Vec<CredentialQueryRow>, DbErr> {
+    pub async fn list_credentials(
+        &self,
+        query: &CredentialQuery,
+    ) -> Result<Vec<CredentialQueryRow>, DbErr> {
         let mut select = credentials::Entity::find();
         if let Scope::Eq(ref v) = query.id {
             select = select.filter(credentials::Column::Id.eq(*v));
@@ -94,22 +101,28 @@ impl SeaOrmStorage {
             select = select.offset(offset);
         }
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| {
-            let secret = self.decrypt_json(r.secret_json);
-            CredentialQueryRow {
-                id: r.id,
-                provider_id: r.provider_id,
-                name: r.name,
-                kind: r.kind,
-                secret_json: secret,
-                enabled: r.enabled,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let secret = self.decrypt_json(r.secret_json);
+                CredentialQueryRow {
+                    id: r.id,
+                    provider_id: r.provider_id,
+                    name: r.name,
+                    kind: r.kind,
+                    secret_json: secret,
+                    enabled: r.enabled,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                }
+            })
+            .collect())
     }
 
-    pub async fn count_credentials(&self, query: &CredentialQuery) -> Result<CredentialQueryCount, DbErr> {
+    pub async fn count_credentials(
+        &self,
+        query: &CredentialQuery,
+    ) -> Result<CredentialQueryCount, DbErr> {
         let mut select = credentials::Entity::find();
         if let Scope::Eq(ref v) = query.provider_id {
             select = select.filter(credentials::Column::ProviderId.eq(*v));
@@ -124,7 +137,10 @@ impl SeaOrmStorage {
         Ok(CredentialQueryCount { count })
     }
 
-    pub async fn list_credential_statuses(&self, query: &CredentialStatusQuery) -> Result<Vec<CredentialStatusQueryRow>, DbErr> {
+    pub async fn list_credential_statuses(
+        &self,
+        query: &CredentialStatusQuery,
+    ) -> Result<Vec<CredentialStatusQueryRow>, DbErr> {
         let mut select = credential_statuses::Entity::find();
         if let Scope::Eq(ref v) = query.id {
             select = select.filter(credential_statuses::Column::Id.eq(*v));
@@ -145,16 +161,19 @@ impl SeaOrmStorage {
             select = select.offset(offset);
         }
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| CredentialStatusQueryRow {
-            id: r.id,
-            credential_id: r.credential_id,
-            channel: r.channel,
-            health_kind: r.health_kind,
-            health_json: r.health_json,
-            checked_at: r.checked_at,
-            last_error: r.last_error,
-            updated_at: r.updated_at,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| CredentialStatusQueryRow {
+                id: r.id,
+                credential_id: r.credential_id,
+                channel: r.channel,
+                health_kind: r.health_kind,
+                health_json: r.health_json,
+                checked_at: r.checked_at,
+                last_error: r.last_error,
+                updated_at: r.updated_at,
+            })
+            .collect())
     }
 
     pub async fn list_users(&self, query: &UserQuery) -> Result<Vec<UserQueryRow>, DbErr> {
@@ -166,18 +185,27 @@ impl SeaOrmStorage {
             select = select.filter(users::Column::Name.eq(v.clone()));
         }
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| {
-            let password = r.password.map(|p| self.decrypt_string(&p)).unwrap_or_default();
-            UserQueryRow {
-                id: r.id,
-                name: r.name,
-                password,
-                enabled: r.enabled,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let password = r
+                    .password
+                    .map(|p| self.decrypt_string(&p))
+                    .unwrap_or_default();
+                UserQueryRow {
+                    id: r.id,
+                    name: r.name,
+                    password,
+                    enabled: r.enabled,
+                }
+            })
+            .collect())
     }
 
-    pub async fn list_user_keys(&self, query: &UserKeyQuery) -> Result<Vec<UserKeyQueryRow>, DbErr> {
+    pub async fn list_user_keys(
+        &self,
+        query: &UserKeyQuery,
+    ) -> Result<Vec<UserKeyQueryRow>, DbErr> {
         let mut select = user_keys::Entity::find();
         if let Scope::Eq(ref v) = query.id {
             select = select.filter(user_keys::Column::Id.eq(*v));
@@ -186,34 +214,42 @@ impl SeaOrmStorage {
             select = select.filter(user_keys::Column::UserId.eq(*v));
         }
         let rows = select.all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| {
-            let api_key = self.decrypt_string(&r.api_key);
-            UserKeyQueryRow {
-                id: r.id,
-                user_id: r.user_id,
-                api_key,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let api_key = self.decrypt_string(&r.api_key);
+                UserKeyQueryRow {
+                    id: r.id,
+                    user_id: r.user_id,
+                    api_key,
+                }
+            })
+            .collect())
     }
 
     pub async fn list_user_keys_for_memory(&self) -> Result<Vec<UserKeyMemoryRow>, DbErr> {
         let rows = user_keys::Entity::find().all(&self.db).await?;
-        Ok(rows.into_iter().map(|r| {
-            let api_key = self.decrypt_string(&r.api_key);
-            UserKeyMemoryRow {
-                id: r.id,
-                user_id: r.user_id,
-                api_key,
-                enabled: r.enabled,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let api_key = self.decrypt_string(&r.api_key);
+                UserKeyMemoryRow {
+                    id: r.id,
+                    user_id: r.user_id,
+                    api_key,
+                    enabled: r.enabled,
+                }
+            })
+            .collect())
     }
 
     // --- Encryption helpers ---
 
     fn decrypt_string(&self, raw: &str) -> String {
         match &self.cipher {
-            Some(cipher) => cipher.decrypt_string(raw).unwrap_or_else(|_| raw.to_string()),
+            Some(cipher) => cipher
+                .decrypt_string(raw)
+                .unwrap_or_else(|_| raw.to_string()),
             None => raw.to_string(),
         }
     }
