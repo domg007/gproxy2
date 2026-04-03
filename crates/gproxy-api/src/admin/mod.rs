@@ -51,6 +51,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/credential-statuses/query",
             post(credentials::query_credential_statuses),
         )
+        .route(
+            "/credential-statuses/update",
+            post(credentials::update_credential_status),
+        )
         // Models
         .route("/models/query", post(models::query_models))
         .route("/models/upsert", post(models::upsert_model))

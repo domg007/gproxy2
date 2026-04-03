@@ -138,13 +138,55 @@ pub async fn batch_delete_credentials(
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
-/// Credential statuses — read from storage (not cached in memory).
+#[derive(serde::Deserialize, Default)]
+pub struct HealthQueryParams {
+    #[serde(default)]
+    pub provider_name: Scope<String>,
+}
+
+/// Query credential health from SDK engine memory.
 pub async fn query_credential_statuses(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(query): Json<gproxy_storage::CredentialStatusQuery>,
-) -> Result<Json<Vec<gproxy_storage::CredentialStatusQueryRow>>, HttpError> {
+    Json(query): Json<HealthQueryParams>,
+) -> Result<Json<Vec<gproxy_sdk::provider::store::CredentialHealthSnapshot>>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let rows = state.storage().list_credential_statuses(&query).await?;
-    Ok(Json(rows))
+    let provider_name = match &query.provider_name {
+        Scope::Eq(v) => Some(v.as_str()),
+        _ => None,
+    };
+    let snapshots = state.engine().store().list_health(provider_name);
+    Ok(Json(snapshots))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateCredentialStatusPayload {
+    pub provider_name: String,
+    pub index: usize,
+    /// `"healthy"` or `"dead"`.
+    pub status: String,
+}
+
+/// Manually set credential health status (admin override).
+pub async fn update_credential_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateCredentialStatusPayload>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let engine = state.engine();
+    let store = engine.store();
+    let ok = match payload.status.as_str() {
+        "dead" => store.mark_credential_dead(&payload.provider_name, payload.index),
+        "healthy" => store.mark_credential_healthy(&payload.provider_name, payload.index),
+        _ => {
+            return Err(HttpError::bad_request(
+                "status must be 'healthy' or 'dead'",
+            ));
+        }
+    };
+    if !ok {
+        return Err(HttpError::not_found("provider or credential index not found"));
+    }
+    Ok(Json(AckResponse { ok: true, id: None }))
 }

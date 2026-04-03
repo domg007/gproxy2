@@ -41,6 +41,6 @@ pub use registry::{ChannelRegistration, ChannelRegistry};
 pub use request::PreparedRequest;
 pub use response::{ResponseClassification, UpstreamError, UpstreamResponse};
 pub use store::{
-    CredentialSnapshot, CredentialUpdate, OAuthFinishResult, ProviderSnapshot, ProviderStore,
-    ProviderStoreBuilder,
+    CredentialHealthSnapshot, CredentialSnapshot, CredentialUpdate, OAuthFinishResult,
+    ProviderSnapshot, ProviderStore, ProviderStoreBuilder,
 };

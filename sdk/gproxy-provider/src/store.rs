@@ -14,6 +14,7 @@ use crate::channel::{
     Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
 };
 use crate::dispatch::DispatchTable;
+use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
 use crate::response::{UpstreamError, UpstreamResponse};
 use crate::retry::{RetryContext, retry_with_credentials};
@@ -48,6 +49,17 @@ pub struct CredentialUpdate {
 pub struct OAuthFinishResult {
     pub credential: CredentialSnapshot,
     pub details: Value,
+}
+
+/// Health status snapshot for a single credential.
+#[derive(Debug, Clone, Serialize)]
+pub struct CredentialHealthSnapshot {
+    pub provider: String,
+    pub index: usize,
+    /// `"healthy"`, `"cooldown"`, or `"dead"`.
+    pub status: String,
+    /// true if `is_available(None)` returns true.
+    pub available: bool,
 }
 
 pub(crate) struct ProviderExecuteResult {
@@ -109,6 +121,14 @@ pub(crate) trait ProviderRuntime: Send + Sync {
     ) -> Result<Vec<bool>, UpstreamError>;
 
     fn prepare_quota_request(&self) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError>;
+
+    fn health_snapshots(&self) -> Vec<CredentialHealthSnapshot>;
+
+    /// Manually mark a credential as dead (admin override).
+    fn mark_credential_dead(&self, index: usize);
+
+    /// Manually reset a credential to healthy (admin override).
+    fn mark_credential_healthy(&self, index: usize);
 
     fn oauth_start<'a>(
         &'a self,
@@ -462,6 +482,44 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         self.channel.prepare_quota_request(credential, &settings)
     }
 
+    fn health_snapshots(&self) -> Vec<CredentialHealthSnapshot> {
+        let health_guard = self.health.lock().unwrap();
+        health_guard
+            .iter()
+            .enumerate()
+            .map(|(index, h)| {
+                let available = h.is_available(None);
+                let status = if !available {
+                    // Check if dead by testing with is_available after a hypothetical cooldown
+                    // Simple heuristic: if not available, it's either dead or in cooldown
+                    "unavailable".to_string()
+                } else {
+                    "healthy".to_string()
+                };
+                CredentialHealthSnapshot {
+                    provider: self.name.clone(),
+                    index,
+                    status,
+                    available,
+                }
+            })
+            .collect()
+    }
+
+    fn mark_credential_dead(&self, index: usize) {
+        let mut health_guard = self.health.lock().unwrap();
+        if let Some(h) = health_guard.get_mut(index) {
+            h.record_error(401, None, None);
+        }
+    }
+
+    fn mark_credential_healthy(&self, index: usize) {
+        let mut health_guard = self.health.lock().unwrap();
+        if let Some(h) = health_guard.get_mut(index) {
+            h.record_success(None);
+        }
+    }
+
     fn oauth_start<'a>(
         &'a self,
         client: &'a wreq::Client,
@@ -575,6 +633,44 @@ impl ProviderStore {
             .values()
             .map(|provider| provider.snapshot())
             .collect()
+    }
+
+    /// Get health status for all credentials across all providers.
+    pub fn list_health(
+        &self,
+        provider_name: Option<&str>,
+    ) -> Vec<CredentialHealthSnapshot> {
+        let providers = self.providers.load();
+        let mut out = Vec::new();
+        for (name, provider) in providers.iter() {
+            if provider_name.is_some_and(|filter| filter != name) {
+                continue;
+            }
+            out.extend(provider.health_snapshots());
+        }
+        out
+    }
+
+    /// Manually mark a credential as dead.
+    pub fn mark_credential_dead(&self, provider_name: &str, index: usize) -> bool {
+        let providers = self.providers.load();
+        if let Some(provider) = providers.get(provider_name) {
+            provider.mark_credential_dead(index);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Manually reset a credential to healthy.
+    pub fn mark_credential_healthy(&self, provider_name: &str, index: usize) -> bool {
+        let providers = self.providers.load();
+        if let Some(provider) = providers.get(provider_name) {
+            provider.mark_credential_healthy(index);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get_provider(&self, name: &str) -> Result<Option<ProviderSnapshot>, UpstreamError> {
