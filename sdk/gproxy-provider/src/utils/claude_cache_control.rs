@@ -551,6 +551,9 @@ fn apply_cache_control_to_message_block(
             let Some(map) = blocks.get_mut(content_idx).and_then(Value::as_object_mut) else {
                 return false;
             };
+            if !is_cacheable_block(map) {
+                return false;
+            }
             if map.contains_key("cache_control") {
                 return false;
             }
@@ -561,6 +564,9 @@ fn apply_cache_control_to_message_block(
             if content_idx != 0 {
                 return false;
             }
+            if !is_cacheable_block(map) {
+                return false;
+            }
             if map.contains_key("cache_control") {
                 return false;
             }
@@ -568,6 +574,28 @@ fn apply_cache_control_to_message_block(
             true
         }
         _ => false,
+    }
+}
+
+/// Check if a content block can have cache_control applied.
+///
+/// Blocks that CANNOT be cached:
+/// - `thinking` blocks (must be cached indirectly via the assistant turn)
+/// - Sub-content blocks like `citations` (cache the top-level document instead)
+/// - Empty `text` blocks
+fn is_cacheable_block(block: &serde_json::Map<String, Value>) -> bool {
+    let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+    match block_type {
+        "thinking" => false,
+        "citation" | "citations" | "char_location" | "page_location" | "content_block_location" => false,
+        "text" => {
+            // Empty text blocks cannot be cached
+            block
+                .get("text")
+                .and_then(Value::as_str)
+                .is_some_and(|t| !t.is_empty())
+        }
+        _ => true,
     }
 }
 
