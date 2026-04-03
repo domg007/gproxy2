@@ -16,7 +16,7 @@ use crate::channel::{
 use crate::dispatch::DispatchTable;
 use crate::request::PreparedRequest;
 use crate::response::{UpstreamError, UpstreamResponse};
-use crate::retry::retry_with_credentials_max;
+use crate::retry::{RetryContext, retry_with_credentials};
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -240,16 +240,18 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
                 .collect();
 
             let max_retries = settings.max_retries_on_429();
-            let result = retry_with_credentials_max(
-                &self.channel,
-                &mut creds,
-                &settings,
-                &request,
-                affinity_hint.as_ref(),
-                &self.affinity_pool,
-                &self.round_robin_cursor,
-                max_retries,
-                client,
+            let result = retry_with_credentials(
+                RetryContext {
+                    channel: &self.channel,
+                    credentials: &mut creds,
+                    settings: &settings,
+                    request: &request,
+                    affinity_hint: affinity_hint.as_ref(),
+                    affinity_pool: &self.affinity_pool,
+                    round_robin_cursor: &self.round_robin_cursor,
+                    max_retries,
+                    http_client: client,
+                },
                 |req| crate::http_client::send_request(client, req),
             )
             .await;

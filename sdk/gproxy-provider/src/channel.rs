@@ -10,6 +10,10 @@ use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 
+/// Boxed future type for async OAuth methods.
+type OAuthFuture<'a, T> =
+    Pin<Box<dyn Future<Output = Result<Option<T>, UpstreamError>> + Send + 'a>>;
+
 /// Core abstraction for an upstream LLM API provider channel.
 ///
 /// Each channel (OpenAI, Anthropic, Gemini, etc.) implements this trait once.
@@ -100,7 +104,7 @@ pub trait Channel: Send + Sync + 'static {
         _client: &'a wreq::Client,
         _settings: &'a Self::Settings,
         _params: &'a BTreeMap<String, String>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<OAuthFlow>, UpstreamError>> + Send + 'a>> {
+    ) -> OAuthFuture<'a, OAuthFlow> {
         Box::pin(async { Ok(None) })
     }
 
@@ -109,14 +113,7 @@ pub trait Channel: Send + Sync + 'static {
         _client: &'a wreq::Client,
         _settings: &'a Self::Settings,
         _params: &'a BTreeMap<String, String>,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<Option<OAuthCredentialResult<Self::Credential>>, UpstreamError>,
-                > + Send
-                + 'a,
-        >,
-    > {
+    ) -> OAuthFuture<'a, OAuthCredentialResult<Self::Credential>> {
         Box::pin(async { Ok(None) })
     }
 }

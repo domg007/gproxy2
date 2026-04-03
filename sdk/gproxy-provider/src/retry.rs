@@ -7,8 +7,18 @@ use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError, UpstreamResponse};
 
-/// Default max retries per credential when 429 has no retry-after header.
-const DEFAULT_MAX_RETRIES_PER_CREDENTIAL: u32 = 5;
+/// Parameters for credential-rotating retry.
+pub struct RetryContext<'a, C: Channel> {
+    pub channel: &'a C,
+    pub credentials: &'a mut [(C::Credential, C::Health)],
+    pub settings: &'a C::Settings,
+    pub request: &'a PreparedRequest,
+    pub affinity_hint: Option<&'a CacheAffinityHint>,
+    pub affinity_pool: &'a CacheAffinityPool,
+    pub round_robin_cursor: &'a AtomicUsize,
+    pub max_retries: u32,
+    pub http_client: &'a wreq::Client,
+}
 
 /// Retry a request across multiple credentials.
 ///
@@ -22,14 +32,7 @@ const DEFAULT_MAX_RETRIES_PER_CREDENTIAL: u32 = 5;
 ///
 /// The caller provides a `send` closure that performs the actual HTTP request.
 pub async fn retry_with_credentials<C, F, Fut>(
-    channel: &C,
-    credentials: &mut [(C::Credential, C::Health)],
-    settings: &C::Settings,
-    request: &PreparedRequest,
-    affinity_hint: Option<&CacheAffinityHint>,
-    affinity_pool: &CacheAffinityPool,
-    round_robin_cursor: &AtomicUsize,
-    http_client: &wreq::Client,
+    ctx: RetryContext<'_, C>,
     send: F,
 ) -> Result<UpstreamResponse, UpstreamError>
 where
@@ -37,7 +40,7 @@ where
     F: Fn(http::Request<Vec<u8>>) -> Fut,
     Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
 {
-    retry_with_credentials_max(
+    let RetryContext {
         channel,
         credentials,
         settings,
@@ -45,31 +48,10 @@ where
         affinity_hint,
         affinity_pool,
         round_robin_cursor,
-        DEFAULT_MAX_RETRIES_PER_CREDENTIAL,
+        max_retries,
         http_client,
-        send,
-    )
-    .await
-}
+    } = ctx;
 
-/// Same as [`retry_with_credentials`] with configurable max retries.
-pub async fn retry_with_credentials_max<C, F, Fut>(
-    channel: &C,
-    credentials: &mut [(C::Credential, C::Health)],
-    settings: &C::Settings,
-    request: &PreparedRequest,
-    affinity_hint: Option<&CacheAffinityHint>,
-    affinity_pool: &CacheAffinityPool,
-    round_robin_cursor: &AtomicUsize,
-    max_retries: u32,
-    http_client: &wreq::Client,
-    send: F,
-) -> Result<UpstreamResponse, UpstreamError>
-where
-    C: Channel,
-    F: Fn(http::Request<Vec<u8>>) -> Fut,
-    Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
-{
     let model = request.model.as_deref();
 
     // Filter to eligible credentials

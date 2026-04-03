@@ -254,14 +254,12 @@ async fn resolve_geminicli_project_id(
 ) -> Result<String, UpstreamError> {
     if let Some(payload) =
         load_geminicli_code_assist(client, access_token, base_url, project_id).await?
-    {
-        if let Some(project) = payload
+        && let Some(project) = payload
             .get("cloudaicompanionProject")
             .and_then(parse_project_id_value)
         {
             return Ok(project);
         }
-    }
 
     if let Some(project) =
         onboard_geminicli_project(client, access_token, base_url, "legacy-tier", project_id).await?
