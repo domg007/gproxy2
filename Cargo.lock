@@ -1796,30 +1796,19 @@ dependencies = [
 name = "gproxy-api"
 version = "1.0.0"
 dependencies = [
- "arc-swap",
- "async-stream",
  "axum",
- "base64 0.22.1",
- "ed25519-dalek",
- "futures-util",
+ "bytes",
  "gproxy-sdk",
  "gproxy-server",
  "gproxy-storage",
+ "http",
  "sea-orm",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "thiserror 2.0.18",
- "time",
  "tokio",
- "tokio-tungstenite 0.29.0",
- "toml",
  "tower",
- "url",
  "uuid",
- "wreq",
- "wreq-util",
- "zip",
 ]
 
 [[package]]
