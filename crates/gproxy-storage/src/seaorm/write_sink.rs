@@ -31,33 +31,60 @@ impl SeaOrmStorage {
         }
         let txn = self.db.begin().await?;
 
-        // --- Deletes (dependency order) ---
-        for id in &batch.credential_statuses_delete {
-            credential_statuses::Entity::delete_by_id(*id).exec(&txn).await?;
+        // --- Batch deletes (dependency order, single query per table) ---
+        if !batch.credential_statuses_delete.is_empty() {
+            credential_statuses::Entity::delete_many()
+                .filter(credential_statuses::Column::Id.is_in(batch.credential_statuses_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.credentials_delete {
-            credentials::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.credentials_delete.is_empty() {
+            credentials::Entity::delete_many()
+                .filter(credentials::Column::Id.is_in(batch.credentials_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.providers_delete {
-            providers::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.providers_delete.is_empty() {
+            providers::Entity::delete_many()
+                .filter(providers::Column::Id.is_in(batch.providers_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.user_keys_delete {
-            user_keys::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.user_keys_delete.is_empty() {
+            user_keys::Entity::delete_many()
+                .filter(user_keys::Column::Id.is_in(batch.user_keys_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.users_delete {
-            users::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.users_delete.is_empty() {
+            users::Entity::delete_many()
+                .filter(users::Column::Id.is_in(batch.users_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.models_delete {
-            models::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.models_delete.is_empty() {
+            models::Entity::delete_many()
+                .filter(models::Column::Id.is_in(batch.models_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.model_aliases_delete {
-            model_aliases::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.model_aliases_delete.is_empty() {
+            model_aliases::Entity::delete_many()
+                .filter(model_aliases::Column::Id.is_in(batch.model_aliases_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.user_model_permissions_delete {
-            user_model_permissions::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.user_model_permissions_delete.is_empty() {
+            user_model_permissions::Entity::delete_many()
+                .filter(user_model_permissions::Column::Id.is_in(batch.user_model_permissions_delete))
+                .exec(&txn)
+                .await?;
         }
-        for id in &batch.user_rate_limits_delete {
-            user_rate_limits::Entity::delete_by_id(*id).exec(&txn).await?;
+        if !batch.user_rate_limits_delete.is_empty() {
+            user_rate_limits::Entity::delete_many()
+                .filter(user_rate_limits::Column::Id.is_in(batch.user_rate_limits_delete))
+                .exec(&txn)
+                .await?;
         }
 
         // --- Upserts ---
