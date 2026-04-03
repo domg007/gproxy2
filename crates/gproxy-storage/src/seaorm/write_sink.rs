@@ -1,1 +1,516 @@
+use std::future::Future;
+use std::pin::Pin;
 
+use sea_orm::*;
+use sea_orm::sea_query::OnConflict;
+use time::OffsetDateTime;
+
+use crate::seaorm::SeaOrmStorage;
+use crate::seaorm::entities::*;
+use crate::write::*;
+
+const UPSERT_CHUNK_SIZE: usize = 256;
+
+impl StorageWriteSink for SeaOrmStorage {
+    fn write_batch<'a>(
+        &'a self,
+        batch: StorageWriteBatch,
+    ) -> Pin<Box<dyn Future<Output = Result<(), StorageWriteSinkError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.apply_batch(batch)
+                .await
+                .map_err(|e| StorageWriteSinkError::new(e.to_string()))
+        })
+    }
+}
+
+impl SeaOrmStorage {
+    async fn apply_batch(&self, batch: StorageWriteBatch) -> Result<(), DbErr> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin().await?;
+
+        // --- Deletes (dependency order) ---
+        for id in &batch.credential_statuses_delete {
+            credential_statuses::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.credentials_delete {
+            credentials::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.providers_delete {
+            providers::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.user_keys_delete {
+            user_keys::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.users_delete {
+            users::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.models_delete {
+            models::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.model_aliases_delete {
+            model_aliases::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.user_model_permissions_delete {
+            user_model_permissions::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+        for id in &batch.user_rate_limits_delete {
+            user_rate_limits::Entity::delete_by_id(*id).exec(&txn).await?;
+        }
+
+        // --- Upserts ---
+
+        // Global settings
+        if let Some(gs) = batch.global_settings {
+            let admin_key = self.encrypt_string_for_write(&gs.admin_key);
+            let now = OffsetDateTime::now_utc();
+            let model = global_settings::ActiveModel {
+                id: Set(1),
+                host: Set(gs.host),
+                port: Set(gs.port as i32),
+                admin_key: Set(admin_key),
+                proxy: Set(gs.proxy),
+                spoof_emulation: Set(Some(gs.spoof_emulation)),
+                update_source: Set(Some(gs.update_source)),
+                dsn: Set(gs.dsn),
+                data_dir: Set(gs.data_dir),
+                mask_sensitive_info: Set(gs.mask_sensitive_info),
+                updated_at: Set(now),
+            };
+            global_settings::Entity::insert(model)
+                .on_conflict(
+                    OnConflict::column(global_settings::Column::Id)
+                        .update_columns([
+                            global_settings::Column::Host,
+                            global_settings::Column::Port,
+                            global_settings::Column::AdminKey,
+                            global_settings::Column::Proxy,
+                            global_settings::Column::SpoofEmulation,
+                            global_settings::Column::UpdateSource,
+                            global_settings::Column::Dsn,
+                            global_settings::Column::DataDir,
+                            global_settings::Column::MaskSensitiveInfo,
+                            global_settings::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Providers
+        for chunk in batch.providers_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<providers::ActiveModel> = chunk.iter().map(|p| {
+                let settings = serde_json::from_str(&p.settings_json).unwrap_or_default();
+                let dispatch = serde_json::from_str(&p.dispatch_json).unwrap_or_default();
+                let now = OffsetDateTime::now_utc();
+                providers::ActiveModel {
+                    id: Set(p.id),
+                    name: Set(p.name.clone()),
+                    channel: Set(p.channel.clone()),
+                    settings_json: Set(settings),
+                    dispatch_json: Set(dispatch),
+                    enabled: Set(p.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            providers::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::column(providers::Column::Id)
+                        .update_columns([
+                            providers::Column::Name,
+                            providers::Column::Channel,
+                            providers::Column::SettingsJson,
+                            providers::Column::DispatchJson,
+                            providers::Column::Enabled,
+                            providers::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Credentials
+        for chunk in batch.credentials_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<credentials::ActiveModel> = chunk.iter().map(|c| {
+                let secret: serde_json::Value = serde_json::from_str(&c.secret_json).unwrap_or_default();
+                let encrypted = self.encrypt_json_for_write(&secret);
+                let now = OffsetDateTime::now_utc();
+                credentials::ActiveModel {
+                    id: Set(c.id),
+                    provider_id: Set(c.provider_id),
+                    name: Set(c.name.clone()),
+                    kind: Set(c.kind.clone()),
+                    secret_json: Set(encrypted),
+                    enabled: Set(c.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            credentials::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::column(credentials::Column::Id)
+                        .update_columns([
+                            credentials::Column::ProviderId,
+                            credentials::Column::Name,
+                            credentials::Column::Kind,
+                            credentials::Column::SecretJson,
+                            credentials::Column::Enabled,
+                            credentials::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Credential statuses
+        for chunk in batch.credential_statuses_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<credential_statuses::ActiveModel> = chunk.iter().map(|s| {
+                let health_json = s.health_json.as_deref().and_then(|j| serde_json::from_str(j).ok());
+                let checked_at = s.checked_at_unix_ms.map(unix_ms_to_datetime);
+                let now = OffsetDateTime::now_utc();
+                credential_statuses::ActiveModel {
+                    id: Set(s.id.unwrap_or_default()),
+                    credential_id: Set(s.credential_id),
+                    channel: Set(s.channel.clone()),
+                    health_kind: Set(s.health_kind.clone()),
+                    health_json: Set(health_json),
+                    checked_at: Set(checked_at),
+                    last_error: Set(s.last_error.clone()),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            credential_statuses::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::columns([credential_statuses::Column::CredentialId, credential_statuses::Column::Channel])
+                        .update_columns([
+                            credential_statuses::Column::HealthKind,
+                            credential_statuses::Column::HealthJson,
+                            credential_statuses::Column::CheckedAt,
+                            credential_statuses::Column::LastError,
+                            credential_statuses::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Users
+        for chunk in batch.users_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<users::ActiveModel> = chunk.iter().map(|u| {
+                let password = self.encrypt_string_for_write(&u.password);
+                let now = OffsetDateTime::now_utc();
+                users::ActiveModel {
+                    id: Set(u.id),
+                    name: Set(u.name.clone()),
+                    password: Set(Some(password)),
+                    enabled: Set(u.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            users::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::column(users::Column::Id)
+                        .update_columns([
+                            users::Column::Name,
+                            users::Column::Password,
+                            users::Column::Enabled,
+                            users::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // User keys
+        for chunk in batch.user_keys_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<user_keys::ActiveModel> = chunk.iter().map(|k| {
+                let api_key = self.encrypt_string_for_write(&k.api_key);
+                let now = OffsetDateTime::now_utc();
+                user_keys::ActiveModel {
+                    id: Set(k.id),
+                    user_id: Set(k.user_id),
+                    api_key: Set(api_key),
+                    label: Set(k.label.clone()),
+                    enabled: Set(k.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            user_keys::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::column(user_keys::Column::Id)
+                        .update_columns([
+                            user_keys::Column::UserId,
+                            user_keys::Column::ApiKey,
+                            user_keys::Column::Label,
+                            user_keys::Column::Enabled,
+                            user_keys::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Models
+        for chunk in batch.models_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let items: Vec<models::ActiveModel> = chunk.iter().map(|m| {
+                let now = OffsetDateTime::now_utc();
+                models::ActiveModel {
+                    id: Set(m.id),
+                    provider_id: Set(m.provider_id),
+                    model_id: Set(m.model_id.clone()),
+                    display_name: Set(m.display_name.clone()),
+                    enabled: Set(m.enabled),
+                    price_input_tokens: Set(m.price_input_tokens),
+                    price_output_tokens: Set(m.price_output_tokens),
+                    price_cache_read_input_tokens: Set(m.price_cache_read_input_tokens),
+                    price_cache_creation_input_tokens: Set(m.price_cache_creation_input_tokens),
+                    price_cache_creation_input_tokens_5min: Set(m.price_cache_creation_input_tokens_5min),
+                    price_cache_creation_input_tokens_1h: Set(m.price_cache_creation_input_tokens_1h),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            models::Entity::insert_many(items)
+                .on_conflict(
+                    OnConflict::column(models::Column::Id)
+                        .update_columns([
+                            models::Column::ProviderId,
+                            models::Column::ModelId,
+                            models::Column::DisplayName,
+                            models::Column::Enabled,
+                            models::Column::PriceInputTokens,
+                            models::Column::PriceOutputTokens,
+                            models::Column::PriceCacheReadInputTokens,
+                            models::Column::PriceCacheCreationInputTokens,
+                            models::Column::PriceCacheCreationInputTokens5min,
+                            models::Column::PriceCacheCreationInputTokens1h,
+                            models::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Model aliases
+        for chunk in batch.model_aliases_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let items: Vec<model_aliases::ActiveModel> = chunk.iter().map(|a| {
+                let now = OffsetDateTime::now_utc();
+                model_aliases::ActiveModel {
+                    id: Set(a.id),
+                    alias: Set(a.alias.clone()),
+                    provider_id: Set(a.provider_id),
+                    model_id: Set(a.model_id.clone()),
+                    enabled: Set(a.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            model_aliases::Entity::insert_many(items)
+                .on_conflict(
+                    OnConflict::column(model_aliases::Column::Id)
+                        .update_columns([
+                            model_aliases::Column::Alias,
+                            model_aliases::Column::ProviderId,
+                            model_aliases::Column::ModelId,
+                            model_aliases::Column::Enabled,
+                            model_aliases::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // User model permissions
+        for chunk in batch.user_model_permissions_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let items: Vec<user_model_permissions::ActiveModel> = chunk.iter().map(|p| {
+                let now = OffsetDateTime::now_utc();
+                user_model_permissions::ActiveModel {
+                    id: Set(p.id),
+                    user_id: Set(p.user_id),
+                    provider_id: Set(p.provider_id),
+                    model_pattern: Set(p.model_pattern.clone()),
+                    created_at: Set(now),
+                }
+            }).collect();
+            user_model_permissions::Entity::insert_many(items)
+                .on_conflict(
+                    OnConflict::column(user_model_permissions::Column::Id)
+                        .update_columns([
+                            user_model_permissions::Column::UserId,
+                            user_model_permissions::Column::ProviderId,
+                            user_model_permissions::Column::ModelPattern,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // User rate limits
+        for chunk in batch.user_rate_limits_upsert.values().collect::<Vec<_>>().chunks(UPSERT_CHUNK_SIZE) {
+            let items: Vec<user_rate_limits::ActiveModel> = chunk.iter().map(|r| {
+                let now = OffsetDateTime::now_utc();
+                user_rate_limits::ActiveModel {
+                    id: Set(r.id),
+                    user_id: Set(r.user_id),
+                    model_pattern: Set(r.model_pattern.clone()),
+                    rpm: Set(r.rpm),
+                    rpd: Set(r.rpd),
+                    total_tokens: Set(r.total_tokens),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+            }).collect();
+            user_rate_limits::Entity::insert_many(items)
+                .on_conflict(
+                    OnConflict::column(user_rate_limits::Column::Id)
+                        .update_columns([
+                            user_rate_limits::Column::UserId,
+                            user_rate_limits::Column::ModelPattern,
+                            user_rate_limits::Column::Rpm,
+                            user_rate_limits::Column::Rpd,
+                            user_rate_limits::Column::TotalTokens,
+                            user_rate_limits::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // User quotas
+        for q in batch.user_quotas_upsert.values() {
+            let now = OffsetDateTime::now_utc();
+            let model = user_token_usage::ActiveModel {
+                id: Set(0), // auto-increment, overwritten by upsert
+                user_id: Set(q.user_id),
+                tokens_used: Set(q.tokens_used),
+                cost_used: Set(q.cost_used),
+                updated_at: Set(now),
+            };
+            user_token_usage::Entity::insert(model)
+                .on_conflict(
+                    OnConflict::column(user_token_usage::Column::UserId)
+                        .update_columns([
+                            user_token_usage::Column::TokensUsed,
+                            user_token_usage::Column::CostUsed,
+                            user_token_usage::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Downstream requests (insert only, no update)
+        for chunk in batch.downstream_requests_upsert.chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<downstream_requests::ActiveModel> = chunk.iter().map(|r| {
+                let headers: serde_json::Value = serde_json::from_str(&r.request_headers_json).unwrap_or_default();
+                let resp_headers: serde_json::Value = serde_json::from_str(&r.response_headers_json).unwrap_or_default();
+                downstream_requests::ActiveModel {
+                    trace_id: Set(r.trace_id),
+                    at: Set(unix_ms_to_datetime(r.at_unix_ms)),
+                    internal: Set(r.internal),
+                    user_id: Set(r.user_id),
+                    user_key_id: Set(r.user_key_id),
+                    request_method: Set(r.request_method.clone()),
+                    request_headers_json: Set(headers),
+                    request_path: Set(r.request_path.clone()),
+                    request_query: Set(r.request_query.clone()),
+                    request_body: Set(r.request_body.clone()),
+                    response_status: Set(r.response_status),
+                    response_headers_json: Set(resp_headers),
+                    response_body: Set(r.response_body.clone()),
+                    created_at: Set(OffsetDateTime::now_utc()),
+                }
+            }).collect();
+            downstream_requests::Entity::insert_many(models).exec(&txn).await?;
+        }
+
+        // Upstream requests (insert only)
+        for chunk in batch.upstream_requests_upsert.chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<upstream_requests::ActiveModel> = chunk.iter().map(|r| {
+                let headers: serde_json::Value = serde_json::from_str(&r.request_headers_json).unwrap_or_default();
+                let resp_headers: serde_json::Value = serde_json::from_str(&r.response_headers_json).unwrap_or_default();
+                upstream_requests::ActiveModel {
+                    downstream_trace_id: Set(r.downstream_trace_id),
+                    at: Set(unix_ms_to_datetime(r.at_unix_ms)),
+                    internal: Set(r.internal),
+                    provider_id: Set(r.provider_id),
+                    credential_id: Set(r.credential_id),
+                    request_method: Set(r.request_method.clone()),
+                    request_headers_json: Set(headers),
+                    request_url: Set(r.request_url.clone()),
+                    request_body: Set(r.request_body.clone()),
+                    response_status: Set(r.response_status),
+                    response_headers_json: Set(resp_headers),
+                    response_body: Set(r.response_body.clone()),
+                    created_at: Set(OffsetDateTime::now_utc()),
+                    ..Default::default()
+                }
+            }).collect();
+            upstream_requests::Entity::insert_many(models).exec(&txn).await?;
+        }
+
+        // Usages (insert only)
+        for chunk in batch.usages_upsert.chunks(UPSERT_CHUNK_SIZE) {
+            let models: Vec<usages::ActiveModel> = chunk.iter().map(|u| {
+                usages::ActiveModel {
+                    downstream_trace_id: Set(u.downstream_trace_id),
+                    at: Set(unix_ms_to_datetime(u.at_unix_ms)),
+                    provider_id: Set(u.provider_id),
+                    credential_id: Set(u.credential_id),
+                    user_id: Set(u.user_id),
+                    user_key_id: Set(u.user_key_id),
+                    operation: Set(u.operation.clone()),
+                    protocol: Set(u.protocol.clone()),
+                    model: Set(u.model.clone()),
+                    input_tokens: Set(u.input_tokens),
+                    output_tokens: Set(u.output_tokens),
+                    cache_read_input_tokens: Set(u.cache_read_input_tokens),
+                    cache_creation_input_tokens: Set(u.cache_creation_input_tokens),
+                    cache_creation_input_tokens_5min: Set(u.cache_creation_input_tokens_5min),
+                    cache_creation_input_tokens_1h: Set(u.cache_creation_input_tokens_1h),
+                    created_at: Set(OffsetDateTime::now_utc()),
+                    ..Default::default()
+                }
+            }).collect();
+            usages::Entity::insert_many(models).exec(&txn).await?;
+        }
+
+        txn.commit().await?;
+        Ok(())
+    }
+
+    fn encrypt_string_for_write(&self, plaintext: &str) -> String {
+        match &self.cipher {
+            Some(cipher) => cipher.encrypt_string(plaintext).unwrap_or_else(|_| plaintext.to_string()),
+            None => plaintext.to_string(),
+        }
+    }
+
+    fn encrypt_json_for_write(&self, value: &serde_json::Value) -> serde_json::Value {
+        match &self.cipher {
+            Some(cipher) => cipher.encrypt_json(value).unwrap_or_else(|_| value.clone()),
+            None => value.clone(),
+        }
+    }
+}
+
+fn unix_ms_to_datetime(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(ms as i128 * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
