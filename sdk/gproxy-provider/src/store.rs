@@ -16,8 +16,8 @@ use crate::channel::{
 use crate::dispatch::DispatchTable;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
-use crate::response::{UpstreamError, UpstreamResponse};
-use crate::retry::{RetryContext, retry_with_credentials};
+use crate::response::{UpstreamError, UpstreamResponse, UpstreamStreamingResponse};
+use crate::retry::{RetryContext, retry_with_credentials, retry_with_credentials_stream};
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -67,6 +67,11 @@ pub(crate) struct ProviderExecuteResult {
     pub credential_updates: Vec<CredentialUpdate>,
 }
 
+pub(crate) struct ProviderExecuteStreamResult {
+    pub response: UpstreamStreamingResponse,
+    pub credential_updates: Vec<CredentialUpdate>,
+}
+
 pub(crate) trait ProviderRuntime: Send + Sync {
     fn dispatch_table(&self) -> &DispatchTable;
 
@@ -88,6 +93,14 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         client: &'a wreq::Client,
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>>;
+
+    fn execute_stream<'a>(
+        &'a self,
+        request: PreparedRequest,
+        affinity_hint: Option<CacheAffinityHint>,
+        client: &'a wreq::Client,
+        spoof_client: Option<&'a wreq::Client>,
+    ) -> BoxFuture<'a, Result<ProviderExecuteStreamResult, UpstreamError>>;
 
     fn snapshot(&self) -> Result<ProviderSnapshot, UpstreamError>;
 
@@ -218,6 +231,59 @@ impl<C: Channel> ProviderInstance<C> {
                 .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))?,
         })
     }
+
+    fn prepare_retry_state(
+        &self,
+    ) -> (
+        Arc<Vec<C::Credential>>,
+        u64,
+        Vec<(C::Credential, C::Health)>,
+        u32,
+    ) {
+        let settings = self.settings.load_full();
+        let credentials_snapshot = self.credentials.load_full();
+        let revision = self
+            .credential_revision
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let health_snapshot = self.align_health_len(credentials_snapshot.len());
+        let creds: Vec<(C::Credential, C::Health)> = credentials_snapshot
+            .iter()
+            .cloned()
+            .zip(health_snapshot)
+            .collect();
+        let max_retries = settings.max_retries_on_429();
+        (credentials_snapshot, revision, creds, max_retries)
+    }
+
+    fn finalize_credentials(
+        &self,
+        credentials_snapshot: &Arc<Vec<C::Credential>>,
+        revision: u64,
+        creds: &[(C::Credential, C::Health)],
+    ) -> Result<Vec<CredentialUpdate>, UpstreamError> {
+        let updated_health: Vec<C::Health> =
+            creds.iter().map(|(_, health)| health.clone()).collect();
+        self.store_health_if_snapshot_unchanged(credentials_snapshot, updated_health, revision);
+
+        let mut credential_updates = Vec::new();
+        for (index, ((updated_credential, _), original_credential)) in
+            creds.iter().zip(credentials_snapshot.iter()).enumerate()
+        {
+            let original_json = serde_json::to_value(original_credential)
+                .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))?;
+            let updated_json = serde_json::to_value(updated_credential)
+                .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))?;
+            if original_json != updated_json {
+                credential_updates.push(CredentialUpdate {
+                    provider: self.name.clone(),
+                    index,
+                    revision,
+                    credential: updated_json,
+                });
+            }
+        }
+        Ok(credential_updates)
+    }
 }
 
 impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
@@ -251,24 +317,13 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>> {
         Box::pin(async move {
-            let settings = self.settings.load_full();
-            let credentials_snapshot = self.credentials.load_full();
-            let revision = self
-                .credential_revision
-                .load(std::sync::atomic::Ordering::SeqCst);
-            let health_snapshot = self.align_health_len(credentials_snapshot.len());
-            let mut creds: Vec<(C::Credential, C::Health)> = credentials_snapshot
-                .iter()
-                .cloned()
-                .zip(health_snapshot)
-                .collect();
-
-            let max_retries = settings.max_retries_on_429();
+            let (credentials_snapshot, revision, mut creds, max_retries) =
+                self.prepare_retry_state();
             let result = retry_with_credentials(
                 RetryContext {
                     channel: &self.channel,
                     credentials: &mut creds,
-                    settings: &settings,
+                    settings: &self.settings.load_full(),
                     request: &request,
                     affinity_hint: affinity_hint.as_ref(),
                     affinity_pool: &self.affinity_pool,
@@ -284,33 +339,48 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
             )
             .await;
 
-            let updated_health: Vec<C::Health> =
-                creds.iter().map(|(_, health)| health.clone()).collect();
-            self.store_health_if_snapshot_unchanged(
-                &credentials_snapshot,
-                updated_health,
-                revision,
-            );
-
-            let mut credential_updates = Vec::new();
-            for (index, ((updated_credential, _), original_credential)) in
-                creds.iter().zip(credentials_snapshot.iter()).enumerate()
-            {
-                let original_json = serde_json::to_value(original_credential)
-                    .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))?;
-                let updated_json = serde_json::to_value(updated_credential)
-                    .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))?;
-                if original_json != updated_json {
-                    credential_updates.push(CredentialUpdate {
-                        provider: self.name.clone(),
-                        index,
-                        revision,
-                        credential: updated_json,
-                    });
-                }
-            }
-
+            let credential_updates =
+                self.finalize_credentials(&credentials_snapshot, revision, &creds)?;
             result.map(|response| ProviderExecuteResult {
+                response,
+                credential_updates,
+            })
+        })
+    }
+
+    fn execute_stream<'a>(
+        &'a self,
+        request: PreparedRequest,
+        affinity_hint: Option<CacheAffinityHint>,
+        client: &'a wreq::Client,
+        spoof_client: Option<&'a wreq::Client>,
+    ) -> BoxFuture<'a, Result<ProviderExecuteStreamResult, UpstreamError>> {
+        Box::pin(async move {
+            let (credentials_snapshot, revision, mut creds, max_retries) =
+                self.prepare_retry_state();
+            let result = retry_with_credentials_stream(
+                RetryContext {
+                    channel: &self.channel,
+                    credentials: &mut creds,
+                    settings: &self.settings.load_full(),
+                    request: &request,
+                    affinity_hint: affinity_hint.as_ref(),
+                    affinity_pool: &self.affinity_pool,
+                    round_robin_cursor: &self.round_robin_cursor,
+                    max_retries,
+                    http_client: client,
+                    spoof_client,
+                },
+                |c, req| {
+                    let c = c.clone();
+                    async move { crate::http_client::send_request_stream(&c, req).await }
+                },
+            )
+            .await;
+
+            let credential_updates =
+                self.finalize_credentials(&credentials_snapshot, revision, &creds)?;
+            result.map(|response| ProviderExecuteStreamResult {
                 response,
                 credential_updates,
             })

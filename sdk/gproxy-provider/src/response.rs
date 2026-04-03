@@ -1,9 +1,29 @@
+use std::pin::Pin;
+
+use bytes::Bytes;
+use futures_util::Stream;
+
 /// Upstream response from a channel.
 #[derive(Debug)]
 pub struct UpstreamResponse {
     pub status: u16,
     pub headers: http::HeaderMap,
     pub body: Vec<u8>,
+}
+
+pub type UpstreamBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, UpstreamError>> + Send>>;
+
+/// Upstream response whose body should be forwarded incrementally.
+pub struct UpstreamStreamingResponse {
+    pub status: u16,
+    pub headers: http::HeaderMap,
+    pub body: UpstreamBodyStream,
+}
+
+/// Transport-level response used by retry logic.
+pub enum RetryableUpstreamResponse {
+    Buffered(UpstreamResponse),
+    Streaming(UpstreamStreamingResponse),
 }
 
 /// Classification of an upstream response for retry decisions.

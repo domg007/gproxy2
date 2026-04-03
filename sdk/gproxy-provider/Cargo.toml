@@ -30,10 +30,12 @@ custom = []
 
 [dependencies]
 gproxy-protocol = { workspace = true }
+async-stream = { workspace = true }
 arc-swap = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
+futures-util = { workspace = true }
 getrandom = { workspace = true }
 http = { workspace = true }
 inventory = { workspace = true }

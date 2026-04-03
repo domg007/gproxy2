@@ -1,3 +1,8 @@
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::response::UpstreamError;
 
 /// Transform a request body from one (operation, protocol) to another.
@@ -113,6 +118,12 @@ pub fn transform_request(
                 gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
             >(&body)
         }
+        ("stream_generate_content", "claude", "stream_generate_content", "gemini_ndjson") => {
+            transform_json_ref::<
+                gproxy_protocol::claude::create_message::request::ClaudeCreateMessageRequest,
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+            >(&body)
+        }
         ("stream_generate_content", "claude", "stream_generate_content", "openai_chat_completions") => {
             transform_json_ref::<
                 gproxy_protocol::claude::create_message::request::ClaudeCreateMessageRequest,
@@ -133,13 +144,31 @@ pub fn transform_request(
                 gproxy_protocol::claude::create_message::request::ClaudeCreateMessageRequest,
             >(&body)
         }
+        ("stream_generate_content", "gemini_ndjson", "stream_generate_content", "claude") => {
+            transform_json::<
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+                gproxy_protocol::claude::create_message::request::ClaudeCreateMessageRequest,
+            >(&body)
+        }
         ("stream_generate_content", "gemini", "stream_generate_content", "openai_chat_completions") => {
             transform_json::<
                 gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
                 gproxy_protocol::openai::create_chat_completions::request::OpenAiChatCompletionsRequest,
             >(&body)
         }
+        ("stream_generate_content", "gemini_ndjson", "stream_generate_content", "openai_chat_completions") => {
+            transform_json::<
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+                gproxy_protocol::openai::create_chat_completions::request::OpenAiChatCompletionsRequest,
+            >(&body)
+        }
         ("stream_generate_content", "gemini", "stream_generate_content", "openai_response") => {
+            transform_json::<
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+                gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
+            >(&body)
+        }
+        ("stream_generate_content", "gemini_ndjson", "stream_generate_content", "openai_response") => {
             transform_json::<
                 gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
                 gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
@@ -159,6 +188,12 @@ pub fn transform_request(
                 gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
             >(&body)
         }
+        ("stream_generate_content", "openai_chat_completions", "stream_generate_content", "gemini_ndjson") => {
+            transform_json_ref::<
+                gproxy_protocol::openai::create_chat_completions::request::OpenAiChatCompletionsRequest,
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+            >(&body)
+        }
 
         // --- OpenAI Response source ---
         ("stream_generate_content", "openai_response", "stream_generate_content", "claude") => {
@@ -168,6 +203,12 @@ pub fn transform_request(
             >(&body)
         }
         ("stream_generate_content", "openai_response", "stream_generate_content", "gemini") => {
+            transform_json_ref::<
+                gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
+                gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
+            >(&body)
+        }
+        ("stream_generate_content", "openai_response", "stream_generate_content", "gemini_ndjson") => {
             transform_json_ref::<
                 gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
                 gproxy_protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest,
@@ -682,7 +723,7 @@ pub fn transform_response(
         }
 
         _ => Err(UpstreamError::Channel(format!(
-            "no response transform for ({}, {}) -> ({}, {})",
+            "no response transform from upstream ({}, {}) to client ({}, {})",
             dst_operation, dst_protocol, src_operation, src_protocol
         ))),
     }
@@ -721,6 +762,779 @@ where
 
     serde_json::to_vec(&dst)
         .map_err(|e| UpstreamError::Channel(format!("response serialize: {}", e)))
+}
+
+pub type StreamChunkNormalizer = Arc<dyn Fn(Vec<u8>) -> Vec<u8> + Send + Sync>;
+
+pub struct StreamResponseTransformer {
+    decoder: StreamChunkDecoder,
+    inner: Box<dyn StreamChunkTransform>,
+    normalizer: Option<StreamChunkNormalizer>,
+}
+
+impl StreamResponseTransformer {
+    pub fn push_chunk(&mut self, chunk: &[u8]) -> Result<Vec<u8>, UpstreamError> {
+        let mut json_chunks = Vec::new();
+        self.decoder.push_chunk(chunk, &mut json_chunks);
+        self.process_json_chunks(json_chunks)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<u8>, UpstreamError> {
+        let mut json_chunks = Vec::new();
+        self.decoder.finish(&mut json_chunks);
+        let mut out = self.process_json_chunks(json_chunks)?;
+        self.inner.finish(&mut out)?;
+        Ok(out)
+    }
+
+    fn process_json_chunks(&mut self, json_chunks: Vec<Vec<u8>>) -> Result<Vec<u8>, UpstreamError> {
+        let mut out = Vec::new();
+        for chunk in json_chunks {
+            let chunk = if let Some(normalizer) = &self.normalizer {
+                normalizer(chunk)
+            } else {
+                chunk
+            };
+            if chunk.is_empty() {
+                continue;
+            }
+            self.inner.on_json_chunk(&chunk, &mut out)?;
+        }
+        Ok(out)
+    }
+}
+
+trait StreamChunkTransform: Send {
+    fn on_json_chunk(&mut self, chunk: &[u8], out: &mut Vec<u8>) -> Result<(), UpstreamError>;
+    fn finish(&mut self, out: &mut Vec<u8>) -> Result<(), UpstreamError>;
+}
+
+trait EventConverter<Input, Output>: Send {
+    fn on_input(&mut self, input: Input, out: &mut Vec<Output>) -> Result<(), UpstreamError>;
+    fn finish(&mut self, out: &mut Vec<Output>) -> Result<(), UpstreamError>;
+}
+
+struct TypedStreamTransform<Input, Output, Converter> {
+    converter: Converter,
+    encoder: StreamChunkEncoder,
+    _marker: PhantomData<(Input, Output)>,
+}
+
+impl<Input, Output, Converter> StreamChunkTransform
+    for TypedStreamTransform<Input, Output, Converter>
+where
+    Input: DeserializeOwned + Send + 'static,
+    Output: Serialize + Send + 'static,
+    Converter: EventConverter<Input, Output> + Send + 'static,
+{
+    fn on_json_chunk(&mut self, chunk: &[u8], out: &mut Vec<u8>) -> Result<(), UpstreamError> {
+        let input: Input = serde_json::from_slice(chunk)
+            .map_err(|e| UpstreamError::Channel(format!("stream chunk deserialize failed: {e}")))?;
+        let mut events = Vec::new();
+        self.converter.on_input(input, &mut events)?;
+        self.encoder.encode_events(&events, out)
+    }
+
+    fn finish(&mut self, out: &mut Vec<u8>) -> Result<(), UpstreamError> {
+        let mut events = Vec::new();
+        self.converter.finish(&mut events)?;
+        self.encoder.encode_events(&events, out)?;
+        self.encoder.finish(out);
+        Ok(())
+    }
+}
+
+enum StreamChunkDecoder {
+    Sse(gproxy_protocol::stream::SseToNdjsonRewriter),
+    Ndjson(Vec<u8>),
+}
+
+impl StreamChunkDecoder {
+    fn from_protocol(protocol: &str) -> Result<Self, UpstreamError> {
+        match protocol {
+            "claude" | "openai_chat_completions" | "openai_response" | "gemini" => Ok(Self::Sse(
+                gproxy_protocol::stream::SseToNdjsonRewriter::default(),
+            )),
+            "gemini_ndjson" => Ok(Self::Ndjson(Vec::new())),
+            _ => Err(UpstreamError::Channel(format!(
+                "unsupported stream input protocol: {protocol}"
+            ))),
+        }
+    }
+
+    fn push_chunk(&mut self, chunk: &[u8], out: &mut Vec<Vec<u8>>) {
+        match self {
+            Self::Sse(rewriter) => {
+                let converted = rewriter.push_chunk(chunk);
+                split_json_lines(&converted, out);
+            }
+            Self::Ndjson(pending) => {
+                pending.extend_from_slice(chunk);
+                drain_json_lines(pending, out);
+            }
+        }
+    }
+
+    fn finish(&mut self, out: &mut Vec<Vec<u8>>) {
+        match self {
+            Self::Sse(rewriter) => {
+                let converted = rewriter.finish();
+                split_json_lines(&converted, out);
+            }
+            Self::Ndjson(pending) => {
+                if pending.is_empty() {
+                    return;
+                }
+                let mut line = std::mem::take(pending);
+                if line.last().copied() == Some(b'\r') {
+                    line.pop();
+                }
+                if !line.is_empty() {
+                    out.push(line);
+                }
+            }
+        }
+    }
+}
+
+enum StreamChunkEncoder {
+    Sse { append_done_marker: bool },
+    Ndjson,
+}
+
+impl StreamChunkEncoder {
+    fn from_protocol(protocol: &str) -> Result<Self, UpstreamError> {
+        match protocol {
+            "claude" | "openai_response" | "gemini" => Ok(Self::Sse {
+                append_done_marker: false,
+            }),
+            "openai_chat_completions" => Ok(Self::Sse {
+                append_done_marker: true,
+            }),
+            "gemini_ndjson" => Ok(Self::Ndjson),
+            _ => Err(UpstreamError::Channel(format!(
+                "unsupported stream output protocol: {protocol}"
+            ))),
+        }
+    }
+
+    fn encode_events<T: Serialize>(
+        &self,
+        events: &[T],
+        out: &mut Vec<u8>,
+    ) -> Result<(), UpstreamError> {
+        for event in events {
+            let json = serde_json::to_vec(event).map_err(|e| {
+                UpstreamError::Channel(format!("stream chunk serialize failed: {e}"))
+            })?;
+            match self {
+                Self::Sse { .. } => {
+                    out.extend_from_slice(b"data: ");
+                    out.extend_from_slice(&json);
+                    out.extend_from_slice(b"\n\n");
+                }
+                Self::Ndjson => {
+                    out.extend_from_slice(&json);
+                    out.push(b'\n');
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(&self, out: &mut Vec<u8>) {
+        if let Self::Sse {
+            append_done_marker: true,
+        } = self
+        {
+            out.extend_from_slice(b"data: [DONE]\n\n");
+        }
+    }
+}
+
+use gproxy_protocol::stream::{drain_lines as drain_json_lines, split_lines as split_json_lines};
+
+struct IdentityConverter<T>(PhantomData<T>);
+
+impl<T> Default for IdentityConverter<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: Send> EventConverter<T, T> for IdentityConverter<T> {
+    fn on_input(&mut self, input: T, out: &mut Vec<T>) -> Result<(), UpstreamError> {
+        out.push(input);
+        Ok(())
+    }
+
+    fn finish(&mut self, _out: &mut Vec<T>) -> Result<(), UpstreamError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct OpenAiChatToClaudeConverter(
+    gproxy_protocol::transform::claude::stream_generate_content::openai_chat_completions::response::OpenAiChatCompletionsToClaudeStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+    > for OpenAiChatToClaudeConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_chunk(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct GeminiToClaudeConverter(
+    gproxy_protocol::transform::claude::stream_generate_content::gemini::response::GeminiToClaudeStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+    > for GeminiToClaudeConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_chunk(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct OpenAiResponseToClaudeConverter(
+    gproxy_protocol::transform::claude::stream_generate_content::openai_response::response::OpenAiResponseToClaudeStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+    > for OpenAiResponseToClaudeConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_stream_event(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct ClaudeToOpenAiChatConverter(
+    gproxy_protocol::transform::openai::stream_generate_content::openai_chat_completions::claude::response::ClaudeToOpenAiChatCompletionsStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+    > for ClaudeToOpenAiChatConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        out: &mut Vec<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        >,
+    ) -> Result<(), UpstreamError> {
+        self.0
+            .on_event(input, out)
+            .map_err(|e| UpstreamError::Channel(format!("stream transform failed: {e}")))
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        >,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct GeminiToOpenAiChatConverter(
+    gproxy_protocol::transform::openai::stream_generate_content::openai_chat_completions::gemini::response::GeminiToOpenAiChatCompletionsStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+    > for GeminiToOpenAiChatConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        out: &mut Vec<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        >,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_chunk(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        >,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct ClaudeToOpenAiResponseConverter(
+    gproxy_protocol::transform::openai::stream_generate_content::openai_response::claude::response::ClaudeToOpenAiResponseStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+    > for ClaudeToOpenAiResponseConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        out: &mut Vec<gproxy_protocol::openai::create_response::stream::ResponseStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0
+            .on_event(input, out)
+            .map_err(|e| UpstreamError::Channel(format!("stream transform failed: {e}")))
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::openai::create_response::stream::ResponseStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct GeminiToOpenAiResponseConverter(
+    gproxy_protocol::transform::openai::stream_generate_content::openai_response::gemini::response::GeminiToOpenAiResponseStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+    > for GeminiToOpenAiResponseConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        out: &mut Vec<gproxy_protocol::openai::create_response::stream::ResponseStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_chunk(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::openai::create_response::stream::ResponseStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct ClaudeToGeminiConverter(
+    gproxy_protocol::transform::gemini::stream_generate_content::claude::response::ClaudeToGeminiStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+    > for ClaudeToGeminiConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+        out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        self.0
+            .on_event(input, out)
+            .map_err(|e| UpstreamError::Channel(format!("stream transform failed: {e}")))
+    }
+
+    fn finish(
+        &mut self,
+        _out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct OpenAiChatToGeminiConverter(
+    gproxy_protocol::transform::gemini::stream_generate_content::openai_chat_completions::response::OpenAiChatCompletionsToGeminiStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+    > for OpenAiChatToGeminiConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+        out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_chunk(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct OpenAiResponseToGeminiConverter(
+    gproxy_protocol::transform::gemini::stream_generate_content::openai_response::response::OpenAiResponseToGeminiStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+    > for OpenAiResponseToGeminiConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_stream_event(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
+fn build_stream_transform<Input, Output, Converter>(
+    src_protocol: &str,
+    dst_protocol: &str,
+    converter: Converter,
+    normalizer: Option<StreamChunkNormalizer>,
+) -> Result<StreamResponseTransformer, UpstreamError>
+where
+    Input: DeserializeOwned + Send + 'static,
+    Output: Serialize + Send + 'static,
+    Converter: EventConverter<Input, Output> + Send + 'static,
+{
+    Ok(StreamResponseTransformer {
+        decoder: StreamChunkDecoder::from_protocol(dst_protocol)?,
+        inner: Box::new(TypedStreamTransform::<Input, Output, Converter> {
+            converter,
+            encoder: StreamChunkEncoder::from_protocol(src_protocol)?,
+            _marker: PhantomData,
+        }),
+        normalizer,
+    })
+}
+
+pub fn create_stream_response_transformer(
+    src_operation: &str,
+    src_protocol: &str,
+    dst_operation: &str,
+    dst_protocol: &str,
+    normalizer: Option<StreamChunkNormalizer>,
+) -> Result<StreamResponseTransformer, UpstreamError> {
+    let key = (src_operation, src_protocol, dst_operation, dst_protocol);
+
+    match key {
+        ("stream_generate_content", "claude", "stream_generate_content", "claude") => {
+            build_stream_transform::<
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                IdentityConverter<
+                    gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                >,
+            >(
+                src_protocol,
+                dst_protocol,
+                IdentityConverter::default(),
+                normalizer,
+            )
+        }
+        (
+            "stream_generate_content",
+            "openai_chat_completions",
+            "stream_generate_content",
+            "openai_chat_completions",
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            IdentityConverter<
+                gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            >,
+        >(
+            src_protocol,
+            dst_protocol,
+            IdentityConverter::default(),
+            normalizer,
+        ),
+        (
+            "stream_generate_content",
+            "openai_response",
+            "stream_generate_content",
+            "openai_response",
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            IdentityConverter<
+                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            >,
+        >(
+            src_protocol,
+            dst_protocol,
+            IdentityConverter::default(),
+            normalizer,
+        ),
+        ("stream_generate_content", "gemini", "stream_generate_content", "gemini")
+        | ("stream_generate_content", "gemini", "stream_generate_content", "gemini_ndjson")
+        | ("stream_generate_content", "gemini_ndjson", "stream_generate_content", "gemini")
+        | (
+            "stream_generate_content",
+            "gemini_ndjson",
+            "stream_generate_content",
+            "gemini_ndjson",
+        ) => build_stream_transform::<
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            IdentityConverter<gproxy_protocol::gemini::generate_content::response::ResponseBody>,
+        >(
+            src_protocol,
+            dst_protocol,
+            IdentityConverter::default(),
+            normalizer,
+        ),
+
+        (
+            "stream_generate_content",
+            "claude",
+            "stream_generate_content",
+            "openai_chat_completions",
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            OpenAiChatToClaudeConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            OpenAiChatToClaudeConverter::default(),
+            normalizer,
+        ),
+        ("stream_generate_content", "claude", "stream_generate_content", "openai_response") => {
+            build_stream_transform::<
+                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                OpenAiResponseToClaudeConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                OpenAiResponseToClaudeConverter::default(),
+                normalizer,
+            )
+        }
+        ("stream_generate_content", "claude", "stream_generate_content", "gemini")
+        | ("stream_generate_content", "claude", "stream_generate_content", "gemini_ndjson") => {
+            build_stream_transform::<
+                gproxy_protocol::gemini::generate_content::response::ResponseBody,
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                GeminiToClaudeConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                GeminiToClaudeConverter::default(),
+                normalizer,
+            )
+        }
+
+        (
+            "stream_generate_content",
+            "openai_chat_completions",
+            "stream_generate_content",
+            "claude",
+        ) => build_stream_transform::<
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            ClaudeToOpenAiChatConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            ClaudeToOpenAiChatConverter::default(),
+            normalizer,
+        ),
+        (
+            "stream_generate_content",
+            "openai_chat_completions",
+            "stream_generate_content",
+            "gemini",
+        )
+        | (
+            "stream_generate_content",
+            "openai_chat_completions",
+            "stream_generate_content",
+            "gemini_ndjson",
+        ) => build_stream_transform::<
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            GeminiToOpenAiChatConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            GeminiToOpenAiChatConverter::default(),
+            normalizer,
+        ),
+
+        ("stream_generate_content", "openai_response", "stream_generate_content", "claude") => {
+            build_stream_transform::<
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+                ClaudeToOpenAiResponseConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                ClaudeToOpenAiResponseConverter::default(),
+                normalizer,
+            )
+        }
+        ("stream_generate_content", "openai_response", "stream_generate_content", "gemini")
+        | (
+            "stream_generate_content",
+            "openai_response",
+            "stream_generate_content",
+            "gemini_ndjson",
+        ) => build_stream_transform::<
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            GeminiToOpenAiResponseConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            GeminiToOpenAiResponseConverter::default(),
+            normalizer,
+        ),
+
+        ("stream_generate_content", "gemini", "stream_generate_content", "claude")
+        | ("stream_generate_content", "gemini_ndjson", "stream_generate_content", "claude") => {
+            build_stream_transform::<
+                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+                gproxy_protocol::gemini::generate_content::response::ResponseBody,
+                ClaudeToGeminiConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                ClaudeToGeminiConverter::default(),
+                normalizer,
+            )
+        }
+        (
+            "stream_generate_content",
+            "gemini",
+            "stream_generate_content",
+            "openai_chat_completions",
+        )
+        | (
+            "stream_generate_content",
+            "gemini_ndjson",
+            "stream_generate_content",
+            "openai_chat_completions",
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk,
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            OpenAiChatToGeminiConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            OpenAiChatToGeminiConverter::default(),
+            normalizer,
+        ),
+        ("stream_generate_content", "gemini", "stream_generate_content", "openai_response")
+        | (
+            "stream_generate_content",
+            "gemini_ndjson",
+            "stream_generate_content",
+            "openai_response",
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            OpenAiResponseToGeminiConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            OpenAiResponseToGeminiConverter::default(),
+            normalizer,
+        ),
+
+        _ => Err(UpstreamError::Channel(format!(
+            "no stream response transform from upstream ({}, {}) to client ({}, {})",
+            dst_operation, dst_protocol, src_operation, src_protocol
+        ))),
+    }
 }
 
 // =====================================================================

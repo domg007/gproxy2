@@ -5,8 +5,78 @@ use crate::affinity::{CacheAffinityHint, CacheAffinityPool};
 use crate::channel::Channel;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
-use crate::response::{ResponseClassification, UpstreamError, UpstreamResponse};
+use crate::response::{
+    ResponseClassification, RetryableUpstreamResponse, UpstreamError, UpstreamResponse,
+    UpstreamStreamingResponse,
+};
 use tracing::Instrument;
+
+// ---------------------------------------------------------------------------
+// RetryableResult trait — abstracts buffered vs streaming response handling
+// ---------------------------------------------------------------------------
+
+/// Action determined after inspecting a raw upstream response.
+enum RetryAction<T> {
+    /// 2xx streaming — return immediately, body cannot be inspected.
+    ImmediateSuccess { status: u16, output: T },
+    /// Body is buffered and can be classified for retry decisions.
+    Classifiable(UpstreamResponse),
+}
+
+/// Abstracts over buffered (`UpstreamResponse`) and streaming
+/// (`RetryableUpstreamResponse`) so the retry loop can be written once.
+trait RetryableResult: Sized {
+    /// The caller's final success type.
+    type Output;
+
+    /// Inspect the raw response and decide whether it's an immediate success
+    /// (streaming 2xx) or needs classification.
+    fn into_retry_action(self) -> RetryAction<Self::Output>;
+
+    /// Wrap a fully-buffered response into the caller's output type.
+    /// Used for Success and PermanentError paths after classification.
+    fn wrap_buffered(response: UpstreamResponse) -> Self::Output;
+}
+
+impl RetryableResult for UpstreamResponse {
+    type Output = UpstreamResponse;
+
+    fn into_retry_action(self) -> RetryAction<Self::Output> {
+        RetryAction::Classifiable(self)
+    }
+
+    fn wrap_buffered(response: UpstreamResponse) -> Self::Output {
+        response
+    }
+}
+
+impl RetryableResult for RetryableUpstreamResponse {
+    type Output = UpstreamStreamingResponse;
+
+    fn into_retry_action(self) -> RetryAction<Self::Output> {
+        match self {
+            RetryableUpstreamResponse::Streaming(s) => RetryAction::ImmediateSuccess {
+                status: s.status,
+                output: s,
+            },
+            RetryableUpstreamResponse::Buffered(b) => RetryAction::Classifiable(b),
+        }
+    }
+
+    fn wrap_buffered(response: UpstreamResponse) -> Self::Output {
+        UpstreamStreamingResponse {
+            status: response.status,
+            headers: response.headers,
+            body: Box::pin(futures_util::stream::once(async move {
+                Ok(bytes::Bytes::from(response.body))
+            })),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /// Parameters for credential-rotating retry.
 pub struct RetryContext<'a, C: Channel> {
@@ -50,19 +120,42 @@ where
         credentials = ctx.credentials.len(),
         max_retries = ctx.max_retries,
     );
-    retry_with_credentials_inner(ctx, send)
-        .instrument(span)
-        .await
+    retry_common_inner(ctx, send).instrument(span).await
 }
 
-async fn retry_with_credentials_inner<C, F, Fut>(
+/// Retry a request across multiple credentials while preserving successful
+/// upstream bodies as a stream.
+pub async fn retry_with_credentials_stream<C, F, Fut>(
     ctx: RetryContext<'_, C>,
     send: F,
-) -> Result<UpstreamResponse, UpstreamError>
+) -> Result<UpstreamStreamingResponse, UpstreamError>
 where
     C: Channel,
     F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
-    Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
+    Fut: std::future::Future<Output = Result<RetryableUpstreamResponse, UpstreamError>>,
+{
+    let span = tracing::info_span!(
+        "retry_with_credentials_stream",
+        model = ctx.request.model.as_deref().unwrap_or(""),
+        credentials = ctx.credentials.len(),
+        max_retries = ctx.max_retries,
+    );
+    retry_common_inner(ctx, send).instrument(span).await
+}
+
+// ---------------------------------------------------------------------------
+// Unified retry loop
+// ---------------------------------------------------------------------------
+
+async fn retry_common_inner<C, F, Fut, R>(
+    ctx: RetryContext<'_, C>,
+    send: F,
+) -> Result<R::Output, UpstreamError>
+where
+    C: Channel,
+    F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
+    Fut: std::future::Future<Output = Result<R, UpstreamError>>,
+    R: RetryableResult,
 {
     let RetryContext {
         channel,
@@ -133,7 +226,7 @@ where
                 "sending upstream request"
             );
             let send_start = std::time::Instant::now();
-            let response = match send(active_client, http_request).await {
+            let raw_response = match send(active_client, http_request).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     tracing::warn!(credential = idx, %method, %uri, error = %e, "upstream request failed");
@@ -142,8 +235,26 @@ where
                 }
             };
 
-            // Classify response
             let latency_ms = send_start.elapsed().as_millis() as u64;
+
+            // Determine if this is an immediate success (streaming 2xx) or needs classification
+            let response = match raw_response.into_retry_action() {
+                RetryAction::ImmediateSuccess { status, output } => {
+                    tracing::info!(
+                        credential = idx,
+                        status,
+                        latency_ms,
+                        "upstream response received"
+                    );
+                    let (_, health) = &mut credentials[idx];
+                    health.record_success(model);
+                    bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
+                    return Ok(output);
+                }
+                RetryAction::Classifiable(resp) => resp,
+            };
+
+            // Classify buffered response
             tracing::info!(
                 credential = idx,
                 status = response.status,
@@ -157,15 +268,8 @@ where
             match classification {
                 ResponseClassification::Success => {
                     health.record_success(model);
-                    if let Some(hint) = affinity_hint {
-                        affinity_pool.bind(&hint.bind.key, idx, hint.bind.ttl_ms);
-                        if let Some(matched_idx) = matched_affinity_idx
-                            && let Some(hit) = hint.candidates.get(matched_idx)
-                        {
-                            affinity_pool.bind(&hit.key, idx, hit.ttl_ms);
-                        }
-                    }
-                    return Ok(response);
+                    bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
+                    return Ok(R::wrap_buffered(response));
                 }
                 ResponseClassification::AuthDead => {
                     tracing::warn!(
@@ -174,7 +278,6 @@ where
                         model = model.unwrap_or(""),
                         "credential auth dead, attempting refresh"
                     );
-                    // Try refreshing the credential (OAuth token exchange, etc.)
                     let (credential, health) = &mut credentials[idx];
                     let refreshed = channel
                         .refresh_credential(http_client, credential)
@@ -182,45 +285,52 @@ where
                         .unwrap_or(false);
 
                     if refreshed {
-                        // Retry once with the refreshed credential
-                        let retry_request = match channel
-                            .prepare_request(credential, settings, request)
-                        {
-                            Ok(req) => req,
-                            Err(e) => {
-                                tracing::warn!(credential = idx, error = %e, "failed to prepare request after refresh");
-                                last_error = Some(e);
-                                break;
-                            }
-                        };
+                        let retry_request =
+                            match channel.prepare_request(credential, settings, request) {
+                                Ok(req) => req,
+                                Err(e) => {
+                                    tracing::warn!(credential = idx, error = %e, "failed to prepare request after refresh");
+                                    last_error = Some(e);
+                                    break;
+                                }
+                            };
 
                         match send(active_client, retry_request).await {
-                            Ok(retry_response) => {
-                                let retry_class = channel.classify_response(
-                                    retry_response.status,
-                                    &retry_response.headers,
-                                    &retry_response.body,
-                                );
-                                if matches!(retry_class, ResponseClassification::Success) {
+                            Ok(raw_retry) => match raw_retry.into_retry_action() {
+                                RetryAction::ImmediateSuccess { output, .. } => {
                                     health.record_success(model);
-                                    if let Some(hint) = affinity_hint {
-                                        affinity_pool.bind(&hint.bind.key, idx, hint.bind.ttl_ms);
-                                        if let Some(matched_idx) = matched_affinity_idx
-                                            && let Some(hit) = hint.candidates.get(matched_idx)
-                                        {
-                                            affinity_pool.bind(&hit.key, idx, hit.ttl_ms);
-                                        }
-                                    }
-                                    return Ok(retry_response);
+                                    bind_affinity(
+                                        affinity_pool,
+                                        affinity_hint,
+                                        idx,
+                                        matched_affinity_idx,
+                                    );
+                                    return Ok(output);
                                 }
-                                // Still failing after refresh — mark dead
-                                health.record_error(retry_response.status, model, None);
-                                tracing::warn!(
-                                    credential = idx,
-                                    status = retry_response.status,
-                                    "credential still dead after refresh"
-                                );
-                            }
+                                RetryAction::Classifiable(retry_response) => {
+                                    let retry_class = channel.classify_response(
+                                        retry_response.status,
+                                        &retry_response.headers,
+                                        &retry_response.body,
+                                    );
+                                    if matches!(retry_class, ResponseClassification::Success) {
+                                        health.record_success(model);
+                                        bind_affinity(
+                                            affinity_pool,
+                                            affinity_hint,
+                                            idx,
+                                            matched_affinity_idx,
+                                        );
+                                        return Ok(R::wrap_buffered(retry_response));
+                                    }
+                                    health.record_error(retry_response.status, model, None);
+                                    tracing::warn!(
+                                        credential = idx,
+                                        status = retry_response.status,
+                                        "credential still dead after refresh"
+                                    );
+                                }
+                            },
                             Err(e) => {
                                 tracing::warn!(credential = idx, error = %e, "upstream request failed after refresh");
                                 last_error = Some(e);
@@ -234,17 +344,11 @@ where
                             "credential auth dead, refresh not available"
                         );
                     }
-                    if let Some(matched_idx) = matched_affinity_idx
-                        && let Some(hint) = affinity_hint
-                        && let Some(hit) = hint.candidates.get(matched_idx)
-                    {
-                        affinity_pool.clear(&hit.key);
-                    }
+                    clear_affinity(affinity_pool, affinity_hint, matched_affinity_idx);
                     break;
                 }
                 ResponseClassification::RateLimited { retry_after_ms } => {
                     if retry_after_ms.is_some() {
-                        // Has retry-after: cooldown this credential, move to next
                         health.record_error(response.status, model, retry_after_ms);
                         tracing::warn!(
                             credential = idx,
@@ -253,15 +357,9 @@ where
                             model = model.unwrap_or(""),
                             "rate limited with retry-after, switching credential"
                         );
-                        if let Some(matched_idx) = matched_affinity_idx
-                            && let Some(hint) = affinity_hint
-                            && let Some(hit) = hint.candidates.get(matched_idx)
-                        {
-                            affinity_pool.clear(&hit.key);
-                        }
+                        clear_affinity(affinity_pool, affinity_hint, matched_affinity_idx);
                         break;
                     }
-                    // No retry-after: retry same credential up to max_retries
                     attempts += 1;
                     if attempts >= max_retries {
                         health.record_error(response.status, model, None);
@@ -273,12 +371,7 @@ where
                             model = model.unwrap_or(""),
                             "rate limited, retries exhausted"
                         );
-                        if let Some(matched_idx) = matched_affinity_idx
-                            && let Some(hint) = affinity_hint
-                            && let Some(hit) = hint.candidates.get(matched_idx)
-                        {
-                            affinity_pool.clear(&hit.key);
-                        }
+                        clear_affinity(affinity_pool, affinity_hint, matched_affinity_idx);
                         break;
                     }
                     tracing::info!(
@@ -298,22 +391,50 @@ where
                         model = model.unwrap_or(""),
                         "transient error"
                     );
-                    if let Some(matched_idx) = matched_affinity_idx
-                        && let Some(hint) = affinity_hint
-                        && let Some(hit) = hint.candidates.get(matched_idx)
-                    {
-                        affinity_pool.clear(&hit.key);
-                    }
+                    clear_affinity(affinity_pool, affinity_hint, matched_affinity_idx);
                     break;
                 }
                 ResponseClassification::PermanentError => {
-                    return Ok(response);
+                    return Ok(R::wrap_buffered(response));
                 }
             }
         }
     }
 
     Err(last_error.unwrap_or(UpstreamError::AllCredentialsExhausted))
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn bind_affinity(
+    pool: &CacheAffinityPool,
+    hint: Option<&CacheAffinityHint>,
+    idx: usize,
+    matched_affinity_idx: Option<usize>,
+) {
+    if let Some(hint) = hint {
+        pool.bind(&hint.bind.key, idx, hint.bind.ttl_ms);
+        if let Some(matched_idx) = matched_affinity_idx
+            && let Some(hit) = hint.candidates.get(matched_idx)
+        {
+            pool.bind(&hit.key, idx, hit.ttl_ms);
+        }
+    }
+}
+
+fn clear_affinity(
+    pool: &CacheAffinityPool,
+    hint: Option<&CacheAffinityHint>,
+    matched_affinity_idx: Option<usize>,
+) {
+    if let Some(matched_idx) = matched_affinity_idx
+        && let Some(hint) = hint
+        && let Some(hit) = hint.candidates.get(matched_idx)
+    {
+        pool.clear(&hit.key);
+    }
 }
 
 fn build_remaining_candidates(eligible: &[usize], round_robin_cursor: &AtomicUsize) -> Vec<usize> {

@@ -34,12 +34,15 @@ pub mod utils;
 
 pub use channel::{Channel, ChannelCredential, ChannelSettings, OAuthFlow};
 pub use dispatch::DispatchTable;
-pub use engine::{ExecuteRequest, ExecuteResult, GproxyEngine, ProviderConfig, Usage};
+pub use engine::{ExecuteBody, ExecuteRequest, ExecuteResult, GproxyEngine, ProviderConfig, Usage};
 pub use health::CredentialHealth;
 pub use provider::ProviderDefinition;
 pub use registry::{ChannelRegistration, ChannelRegistry};
 pub use request::PreparedRequest;
-pub use response::{ResponseClassification, UpstreamError, UpstreamResponse};
+pub use response::{
+    ResponseClassification, RetryableUpstreamResponse, UpstreamError, UpstreamResponse,
+    UpstreamStreamingResponse,
+};
 pub use store::{
     CredentialHealthSnapshot, CredentialSnapshot, CredentialUpdate, OAuthFinishResult,
     ProviderSnapshot, ProviderStore, ProviderStoreBuilder,

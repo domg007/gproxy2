@@ -1796,6 +1796,7 @@ dependencies = [
 name = "gproxy-api"
 version = "1.0.0"
 dependencies = [
+ "async-stream",
  "axum",
  "bytes",
  "futures-util",
@@ -1831,9 +1832,11 @@ name = "gproxy-provider"
 version = "1.0.0"
 dependencies = [
  "arc-swap",
+ "async-stream",
  "base64 0.22.1",
  "bytes",
  "dashmap",
+ "futures-util",
  "getrandom 0.4.2",
  "gproxy-protocol",
  "http",

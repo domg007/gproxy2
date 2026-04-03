@@ -11,6 +11,7 @@ repository.workspace = true
 gproxy-sdk = { workspace = true }
 gproxy-server = { workspace = true }
 gproxy-storage = { workspace = true }
+async-stream = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }

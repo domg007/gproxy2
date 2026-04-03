@@ -4,8 +4,9 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
+use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{ExecuteRequest, UpstreamWebSocket, WsMessage};
+use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsMessage};
 use gproxy_server::AppState;
 
 use crate::auth::authenticate_user;
@@ -159,7 +160,7 @@ async fn run_http_sse_fallback(
         // Read a client WS message
         let text = match downstream.recv().await {
             Some(Ok(Message::Text(t))) => t.to_string(),
-            Some(Ok(Message::Binary(b))) => String::from_utf8_lossy(&b).to_string(),
+            Some(Ok(Message::Binary(b))) => String::from_utf8_lossy(&b).into_owned(),
             Some(Ok(Message::Close(_))) | None => break,
             Some(Ok(Message::Ping(p))) => {
                 let _ = downstream.send(Message::Pong(p)).await;
@@ -203,20 +204,58 @@ async fn run_http_sse_fallback(
 
         match result {
             Ok(result) => {
-                // Parse SSE and forward each event as WS text message
-                let body_str = String::from_utf8_lossy(&result.body);
-                for line in body_str.lines() {
-                    let line = line.trim();
-                    if let Some(data) = line.strip_prefix("data:") {
-                        let data = data.trim();
-                        if !data.is_empty()
-                            && downstream
-                                .send(Message::Text(data.to_string().into()))
+                let mut decoder = gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
+
+                match result.body {
+                    ExecuteBody::Full(body) => {
+                        let mut chunks = Vec::new();
+                        chunks.extend(split_sse_events(&decoder.push_chunk(&body)));
+                        chunks.extend(split_sse_events(&decoder.finish()));
+                        for chunk in chunks {
+                            if downstream
+                                .send(Message::Text(
+                                    String::from_utf8_lossy(&chunk).into_owned().into(),
+                                ))
                                 .await
                                 .is_err()
                             {
                                 return Ok(());
                             }
+                        }
+                    }
+                    ExecuteBody::Stream(mut stream) => {
+                        while let Some(chunk) = stream.next().await {
+                            let chunk = match chunk {
+                                Ok(chunk) => chunk,
+                                Err(e) => {
+                                    send_ws_error(downstream, &e.to_string()).await;
+                                    return Ok(());
+                                }
+                            };
+                            for event in split_sse_events(&decoder.push_chunk(&chunk)) {
+                                if downstream
+                                    .send(Message::Text(
+                                        String::from_utf8_lossy(&event).into_owned().into(),
+                                    ))
+                                    .await
+                                    .is_err()
+                                {
+                                    return Ok(());
+                                }
+                            }
+                        }
+
+                        for event in split_sse_events(&decoder.finish()) {
+                            if downstream
+                                .send(Message::Text(
+                                    String::from_utf8_lossy(&event).into_owned().into(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                return Ok(());
+                            }
+                        }
                     }
                 }
             }
@@ -237,7 +276,7 @@ async fn send_ws_error(socket: &mut WebSocket, message: &str) {
             "message": message,
         }
     });
-    let _ = socket
-        .send(Message::Text(error.to_string().into()))
-        .await;
+    let _ = socket.send(Message::Text(error.to_string().into())).await;
 }
+
+use gproxy_sdk::protocol::stream::split_lines_owned as split_sse_events;

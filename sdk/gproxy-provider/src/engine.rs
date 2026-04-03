@@ -1,5 +1,10 @@
+use std::pin::Pin;
 use std::sync::Arc;
 
+use async_stream::try_stream;
+use bytes::Bytes;
+use futures_util::Stream;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
@@ -56,10 +61,17 @@ pub struct ExecuteRequest {
 pub struct ExecuteResult {
     pub status: u16,
     pub headers: http::HeaderMap,
-    pub body: Vec<u8>,
+    pub body: ExecuteBody,
     pub usage: Option<Usage>,
     pub meta: Option<UpstreamRequestMeta>,
     pub credential_updates: Vec<CredentialUpdate>,
+}
+
+pub type ExecuteBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, UpstreamError>> + Send>>;
+
+pub enum ExecuteBody {
+    Full(Vec<u8>),
+    Stream(ExecuteBodyStream),
 }
 
 /// Token usage extracted from upstream response.
@@ -166,17 +178,19 @@ impl GproxyEngineBuilder {
     pub fn configure_clients(self, proxy: Option<&str>, emulation: Option<&str>) -> Self {
         let mut client_builder = wreq::Client::builder();
         if let Some(proxy_url) = proxy
-            && let Ok(p) = wreq::Proxy::all(proxy_url) {
-                client_builder = client_builder.proxy(p);
-            }
+            && let Ok(p) = wreq::Proxy::all(proxy_url)
+        {
+            client_builder = client_builder.proxy(p);
+        }
         let client = client_builder.build().unwrap_or_default();
 
         let emu = parse_emulation(emulation.unwrap_or("chrome_136"));
         let mut spoof_builder = wreq::Client::builder().emulation(emu);
         if let Some(proxy_url) = proxy
-            && let Ok(p) = wreq::Proxy::all(proxy_url) {
-                spoof_builder = spoof_builder.proxy(p);
-            }
+            && let Ok(p) = wreq::Proxy::all(proxy_url)
+        {
+            spoof_builder = spoof_builder.proxy(p);
+        }
         let spoof = spoof_builder.build().unwrap_or_default();
 
         self.http_client(client).spoof_client(spoof)
@@ -320,12 +334,15 @@ impl GproxyEngine {
         path: &str,
         model: Option<&str>,
     ) -> Result<UpstreamWebSocket, UpstreamError> {
-        let span = tracing::info_span!("engine.connect_upstream_ws", provider = provider_name, path);
+        let span =
+            tracing::info_span!("engine.connect_upstream_ws", provider = provider_name, path);
         async {
             let provider = self.store.get_runtime(provider_name).ok_or_else(|| {
                 UpstreamError::Channel(format!("unknown provider: {provider_name}"))
             })?;
-            let snapshot = provider.snapshot().map_err(|e| UpstreamError::Channel(e.to_string()))?;
+            let snapshot = provider
+                .snapshot()
+                .map_err(|e| UpstreamError::Channel(e.to_string()))?;
             let base_url = snapshot
                 .settings
                 .get("base_url")
@@ -336,7 +353,11 @@ impl GproxyEngine {
             let creds = self.store.list_credentials(Some(provider_name))?;
             let token = creds
                 .first()
-                .and_then(|c| c.credential.get("access_token").or(c.credential.get("api_key")))
+                .and_then(|c| {
+                    c.credential
+                        .get("access_token")
+                        .or(c.credential.get("api_key"))
+                })
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
@@ -361,7 +382,9 @@ impl GproxyEngine {
 
             let status = response.status().as_u16();
             if status == 426 {
-                return Err(UpstreamError::Channel("upstream requires HTTP (426 Upgrade Required)".into()));
+                return Err(UpstreamError::Channel(
+                    "upstream requires HTTP (426 Upgrade Required)".into(),
+                ));
             }
 
             let ws = response
@@ -437,7 +460,11 @@ impl GproxyEngine {
             protocol = %request.protocol,
             model = request.model.as_deref().unwrap_or(""),
         );
-        self.execute_inner(request).instrument(span).await
+        if request.operation.starts_with("stream_") {
+            self.execute_stream_inner(request).instrument(span).await
+        } else {
+            self.execute_inner(request).instrument(span).await
+        }
     }
 
     async fn execute_inner(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
@@ -480,7 +507,7 @@ impl GproxyEngine {
                 return Ok(ExecuteResult {
                     status: 200,
                     headers: http::HeaderMap::new(),
-                    body,
+                    body: ExecuteBody::Full(body),
                     usage: None,
                     meta: None,
                     credential_updates: Vec::new(),
@@ -596,8 +623,172 @@ impl GproxyEngine {
         Ok(ExecuteResult {
             status: response.status,
             headers: response.headers,
-            body: response_body,
+            body: ExecuteBody::Full(response_body),
             usage,
+            meta,
+            credential_updates,
+        })
+    }
+
+    async fn execute_stream_inner(
+        &self,
+        request: ExecuteRequest,
+    ) -> Result<ExecuteResult, UpstreamError> {
+        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
+            tracing::warn!(provider = %request.provider, "unknown provider");
+            UpstreamError::Channel(format!("unknown provider: {}", request.provider))
+        })?;
+
+        let start = std::time::Instant::now();
+
+        let src_key = crate::dispatch::RouteKey::new(&request.operation, &request.protocol);
+        let route = provider
+            .dispatch_table()
+            .resolve(&src_key)
+            .ok_or_else(|| {
+                tracing::warn!(operation = %request.operation, protocol = %request.protocol, "route not found");
+                UpstreamError::Channel(format!(
+                    "unsupported route: ({}, {})",
+                    request.operation, request.protocol
+                ))
+            })?
+            .clone();
+
+        let (dst_op, dst_proto, needs_transform) = match &route {
+            crate::dispatch::RouteImplementation::Passthrough => {
+                (request.operation.clone(), request.protocol.clone(), false)
+            }
+            crate::dispatch::RouteImplementation::TransformTo { destination } => (
+                destination.operation.clone(),
+                destination.protocol.clone(),
+                true,
+            ),
+            crate::dispatch::RouteImplementation::Local => {
+                let body = provider
+                    .handle_local(&request.operation, &request.protocol, &request.body)
+                    .unwrap_or_else(|| {
+                        Err(UpstreamError::Channel("local route not implemented".into()))
+                    })?;
+                return Ok(ExecuteResult {
+                    status: 200,
+                    headers: http::HeaderMap::new(),
+                    body: ExecuteBody::Full(body),
+                    usage: None,
+                    meta: None,
+                    credential_updates: Vec::new(),
+                });
+            }
+            crate::dispatch::RouteImplementation::Unsupported => {
+                return Err(UpstreamError::Channel(format!(
+                    "unsupported: ({}, {})",
+                    request.operation, request.protocol
+                )));
+            }
+        };
+
+        let body = if needs_transform {
+            crate::transform_dispatch::transform_request(
+                &request.operation,
+                &request.protocol,
+                &dst_op,
+                &dst_proto,
+                request.body,
+            )?
+        } else {
+            request.body
+        };
+
+        let prepared = PreparedRequest {
+            method: http::Method::POST,
+            path: format!("/{}", dst_op),
+            model: request.model.clone(),
+            body,
+            headers: request.headers,
+        };
+        let prepared = provider.finalize_request(prepared)?;
+        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
+
+        let provider_result = provider
+            .execute_stream(
+                prepared.clone(),
+                affinity_hint,
+                &self.client,
+                self.spoof_client.as_ref(),
+            )
+            .await?;
+        let response = provider_result.response;
+        let credential_updates = provider_result.credential_updates;
+
+        let meta = if self.enable_upstream_log {
+            Some(UpstreamRequestMeta {
+                method: "POST".to_string(),
+                url: String::new(),
+                request_headers: Vec::new(),
+                request_body: None,
+                response_status: Some(response.status),
+                response_headers: response
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                    .collect(),
+                model: request.model.clone(),
+                latency_ms: start.elapsed().as_millis() as u64,
+                credential_index: None,
+            })
+        } else {
+            None
+        };
+
+        let body = if request.operation == "stream_generate_content" {
+            let transformer = crate::transform_dispatch::create_stream_response_transformer(
+                &request.operation,
+                &request.protocol,
+                &dst_op,
+                &dst_proto,
+                Some({
+                    let store = self.store.clone();
+                    let provider_name = request.provider.clone();
+                    let prepared = prepared.clone();
+                    Arc::new(move |body: Vec<u8>| {
+                        store
+                            .get_runtime(&provider_name)
+                            .map(|runtime| runtime.normalize_response(&prepared, body.clone()))
+                            .unwrap_or(body)
+                    })
+                }),
+            )?;
+
+            let mut upstream = response.body;
+            let stream = try_stream! {
+                let mut transformer = transformer;
+                while let Some(chunk) = upstream.next().await {
+                    let chunk = chunk?;
+                    let out = transformer.push_chunk(&chunk)?;
+                    if !out.is_empty() {
+                        yield Bytes::from(out);
+                    }
+                }
+
+                let tail = transformer.finish()?;
+                if !tail.is_empty() {
+                    yield Bytes::from(tail);
+                }
+            };
+            ExecuteBody::Stream(Box::pin(stream))
+        } else if needs_transform {
+            return Err(UpstreamError::Channel(format!(
+                "stream response transform not implemented for ({}, {}) -> ({}, {})",
+                dst_op, dst_proto, request.operation, request.protocol
+            )));
+        } else {
+            ExecuteBody::Stream(response.body)
+        };
+
+        Ok(ExecuteResult {
+            status: response.status,
+            headers: response.headers,
+            body,
+            usage: None,
             meta,
             credential_updates,
         })

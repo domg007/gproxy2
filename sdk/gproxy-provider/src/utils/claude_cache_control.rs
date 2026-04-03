@@ -587,7 +587,9 @@ fn is_cacheable_block(block: &serde_json::Map<String, Value>) -> bool {
     let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
     match block_type {
         "thinking" => false,
-        "citation" | "citations" | "char_location" | "page_location" | "content_block_location" => false,
+        "citation" | "citations" | "char_location" | "page_location" | "content_block_location" => {
+            false
+        }
         "text" => {
             // Empty text blocks cannot be cached
             block
