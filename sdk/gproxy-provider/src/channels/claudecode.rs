@@ -224,6 +224,10 @@ fn default_claudecode_platform_base_url() -> String {
     "https://platform.claude.com".to_string()
 }
 
+fn default_claudecode_claude_ai_base_url() -> String {
+    "https://claude.ai".to_string()
+}
+
 fn default_claudecode_device_id() -> String {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).expect("device_id entropy should be available");
@@ -247,6 +251,10 @@ pub struct ClaudeCodeSettings {
     /// Defaults to `https://platform.claude.com`.
     #[serde(default = "default_claudecode_platform_base_url")]
     pub platform_base_url: String,
+    /// Base URL for claude.ai (cookie auth, organization discovery).
+    /// Defaults to `https://claude.ai`.
+    #[serde(default = "default_claudecode_claude_ai_base_url")]
+    pub claude_ai_base_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,6 +270,7 @@ impl Default for ClaudeCodeSettings {
         Self {
             base_url: default_claudecode_base_url(),
             platform_base_url: default_claudecode_platform_base_url(),
+            claude_ai_base_url: default_claudecode_claude_ai_base_url(),
             user_agent: None,
             max_retries_on_429: None,
             enable_magic_cache: false,
@@ -763,6 +772,10 @@ impl Channel for ClaudeCodeChannel {
         CountStrategy::UpstreamApi
     }
 
+    fn needs_spoof_client(&self, credential: &Self::Credential) -> bool {
+        credential.cookie.as_ref().is_some_and(|c| !c.is_empty())
+    }
+
     fn prepare_quota_request(
         &self,
         credential: &Self::Credential,
@@ -784,7 +797,10 @@ impl Channel for ClaudeCodeChannel {
         let req = http::Request::builder()
             .method(http::Method::GET)
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .header("User-Agent", &user_agent)
@@ -802,27 +818,71 @@ impl Channel for ClaudeCodeChannel {
         let client = client.clone();
         let span = tracing::info_span!("refresh_credential", channel = "claudecode");
         async move {
-            if credential.refresh_token.is_empty() {
-                return Ok(false);
+            // Path 1: Standard OAuth refresh with refresh_token
+            if !credential.refresh_token.is_empty() {
+                match oauth2_refresh::refresh_oauth2_token(
+                    &client,
+                    "https://console.anthropic.com/v1/oauth/token",
+                    "",
+                    "",
+                    &credential.refresh_token,
+                )
+                .await
+                {
+                    Ok(result) => {
+                        credential.access_token = result.access_token;
+                        credential.expires_at_ms = result.expires_at_ms;
+                        if let Some(rt) = result.refresh_token {
+                            credential.refresh_token = rt;
+                        }
+                        tracing::info!("credential refreshed via token");
+                        return Ok(true);
+                    }
+                    Err(_) if credential.cookie.as_ref().is_some_and(|c| !c.is_empty()) => {
+                        tracing::info!("token refresh failed, falling back to cookie");
+                        // Fall through to cookie path
+                    }
+                    Err(e) => return Err(e),
+                }
             }
-            let result = oauth2_refresh::refresh_oauth2_token(
+
+            // Path 2: Cookie-to-token exchange (fallback)
+            let cookie = match &credential.cookie {
+                Some(c) if !c.is_empty() => c.clone(),
+                _ => return Ok(false),
+            };
+            let tokens = crate::utils::claudecode_cookie::exchange_tokens_with_cookie(
                 &client,
-                "https://console.anthropic.com/v1/oauth/token",
-                "",
-                "",
-                &credential.refresh_token,
+                &default_claudecode_base_url(),
+                &default_claudecode_claude_ai_base_url(),
+                &cookie,
             )
             .await?;
-            credential.access_token = result.access_token;
-            credential.expires_at_ms = result.expires_at_ms;
-            if let Some(rt) = result.refresh_token {
+            if let Some(at) = tokens.access_token {
+                credential.access_token = at;
+            }
+            if let Some(rt) = tokens.refresh_token {
                 credential.refresh_token = rt;
             }
-            tracing::info!("credential refreshed");
+            if let Some(exp) = tokens.expires_in {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                credential.expires_at_ms = now_ms.saturating_add(exp.saturating_mul(1000));
+            }
+            if let Some(st) = tokens.subscription_type {
+                credential.subscription_type = Some(st);
+            }
+            if let Some(rlt) = tokens.rate_limit_tier {
+                credential.rate_limit_tier = Some(rlt);
+            }
+            tracing::info!("credential refreshed via cookie exchange");
             Ok(true)
         }
         .instrument(span)
-    }    fn oauth_start<'a>(
+    }
+    fn oauth_start<'a>(
         &'a self,
         _client: &'a wreq::Client,
         settings: &'a Self::Settings,

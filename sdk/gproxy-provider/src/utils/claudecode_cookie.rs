@@ -1,0 +1,230 @@
+use crate::response::UpstreamError;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+const CLIENT_ID: &str = "9d1f0fda-6a57-4151-b8cc-4d1249413ce3";
+const OAUTH_SCOPE: &str = "openid email profile offline_access org:read user:inference";
+const DEFAULT_REDIRECT_URI: &str = "claude-cli://oauth/callback";
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct CookieTokenResponse {
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
+    pub subscription_type: Option<String>,
+    pub rate_limit_tier: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Exchange a Claude session cookie for OAuth tokens.
+///
+/// Flow: cookie → org discovery → authorization code → token exchange.
+/// Requires a spoof client (browser TLS fingerprint) to be accepted.
+pub(crate) async fn exchange_tokens_with_cookie(
+    client: &wreq::Client,
+    api_base_url: &str,
+    claude_ai_base_url: &str,
+    cookie: &str,
+) -> Result<CookieTokenResponse, UpstreamError> {
+    let api_base = api_base_url.trim_end_matches('/');
+    let ai_base = claude_ai_base_url.trim_end_matches('/');
+
+    // Step 1: Get organization UUID
+    let org_uuid = fetch_org_uuid(client, cookie, ai_base).await?;
+
+    // Step 2: Get authorization code with PKCE
+    let code_verifier = generate_code_verifier();
+    let code_challenge = generate_code_challenge(&code_verifier);
+    let state = crate::utils::oauth::generate_state();
+
+    let auth_url = format!("{api_base}/v1/oauth/{org_uuid}/authorize");
+    let payload = serde_json::json!({
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "organization_uuid": org_uuid,
+        "redirect_uri": DEFAULT_REDIRECT_URI,
+        "scope": OAUTH_SCOPE,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    });
+
+    let response = client
+        .post(&auth_url)
+        .headers(build_cookie_headers(cookie, ai_base)?)
+        .header("content-type", "application/json")
+        .body(serde_json::to_vec(&payload).unwrap_or_default())
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+    let auth_response: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| UpstreamError::Channel(format!("cookie auth response parse error: {e}")))?;
+
+    let redirect_uri = auth_response
+        .get("redirect_uri")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            UpstreamError::Channel("cookie auth: missing redirect_uri in response".into())
+        })?;
+    let code = extract_query_param(redirect_uri, "code").ok_or_else(|| {
+        UpstreamError::Channel("cookie auth: missing code in redirect_uri".into())
+    })?;
+
+    // Step 3: Exchange code for tokens
+    let token_url = format!("{api_base}/v1/oauth/token");
+    let token_body = format!(
+        "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
+        urlencoding(CLIENT_ID),
+        urlencoding(&code),
+        urlencoding(DEFAULT_REDIRECT_URI),
+        urlencoding(&code_verifier),
+    );
+
+    let token_response = client
+        .post(&token_url)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(token_body)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+
+    let token_bytes = token_response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+    let tokens: CookieTokenResponse = serde_json::from_slice(&token_bytes)
+        .map_err(|e| UpstreamError::Channel(format!("cookie token response parse error: {e}")))?;
+
+    if let Some(error) = &tokens.error {
+        return Err(UpstreamError::Channel(format!(
+            "cookie token exchange error: {error}"
+        )));
+    }
+
+    Ok(tokens)
+}
+
+async fn fetch_org_uuid(
+    client: &wreq::Client,
+    cookie: &str,
+    claude_ai_base_url: &str,
+) -> Result<String, UpstreamError> {
+    let bootstrap_url = format!("{claude_ai_base_url}/api/bootstrap");
+    let response = client
+        .get(&bootstrap_url)
+        .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+    let value: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| UpstreamError::Channel(format!("bootstrap parse error: {e}")))?;
+
+    // Try bootstrap response first
+    if let Some(org) = value
+        .get("account")
+        .and_then(|a| a.get("memberships"))
+        .and_then(|m| m.as_array())
+        .and_then(|arr| {
+            arr.iter().find_map(|m| {
+                m.get("organization")
+                    .and_then(|o| o.get("uuid"))
+                    .and_then(|u| u.as_str())
+                    .map(String::from)
+            })
+        })
+    {
+        return Ok(org);
+    }
+
+    // Fallback: try /api/organizations
+    let orgs_url = format!("{claude_ai_base_url}/api/organizations");
+    let response = client
+        .get(&orgs_url)
+        .headers(build_cookie_headers(cookie, claude_ai_base_url)?)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(e.to_string()))?;
+    let orgs: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| UpstreamError::Channel(format!("organizations parse error: {e}")))?;
+
+    orgs.as_array()
+        .and_then(|arr| {
+            arr.iter().find_map(|o| {
+                let caps = o.get("capabilities")?.as_array()?;
+                if caps.iter().any(|c| c.as_str() == Some("chat")) {
+                    o.get("uuid").and_then(|u| u.as_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or_else(|| UpstreamError::Channel("cookie auth: no chat-capable organization".into()))
+}
+
+fn build_cookie_headers(
+    cookie: &str,
+    claude_ai_base_url: &str,
+) -> Result<http::HeaderMap, UpstreamError> {
+    let mut headers = http::HeaderMap::new();
+    headers.insert(
+        "cookie",
+        http::HeaderValue::from_str(&format!("sessionKey={cookie}"))
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?,
+    );
+    let origin = claude_ai_base_url.trim_end_matches('/');
+    headers.insert(
+        "origin",
+        http::HeaderValue::from_str(origin)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?,
+    );
+    headers.insert(
+        "referer",
+        http::HeaderValue::from_str(&format!("{origin}/"))
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?,
+    );
+    headers.insert("cache-control", http::HeaderValue::from_static("no-cache"));
+    Ok(headers)
+}
+
+fn generate_code_verifier() -> String {
+    use rand::RngExt;
+    let bytes: Vec<u8> = (0..32).map(|_| rand::rng().random::<u8>()).collect();
+    base64_url_encode(&bytes)
+}
+
+fn generate_code_challenge(verifier: &str) -> String {
+    let digest = Sha256::digest(verifier.as_bytes());
+    base64_url_encode(&digest)
+}
+
+fn base64_url_encode(data: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
+}
+
+fn urlencoding(s: &str) -> String {
+    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
+fn extract_query_param(url: &str, key: &str) -> Option<String> {
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k == key).then(|| v.to_string())
+    })
+}

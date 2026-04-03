@@ -74,6 +74,7 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
         client: &'a wreq::Client,
+        spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>>;
 
     fn snapshot(&self) -> Result<ProviderSnapshot, UpstreamError>;
@@ -225,6 +226,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
         client: &'a wreq::Client,
+        spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>> {
         Box::pin(async move {
             let settings = self.settings.load_full();
@@ -251,8 +253,12 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
                     round_robin_cursor: &self.round_robin_cursor,
                     max_retries,
                     http_client: client,
+                    spoof_client,
                 },
-                |req| crate::http_client::send_request(client, req),
+                |c, req| {
+                    let c = c.clone();
+                    async move { crate::http_client::send_request(&c, req).await }
+                },
             )
             .await;
 

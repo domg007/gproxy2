@@ -258,9 +258,9 @@ async fn resolve_geminicli_project_id(
         && let Some(project) = payload
             .get("cloudaicompanionProject")
             .and_then(parse_project_id_value)
-        {
-            return Ok(project);
-        }
+    {
+        return Ok(project);
+    }
 
     if let Some(project) =
         onboard_geminicli_project(client, access_token, base_url, "legacy-tier", project_id).await?
@@ -613,7 +613,10 @@ impl Channel for GeminiCliChannel {
         let req = http::Request::builder()
             .method(http::Method::POST)
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .header("Accept-Encoding", "gzip")

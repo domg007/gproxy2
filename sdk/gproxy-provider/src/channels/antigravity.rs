@@ -608,7 +608,10 @@ impl Channel for AntigravityChannel {
         let req = http::Request::builder()
             .method(http::Method::POST)
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .header("Accept-Encoding", "gzip")

@@ -86,6 +86,14 @@ pub trait Channel: Send + Sync + 'static {
         None
     }
 
+    /// Whether this credential requires the spoof (browser-impersonating) HTTP
+    /// client.  Channels that use cookie-based auth (e.g. Claude Code with a
+    /// session cookie) return `true` for those credentials.
+    /// Default: `false`.
+    fn needs_spoof_client(&self, _credential: &Self::Credential) -> bool {
+        false
+    }
+
     /// Attempt to refresh a credential after an auth failure (401/403).
     /// Called when upstream returns AuthDead. Returns `true` if the credential
     /// was updated and the request should be retried once more.

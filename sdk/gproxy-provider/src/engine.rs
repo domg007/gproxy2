@@ -89,6 +89,7 @@ pub struct UpstreamRequestMeta {
 pub struct GproxyEngine {
     store: Arc<ProviderStore>,
     client: wreq::Client,
+    spoof_client: Option<wreq::Client>,
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
 }
@@ -97,6 +98,7 @@ pub struct GproxyEngineBuilder {
     store: Option<Arc<ProviderStore>>,
     store_builder: ProviderStoreBuilder,
     client: Option<wreq::Client>,
+    spoof_client: Option<wreq::Client>,
     enable_usage: bool,
     enable_upstream_log: bool,
 }
@@ -107,6 +109,7 @@ impl GproxyEngineBuilder {
             store: None,
             store_builder: ProviderStoreBuilder::new(),
             client: None,
+            spoof_client: None,
             enable_usage: true,
             enable_upstream_log: true,
         }
@@ -136,6 +139,13 @@ impl GproxyEngineBuilder {
         self
     }
 
+    /// Set the spoof HTTP client (browser-impersonating TLS fingerprint).
+    /// Used for channels that need cookie-based authentication (e.g. Claude Code).
+    pub fn spoof_client(mut self, client: wreq::Client) -> Self {
+        self.spoof_client = Some(client);
+        self
+    }
+
     /// Control whether usage is extracted from responses (default: true).
     pub fn enable_usage(mut self, enabled: bool) -> Self {
         self.enable_usage = enabled;
@@ -154,6 +164,7 @@ impl GproxyEngineBuilder {
                 .store
                 .unwrap_or_else(|| Arc::new(self.store_builder.build())),
             client: self.client.unwrap_or_default(),
+            spoof_client: self.spoof_client,
             enable_usage: self.enable_usage,
             enable_upstream_log: self.enable_upstream_log,
         }
@@ -187,7 +198,8 @@ impl GproxyEngine {
         self.execute_inner(request).instrument(span).await
     }
 
-    async fn execute_inner(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
+    async fn execute_inner(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
+        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
             tracing::warn!(provider = %request.provider, "unknown provider");
             UpstreamError::Channel(format!("unknown provider: {}", request.provider))
         })?;
@@ -272,7 +284,7 @@ impl GproxyEngine {
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
         let provider_result = provider
-            .execute(prepared.clone(), affinity_hint, &self.client)
+            .execute(prepared.clone(), affinity_hint, &self.client, self.spoof_client.as_ref())
             .await?;
         let response = provider_result.response;
         let credential_updates = provider_result.credential_updates;

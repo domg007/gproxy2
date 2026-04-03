@@ -692,7 +692,10 @@ impl Channel for CodexChannel {
         let mut builder = http::Request::builder()
             .method(http::Method::GET)
             .uri(&url)
-            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", credential.access_token),
+            )
             .header("Accept", "application/json")
             .header("originator", DEFAULT_CODEX_ORIGINATOR)
             .header("User-Agent", &user_agent);

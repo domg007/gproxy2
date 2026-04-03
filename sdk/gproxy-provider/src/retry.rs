@@ -19,6 +19,9 @@ pub struct RetryContext<'a, C: Channel> {
     pub round_robin_cursor: &'a AtomicUsize,
     pub max_retries: u32,
     pub http_client: &'a wreq::Client,
+    /// Browser-impersonating client for credentials that need cookie auth.
+    /// Falls back to `http_client` when `None`.
+    pub spoof_client: Option<&'a wreq::Client>,
 }
 
 /// Retry a request across multiple credentials.
@@ -38,7 +41,7 @@ pub async fn retry_with_credentials<C, F, Fut>(
 ) -> Result<UpstreamResponse, UpstreamError>
 where
     C: Channel,
-    F: Fn(http::Request<Vec<u8>>) -> Fut,
+    F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
     Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
 {
     let span = tracing::info_span!(
@@ -47,7 +50,9 @@ where
         credentials = ctx.credentials.len(),
         max_retries = ctx.max_retries,
     );
-    retry_with_credentials_inner(ctx, send).instrument(span).await
+    retry_with_credentials_inner(ctx, send)
+        .instrument(span)
+        .await
 }
 
 async fn retry_with_credentials_inner<C, F, Fut>(
@@ -56,7 +61,7 @@ async fn retry_with_credentials_inner<C, F, Fut>(
 ) -> Result<UpstreamResponse, UpstreamError>
 where
     C: Channel,
-    F: Fn(http::Request<Vec<u8>>) -> Fut,
+    F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
     Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
 {
     let RetryContext {
@@ -69,6 +74,7 @@ where
         round_robin_cursor,
         max_retries,
         http_client,
+        spoof_client,
     } = ctx;
 
     let model = request.model.as_deref();
@@ -98,6 +104,13 @@ where
         loop {
             let (credential, _) = &credentials[idx];
 
+            // Select client: spoof for cookie-based credentials, normal otherwise
+            let active_client = if channel.needs_spoof_client(credential) {
+                spoof_client.unwrap_or(http_client)
+            } else {
+                http_client
+            };
+
             // Build HTTP request
             let http_request = match channel.prepare_request(credential, settings, request) {
                 Ok(req) => req,
@@ -120,7 +133,7 @@ where
                 "sending upstream request"
             );
             let send_start = std::time::Instant::now();
-            let response = match send(http_request).await {
+            let response = match send(active_client, http_request).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     tracing::warn!(credential = idx, %method, %uri, error = %e, "upstream request failed");
@@ -155,7 +168,12 @@ where
                     return Ok(response);
                 }
                 ResponseClassification::AuthDead => {
-                    tracing::warn!(credential = idx, status = response.status, model = model.unwrap_or(""), "credential auth dead, attempting refresh");
+                    tracing::warn!(
+                        credential = idx,
+                        status = response.status,
+                        model = model.unwrap_or(""),
+                        "credential auth dead, attempting refresh"
+                    );
                     // Try refreshing the credential (OAuth token exchange, etc.)
                     let (credential, health) = &mut credentials[idx];
                     let refreshed = channel
@@ -176,7 +194,7 @@ where
                             }
                         };
 
-                        match send(retry_request).await {
+                        match send(active_client, retry_request).await {
                             Ok(retry_response) => {
                                 let retry_class = channel.classify_response(
                                     retry_response.status,
@@ -197,7 +215,11 @@ where
                                 }
                                 // Still failing after refresh — mark dead
                                 health.record_error(retry_response.status, model, None);
-                                tracing::warn!(credential = idx, status = retry_response.status, "credential still dead after refresh");
+                                tracing::warn!(
+                                    credential = idx,
+                                    status = retry_response.status,
+                                    "credential still dead after refresh"
+                                );
                             }
                             Err(e) => {
                                 tracing::warn!(credential = idx, error = %e, "upstream request failed after refresh");
@@ -206,7 +228,11 @@ where
                         }
                     } else {
                         health.record_error(response.status, model, None);
-                        tracing::warn!(credential = idx, status = response.status, "credential auth dead, refresh not available");
+                        tracing::warn!(
+                            credential = idx,
+                            status = response.status,
+                            "credential auth dead, refresh not available"
+                        );
                     }
                     if let Some(matched_idx) = matched_affinity_idx
                         && let Some(hint) = affinity_hint
