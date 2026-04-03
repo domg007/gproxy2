@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
+use crate::health::ModelCooldownHealth;
 use crate::request::PreparedRequest;
 use crate::response::UpstreamError;
 use crate::store::{CredentialUpdate, ProviderStore, ProviderStoreBuilder};
@@ -94,6 +96,15 @@ pub struct GproxyEngine {
     pub enable_upstream_log: bool,
 }
 
+/// Serialized provider configuration for building an engine from JSON/DB data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub name: String,
+    pub channel: String,
+    pub settings_json: serde_json::Value,
+    pub credentials: Vec<serde_json::Value>,
+}
+
 pub struct GproxyEngineBuilder {
     store: Option<Arc<ProviderStore>>,
     store_builder: ProviderStoreBuilder,
@@ -140,10 +151,32 @@ impl GproxyEngineBuilder {
     }
 
     /// Set the spoof HTTP client (browser-impersonating TLS fingerprint).
-    /// Used for channels that need cookie-based authentication (e.g. Claude Code).
     pub fn spoof_client(mut self, client: wreq::Client) -> Self {
         self.spoof_client = Some(client);
         self
+    }
+
+    /// Build HTTP clients from proxy and impersonate config.
+    ///
+    /// Constructs both the normal client (with optional proxy) and the
+    /// spoof client (with browser TLS impersonation + optional proxy).
+    pub fn configure_clients(self, proxy: Option<&str>, emulation: Option<&str>) -> Self {
+        let mut client_builder = wreq::Client::builder();
+        if let Some(proxy_url) = proxy
+            && let Ok(p) = wreq::Proxy::all(proxy_url) {
+                client_builder = client_builder.proxy(p);
+            }
+        let client = client_builder.build().unwrap_or_default();
+
+        let emu = parse_emulation(emulation.unwrap_or("chrome_136"));
+        let mut spoof_builder = wreq::Client::builder().emulation(emu);
+        if let Some(proxy_url) = proxy
+            && let Ok(p) = wreq::Proxy::all(proxy_url) {
+                spoof_builder = spoof_builder.proxy(p);
+            }
+        let spoof = spoof_builder.build().unwrap_or_default();
+
+        self.http_client(client).spoof_client(spoof)
     }
 
     /// Control whether usage is extracted from responses (default: true).
@@ -169,6 +202,53 @@ impl GproxyEngineBuilder {
             enable_upstream_log: self.enable_upstream_log,
         }
     }
+
+    /// Add a provider from serialized JSON config.
+    ///
+    /// Dispatches by `channel` string to the concrete channel type.
+    /// Returns an error if the channel ID is unknown or JSON is invalid.
+    pub fn add_provider_json(self, config: ProviderConfig) -> Result<Self, UpstreamError> {
+        macro_rules! add {
+            ($self:expr, $ch:expr, $cfg:expr) => {{
+                let settings = serde_json::from_value($cfg.settings_json).map_err(|e| {
+                    UpstreamError::Channel(format!("invalid settings for '{}': {e}", $cfg.name))
+                })?;
+                let creds: Vec<_> = $cfg
+                    .credentials
+                    .into_iter()
+                    .filter_map(|c| {
+                        serde_json::from_value(c)
+                            .ok()
+                            .map(|c| (c, ModelCooldownHealth::default()))
+                    })
+                    .collect();
+                Ok($self.add_provider(&$cfg.name, $ch, settings, creds))
+            }};
+        }
+
+        use crate::channels::*;
+
+        match config.channel.as_str() {
+            "openai" => add!(self, openai::OpenAiChannel, config),
+            "anthropic" => add!(self, anthropic::AnthropicChannel, config),
+            "claudecode" => add!(self, claudecode::ClaudeCodeChannel, config),
+            "codex" => add!(self, codex::CodexChannel, config),
+            "vertex" => add!(self, vertex::VertexChannel, config),
+            "vertexexpress" => add!(self, vertexexpress::VertexExpressChannel, config),
+            "aistudio" => add!(self, aistudio::AiStudioChannel, config),
+            "geminicli" => add!(self, geminicli::GeminiCliChannel, config),
+            "antigravity" => add!(self, antigravity::AntigravityChannel, config),
+            "nvidia" => add!(self, nvidia::NvidiaChannel, config),
+            "deepseek" => add!(self, deepseek::DeepSeekChannel, config),
+            "groq" => add!(self, groq::GroqChannel, config),
+            "openrouter" => add!(self, openrouter::OpenRouterChannel, config),
+            "custom" => add!(self, custom::CustomChannel, config),
+            _ => Err(UpstreamError::Channel(format!(
+                "unknown channel: {}",
+                config.channel
+            ))),
+        }
+    }
 }
 
 impl Default for GproxyEngineBuilder {
@@ -184,6 +264,19 @@ impl GproxyEngine {
 
     pub fn store(&self) -> &Arc<ProviderStore> {
         &self.store
+    }
+
+    /// Create a new engine with different HTTP clients but the same provider store.
+    ///
+    /// Use this when proxy or spoof settings change without needing to
+    /// rebuild providers/credentials.
+    pub fn with_new_clients(&self, proxy: Option<&str>, emulation: Option<&str>) -> GproxyEngine {
+        let builder = GproxyEngineBuilder::new()
+            .provider_store(self.store.clone())
+            .configure_clients(proxy, emulation)
+            .enable_usage(self.enable_usage)
+            .enable_upstream_log(self.enable_upstream_log);
+        builder.build()
     }
 
     /// Start an OAuth flow for a provider.
@@ -411,5 +504,22 @@ impl GproxyEngine {
             meta,
             credential_updates,
         })
+    }
+}
+
+fn parse_emulation(name: &str) -> wreq_util::Emulation {
+    match name {
+        "chrome_136" => wreq_util::Emulation::Chrome136,
+        "chrome_135" => wreq_util::Emulation::Chrome135,
+        "chrome_134" => wreq_util::Emulation::Chrome134,
+        "chrome_133" => wreq_util::Emulation::Chrome133,
+        "chrome_132" => wreq_util::Emulation::Chrome132,
+        "chrome_131" => wreq_util::Emulation::Chrome131,
+        "chrome_127" => wreq_util::Emulation::Chrome127,
+        "safari_18" => wreq_util::Emulation::Safari18,
+        "safari_18.2" => wreq_util::Emulation::Safari18_2,
+        "safari_18.3" => wreq_util::Emulation::Safari18_3,
+        "safari_18.5" => wreq_util::Emulation::Safari18_5,
+        _ => wreq_util::Emulation::Chrome136,
     }
 }

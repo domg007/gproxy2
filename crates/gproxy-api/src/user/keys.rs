@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
 use serde::Serialize;
 
 use gproxy_server::AppState;
@@ -63,8 +63,5 @@ pub async fn generate_key(
         api_key: api_key.clone(),
         enabled: true,
     });
-    Ok(Json(GenerateKeyResponse {
-        ok: true,
-        api_key,
-    }))
+    Ok(Json(GenerateKeyResponse { ok: true, api_key }))
 }

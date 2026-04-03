@@ -34,7 +34,7 @@ pub mod utils;
 
 pub use channel::{Channel, ChannelCredential, ChannelSettings, OAuthFlow};
 pub use dispatch::DispatchTable;
-pub use engine::{ExecuteRequest, ExecuteResult, GproxyEngine, Usage};
+pub use engine::{ExecuteRequest, ExecuteResult, GproxyEngine, ProviderConfig, Usage};
 pub use health::CredentialHealth;
 pub use provider::ProviderDefinition;
 pub use registry::{ChannelRegistration, ChannelRegistry};

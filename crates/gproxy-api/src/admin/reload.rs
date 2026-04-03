@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
 use serde::Serialize;
 
-use gproxy_server::{AppState, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget, PermissionEntry, RateLimitRule};
+use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
+use gproxy_server::{
+    AppState, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget, PermissionEntry,
+    RateLimitRule,
+};
 
 use crate::auth::authorize_admin;
 use crate::error::HttpError;
@@ -29,6 +33,61 @@ pub async fn reload(
 ) -> Result<Json<ReloadResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let storage = state.storage();
+
+    // Load global settings first (need proxy/spoof for HTTP clients)
+    let config = if let Some(settings) = storage.get_global_settings().await? {
+        let cfg = gproxy_server::GlobalConfig {
+            host: settings.host,
+            port: settings.port as u16,
+            admin_key: settings.admin_key,
+            proxy: settings.proxy,
+            spoof_emulation: settings.spoof_emulation.unwrap_or_default(),
+            update_source: settings.update_source.unwrap_or_default(),
+            mask_sensitive_info: settings.mask_sensitive_info,
+            dsn: settings.dsn,
+            data_dir: settings.data_dir,
+        };
+        state.replace_config(cfg.clone());
+        cfg
+    } else {
+        (*state.config()).clone()
+    };
+
+    // Rebuild engine from database providers + credentials
+    let providers = storage
+        .list_providers(&gproxy_storage::ProviderQuery::default())
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    let all_credentials = storage
+        .list_credentials(&gproxy_storage::CredentialQuery::default())
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+
+    let mut builder = GproxyEngineBuilder::new().configure_clients(
+        config.proxy.as_deref(),
+        Some(config.spoof_emulation.as_str()),
+    );
+    for provider in &providers {
+        if !provider.enabled {
+            continue;
+        }
+        let creds: Vec<serde_json::Value> = all_credentials
+            .iter()
+            .filter(|c| c.provider_id == provider.id && c.enabled)
+            .map(|c| c.secret_json.clone())
+            .collect();
+        let config = ProviderConfig {
+            name: provider.name.clone(),
+            channel: provider.channel.clone(),
+            settings_json: provider.settings_json.clone(),
+            credentials: creds,
+        };
+        builder = builder
+            .add_provider_json(config)
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+    }
+    let new_engine = builder.build();
+    state.replace_engine(new_engine);
 
     // Users
     let users = storage
@@ -147,21 +206,6 @@ pub async fn reload(
         .map(|q| (q.user_id, (q.quota, q.cost_used)))
         .collect();
     state.replace_user_quotas(quota_map);
-
-    // Global settings
-    if let Some(settings) = storage.get_global_settings().await? {
-        state.replace_config(gproxy_server::GlobalConfig {
-            host: settings.host,
-            port: settings.port as u16,
-            admin_key: settings.admin_key,
-            proxy: settings.proxy,
-            spoof_emulation: settings.spoof_emulation.unwrap_or_default(),
-            update_source: settings.update_source.unwrap_or_default(),
-            mask_sensitive_info: settings.mask_sensitive_info,
-            dsn: settings.dsn,
-            data_dir: settings.data_dir,
-        });
-    }
 
     Ok(Json(ReloadResponse {
         ok: true,

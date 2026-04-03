@@ -1808,6 +1808,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tower",
  "uuid",
 ]
@@ -1848,6 +1849,7 @@ dependencies = [
  "url",
  "uuid",
  "wreq",
+ "wreq-util",
 ]
 
 [[package]]

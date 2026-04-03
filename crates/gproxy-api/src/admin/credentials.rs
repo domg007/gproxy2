@@ -1,8 +1,8 @@
 use crate::auth::authorize_admin;
 use crate::error::{AckResponse, HttpError};
+use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
 use gproxy_server::AppState;
 use gproxy_storage::Scope;
 use serde::Serialize;
@@ -69,7 +69,7 @@ pub async fn upsert_credential(
         .map_err(|e| HttpError::internal(e.to_string()))?;
     // Persist to DB
     let write = gproxy_storage::CredentialWrite {
-        id: 0, // auto-assign
+        id: 0,          // auto-assign
         provider_id: 0, // TODO: resolve from provider name
         name: None,
         kind: String::new(),
@@ -180,13 +180,13 @@ pub async fn update_credential_status(
         "dead" => store.mark_credential_dead(&payload.provider_name, payload.index),
         "healthy" => store.mark_credential_healthy(&payload.provider_name, payload.index),
         _ => {
-            return Err(HttpError::bad_request(
-                "status must be 'healthy' or 'dead'",
-            ));
+            return Err(HttpError::bad_request("status must be 'healthy' or 'dead'"));
         }
     };
     if !ok {
-        return Err(HttpError::not_found("provider or credential index not found"));
+        return Err(HttpError::not_found(
+            "provider or credential index not found",
+        ));
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

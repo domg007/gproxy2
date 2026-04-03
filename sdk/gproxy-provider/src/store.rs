@@ -636,10 +636,7 @@ impl ProviderStore {
     }
 
     /// Get health status for all credentials across all providers.
-    pub fn list_health(
-        &self,
-        provider_name: Option<&str>,
-    ) -> Vec<CredentialHealthSnapshot> {
+    pub fn list_health(&self, provider_name: Option<&str>) -> Vec<CredentialHealthSnapshot> {
         let providers = self.providers.load();
         let mut out = Vec::new();
         for (name, provider) in providers.iter() {

@@ -160,10 +160,7 @@ impl AppState {
         // Check cost quota
         let (quota, cost_used) = self.get_user_quota(user_id);
         if quota > 0.0 && cost_used >= quota {
-            return Err(RateLimitRejection::QuotaExhausted {
-                quota,
-                cost_used,
-            });
+            return Err(RateLimitRejection::QuotaExhausted { quota, cost_used });
         }
         Ok(())
     }
@@ -243,6 +240,10 @@ impl AppState {
         self.user_rate_limits.store(Arc::new(limits));
     }
 
+    pub fn user_quotas_snapshot(&self) -> Arc<HashMap<i64, (f64, f64)>> {
+        self.user_quotas.load_full()
+    }
+
     pub fn replace_user_quotas(&self, quotas: HashMap<i64, (f64, f64)>) {
         self.user_quotas.store(Arc::new(quotas));
     }
@@ -297,9 +298,10 @@ impl AppState {
         let mut perms = (*self.user_permissions.load_full()).clone();
         let entries = perms.entry(user_id).or_default();
         // Replace if same provider_id + model_pattern, else append
-        if let Some(existing) = entries.iter_mut().find(|e| {
-            e.provider_id == entry.provider_id && e.model_pattern == entry.model_pattern
-        }) {
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|e| e.provider_id == entry.provider_id && e.model_pattern == entry.model_pattern)
+        {
             *existing = entry;
         } else {
             entries.push(entry);
@@ -315,9 +317,7 @@ impl AppState {
     ) {
         let mut perms = (*self.user_permissions.load_full()).clone();
         if let Some(entries) = perms.get_mut(&user_id) {
-            entries.retain(|e| {
-                !(e.provider_id == provider_id && e.model_pattern == model_pattern)
-            });
+            entries.retain(|e| !(e.provider_id == provider_id && e.model_pattern == model_pattern));
             if entries.is_empty() {
                 perms.remove(&user_id);
             }
@@ -334,7 +334,10 @@ impl AppState {
     pub fn upsert_rate_limit_in_memory(&self, user_id: i64, rule: RateLimitRule) {
         let mut limits = (*self.user_rate_limits.load_full()).clone();
         let rules = limits.entry(user_id).or_default();
-        if let Some(existing) = rules.iter_mut().find(|r| r.model_pattern == rule.model_pattern) {
+        if let Some(existing) = rules
+            .iter_mut()
+            .find(|r| r.model_pattern == rule.model_pattern)
+        {
             *existing = rule;
         } else {
             rules.push(rule);

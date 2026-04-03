@@ -5,12 +5,13 @@ use axum::routing::{get, post};
 
 use gproxy_server::AppState;
 
+pub mod config_toml;
 pub mod credentials;
 pub mod models;
 pub mod permissions;
 pub mod providers;
-pub mod reload;
 pub mod rate_limits;
+pub mod reload;
 pub mod requests;
 pub mod settings;
 pub mod usages;
@@ -171,4 +172,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/usages/query", post(usages::query_usages))
         .route("/usages/count", post(usages::count_usages))
         .route("/usages/batch-delete", post(usages::batch_delete_usages))
+        // Config export/import
+        .route("/config/export-toml", post(config_toml::export_toml))
+        .route("/config/import-toml", post(config_toml::import_toml))
 }

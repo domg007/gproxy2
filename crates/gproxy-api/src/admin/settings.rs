@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
 use serde::Serialize;
 
 use gproxy_server::AppState;
@@ -50,6 +50,11 @@ pub async fn upsert_global_settings(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
+    // Check if proxy or spoof changed — need to rebuild engine clients
+    let old_config = state.config();
+    let proxy_changed = old_config.proxy != payload.proxy;
+    let spoof_changed = old_config.spoof_emulation != payload.spoof_emulation;
+
     state.replace_config(gproxy_server::GlobalConfig {
         host: payload.host.clone(),
         port: payload.port,
@@ -61,6 +66,15 @@ pub async fn upsert_global_settings(
         dsn: payload.dsn.clone(),
         data_dir: payload.data_dir.clone(),
     });
+
+    // Rebuild engine clients if proxy or spoof changed
+    if proxy_changed || spoof_changed {
+        let new_engine = state.engine().with_new_clients(
+            payload.proxy.as_deref(),
+            Some(payload.spoof_emulation.as_str()),
+        );
+        state.replace_engine(new_engine);
+    }
 
     state
         .storage_writes()
