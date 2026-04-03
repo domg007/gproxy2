@@ -132,12 +132,7 @@ pub async fn proxy(
 
     let response_body = match result.body {
         ExecuteBody::Full(body) => Body::from(body),
-        ExecuteBody::Stream(stream)
-            if matches!(
-                classification.operation,
-                OperationFamily::StreamGenerateContent
-            ) =>
-        {
+        ExecuteBody::Stream(stream) if classification.operation.is_stream() => {
             Body::from_stream(stream_with_usage_tracking(
                 state.clone(),
                 user_key.user_id,
@@ -216,12 +211,7 @@ pub async fn proxy_unscoped(
 
     let response_body = match result.body {
         ExecuteBody::Full(body) => Body::from(body),
-        ExecuteBody::Stream(stream)
-            if matches!(
-                classification.operation,
-                OperationFamily::StreamGenerateContent
-            ) =>
-        {
+        ExecuteBody::Stream(stream) if classification.operation.is_stream() => {
             Body::from_stream(stream_with_usage_tracking(
                 state.clone(),
                 user_key.user_id,
@@ -542,7 +532,7 @@ enum UsageChunkDecoder {
 impl UsageChunkDecoder {
     fn new(protocol: &str) -> Self {
         match protocol {
-            "claude" | "openai_response" | "openai_chat_completions" | "gemini" => {
+            "claude" | "openai" | "openai_response" | "openai_chat_completions" | "gemini" => {
                 Self::Sse(gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default())
             }
             "gemini_ndjson" => Self::Ndjson(Vec::new()),
@@ -663,6 +653,22 @@ fn extract_partial_stream_usage(protocol: &str, json_chunk: &[u8]) -> Option<Usa
                 cache_creation_input_tokens_5min: None,
                 cache_creation_input_tokens_1h: None,
             })
+        }
+        "openai" => {
+            use gproxy_sdk::protocol::openai::create_image::stream::ImageGenerationStreamEvent;
+
+            let event: ImageGenerationStreamEvent = serde_json::from_slice(json_chunk).ok()?;
+            match event {
+                ImageGenerationStreamEvent::Completed { usage, .. } => Some(Usage {
+                    input_tokens: i64::try_from(usage.input_tokens).ok(),
+                    output_tokens: i64::try_from(usage.output_tokens).ok(),
+                    cache_read_input_tokens: None,
+                    cache_creation_input_tokens: None,
+                    cache_creation_input_tokens_5min: None,
+                    cache_creation_input_tokens_1h: None,
+                }),
+                _ => None,
+            }
         }
         _ => None,
     }

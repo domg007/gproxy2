@@ -739,7 +739,7 @@ impl GproxyEngine {
             None
         };
 
-        let body = if request.operation == "stream_generate_content" {
+        let body = if needs_transform {
             let transformer = crate::transform_dispatch::create_stream_response_transformer(
                 &request.operation,
                 &request.protocol,
@@ -775,11 +775,6 @@ impl GproxyEngine {
                 }
             };
             ExecuteBody::Stream(Box::pin(stream))
-        } else if needs_transform {
-            return Err(UpstreamError::Channel(format!(
-                "stream response transform not implemented for ({}, {}) -> ({}, {})",
-                dst_op, dst_proto, request.operation, request.protocol
-            )));
         } else {
             ExecuteBody::Stream(response.body)
         };
