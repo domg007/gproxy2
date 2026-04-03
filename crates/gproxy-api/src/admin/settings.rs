@@ -1,23 +1,46 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use axum::Json;
+use serde::Serialize;
 
 use gproxy_server::AppState;
-use gproxy_storage::{GlobalSettingsRow, GlobalSettingsWrite, StorageWriteEvent};
+use gproxy_storage::{GlobalSettingsWrite, StorageWriteEvent};
 
 use crate::auth::authorize_admin;
 use crate::error::{AckResponse, HttpError};
 
+#[derive(Serialize)]
+pub struct GlobalSettingsResponse {
+    pub host: String,
+    pub port: u16,
+    pub admin_key: String,
+    pub proxy: Option<String>,
+    pub spoof_emulation: String,
+    pub update_source: String,
+    pub mask_sensitive_info: bool,
+    pub dsn: String,
+    pub data_dir: String,
+}
+
 pub async fn get_global_settings(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<Json<Option<GlobalSettingsRow>>, HttpError> {
+) -> Result<Json<GlobalSettingsResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let storage = state.storage();
-    let settings = storage.get_global_settings().await?;
-    Ok(Json(settings))
+    let config = state.config();
+    Ok(Json(GlobalSettingsResponse {
+        host: config.host.clone(),
+        port: config.port,
+        admin_key: config.admin_key.clone(),
+        proxy: config.proxy.clone(),
+        spoof_emulation: config.spoof_emulation.clone(),
+        update_source: config.update_source.clone(),
+        mask_sensitive_info: config.mask_sensitive_info,
+        dsn: config.dsn.clone(),
+        data_dir: config.data_dir.clone(),
+    }))
 }
 
 pub async fn upsert_global_settings(
@@ -27,7 +50,6 @@ pub async fn upsert_global_settings(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Update in-memory config
     state.replace_config(gproxy_server::GlobalConfig {
         host: payload.host.clone(),
         port: payload.port,
@@ -40,7 +62,6 @@ pub async fn upsert_global_settings(
         data_dir: payload.data_dir.clone(),
     });
 
-    // Persist via write channel
     state
         .storage_writes()
         .enqueue(StorageWriteEvent::UpsertGlobalSettings(payload))

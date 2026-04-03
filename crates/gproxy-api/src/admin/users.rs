@@ -4,16 +4,56 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use gproxy_server::AppState;
-use gproxy_storage::{UserKeyQuery, UserKeyQueryRow, UserQuery, UserQueryRow};
+use gproxy_storage::Scope;
+use serde::Serialize;
 use std::sync::Arc;
+
+#[derive(Serialize)]
+pub struct MemoryUserRow {
+    pub id: i64,
+    pub name: String,
+    pub enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct MemoryUserKeyRow {
+    pub id: i64,
+    pub user_id: i64,
+    pub api_key: String,
+    pub enabled: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+pub struct UserQueryParams {
+    #[serde(default)]
+    pub id: Scope<i64>,
+    #[serde(default)]
+    pub name: Scope<String>,
+}
 
 pub async fn query_users(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(query): Json<UserQuery>,
-) -> Result<Json<Vec<UserQueryRow>>, HttpError> {
+    Json(query): Json<UserQueryParams>,
+) -> Result<Json<Vec<MemoryUserRow>>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let rows = state.storage().list_users(&query).await?;
+    let users = state.users_snapshot();
+    let rows: Vec<MemoryUserRow> = users
+        .iter()
+        .filter(|u| match &query.id {
+            Scope::Eq(v) => u.id == *v,
+            _ => true,
+        })
+        .filter(|u| match &query.name {
+            Scope::Eq(v) => u.name == *v,
+            _ => true,
+        })
+        .map(|u| MemoryUserRow {
+            id: u.id,
+            name: u.name.clone(),
+            enabled: u.enabled,
+        })
+        .collect();
     Ok(Json(rows))
 }
 
@@ -56,13 +96,32 @@ pub async fn delete_user(
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
+#[derive(serde::Deserialize, Default)]
+pub struct UserKeyQueryParams {
+    #[serde(default)]
+    pub user_id: Scope<i64>,
+}
+
 pub async fn query_user_keys(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(query): Json<UserKeyQuery>,
-) -> Result<Json<Vec<UserKeyQueryRow>>, HttpError> {
+    Json(query): Json<UserKeyQueryParams>,
+) -> Result<Json<Vec<MemoryUserKeyRow>>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let rows = state.storage().list_user_keys(&query).await?;
+    let keys = state.keys_snapshot();
+    let rows: Vec<MemoryUserKeyRow> = keys
+        .values()
+        .filter(|k| match &query.user_id {
+            Scope::Eq(v) => k.user_id == *v,
+            _ => true,
+        })
+        .map(|k| MemoryUserKeyRow {
+            id: k.id,
+            user_id: k.user_id,
+            api_key: k.api_key.clone(),
+            enabled: k.enabled,
+        })
+        .collect();
     Ok(Json(rows))
 }
 

@@ -97,6 +97,16 @@ impl AppState {
             .collect()
     }
 
+    /// Get all users (from memory).
+    pub fn users_snapshot(&self) -> Arc<Vec<MemoryUser>> {
+        self.users.load_full()
+    }
+
+    /// Get all keys (from memory).
+    pub fn keys_snapshot(&self) -> Arc<HashMap<String, MemoryUserKey>> {
+        self.keys.load_full()
+    }
+
     pub fn find_model(&self, model_id: &str) -> Option<MemoryModel> {
         self.models
             .load()
