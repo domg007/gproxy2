@@ -740,14 +740,8 @@ impl Channel for ClaudeCodeChannel {
             200..=299 => ResponseClassification::Success,
             401 | 403 => ResponseClassification::AuthDead,
             429 => {
-                let retry_after = headers
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(|secs| secs * 1000);
-                ResponseClassification::RateLimited {
-                    retry_after_ms: retry_after,
-                }
+                let retry_after_ms = parse_claudecode_rate_limit(headers);
+                ResponseClassification::RateLimited { retry_after_ms }
             }
             529 => ResponseClassification::TransientError,
             500..=599 => ResponseClassification::TransientError,
@@ -964,6 +958,52 @@ impl Channel for ClaudeCodeChannel {
             }))
         })
     }
+}
+
+/// Parse Anthropic unified rate-limit headers into a single `retry_after_ms`.
+///
+/// Priority:
+/// 1. `anthropic-ratelimit-unified-reset` — the server-chosen reset timestamp
+///    for the representative (most constrained) window.
+/// 2. `retry-after` — standard HTTP header (seconds).
+///
+/// Falls back to `None` if neither header is present / parseable.
+fn parse_claudecode_rate_limit(headers: &http::HeaderMap) -> Option<u64> {
+    // Prefer the unified reset header — it reflects the actual window that
+    // triggered the rejection (5h, 7d, overage, etc.).
+    if let Some(reset_ms) = parse_unix_reset_header(headers, "anthropic-ratelimit-unified-reset") {
+        return Some(reset_ms);
+    }
+    // Fallback: standard retry-after (seconds).
+    parse_retry_after_secs(headers)
+}
+
+/// Convert a unix-seconds reset header to a delay in milliseconds from now.
+/// Returns `None` if the header is absent, unparseable, or already in the past.
+fn parse_unix_reset_header(headers: &http::HeaderMap, name: &str) -> Option<u64> {
+    let reset_secs = headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let reset_ms = reset_secs.saturating_mul(1000);
+    if reset_ms > now_ms {
+        Some(reset_ms - now_ms)
+    } else {
+        None
+    }
+}
+
+/// Parse the standard `retry-after` header (integer seconds) into milliseconds.
+fn parse_retry_after_secs(headers: &http::HeaderMap) -> Option<u64> {
+    headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|secs| secs * 1000)
 }
 
 fn claudecode_dispatch_table() -> DispatchTable {

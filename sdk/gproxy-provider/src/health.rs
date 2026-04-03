@@ -41,11 +41,20 @@ impl CredentialHealth for SimpleHealth {
 }
 
 /// Per-model cooldown health: tracks rate limits per model name.
+///
+/// When a 429 arrives with a `retry-after` header the cooldown duration comes
+/// directly from the server.  When no `retry-after` is present the health
+/// falls back to capped exponential back-off: 1 s → 2 s → … → 60 s, reset
+/// on the next success.
 #[derive(Debug, Clone, Default)]
 pub struct ModelCooldownHealth {
     pub dead: bool,
     pub model_cooldowns: HashMap<String, Instant>,
     pub global_cooldown: Option<Instant>,
+    /// Number of consecutive back-off errors (no explicit retry-after).
+    /// Reset to 0 on success.  Used to compute exponential back-off:
+    /// `min(2^backoff_count * 1000, 60_000)` ms.
+    pub backoff_count: u32,
 }
 
 impl CredentialHealth for ModelCooldownHealth {
@@ -71,7 +80,16 @@ impl CredentialHealth for ModelCooldownHealth {
             self.dead = true;
             return;
         }
-        let cooldown = retry_after_ms.unwrap_or(60_000);
+        let cooldown = match retry_after_ms {
+            Some(ms) => ms,
+            None => {
+                let ms = 1000u64
+                    .saturating_mul(1u64 << self.backoff_count.min(20))
+                    .min(60_000);
+                self.backoff_count = self.backoff_count.saturating_add(1);
+                ms
+            }
+        };
         let until = Instant::now() + std::time::Duration::from_millis(cooldown);
         if let Some(model) = model {
             self.model_cooldowns.insert(model.to_string(), until);
@@ -82,5 +100,6 @@ impl CredentialHealth for ModelCooldownHealth {
 
     fn record_success(&mut self, _model: Option<&str>) {
         self.dead = false;
+        self.backoff_count = 0;
     }
 }

@@ -659,14 +659,16 @@ impl Channel for CodexChannel {
             200..=299 => ResponseClassification::Success,
             401 | 403 => ResponseClassification::AuthDead,
             429 => {
-                let retry_after = headers
-                    .get("retry-after")
+                // Credits exhausted → credential is dead.
+                if headers
+                    .get("x-codex-credits-has-credits")
                     .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(|secs| secs * 1000);
-                ResponseClassification::RateLimited {
-                    retry_after_ms: retry_after,
+                    == Some("false")
+                {
+                    return ResponseClassification::AuthDead;
                 }
+                let retry_after_ms = parse_codex_rate_limit(headers);
+                ResponseClassification::RateLimited { retry_after_ms }
             }
             500..=599 => ResponseClassification::TransientError,
             _ => ResponseClassification::PermanentError,
@@ -863,6 +865,40 @@ impl Channel for CodexChannel {
         })
     }
 }
+/// Parse Codex rate-limit headers into a single `retry_after_ms`.
+///
+/// Picks the smallest reset window first (primary before secondary) so the
+/// credential is retried as early as possible.  Falls back to `retry-after`.
+fn parse_codex_rate_limit(headers: &http::HeaderMap) -> Option<u64> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let delay_from_reset = |name: &str| -> Option<u64> {
+        let reset_secs = headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())?;
+        let reset_ms = reset_secs.saturating_mul(1000);
+        (reset_ms > now_ms).then(|| reset_ms - now_ms)
+    };
+
+    // Prefer the smallest (primary) window, then secondary.
+    if let Some(ms) = delay_from_reset("x-codex-primary-reset-at") {
+        return Some(ms);
+    }
+    if let Some(ms) = delay_from_reset("x-codex-secondary-reset-at") {
+        return Some(ms);
+    }
+    // Fallback: standard retry-after (seconds).
+    headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|secs| secs * 1000)
+}
+
 fn codex_dispatch_table() -> DispatchTable {
     CodexChannel.dispatch_table()
 }

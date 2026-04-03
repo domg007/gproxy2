@@ -16,6 +16,8 @@ use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::{code_assist_envelope, oauth2_refresh, vertex_normalize};
 
+use crate::utils::google_quota::classify_google_quota_response;
+
 /// Gemini CLI (Code Assist API) channel with OAuth authentication.
 pub struct GeminiCliChannel;
 
@@ -577,21 +579,12 @@ impl Channel for GeminiCliChannel {
         &self,
         status: u16,
         headers: &http::HeaderMap,
-        _body: &[u8],
+        body: &[u8],
     ) -> ResponseClassification {
         match status {
             200..=299 => ResponseClassification::Success,
             401 | 403 => ResponseClassification::AuthDead,
-            429 | 499 => {
-                let retry_after = headers
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(|secs| secs * 1000);
-                ResponseClassification::RateLimited {
-                    retry_after_ms: retry_after,
-                }
-            }
+            429 | 499 => classify_google_quota_response(headers, body),
             500..=599 => ResponseClassification::TransientError,
             _ => ResponseClassification::PermanentError,
         }
