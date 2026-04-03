@@ -94,6 +94,7 @@ pub struct GproxyEngine {
     spoof_client: Option<wreq::Client>,
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
+    pub enable_upstream_log_body: bool,
 }
 
 /// Serialized provider configuration for building an engine from JSON/DB data.
@@ -112,6 +113,7 @@ pub struct GproxyEngineBuilder {
     spoof_client: Option<wreq::Client>,
     enable_usage: bool,
     enable_upstream_log: bool,
+    enable_upstream_log_body: bool,
 }
 
 impl GproxyEngineBuilder {
@@ -123,6 +125,7 @@ impl GproxyEngineBuilder {
             spoof_client: None,
             enable_usage: true,
             enable_upstream_log: true,
+            enable_upstream_log_body: true,
         }
     }
 
@@ -191,6 +194,12 @@ impl GproxyEngineBuilder {
         self
     }
 
+    /// Control whether upstream log includes request/response body (default: true).
+    pub fn enable_upstream_log_body(mut self, enabled: bool) -> Self {
+        self.enable_upstream_log_body = enabled;
+        self
+    }
+
     pub fn build(self) -> GproxyEngine {
         GproxyEngine {
             store: self
@@ -200,6 +209,7 @@ impl GproxyEngineBuilder {
             spoof_client: self.spoof_client,
             enable_usage: self.enable_usage,
             enable_upstream_log: self.enable_upstream_log,
+            enable_upstream_log_body: self.enable_upstream_log_body,
         }
     }
 
@@ -275,7 +285,28 @@ impl GproxyEngine {
             .provider_store(self.store.clone())
             .configure_clients(proxy, emulation)
             .enable_usage(self.enable_usage)
-            .enable_upstream_log(self.enable_upstream_log);
+            .enable_upstream_log(self.enable_upstream_log)
+            .enable_upstream_log_body(self.enable_upstream_log_body);
+        builder.build()
+    }
+
+    /// Rebuild engine with new settings but same provider store.
+    ///
+    /// Use when global config changes (proxy, spoof, usage/log flags).
+    pub fn with_settings(
+        &self,
+        proxy: Option<&str>,
+        emulation: Option<&str>,
+        enable_usage: bool,
+        enable_upstream_log: bool,
+        enable_upstream_log_body: bool,
+    ) -> GproxyEngine {
+        let builder = GproxyEngineBuilder::new()
+            .provider_store(self.store.clone())
+            .configure_clients(proxy, emulation)
+            .enable_usage(enable_usage)
+            .enable_upstream_log(enable_upstream_log)
+            .enable_upstream_log_body(enable_upstream_log_body);
         builder.build()
     }
 

@@ -19,7 +19,9 @@ pub struct GlobalSettingsResponse {
     pub proxy: Option<String>,
     pub spoof_emulation: String,
     pub update_source: String,
-    pub mask_sensitive_info: bool,
+    pub enable_usage: bool,
+    pub enable_upstream_log: bool,
+    pub enable_upstream_log_body: bool,
     pub dsn: String,
     pub data_dir: String,
 }
@@ -37,7 +39,9 @@ pub async fn get_global_settings(
         proxy: config.proxy.clone(),
         spoof_emulation: config.spoof_emulation.clone(),
         update_source: config.update_source.clone(),
-        mask_sensitive_info: config.mask_sensitive_info,
+        enable_usage: config.enable_usage,
+        enable_upstream_log: config.enable_upstream_log,
+        enable_upstream_log_body: config.enable_upstream_log_body,
         dsn: config.dsn.clone(),
         data_dir: config.data_dir.clone(),
     }))
@@ -50,11 +54,6 @@ pub async fn upsert_global_settings(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Check if proxy or spoof changed — need to rebuild engine clients
-    let old_config = state.config();
-    let proxy_changed = old_config.proxy != payload.proxy;
-    let spoof_changed = old_config.spoof_emulation != payload.spoof_emulation;
-
     state.replace_config(gproxy_server::GlobalConfig {
         host: payload.host.clone(),
         port: payload.port,
@@ -62,19 +61,22 @@ pub async fn upsert_global_settings(
         proxy: payload.proxy.clone(),
         spoof_emulation: payload.spoof_emulation.clone(),
         update_source: payload.update_source.clone(),
-        mask_sensitive_info: payload.mask_sensitive_info,
+        enable_usage: payload.enable_usage,
+        enable_upstream_log: payload.enable_upstream_log,
+        enable_upstream_log_body: payload.enable_upstream_log_body,
         dsn: payload.dsn.clone(),
         data_dir: payload.data_dir.clone(),
     });
 
-    // Rebuild engine clients if proxy or spoof changed
-    if proxy_changed || spoof_changed {
-        let new_engine = state.engine().with_new_clients(
-            payload.proxy.as_deref(),
-            Some(payload.spoof_emulation.as_str()),
-        );
-        state.replace_engine(new_engine);
-    }
+    // Rebuild engine if any engine-relevant settings changed
+    let new_engine = state.engine().with_settings(
+        payload.proxy.as_deref(),
+        Some(payload.spoof_emulation.as_str()),
+        payload.enable_usage,
+        payload.enable_upstream_log,
+        payload.enable_upstream_log_body,
+    );
+    state.replace_engine(new_engine);
 
     state
         .storage_writes()

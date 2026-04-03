@@ -14,8 +14,15 @@ pub struct GlobalConfig {
     pub spoof_emulation: String,
     #[serde(default = "default_update_source")]
     pub update_source: String,
-    #[serde(default = "default_mask")]
-    pub mask_sensitive_info: bool,
+    /// Whether to extract and record token usage from responses.
+    #[serde(default = "default_true")]
+    pub enable_usage: bool,
+    /// Whether to record upstream request/response metadata.
+    #[serde(default = "default_true")]
+    pub enable_upstream_log: bool,
+    /// Whether upstream logs include request/response body.
+    #[serde(default = "default_true")]
+    pub enable_upstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
@@ -30,7 +37,9 @@ impl Default for GlobalConfig {
             proxy: None,
             spoof_emulation: default_spoof_emulation(),
             update_source: default_update_source(),
-            mask_sensitive_info: true,
+            enable_usage: true,
+            enable_upstream_log: true,
+            enable_upstream_log_body: true,
             dsn: String::new(),
             data_dir: default_data_dir(),
         }
@@ -49,7 +58,7 @@ fn default_spoof_emulation() -> String {
 fn default_update_source() -> String {
     "github".to_string()
 }
-fn default_mask() -> bool {
+fn default_true() -> bool {
     true
 }
 fn default_data_dir() -> String {

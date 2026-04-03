@@ -28,7 +28,9 @@ impl SeaOrmStorage {
             update_source: row.update_source,
             dsn: row.dsn,
             data_dir: row.data_dir,
-            mask_sensitive_info: row.mask_sensitive_info,
+            enable_usage: row.enable_usage,
+            enable_upstream_log: row.enable_upstream_log,
+            enable_upstream_log_body: row.enable_upstream_log_body,
             updated_at: row.updated_at,
         }))
     }

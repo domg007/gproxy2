@@ -105,7 +105,9 @@ impl SeaOrmStorage {
                 update_source: Set(Some(gs.update_source)),
                 dsn: Set(gs.dsn),
                 data_dir: Set(gs.data_dir),
-                mask_sensitive_info: Set(gs.mask_sensitive_info),
+                enable_usage: Set(gs.enable_usage),
+                enable_upstream_log: Set(gs.enable_upstream_log),
+                enable_upstream_log_body: Set(gs.enable_upstream_log_body),
                 updated_at: Set(now),
             };
             global_settings::Entity::insert(model)
@@ -120,7 +122,9 @@ impl SeaOrmStorage {
                             global_settings::Column::UpdateSource,
                             global_settings::Column::Dsn,
                             global_settings::Column::DataDir,
-                            global_settings::Column::MaskSensitiveInfo,
+                            global_settings::Column::EnableUsage,
+                            global_settings::Column::EnableUpstreamLog,
+                            global_settings::Column::EnableUpstreamLogBody,
                             global_settings::Column::UpdatedAt,
                         ])
                         .to_owned(),

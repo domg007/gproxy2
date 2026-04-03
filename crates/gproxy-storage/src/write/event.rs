@@ -20,7 +20,9 @@ pub struct GlobalSettingsWrite {
     #[serde(default = "default_update_source")]
     pub update_source: String,
     pub admin_key: String,
-    pub mask_sensitive_info: bool,
+    pub enable_usage: bool,
+    pub enable_upstream_log: bool,
+    pub enable_upstream_log_body: bool,
     pub dsn: String,
     pub data_dir: String,
 }

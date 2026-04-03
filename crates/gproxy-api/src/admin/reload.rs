@@ -43,7 +43,9 @@ pub async fn reload(
             proxy: settings.proxy,
             spoof_emulation: settings.spoof_emulation.unwrap_or_default(),
             update_source: settings.update_source.unwrap_or_default(),
-            mask_sensitive_info: settings.mask_sensitive_info,
+            enable_usage: settings.enable_usage,
+            enable_upstream_log: settings.enable_upstream_log,
+            enable_upstream_log_body: settings.enable_upstream_log_body,
             dsn: settings.dsn,
             data_dir: settings.data_dir,
         };

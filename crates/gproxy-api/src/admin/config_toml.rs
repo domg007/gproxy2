@@ -50,7 +50,11 @@ pub struct GlobalSettingsToml {
     #[serde(default = "default_update_source")]
     pub update_source: String,
     #[serde(default = "default_true")]
-    pub mask_sensitive_info: bool,
+    pub enable_usage: bool,
+    #[serde(default = "default_true")]
+    pub enable_upstream_log: bool,
+    #[serde(default)]
+    pub enable_upstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
@@ -175,7 +179,9 @@ pub async fn export_toml(
         proxy: config.proxy.clone(),
         spoof_emulation: config.spoof_emulation.clone(),
         update_source: config.update_source.clone(),
-        mask_sensitive_info: config.mask_sensitive_info,
+        enable_usage: config.enable_usage,
+        enable_upstream_log: config.enable_upstream_log,
+        enable_upstream_log_body: config.enable_upstream_log_body,
         dsn: config.dsn.clone(),
         data_dir: config.data_dir.clone(),
     };
@@ -336,7 +342,9 @@ pub async fn import_toml(
             proxy: gs.proxy.clone(),
             spoof_emulation: gs.spoof_emulation.clone(),
             update_source: gs.update_source.clone(),
-            mask_sensitive_info: gs.mask_sensitive_info,
+            enable_usage: gs.enable_usage,
+            enable_upstream_log: gs.enable_upstream_log,
+            enable_upstream_log_body: gs.enable_upstream_log_body,
             dsn: gs.dsn.clone(),
             data_dir: gs.data_dir.clone(),
         });
