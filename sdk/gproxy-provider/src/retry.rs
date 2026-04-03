@@ -8,7 +8,7 @@ use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError, UpstreamResponse};
 
 /// Default max retries per credential when 429 has no retry-after header.
-const DEFAULT_MAX_RETRIES_PER_CREDENTIAL: u32 = 3;
+const DEFAULT_MAX_RETRIES_PER_CREDENTIAL: u32 = 5;
 
 /// Retry a request across multiple credentials.
 ///
