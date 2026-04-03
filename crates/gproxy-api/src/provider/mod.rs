@@ -7,6 +7,7 @@ use gproxy_server::AppState;
 
 pub mod handler;
 pub mod oauth;
+pub mod websocket;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -15,7 +16,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{provider}/v1/messages/count_tokens", post(handler::proxy))
         .route("/{provider}/v1/messages/count-tokens", post(handler::proxy))
         .route("/{provider}/v1/chat/completions", post(handler::proxy))
-        .route("/{provider}/v1/responses", post(handler::proxy))
+        .route("/{provider}/v1/responses", post(handler::proxy).get(websocket::openai_responses_ws))
         .route(
             "/{provider}/v1/responses/input_tokens",
             post(handler::proxy),
@@ -28,6 +29,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{provider}/v1/models/{*model_id}", get(handler::proxy))
         .route("/{provider}/v1beta/models", get(handler::proxy))
         .route("/{provider}/v1beta/{*target}", post(handler::proxy))
+        // Gemini Live WebSocket
+        .route("/{provider}/v1beta/models/{*target_live}", get(websocket::gemini_live))
         // OAuth
         .route("/{provider}/v1/oauth", get(oauth::oauth_start))
         .route("/{provider}/v1/oauth/callback", get(oauth::oauth_callback))

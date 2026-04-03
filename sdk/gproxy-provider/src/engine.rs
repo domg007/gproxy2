@@ -310,6 +310,72 @@ impl GproxyEngine {
         builder.build()
     }
 
+    /// Connect to an upstream WebSocket endpoint for a provider.
+    ///
+    /// Returns the wreq WebSocket on success, or an error (e.g. 426, connection
+    /// refused) that the caller can use to decide whether to fall back to HTTP.
+    pub async fn connect_upstream_ws(
+        &self,
+        provider_name: &str,
+        path: &str,
+        model: Option<&str>,
+    ) -> Result<UpstreamWebSocket, UpstreamError> {
+        let span = tracing::info_span!("engine.connect_upstream_ws", provider = provider_name, path);
+        async {
+            let provider = self.store.get_runtime(provider_name).ok_or_else(|| {
+                UpstreamError::Channel(format!("unknown provider: {provider_name}"))
+            })?;
+            let snapshot = provider.snapshot().map_err(|e| UpstreamError::Channel(e.to_string()))?;
+            let base_url = snapshot
+                .settings
+                .get("base_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://api.openai.com");
+
+            // Get first credential token
+            let creds = self.store.list_credentials(Some(provider_name))?;
+            let token = creds
+                .first()
+                .and_then(|c| c.credential.get("access_token").or(c.credential.get("api_key")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            // Build WS URL
+            let ws_base = base_url
+                .trim_end_matches('/')
+                .replace("https://", "wss://")
+                .replace("http://", "ws://");
+            let mut ws_url = format!("{ws_base}{path}");
+            if let Some(m) = model {
+                let sep = if ws_url.contains('?') { "&" } else { "?" };
+                ws_url = format!("{ws_url}{sep}model={m}");
+            }
+
+            tracing::info!(url = %ws_url, "connecting upstream websocket");
+
+            let response = wreq::websocket(&ws_url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .map_err(|e| UpstreamError::Http(format!("ws handshake failed: {e}")))?;
+
+            let status = response.status().as_u16();
+            if status == 426 {
+                return Err(UpstreamError::Channel("upstream requires HTTP (426 Upgrade Required)".into()));
+            }
+
+            let ws = response
+                .into_websocket()
+                .await
+                .map_err(|e| UpstreamError::Http(format!("ws upgrade failed: {e}")))?;
+
+            tracing::info!("upstream websocket connected");
+            Ok(UpstreamWebSocket { inner: ws })
+        }
+        .instrument(span)
+        .await
+    }
+
     /// Start an OAuth flow for a provider.
     pub async fn oauth_start(
         &self,
@@ -554,3 +620,36 @@ fn parse_emulation(name: &str) -> wreq_util::Emulation {
         _ => wreq_util::Emulation::Chrome136,
     }
 }
+
+/// Wrapper around a wreq WebSocket connection to an upstream provider.
+pub struct UpstreamWebSocket {
+    inner: wreq::ws::WebSocket,
+}
+
+impl UpstreamWebSocket {
+    /// Get a mutable reference to the inner wreq WebSocket.
+    /// Use `futures_util::StreamExt` and `futures_util::SinkExt` for
+    /// send/recv, or call `recv()` / `send()` directly.
+    pub fn into_inner(self) -> wreq::ws::WebSocket {
+        self.inner
+    }
+
+    /// Receive a message from the upstream WebSocket.
+    pub async fn recv(&mut self) -> Option<Result<WsMessage, UpstreamError>> {
+        self.inner
+            .recv()
+            .await
+            .map(|r| r.map_err(|e| UpstreamError::Http(e.to_string())))
+    }
+
+    /// Send a message to the upstream WebSocket.
+    pub async fn send(&mut self, msg: WsMessage) -> Result<(), UpstreamError> {
+        self.inner
+            .send(msg)
+            .await
+            .map_err(|e| UpstreamError::Http(e.to_string()))
+    }
+}
+
+/// Re-export wreq WS message type.
+pub use wreq::ws::message::Message as WsMessage;

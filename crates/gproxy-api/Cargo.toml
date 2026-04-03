@@ -13,6 +13,7 @@ gproxy-server = { workspace = true }
 gproxy-storage = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
+futures-util = { workspace = true }
 http = { workspace = true }
 rand = { workspace = true }
 sea-orm = { workspace = true }
@@ -21,6 +22,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
