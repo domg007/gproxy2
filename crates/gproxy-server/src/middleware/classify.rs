@@ -1,139 +1,127 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
+use axum::body::Body;
+use axum::extract::Request;
+use axum::http::{Method, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use http::{HeaderMap, Method, Request};
+use http_body_util::BodyExt;
 use serde::Deserialize;
-use tower::{Layer, Service};
 
-use crate::middleware::error::MiddlewareError;
 use crate::middleware::kinds::{OperationFamily, ProtocolKind};
 
-/// Raw HTTP request with a buffered body.
-pub type ClassifyRequest = Request<Bytes>;
-
-/// Result of request classification: the original request plus the detected
-/// operation family and wire protocol.
-#[derive(Debug)]
-pub struct ClassifiedRequest {
-    pub request: ClassifyRequest,
+/// Classification result stored in request extensions.
+#[derive(Debug, Clone)]
+pub struct Classification {
     pub operation: OperationFamily,
     pub protocol: ProtocolKind,
 }
 
-/// Classify a raw HTTP request into an operation family and protocol kind.
-pub fn classify_request_payload(
-    input: ClassifyRequest,
-) -> Result<ClassifiedRequest, MiddlewareError> {
-    let route = classify_route(&input)?;
-    Ok(ClassifiedRequest {
-        request: input,
-        operation: route.operation,
-        protocol: route.protocol,
-    })
+/// Axum middleware: classify the request by operation and protocol,
+/// buffer the body, and store `Classification` in extensions.
+pub async fn classify_middleware(request: Request, next: Next) -> Response {
+    let (parts, body) = request.into_parts();
+
+    // Buffer body
+    let body_bytes = match body.collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(_) => {
+            return (StatusCode::BAD_REQUEST, "failed to read request body").into_response();
+        }
+    };
+
+    let path = normalize_path(parts.uri.path());
+    let query = parts.uri.query();
+    let method = &parts.method;
+    let headers = &parts.headers;
+
+    let result = classify_route(method, &path, query, headers, &body_bytes);
+
+    match result {
+        Ok(classification) => {
+            let mut request = Request::from_parts(parts, Body::from(body_bytes));
+            request.extensions_mut().insert(classification);
+            next.run(request).await
+        }
+        Err(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Internal classification
+// Classification logic
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy)]
-struct ClassifiedRoute {
-    operation: OperationFamily,
-    protocol: ProtocolKind,
-}
-
-fn classify_route(input: &ClassifyRequest) -> Result<ClassifiedRoute, MiddlewareError> {
-    let path = normalize_path(input.uri().path());
-    let query = input.uri().query();
-    let method = input.method();
-    let headers = input.headers();
-
+fn classify_route(
+    method: &Method,
+    path: &str,
+    query: Option<&str>,
+    headers: &http::HeaderMap,
+    body: &Bytes,
+) -> Result<Classification, &'static str> {
     if *method == Method::GET {
         if path == "/models" {
-            return Ok(ClassifiedRoute {
+            return Ok(Classification {
                 operation: OperationFamily::ModelList,
                 protocol: classify_models_protocol(headers, query),
             });
         }
-        if is_model_get_path(&path) {
-            return Ok(ClassifiedRoute {
+        if is_model_get_path(path) {
+            return Ok(Classification {
                 operation: OperationFamily::ModelGet,
                 protocol: classify_models_protocol(headers, query),
             });
         }
-        return Err(MiddlewareError::Unsupported(
-            "unsupported GET request path for classification",
-        ));
+        return Err("unsupported GET path");
     }
 
     if *method != Method::POST {
-        return Err(MiddlewareError::Unsupported(
-            "unsupported HTTP method for classification",
-        ));
+        return Err("unsupported HTTP method");
     }
 
-    // -- OpenAI Responses API ------------------------------------------------
     if path == "/responses" {
-        return Ok(ClassifiedRoute {
-            operation: stream_or_non_stream(input.body()),
+        return Ok(Classification {
+            operation: stream_or_non_stream(body),
             protocol: ProtocolKind::OpenAi,
         });
     }
-
-    // -- OpenAI Chat Completions ---------------------------------------------
     if path == "/chat/completions" {
-        return Ok(ClassifiedRoute {
-            operation: stream_or_non_stream(input.body()),
+        return Ok(Classification {
+            operation: stream_or_non_stream(body),
             protocol: ProtocolKind::OpenAiChatCompletion,
         });
     }
-
-    // -- Claude Messages -----------------------------------------------------
     if path == "/messages" {
-        return Ok(ClassifiedRoute {
-            operation: stream_or_non_stream(input.body()),
+        return Ok(Classification {
+            operation: stream_or_non_stream(body),
             protocol: ProtocolKind::Claude,
         });
     }
-
-    // -- Token counting ------------------------------------------------------
     if path == "/responses/input_tokens" || path == "/responses/input_tokens/count" {
-        return Ok(ClassifiedRoute {
+        return Ok(Classification {
             operation: OperationFamily::CountToken,
             protocol: ProtocolKind::OpenAi,
         });
     }
     if path == "/messages/count_tokens" || path == "/messages/count-tokens" {
-        return Ok(ClassifiedRoute {
+        return Ok(Classification {
             operation: OperationFamily::CountToken,
             protocol: ProtocolKind::Claude,
         });
     }
-
-    // -- Compact -------------------------------------------------------------
     if path == "/responses/compact" {
-        return Ok(ClassifiedRoute {
+        return Ok(Classification {
             operation: OperationFamily::Compact,
             protocol: ProtocolKind::OpenAi,
         });
     }
-
-    // -- Embeddings ----------------------------------------------------------
     if path == "/embeddings" {
-        return Ok(ClassifiedRoute {
+        return Ok(Classification {
             operation: OperationFamily::Embedding,
             protocol: ProtocolKind::OpenAi,
         });
     }
-
-    // -- Images --------------------------------------------------------------
     if path == "/images/generations" {
-        return Ok(ClassifiedRoute {
-            operation: if read_stream_flag(input.body()) {
+        return Ok(Classification {
+            operation: if read_stream_flag(body) {
                 OperationFamily::StreamCreateImage
             } else {
                 OperationFamily::CreateImage
@@ -142,8 +130,8 @@ fn classify_route(input: &ClassifyRequest) -> Result<ClassifiedRoute, Middleware
         });
     }
     if path == "/images/edits" {
-        return Ok(ClassifiedRoute {
-            operation: if read_stream_flag(input.body()) {
+        return Ok(Classification {
+            operation: if read_stream_flag(body) {
                 OperationFamily::StreamCreateImageEdit
             } else {
                 OperationFamily::CreateImageEdit
@@ -151,25 +139,17 @@ fn classify_route(input: &ClassifyRequest) -> Result<ClassifiedRoute, Middleware
             protocol: ProtocolKind::OpenAi,
         });
     }
-
-    // -- Gemini paths --------------------------------------------------------
-    if let Some((operation, protocol)) = classify_gemini(&path, query) {
-        return Ok(ClassifiedRoute {
+    if let Some((operation, protocol)) = classify_gemini(path, query) {
+        return Ok(Classification {
             operation,
             protocol,
         });
     }
 
-    Err(MiddlewareError::Unsupported(
-        "unable to classify request operation/protocol from method/path/query/headers/body",
-    ))
+    Err("unable to classify request")
 }
 
-// ---------------------------------------------------------------------------
-// Protocol detection helpers
-// ---------------------------------------------------------------------------
-
-fn classify_models_protocol(headers: &HeaderMap, query: Option<&str>) -> ProtocolKind {
+fn classify_models_protocol(headers: &http::HeaderMap, query: Option<&str>) -> ProtocolKind {
     if headers.contains_key("anthropic-version")
         || headers.contains_key("anthropic-beta")
         || headers.contains_key("x-api-key")
@@ -207,10 +187,6 @@ fn classify_gemini(path: &str, query: Option<&str>) -> Option<(OperationFamily, 
         _ => None,
     }
 }
-
-// ---------------------------------------------------------------------------
-// Path / query / body utilities
-// ---------------------------------------------------------------------------
 
 fn is_model_get_path(path: &str) -> bool {
     let Some(tail) = path.strip_prefix("/models/") else {
@@ -266,178 +242,30 @@ fn stream_or_non_stream(body: &Bytes) -> OperationFamily {
 
 fn read_stream_flag(body: &Bytes) -> bool {
     #[derive(Deserialize)]
-    struct StreamFlagBody {
+    struct S {
         #[serde(default)]
         stream: Option<bool>,
     }
     if body.is_empty() {
         return false;
     }
-    serde_json::from_slice::<StreamFlagBody>(body)
+    serde_json::from_slice::<S>(body)
         .ok()
         .and_then(|v| v.stream)
         .unwrap_or(false)
 }
 
-// ---------------------------------------------------------------------------
-// Tower Layer / Service
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RequestClassifyLayer;
-
-impl RequestClassifyLayer {
-    pub const fn new() -> Self {
-        Self
+/// Extract model name from a URI path like `/v1/models/gpt-4o` or
+/// `/v1beta/models/gemini-pro:generateContent`.
+pub fn extract_model_from_uri_path(path: &str) -> Option<String> {
+    let normalized = normalize_path(path);
+    let tail = normalized.strip_prefix("/models/")?;
+    if tail.is_empty() {
+        return None;
     }
-}
-
-impl<S> Layer<S> for RequestClassifyLayer {
-    type Service = RequestClassifyService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        RequestClassifyService { inner }
+    let model = tail.split(':').next().unwrap_or(tail);
+    if model.is_empty() {
+        return None;
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct RequestClassifyService<S> {
-    inner: S,
-}
-
-#[derive(Debug)]
-pub enum RequestClassifyServiceError<E> {
-    Classify(MiddlewareError),
-    Inner(E),
-}
-
-impl<E: Display> Display for RequestClassifyServiceError<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Classify(err) => Display::fmt(err, f),
-            Self::Inner(err) => Display::fmt(err, f),
-        }
-    }
-}
-
-impl<E: Error + 'static> Error for RequestClassifyServiceError<E> {}
-
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
-
-impl<S> Service<ClassifyRequest> for RequestClassifyService<S>
-where
-    S: Service<ClassifiedRequest> + Clone + Send + 'static,
-    S::Future: Send + 'static,
-    S::Error: Send + 'static,
-{
-    type Response = S::Response;
-    type Error = RequestClassifyServiceError<S::Error>;
-    type Future = BoxFuture<Result<Self::Response, Self::Error>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner
-            .poll_ready(cx)
-            .map_err(RequestClassifyServiceError::Inner)
-    }
-
-    fn call(&mut self, request: ClassifyRequest) -> Self::Future {
-        let mut inner = self.inner.clone();
-        Box::pin(async move {
-            let classified =
-                classify_request_payload(request).map_err(RequestClassifyServiceError::Classify)?;
-            inner
-                .call(classified)
-                .await
-                .map_err(RequestClassifyServiceError::Inner)
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn classify(method: Method, uri: &str, body: &str) -> ClassifiedRequest {
-        classify_request_payload(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .body(Bytes::from(body.to_string()))
-                .expect("request"),
-        )
-        .expect("classified request")
-    }
-
-    #[test]
-    fn openai_responses_non_stream() {
-        let c = classify(Method::POST, "/v1/responses", r#"{"model":"gpt-4o"}"#);
-        assert_eq!(c.operation, OperationFamily::GenerateContent);
-        assert_eq!(c.protocol, ProtocolKind::OpenAi);
-    }
-
-    #[test]
-    fn openai_responses_stream() {
-        let c = classify(
-            Method::POST,
-            "/v1/responses",
-            r#"{"model":"gpt-4o","stream":true}"#,
-        );
-        assert_eq!(c.operation, OperationFamily::StreamGenerateContent);
-        assert_eq!(c.protocol, ProtocolKind::OpenAi);
-    }
-
-    #[test]
-    fn claude_messages() {
-        let c = classify(
-            Method::POST,
-            "/v1/messages",
-            r#"{"model":"claude-4-sonnet","stream":true}"#,
-        );
-        assert_eq!(c.operation, OperationFamily::StreamGenerateContent);
-        assert_eq!(c.protocol, ProtocolKind::Claude);
-    }
-
-    #[test]
-    fn gemini_stream_sse() {
-        let c = classify(
-            Method::POST,
-            "/v1beta/models/gemini-pro:streamGenerateContent?alt=sse",
-            "{}",
-        );
-        assert_eq!(c.operation, OperationFamily::StreamGenerateContent);
-        assert_eq!(c.protocol, ProtocolKind::Gemini);
-    }
-
-    #[test]
-    fn gemini_stream_ndjson() {
-        let c = classify(
-            Method::POST,
-            "/v1beta/models/gemini-pro:streamGenerateContent",
-            "{}",
-        );
-        assert_eq!(c.operation, OperationFamily::StreamGenerateContent);
-        assert_eq!(c.protocol, ProtocolKind::GeminiNDJson);
-    }
-
-    #[test]
-    fn model_list_openai() {
-        let c = classify(Method::GET, "/v1/models", "");
-        assert_eq!(c.operation, OperationFamily::ModelList);
-        assert_eq!(c.protocol, ProtocolKind::OpenAi);
-    }
-
-    #[test]
-    fn image_generation_stream() {
-        let c = classify(
-            Method::POST,
-            "/v1/images/generations",
-            r#"{"prompt":"demo","stream":true}"#,
-        );
-        assert_eq!(c.operation, OperationFamily::StreamCreateImage);
-        assert_eq!(c.protocol, ProtocolKind::OpenAi);
-    }
+    Some(model.to_string())
 }

@@ -1909,6 +1909,7 @@ dependencies = [
  "gproxy-sdk",
  "gproxy-storage",
  "http",
+ "http-body-util",
  "serde",
  "serde_json",
  "sha2 0.11.0",

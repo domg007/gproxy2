@@ -1,8 +1,19 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
+use axum::extract::{Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
+
+use crate::app_state::AppState;
+
+/// Resolved model alias stored in request extensions.
+/// `None` means no alias matched — use original model name.
+#[derive(Debug, Clone)]
+pub struct ResolvedAlias {
+    pub provider_name: Option<String>,
+    pub model_id: Option<String>,
+}
 
 /// Target of a model alias resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,17 +22,29 @@ pub struct ModelAliasTarget {
     pub model_id: String,
 }
 
-/// Shared model alias table. Pass `Arc<ArcSwap<...>>` to the middleware,
-/// update it from AppState when admin changes aliases.
-pub type ModelAliasMap = Arc<ArcSwap<HashMap<String, ModelAliasTarget>>>;
+/// Axum middleware: resolve model aliases.
+///
+/// If the request model matches an alias, stores `ResolvedAlias` in extensions
+/// with the target provider and model.
+pub async fn model_alias_middleware(
+    State(state): State<Arc<AppState>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    // Try to get model from extensions (set by request_model middleware)
+    let model = request
+        .extensions()
+        .get::<super::request_model::ExtractedModel>()
+        .and_then(|m| m.0.clone());
 
-/// Create a new empty alias map.
-pub fn new_model_alias_map() -> ModelAliasMap {
-    Arc::new(ArcSwap::from_pointee(HashMap::new()))
-}
+    let resolved = model
+        .as_deref()
+        .and_then(|m| state.resolve_model_alias(m));
 
-/// Resolve a model name through the alias table.
-/// Returns `Some(target)` if an enabled alias exists, `None` otherwise.
-pub fn resolve_alias(map: &ModelAliasMap, model: &str) -> Option<ModelAliasTarget> {
-    map.load().get(model).cloned()
+    request.extensions_mut().insert(ResolvedAlias {
+        provider_name: resolved.as_ref().map(|r| r.provider_name.clone()),
+        model_id: resolved.as_ref().map(|r| r.model_id.clone()),
+    });
+
+    next.run(request).await
 }

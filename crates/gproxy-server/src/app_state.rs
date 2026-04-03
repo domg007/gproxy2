@@ -7,15 +7,15 @@ use gproxy_sdk::provider::engine::GproxyEngine;
 use gproxy_storage::{SeaOrmStorage, StorageWriteSender};
 
 use crate::config::GlobalConfig;
-use crate::middleware::model_alias::{self, ModelAliasMap};
-use crate::middleware::permission::{self, PermissionMap};
-use crate::middleware::rate_limit::{self, RateLimitConfigMap, RateLimitCounters, UserQuotaMap};
+use crate::middleware::model_alias::ModelAliasTarget;
+use crate::middleware::permission::{self, PermissionEntry};
+use crate::middleware::rate_limit::{RateLimitCounters, RateLimitRejection, RateLimitRule, find_matching_rule};
 use crate::principal::{MemoryUser, MemoryUserKey};
 
-// Re-export middleware types for convenience
-pub use crate::middleware::model_alias::ModelAliasTarget;
-pub use crate::middleware::permission::PermissionEntry;
-pub use crate::middleware::rate_limit::{RateLimitRejection, RateLimitRule};
+// Re-export middleware types
+pub use crate::middleware::model_alias::ModelAliasTarget as ModelAliasTargetExport;
+pub use crate::middleware::permission::PermissionEntry as PermissionEntryExport;
+pub use crate::middleware::rate_limit::{RateLimitRejection as RateLimitRejectionExport, RateLimitRule as RateLimitRuleExport};
 
 /// In-memory model record (from models table).
 #[derive(Debug, Clone)]
@@ -34,12 +34,6 @@ pub struct MemoryModel {
 }
 
 /// Central application state shared across all request handlers.
-///
-/// All fields use `ArcSwap` for lock-free reads and atomic hot-swapping.
-/// HTTP clients live inside `GproxyEngine` — access them via `engine()`.
-///
-/// Model alias, permission, and rate limit logic lives in `gproxy-middleware`.
-/// AppState holds the shared data references that middleware reads from.
 pub struct AppState {
     engine: ArcSwap<GproxyEngine>,
     storage: Arc<ArcSwap<SeaOrmStorage>>,
@@ -47,21 +41,17 @@ pub struct AppState {
     config: ArcSwap<GlobalConfig>,
     users: ArcSwap<Vec<MemoryUser>>,
     keys: ArcSwap<HashMap<String, MemoryUserKey>>,
-
-    // Model registry
     models: ArcSwap<Vec<MemoryModel>>,
-
-    // Shared middleware data (middleware reads these directly)
-    pub model_aliases: ModelAliasMap,
-    pub permissions: PermissionMap,
-    pub rate_limit_config: RateLimitConfigMap,
-    pub user_quotas: UserQuotaMap,
+    model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
+    user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
+    user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
+    user_quotas: ArcSwap<HashMap<i64, (i64, f64)>>,
     pub rate_counters: RateLimitCounters,
 }
 
 impl AppState {
     // -----------------------------------------------------------------------
-    // Read (lock-free)
+    // Read
     // -----------------------------------------------------------------------
 
     pub fn engine(&self) -> Arc<GproxyEngine> {
@@ -80,7 +70,6 @@ impl AppState {
         self.config.load_full()
     }
 
-    /// Authenticate an API key against the in-memory cache.
     pub fn authenticate_api_key(&self, api_key: &str) -> Option<MemoryUserKey> {
         let keys = self.keys.load();
         let key = keys.get(api_key)?;
@@ -88,14 +77,12 @@ impl AppState {
             return None;
         }
         let users = self.users.load();
-        let user_enabled = users.iter().any(|u| u.id == key.user_id && u.enabled);
-        if !user_enabled {
+        if !users.iter().any(|u| u.id == key.user_id && u.enabled) {
             return None;
         }
         Some(key.clone())
     }
 
-    /// Find model pricing info by model_id.
     pub fn find_model(&self, model_id: &str) -> Option<MemoryModel> {
         self.models
             .load()
@@ -104,36 +91,60 @@ impl AppState {
             .cloned()
     }
 
-    // Convenience wrappers that delegate to middleware functions:
-
     pub fn resolve_model_alias(&self, alias: &str) -> Option<ModelAliasTarget> {
-        model_alias::resolve_alias(&self.model_aliases, alias)
+        self.model_aliases.load().get(alias).cloned()
     }
 
     pub fn check_model_permission(&self, user_id: i64, provider_id: i64, model: &str) -> bool {
-        permission::check_permission(&self.permissions, user_id, provider_id, model)
+        let perms = self.user_permissions.load();
+        let Some(entries) = perms.get(&user_id) else {
+            return false;
+        };
+        entries.iter().any(|e| {
+            let provider_ok = e.provider_id.is_none() || e.provider_id == Some(provider_id);
+            provider_ok && permission::pattern_matches(&e.model_pattern, model)
+        })
     }
 
     pub fn check_rate_limit(&self, user_id: i64, model: &str) -> Result<(), RateLimitRejection> {
-        rate_limit::check_rate_limit(
-            &self.rate_limit_config,
-            &self.user_quotas,
-            &self.rate_counters,
-            user_id,
-            model,
-        )
+        let limits = self.user_rate_limits.load();
+        let Some(user_limits) = limits.get(&user_id) else {
+            return Ok(());
+        };
+        let Some(rule) = find_matching_rule(user_limits, model) else {
+            return Ok(());
+        };
+        if let Some(rpm) = rule.rpm
+            && self.rate_counters.check_rpm(user_id, model) >= rpm as u32 {
+                return Err(RateLimitRejection::Rpm { limit: rpm });
+            }
+        if let Some(rpd) = rule.rpd
+            && self.rate_counters.check_rpd(user_id, model) >= rpd as u32 {
+                return Err(RateLimitRejection::Rpd { limit: rpd });
+            }
+        if let Some(total_tokens) = rule.total_tokens {
+            let used = self.user_quotas.load().get(&user_id).map(|(t, _)| *t).unwrap_or(0);
+            if used >= total_tokens {
+                return Err(RateLimitRejection::TokenQuota { used, limit: total_tokens });
+            }
+        }
+        Ok(())
     }
 
     pub fn record_request(&self, user_id: i64, model: &str) {
-        rate_limit::record_request(&self.rate_counters, user_id, model);
+        self.rate_counters.check_and_increment(user_id, model);
     }
 
     pub fn add_token_usage(&self, user_id: i64, tokens: i64, cost: f64) {
-        rate_limit::add_token_usage(&self.user_quotas, user_id, tokens, cost);
+        let mut quotas = (*self.user_quotas.load_full()).clone();
+        let entry = quotas.entry(user_id).or_insert((0, 0.0));
+        entry.0 = entry.0.saturating_add(tokens);
+        entry.1 += cost;
+        self.user_quotas.store(Arc::new(quotas));
     }
 
     // -----------------------------------------------------------------------
-    // Write (atomic swap)
+    // Write
     // -----------------------------------------------------------------------
 
     pub fn replace_engine(&self, engine: GproxyEngine) {
@@ -182,6 +193,22 @@ impl AppState {
 
     pub fn replace_models(&self, models: Vec<MemoryModel>) {
         self.models.store(Arc::new(models));
+    }
+
+    pub fn replace_model_aliases(&self, aliases: HashMap<String, ModelAliasTarget>) {
+        self.model_aliases.store(Arc::new(aliases));
+    }
+
+    pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
+        self.user_permissions.store(Arc::new(perms));
+    }
+
+    pub fn replace_user_rate_limits(&self, limits: HashMap<i64, Vec<RateLimitRule>>) {
+        self.user_rate_limits.store(Arc::new(limits));
+    }
+
+    pub fn replace_user_quotas(&self, quotas: HashMap<i64, (i64, f64)>) {
+        self.user_quotas.store(Arc::new(quotas));
     }
 }
 
@@ -249,26 +276,20 @@ impl AppStateBuilder {
 
         AppState {
             engine: ArcSwap::from_pointee(
-                self.engine
-                    .expect("GproxyEngine is required to build AppState"),
+                self.engine.expect("GproxyEngine is required"),
             ),
             storage: Arc::new(ArcSwap::from_pointee(
-                (*self
-                    .storage
-                    .expect("SeaOrmStorage is required to build AppState"))
-                .clone(),
+                (*self.storage.expect("SeaOrmStorage is required")).clone(),
             )),
-            storage_writes: self
-                .storage_writes
-                .expect("StorageWriteSender is required to build AppState"),
+            storage_writes: self.storage_writes.expect("StorageWriteSender is required"),
             config: ArcSwap::from_pointee(self.config.unwrap_or_default()),
             users: ArcSwap::from_pointee(self.users),
             keys: ArcSwap::from_pointee(key_map),
             models: ArcSwap::from_pointee(Vec::new()),
-            model_aliases: model_alias::new_model_alias_map(),
-            permissions: permission::new_permission_map(),
-            rate_limit_config: rate_limit::new_rate_limit_config_map(),
-            user_quotas: rate_limit::new_user_quota_map(),
+            model_aliases: ArcSwap::from_pointee(HashMap::new()),
+            user_permissions: ArcSwap::from_pointee(HashMap::new()),
+            user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
+            user_quotas: ArcSwap::from_pointee(HashMap::new()),
             rate_counters: RateLimitCounters::new(),
         }
     }
