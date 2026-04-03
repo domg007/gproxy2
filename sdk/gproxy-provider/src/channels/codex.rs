@@ -679,6 +679,31 @@ impl Channel for CodexChannel {
         CountStrategy::Local
     }
 
+    fn prepare_quota_request(
+        &self,
+        credential: &Self::Credential,
+        settings: &Self::Settings,
+    ) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError> {
+        let base = settings.base_url().trim_end_matches('/');
+        let base = base.strip_suffix("/codex").unwrap_or(base);
+        let url = format!("{base}/wham/usage");
+        let user_agent = settings.effective_user_agent();
+        let mut builder = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(&url)
+            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header("Accept", "application/json")
+            .header("originator", DEFAULT_CODEX_ORIGINATOR)
+            .header("User-Agent", &user_agent);
+        if let Some(account_id) = &credential.account_id {
+            builder = builder.header("chatgpt-account-id", account_id.as_str());
+        }
+        let req = builder
+            .body(Vec::new())
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(Some(req))
+    }
+
     fn refresh_credential<'a>(
         &'a self,
         client: &'a wreq::Client,

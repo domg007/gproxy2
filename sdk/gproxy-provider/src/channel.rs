@@ -98,6 +98,19 @@ pub trait Channel: Send + Sync + 'static {
         async { Ok(false) }
     }
 
+    /// Build an HTTP request to query the upstream provider's quota / usage
+    /// information for a given credential.
+    ///
+    /// Returns `None` for channels that do not expose a quota endpoint (the
+    /// default).  OAuth channels typically override this.
+    fn prepare_quota_request(
+        &self,
+        _credential: &Self::Credential,
+        _settings: &Self::Settings,
+    ) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError> {
+        Ok(None)
+    }
+
     /// Start an OAuth flow (optional, most channels return None).
     fn oauth_start<'a>(
         &'a self,

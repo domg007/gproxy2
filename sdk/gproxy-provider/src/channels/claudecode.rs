@@ -219,6 +219,10 @@ fn default_claudecode_base_url() -> String {
     "https://api.anthropic.com".to_string()
 }
 
+fn default_claudecode_platform_base_url() -> String {
+    "https://platform.claude.com".to_string()
+}
+
 fn default_claudecode_device_id() -> String {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).expect("device_id entropy should be available");
@@ -238,6 +242,10 @@ fn default_claudecode_device_id() -> String {
 pub struct ClaudeCodeSettings {
     #[serde(default = "default_claudecode_base_url")]
     pub base_url: String,
+    /// Base URL for the platform API (quota / usage endpoint).
+    /// Defaults to `https://platform.claude.com`.
+    #[serde(default = "default_claudecode_platform_base_url")]
+    pub platform_base_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -252,6 +260,7 @@ impl Default for ClaudeCodeSettings {
     fn default() -> Self {
         Self {
             base_url: default_claudecode_base_url(),
+            platform_base_url: default_claudecode_platform_base_url(),
             user_agent: None,
             max_retries_on_429: None,
             enable_magic_cache: false,
@@ -751,6 +760,37 @@ impl Channel for ClaudeCodeChannel {
 
     fn count_strategy(&self) -> CountStrategy {
         CountStrategy::UpstreamApi
+    }
+
+    fn prepare_quota_request(
+        &self,
+        credential: &Self::Credential,
+        settings: &Self::Settings,
+    ) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError> {
+        let url = format!(
+            "{}/api/oauth/usage",
+            settings.platform_base_url.trim_end_matches('/')
+        );
+        let user_agent = match settings.user_agent() {
+            Some(ua) => ua.to_string(),
+            None => format!(
+                "claude-cli/{} ({}, {})",
+                DEFAULT_CLAUDECODE_VERSION,
+                DEFAULT_CLAUDECODE_USER_TYPE,
+                DEFAULT_CLAUDECODE_ENTRYPOINT
+            ),
+        };
+        let req = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(&url)
+            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .header("User-Agent", &user_agent)
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .body(Vec::new())
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(Some(req))
     }
 
     fn refresh_credential<'a>(

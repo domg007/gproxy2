@@ -592,6 +592,31 @@ impl Channel for AntigravityChannel {
         CountStrategy::UpstreamApi
     }
 
+    fn prepare_quota_request(
+        &self,
+        credential: &Self::Credential,
+        settings: &Self::Settings,
+    ) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError> {
+        let url = format!(
+            "{}/v1internal:fetchAvailableModels",
+            settings.base_url().trim_end_matches('/')
+        );
+        let user_agent = settings.effective_user_agent();
+        let body = serde_json::to_vec(&serde_json::json!({}))
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        let req = http::Request::builder()
+            .method(http::Method::POST)
+            .uri(&url)
+            .header("Authorization", format!("Bearer {}", credential.access_token))
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .header("Accept-Encoding", "gzip")
+            .header("User-Agent", &user_agent)
+            .body(body)
+            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        Ok(Some(req))
+    }
+
     fn refresh_credential<'a>(
         &'a self,
         client: &'a wreq::Client,
