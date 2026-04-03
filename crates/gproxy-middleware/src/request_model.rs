@@ -63,7 +63,10 @@ pub fn extract_model_from_classified(
     req: ClassifiedRequest,
 ) -> Result<ModelScopedRequest, MiddlewareError> {
     let model = extract_model(&req)?;
-    Ok(ModelScopedRequest { request: req, model })
+    Ok(ModelScopedRequest {
+        request: req,
+        model,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -91,10 +94,9 @@ fn model_source(op: OperationFamily, proto: ProtocolKind) -> ModelSource {
             OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent,
             ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
         )
-        | (
-            OperationFamily::Embedding,
-            ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
-        ) => ModelSource::UriPath,
+        | (OperationFamily::Embedding, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => {
+            ModelSource::UriPath
+        }
 
         // Gemini count tokens: might be in body's generate_content_request.model,
         // or fall back to URI path

@@ -9,11 +9,7 @@ use tower::{Layer, Service};
 use crate::classify::ClassifiedRequest;
 
 /// Headers removed by the sanitize middleware.
-const AUTH_HEADERS: &[&str] = &[
-    "authorization",
-    "x-api-key",
-    "x-goog-api-key",
-];
+const AUTH_HEADERS: &[&str] = &["authorization", "x-api-key", "x-goog-api-key"];
 
 /// Query parameters that carry credentials and should be stripped.
 const AUTH_QUERY_KEYS: &[&str] = &["key"];
@@ -128,29 +124,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::classify::classify_request_payload;
+    use bytes::Bytes;
     use http::Request;
 
     fn make_classified(uri: &str, headers: &[(&str, &str)]) -> ClassifiedRequest {
-        let mut builder = Request::builder()
-            .method(http::Method::POST)
-            .uri(uri);
+        let mut builder = Request::builder().method(http::Method::POST).uri(uri);
         for (k, v) in headers {
             builder = builder.header(*k, *v);
         }
-        let req = builder
-            .body(Bytes::from(r#"{"model":"gpt-4o"}"#))
-            .unwrap();
+        let req = builder.body(Bytes::from(r#"{"model":"gpt-4o"}"#)).unwrap();
         classify_request_payload(req).unwrap()
     }
 
     #[test]
     fn strips_authorization_header() {
-        let mut classified = make_classified(
-            "/v1/responses",
-            &[("authorization", "Bearer sk-test-123")],
-        );
+        let mut classified =
+            make_classified("/v1/responses", &[("authorization", "Bearer sk-test-123")]);
         sanitize_request(&mut classified);
         assert!(classified.request.headers().get("authorization").is_none());
     }
@@ -159,7 +149,10 @@ mod tests {
     fn strips_x_api_key() {
         let mut classified = make_classified(
             "/v1/messages",
-            &[("x-api-key", "sk-ant-key"), ("anthropic-version", "2023-06-01")],
+            &[
+                ("x-api-key", "sk-ant-key"),
+                ("anthropic-version", "2023-06-01"),
+            ],
         );
         sanitize_request(&mut classified);
         assert!(classified.request.headers().get("x-api-key").is_none());
@@ -172,10 +165,7 @@ mod tests {
             &[],
         );
         sanitize_request(&mut classified);
-        assert_eq!(
-            classified.request.uri().query(),
-            Some("alt=sse"),
-        );
+        assert_eq!(classified.request.uri().query(), Some("alt=sse"),);
     }
 
     #[test]
@@ -192,7 +182,10 @@ mod tests {
     fn preserves_non_auth_headers() {
         let mut classified = make_classified(
             "/v1/responses",
-            &[("authorization", "Bearer x"), ("content-type", "application/json")],
+            &[
+                ("authorization", "Bearer x"),
+                ("content-type", "application/json"),
+            ],
         );
         sanitize_request(&mut classified);
         assert!(classified.request.headers().get("authorization").is_none());

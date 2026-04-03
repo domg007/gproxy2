@@ -86,8 +86,7 @@ pub(super) fn strip_provider_prefix_from_classified(
                 let Some(raw) = slot.as_str() else {
                     continue;
                 };
-                let Some((has_models, provider, model)) = split_provider_prefixed_model(raw)
-                else {
+                let Some((has_models, provider, model)) = split_provider_prefixed_model(raw) else {
                     continue;
                 };
                 if let Some(existing) = capture.provider.as_ref() {
@@ -119,8 +118,7 @@ pub(super) fn strip_provider_prefix_from_classified(
     if capture.provider.is_none()
         && let Some(model_in_path) =
             crate::request_model::extract_model_from_uri_path(req.request.uri().path())
-        && let Some((has_models, provider, model)) =
-            split_provider_prefixed_model(&model_in_path)
+        && let Some((has_models, provider, model)) = split_provider_prefixed_model(&model_in_path)
     {
         capture.provider = Some(provider.to_string());
         // Rewrite URI path: replace the model segment
@@ -172,10 +170,7 @@ fn body_model_pointers(op: OperationFamily, proto: ProtocolKind) -> &'static [&'
             OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent,
             ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
         ) => &[],
-        (
-            OperationFamily::Embedding,
-            ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
-        ) => &[],
+        (OperationFamily::Embedding, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => &[],
         // ModelGet for OpenAI/Claude: model is in URL path, not body
         (OperationFamily::ModelGet, _) => &[],
 
