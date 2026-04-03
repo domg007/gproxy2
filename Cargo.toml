@@ -6,7 +6,7 @@ members = [
   "sdk/gproxy-provider",
   "crates/gproxy-middleware",
   "crates/gproxy-storage",
-  "crates/gproxy-admin",
+  "crates/gproxy-api",
   "crates/gproxy-server",
   "apps/gproxy",
   "apps/gproxy-recorder",
@@ -31,7 +31,7 @@ gproxy-provider = { path = "sdk/gproxy-provider" }
 
 # Internal App crates
 gproxy-storage = { path = "crates/gproxy-storage" }
-gproxy-admin = { path = "crates/gproxy-admin" }
+gproxy-api = { path = "crates/gproxy-api" }
 gproxy-server = { path = "crates/gproxy-server" }
 
 # External dependencies

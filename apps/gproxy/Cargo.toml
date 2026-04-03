@@ -10,7 +10,6 @@ repository.workspace = true
 [dependencies]
 gproxy-sdk = { workspace = true }
 gproxy-server = { workspace = true }
-gproxy-admin = { workspace = true }
 gproxy-storage = { workspace = true }
 anyhow = { workspace = true }
 async-stream = { workspace = true }
