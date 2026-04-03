@@ -1,0 +1,176 @@
+use std::sync::Arc;
+
+use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::Json;
+use serde::Serialize;
+
+use gproxy_server::{AppState, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget, PermissionEntry, RateLimitRule};
+
+use crate::auth::authorize_admin;
+use crate::error::HttpError;
+
+#[derive(Serialize)]
+pub struct ReloadResponse {
+    pub ok: bool,
+    pub users: usize,
+    pub keys: usize,
+    pub models: usize,
+    pub aliases: usize,
+    pub permissions: usize,
+    pub rate_limits: usize,
+    pub quotas: usize,
+}
+
+/// Reload all in-memory caches from the database.
+pub async fn reload(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<ReloadResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let storage = state.storage();
+
+    // Users
+    let users = storage
+        .list_users(&gproxy_storage::UserQuery::default())
+        .await?;
+    let user_count = users.len();
+    let memory_users: Vec<MemoryUser> = users
+        .iter()
+        .map(|u| MemoryUser {
+            id: u.id,
+            name: u.name.clone(),
+            enabled: u.enabled,
+        })
+        .collect();
+    for u in &memory_users {
+        state.upsert_user_in_memory(u.clone());
+    }
+
+    // User keys
+    let keys = storage.list_user_keys_for_memory().await?;
+    let key_count = keys.len();
+    for k in &keys {
+        state.upsert_key_in_memory(MemoryUserKey {
+            id: k.id,
+            user_id: k.user_id,
+            api_key: k.api_key.clone(),
+            enabled: k.enabled,
+        });
+    }
+
+    // Models
+    let models = storage
+        .list_models(&gproxy_storage::ModelQuery::default())
+        .await?;
+    let model_count = models.len();
+    let memory_models: Vec<MemoryModel> = models
+        .iter()
+        .map(|m| MemoryModel {
+            id: m.id,
+            provider_id: m.provider_id,
+            model_id: m.model_id.clone(),
+            display_name: m.display_name.clone(),
+            enabled: m.enabled,
+            price_each_call: m.price_each_call,
+            price_input_tokens: m.price_input_tokens,
+            price_output_tokens: m.price_output_tokens,
+            price_cache_read_input_tokens: m.price_cache_read_input_tokens,
+            price_cache_creation_input_tokens: m.price_cache_creation_input_tokens,
+            price_cache_creation_input_tokens_5min: m.price_cache_creation_input_tokens_5min,
+            price_cache_creation_input_tokens_1h: m.price_cache_creation_input_tokens_1h,
+        })
+        .collect();
+    state.replace_models(memory_models);
+
+    // Model aliases
+    let aliases = storage
+        .list_model_aliases(&gproxy_storage::ModelAliasQuery::default())
+        .await?;
+    let alias_count = aliases.len();
+    let alias_map = aliases
+        .into_iter()
+        .filter(|a| a.enabled)
+        .map(|a| {
+            (
+                a.alias,
+                ModelAliasTarget {
+                    provider_name: a.provider_id.to_string(),
+                    model_id: a.model_id,
+                },
+            )
+        })
+        .collect();
+    state.replace_model_aliases(alias_map);
+
+    // Permissions
+    let perms = storage
+        .list_user_model_permissions(&gproxy_storage::UserModelPermissionQuery::default())
+        .await?;
+    let perm_count = perms.len();
+    let mut perm_map = std::collections::HashMap::new();
+    for p in perms {
+        perm_map
+            .entry(p.user_id)
+            .or_insert_with(Vec::new)
+            .push(PermissionEntry {
+                provider_id: p.provider_id,
+                model_pattern: p.model_pattern,
+            });
+    }
+    state.replace_user_permissions(perm_map);
+
+    // Rate limits
+    let limits = storage
+        .list_user_rate_limits(&gproxy_storage::UserRateLimitQuery::default())
+        .await?;
+    let limit_count = limits.len();
+    let mut limit_map = std::collections::HashMap::new();
+    for l in limits {
+        limit_map
+            .entry(l.user_id)
+            .or_insert_with(Vec::new)
+            .push(RateLimitRule {
+                model_pattern: l.model_pattern,
+                rpm: l.rpm,
+                rpd: l.rpd,
+                total_tokens: l.total_tokens,
+            });
+    }
+    state.replace_user_rate_limits(limit_map);
+
+    // Quotas
+    let quotas = storage.list_user_quotas().await?;
+    let quota_count = quotas.len();
+    let quota_map = quotas
+        .into_iter()
+        .map(|q| (q.user_id, (q.quota, q.cost_used)))
+        .collect();
+    state.replace_user_quotas(quota_map);
+
+    // Global settings
+    if let Some(settings) = storage.get_global_settings().await? {
+        state.replace_config(gproxy_server::GlobalConfig {
+            host: settings.host,
+            port: settings.port as u16,
+            admin_key: settings.admin_key,
+            proxy: settings.proxy,
+            spoof_emulation: settings.spoof_emulation.unwrap_or_default(),
+            update_source: settings.update_source.unwrap_or_default(),
+            mask_sensitive_info: settings.mask_sensitive_info,
+            dsn: settings.dsn,
+            data_dir: settings.data_dir,
+        });
+    }
+
+    Ok(Json(ReloadResponse {
+        ok: true,
+        users: user_count,
+        keys: key_count,
+        models: model_count,
+        aliases: alias_count,
+        permissions: perm_count,
+        rate_limits: limit_count,
+        quotas: quota_count,
+    }))
+}

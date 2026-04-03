@@ -9,6 +9,7 @@ pub mod credentials;
 pub mod models;
 pub mod permissions;
 pub mod providers;
+pub mod reload;
 pub mod rate_limits;
 pub mod requests;
 pub mod settings;
@@ -17,6 +18,8 @@ pub mod users;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        // Reload all caches from database
+        .route("/reload", post(reload::reload))
         // Global settings
         .route("/global-settings", get(settings::get_global_settings))
         .route(
