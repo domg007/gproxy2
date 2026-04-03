@@ -9,11 +9,16 @@ pub struct Model {
     pub id: i64,
     #[sea_orm(unique_key = "user_model_permission")]
     pub user_id: i64,
+    /// Null = applies to all providers.
+    #[sea_orm(unique_key = "user_model_permission")]
+    pub provider_id: Option<i64>,
     #[sea_orm(unique_key = "user_model_permission")]
     pub model_pattern: String,
     pub created_at: OffsetDateTime,
     #[sea_orm(belongs_to, from = "user_id", to = "id", on_delete = "Cascade")]
     pub user: HasOne<super::users::Entity>,
+    #[sea_orm(belongs_to, from = "provider_id", to = "id", on_delete = "Cascade")]
+    pub provider: HasOne<super::providers::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

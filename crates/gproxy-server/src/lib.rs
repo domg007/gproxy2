@@ -3,7 +3,8 @@ pub mod config;
 pub mod principal;
 
 pub use app_state::{
-    AppState, AppStateBuilder, MemoryModel, ModelAliasTarget, RateLimitRejection, UserRateLimit,
+    AppState, AppStateBuilder, MemoryModel, ModelAliasTarget, RateLimitRejection,
+    UserPermissionEntry, UserRateLimit,
 };
 pub use config::GlobalConfig;
 pub use principal::{MemoryUser, MemoryUserKey};

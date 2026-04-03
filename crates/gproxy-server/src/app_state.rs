@@ -34,8 +34,13 @@ pub struct MemoryModel {
     pub price_cache_creation_input_tokens_1h: Option<f64>,
 }
 
-/// User rate limit config (from user_rate_limits table).
+/// User model permission entry (whitelist).
 #[derive(Debug, Clone)]
+pub struct UserPermissionEntry {
+    /// None = applies to all providers.
+    pub provider_id: Option<i64>,
+    pub model_pattern: String,
+}
 pub struct UserRateLimit {
     pub model_pattern: String,
     pub rpm: Option<i32>,
@@ -59,8 +64,8 @@ pub struct AppState {
     models: ArcSwap<Vec<MemoryModel>>,
     // Model aliases: alias → target
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
-    // User model permissions (whitelist): user_id → patterns
-    user_permissions: ArcSwap<HashMap<i64, Vec<String>>>,
+    // User model permissions (whitelist): user_id → entries
+    user_permissions: ArcSwap<HashMap<i64, Vec<UserPermissionEntry>>>,
     // User rate limits: user_id → limits
     user_rate_limits: ArcSwap<HashMap<i64, Vec<UserRateLimit>>>,
     // User quota tracking: user_id → (tokens_used, cost_used)
@@ -121,14 +126,17 @@ impl AppState {
             .cloned()
     }
 
-    /// Check if a user is allowed to use a specific model (whitelist).
-    /// Returns `false` if user has no permissions at all.
-    pub fn check_model_permission(&self, user_id: i64, model: &str) -> bool {
+    /// Check if a user is allowed to use a specific model on a provider (whitelist).
+    /// Returns `false` if user has no matching permissions.
+    pub fn check_model_permission(&self, user_id: i64, provider_id: i64, model: &str) -> bool {
         let perms = self.user_permissions.load();
-        let Some(patterns) = perms.get(&user_id) else {
+        let Some(entries) = perms.get(&user_id) else {
             return false;
         };
-        patterns.iter().any(|p| pattern_matches(p, model))
+        entries.iter().any(|e| {
+            let provider_ok = e.provider_id.is_none() || e.provider_id == Some(provider_id);
+            provider_ok && pattern_matches(&e.model_pattern, model)
+        })
     }
 
     /// Check rate limit for a user+model request. Returns `Ok(())` if allowed,
@@ -247,7 +255,7 @@ impl AppState {
         self.model_aliases.store(Arc::new(aliases));
     }
 
-    pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<String>>) {
+    pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<UserPermissionEntry>>) {
         self.user_permissions.store(Arc::new(perms));
     }
 

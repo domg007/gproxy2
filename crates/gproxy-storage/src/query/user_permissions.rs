@@ -7,6 +7,7 @@ use super::Scope;
 pub struct UserModelPermissionQuery {
     pub id: Scope<i64>,
     pub user_id: Scope<i64>,
+    pub provider_id: Scope<i64>,
     pub limit: Option<u64>,
 }
 
@@ -14,6 +15,7 @@ pub struct UserModelPermissionQuery {
 pub struct UserModelPermissionQueryRow {
     pub id: i64,
     pub user_id: i64,
+    pub provider_id: Option<i64>,
     pub model_pattern: String,
     pub created_at: OffsetDateTime,
 }

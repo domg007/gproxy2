@@ -159,6 +159,7 @@ pub struct ModelAliasWrite {
 pub struct UserModelPermissionWrite {
     pub id: i64,
     pub user_id: i64,
+    pub provider_id: Option<i64>,
     pub model_pattern: String,
 }
 
