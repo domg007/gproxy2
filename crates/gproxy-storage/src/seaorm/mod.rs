@@ -30,10 +30,6 @@ impl SeaOrmStorage {
         &self.db
     }
 
-    pub(crate) fn cipher(&self) -> Option<&DatabaseCipher> {
-        self.cipher.as_ref()
-    }
-
     pub async fn sync(&self) -> Result<(), DbErr> {
         let schema = self
             .db

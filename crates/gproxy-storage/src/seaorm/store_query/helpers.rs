@@ -1,4 +1,4 @@
-use sea_orm::{ColumnTrait, QueryFilter, QueryOrder, Select};
+use sea_orm::{ColumnTrait, QueryFilter, Select};
 use time::OffsetDateTime;
 
 /// Convert unix milliseconds to OffsetDateTime.

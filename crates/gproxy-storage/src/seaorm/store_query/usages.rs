@@ -7,7 +7,6 @@ use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 
 /// Usage queries — always hit the database at runtime.
 /// Usage records are not cached in memory (too large).
-
 impl SeaOrmStorage {
     pub async fn query_usages(&self, query: &UsageQuery) -> Result<Vec<UsageQueryRow>, DbErr> {
         let mut select = usages::Entity::find()

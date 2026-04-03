@@ -7,7 +7,6 @@ use super::helpers::{apply_desc_cursor, unix_ms_to_offset_datetime};
 
 /// Request log queries — always hit the database at runtime.
 /// Request logs are not cached in memory (too large).
-
 impl SeaOrmStorage {
     pub async fn query_upstream_requests(&self, query: &UpstreamRequestQuery) -> Result<Vec<UpstreamRequestQueryRow>, DbErr> {
         let mut select = upstream_requests::Entity::find()
