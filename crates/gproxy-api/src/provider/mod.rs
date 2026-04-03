@@ -44,6 +44,9 @@ pub fn router() -> Router<Arc<AppState>> {
         // Unscoped routes (provider determined by model prefix or alias)
         .route("/v1/messages", post(handler::proxy_unscoped))
         .route("/v1/chat/completions", post(handler::proxy_unscoped))
-        .route("/v1/responses", post(handler::proxy_unscoped))
+        .route(
+            "/v1/responses",
+            post(handler::proxy_unscoped).get(websocket::openai_responses_ws_unscoped),
+        )
         .route("/v1/models", get(handler::proxy_unscoped))
 }

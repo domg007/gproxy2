@@ -331,6 +331,8 @@ impl GproxyEngine {
     pub async fn connect_upstream_ws(
         &self,
         provider_name: &str,
+        operation: &str,
+        protocol: &str,
         path: &str,
         model: Option<&str>,
     ) -> Result<UpstreamWebSocket, UpstreamError> {
@@ -340,42 +342,48 @@ impl GproxyEngine {
             let provider = self.store.get_runtime(provider_name).ok_or_else(|| {
                 UpstreamError::Channel(format!("unknown provider: {provider_name}"))
             })?;
-            let snapshot = provider
-                .snapshot()
-                .map_err(|e| UpstreamError::Channel(e.to_string()))?;
-            let base_url = snapshot
-                .settings
-                .get("base_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("https://api.openai.com");
 
-            // Get first credential token
-            let creds = self.store.list_credentials(Some(provider_name))?;
-            let token = creds
-                .first()
-                .and_then(|c| {
-                    c.credential
-                        .get("access_token")
-                        .or(c.credential.get("api_key"))
-                })
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            // Check dispatch table: only attempt native WS for passthrough routes
+            let route_key = crate::dispatch::RouteKey::new(operation, protocol);
+            match provider.dispatch_table().resolve(&route_key) {
+                Some(crate::dispatch::RouteImplementation::Passthrough) => {}
+                _ => {
+                    return Err(UpstreamError::Channel(
+                        "upstream does not support native WebSocket for this operation; use HTTP fallback".into(),
+                    ));
+                }
+            }
 
-            // Build WS URL
-            let ws_base = base_url
-                .trim_end_matches('/')
+            // Use channel-aware auth via prepare_ws_auth
+            let (auth_url, auth_headers) = provider.prepare_ws_auth(path, model)?;
+
+            // Convert URL scheme to wss/ws
+            let ws_url = auth_url
                 .replace("https://", "wss://")
                 .replace("http://", "ws://");
-            let mut ws_url = format!("{ws_base}{path}");
-            if let Some(m) = model {
+
+            // Append model query param if not already in the URL
+            let ws_url = if let Some(m) = model
+                && !ws_url.contains("model=")
+            {
                 let sep = if ws_url.contains('?') { "&" } else { "?" };
-                ws_url = format!("{ws_url}{sep}model={m}");
-            }
+                format!("{ws_url}{sep}model={m}")
+            } else {
+                ws_url
+            };
 
             tracing::info!(url = %ws_url, "connecting upstream websocket");
 
-            let response = wreq::websocket(&ws_url)
-                .header("Authorization", format!("Bearer {token}"))
+            // Build WS request with channel-specific auth headers
+            let mut ws_builder = wreq::websocket(&ws_url);
+            for (name, value) in auth_headers.iter() {
+                // Skip Content-Type — irrelevant for WS handshake
+                if name != http::header::CONTENT_TYPE {
+                    ws_builder = ws_builder.header(name.as_str(), value.to_str().unwrap_or(""));
+                }
+            }
+
+            let response = ws_builder
                 .send()
                 .await
                 .map_err(|e| UpstreamError::Http(format!("ws handshake failed: {e}")))?;

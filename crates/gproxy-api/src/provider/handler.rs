@@ -94,40 +94,16 @@ pub async fn proxy(
 
     // Record usage via storage write channel
     if let Some(ref usage) = result.usage {
-        let model_info = effective_model.as_deref().and_then(|m| state.find_model(m));
-        let cost = model_info
-            .map(|info| compute_cost(usage, &info))
-            .unwrap_or(0.0);
-        if cost > 0.0 {
-            state.add_cost_usage(user_key.user_id, cost);
-        }
-
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
-        let _ = state
-            .storage_writes()
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
-                gproxy_storage::UsageWrite {
-                    downstream_trace_id: None,
-                    at_unix_ms: now_ms,
-                    provider_id: None,
-                    credential_id: None,
-                    user_id: Some(user_key.user_id),
-                    user_key_id: Some(user_key.id),
-                    operation: operation.clone(),
-                    protocol: protocol.clone(),
-                    model: effective_model.clone(),
-                    input_tokens: usage.input_tokens,
-                    output_tokens: usage.output_tokens,
-                    cache_read_input_tokens: usage.cache_read_input_tokens,
-                    cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                    cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
-                    cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
-                },
-            ))
-            .await;
+        record_usage(
+            &state,
+            user_key.user_id,
+            user_key.id,
+            effective_model.as_deref(),
+            &operation,
+            &protocol,
+            usage,
+        )
+        .await;
     }
 
     let response_body = match result.body {
@@ -302,6 +278,52 @@ fn compute_cost(usage: &Usage, model: &gproxy_server::MemoryModel) -> f64 {
         cost += tokens as f64 * price / 1_000_000.0;
     }
     cost
+}
+
+/// Record usage (cost tracking + storage write). Shared by HTTP and WebSocket handlers.
+pub(crate) async fn record_usage(
+    state: &AppState,
+    user_id: i64,
+    user_key_id: i64,
+    model: Option<&str>,
+    operation: &str,
+    protocol: &str,
+    usage: &Usage,
+) {
+    let model_info = model.and_then(|m| state.find_model(m));
+    let cost = model_info
+        .map(|info| compute_cost(usage, &info))
+        .unwrap_or(0.0);
+    if cost > 0.0 {
+        state.add_cost_usage(user_id, cost);
+    }
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let _ = state
+        .storage_writes()
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
+            gproxy_storage::UsageWrite {
+                downstream_trace_id: None,
+                at_unix_ms: now_ms,
+                provider_id: None,
+                credential_id: None,
+                user_id: Some(user_id),
+                user_key_id: Some(user_key_id),
+                operation: operation.to_string(),
+                protocol: protocol.to_string(),
+                model: model.map(String::from),
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_read_input_tokens: usage.cache_read_input_tokens,
+                cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
+                cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
+            },
+        ))
+        .await;
 }
 
 fn stream_with_usage_tracking(

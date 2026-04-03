@@ -26,12 +26,41 @@ pub async fn openai_responses_ws(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
-    let _user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticate_user(&headers, &state)?;
     let model = params.model.clone();
+
+    // Permission check
+    if let Some(ref m) = model
+        && !state.check_model_permission(user_key.user_id, 0, m) {
+            return Err(HttpError::forbidden("model not authorized for this user"));
+        }
+
+    // Rate limit check
+    if let Some(ref m) = model
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
+            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+        }
+
+    let user_id = user_key.user_id;
+    let user_key_id = user_key.id;
     let headers_clone = headers.clone();
 
     Ok(ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_openai_ws(state, provider_name, model, headers_clone, socket).await {
+        // Record request for rate limit counters
+        if let Some(ref m) = model {
+            state.record_request(user_id, m);
+        }
+        if let Err(e) = handle_openai_ws(
+            state,
+            provider_name,
+            model,
+            user_id,
+            user_key_id,
+            headers_clone,
+            socket,
+        )
+        .await
+        {
             tracing::warn!(error = %e, "openai responses websocket error");
         }
     }))
@@ -44,12 +73,96 @@ pub async fn gemini_live(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
-    let _user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticate_user(&headers, &state)?;
+
+    // Extract model from path (e.g. "gemini-2.0-flash:streamGenerateContent")
+    let model = target.split(':').next().map(String::from);
+
+    // Permission check
+    if let Some(ref m) = model
+        && !state.check_model_permission(user_key.user_id, 0, m) {
+            return Err(HttpError::forbidden("model not authorized for this user"));
+        }
+
+    // Rate limit check
+    if let Some(ref m) = model
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
+            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+        }
+
+    let user_id = user_key.user_id;
     let path = format!("/v1beta/models/{target}");
 
     Ok(ws.on_upgrade(move |socket| async move {
+        if let Some(ref m) = model {
+            state.record_request(user_id, m);
+        }
         if let Err(e) = handle_gemini_live_ws(state, provider_name, path, socket).await {
             tracing::warn!(error = %e, "gemini live websocket error");
+        }
+    }))
+}
+
+/// OpenAI Responses WebSocket (unscoped): `GET /v1/responses`
+pub async fn openai_responses_ws_unscoped(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<WsQueryParams>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Result<Response, HttpError> {
+    let user_key = authenticate_user(&headers, &state)?;
+    let model = params.model.clone();
+
+    let Some(model_name) = &model else {
+        return Err(HttpError::bad_request(
+            "missing model query parameter for unscoped websocket",
+        ));
+    };
+
+    // Resolve provider from model (alias or provider/model format)
+    let (target_provider, target_model) =
+        if let Some(alias) = state.resolve_model_alias(model_name) {
+            (alias.provider_name, Some(alias.model_id))
+        } else if let Some((provider, model)) = model_name.split_once('/') {
+            (provider.to_string(), Some(model.to_string()))
+        } else {
+            return Err(HttpError::bad_request(
+                "model must have provider prefix (provider/model) or match an alias",
+            ));
+        };
+
+    // Permission check
+    if let Some(ref m) = target_model
+        && !state.check_model_permission(user_key.user_id, 0, m) {
+            return Err(HttpError::forbidden("model not authorized for this user"));
+        }
+
+    // Rate limit check
+    if let Some(ref m) = target_model
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
+            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+        }
+
+    let user_id = user_key.user_id;
+    let user_key_id = user_key.id;
+    let headers_clone = headers.clone();
+
+    Ok(ws.on_upgrade(move |socket| async move {
+        if let Some(ref m) = target_model {
+            state.record_request(user_id, m);
+        }
+        if let Err(e) = handle_openai_ws(
+            state,
+            target_provider,
+            target_model,
+            user_id,
+            user_key_id,
+            headers_clone,
+            socket,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "openai responses websocket error (unscoped)");
         }
     }))
 }
@@ -62,13 +175,21 @@ async fn handle_openai_ws(
     state: Arc<AppState>,
     provider_name: String,
     model: Option<String>,
+    user_id: i64,
+    user_key_id: i64,
     headers: HeaderMap,
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Try upstream WebSocket via SDK
     match state
         .engine()
-        .connect_upstream_ws(&provider_name, "/v1/responses", model.as_deref())
+        .connect_upstream_ws(
+            &provider_name,
+            "openai_response_websocket",
+            "openai",
+            "/v1/responses",
+            model.as_deref(),
+        )
         .await
     {
         Ok(upstream) => {
@@ -77,7 +198,16 @@ async fn handle_openai_ws(
         }
         Err(e) => {
             tracing::info!(provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
-            run_http_sse_fallback(state, provider_name, model, headers, &mut downstream).await?;
+            run_http_sse_fallback(
+                state,
+                provider_name,
+                model,
+                user_id,
+                user_key_id,
+                headers,
+                &mut downstream,
+            )
+            .await?;
         }
     }
     Ok(())
@@ -95,7 +225,7 @@ async fn handle_gemini_live_ws(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let upstream = state
         .engine()
-        .connect_upstream_ws(&provider_name, &path, None)
+        .connect_upstream_ws(&provider_name, "gemini_live", "gemini", &path, None)
         .await
         .map_err(|e| format!("gemini live connect failed: {e}"))?;
 
@@ -153,6 +283,8 @@ async fn run_http_sse_fallback(
     state: Arc<AppState>,
     provider_name: String,
     model: Option<String>,
+    user_id: i64,
+    user_key_id: i64,
     headers: HeaderMap,
     downstream: &mut WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -189,13 +321,16 @@ async fn run_http_sse_fallback(
         body.as_object_mut()
             .map(|o| o.insert("stream".to_string(), serde_json::json!(true)));
 
+        let operation = "stream_generate_content".to_string();
+        let protocol = "openai_response".to_string();
+
         // Execute via SDK engine
         let result = state
             .engine()
             .execute(ExecuteRequest {
                 provider: provider_name.clone(),
-                operation: "stream_generate_content".to_string(),
-                protocol: "openai_response".to_string(),
+                operation: operation.clone(),
+                protocol: protocol.clone(),
                 body: serde_json::to_vec(&body).unwrap_or_default(),
                 headers: headers.clone(),
                 model: model.clone(),
@@ -204,6 +339,20 @@ async fn run_http_sse_fallback(
 
         match result {
             Ok(result) => {
+                // Record usage from this request
+                if let Some(ref usage) = result.usage {
+                    super::handler::record_usage(
+                        &state,
+                        user_id,
+                        user_key_id,
+                        model.as_deref(),
+                        &operation,
+                        &protocol,
+                        usage,
+                    )
+                    .await;
+                }
+
                 let mut decoder = gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
 
                 match result.body {
