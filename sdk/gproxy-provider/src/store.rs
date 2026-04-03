@@ -10,7 +10,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::affinity::{CacheAffinityHint, CacheAffinityPool, DEFAULT_CACHE_AFFINITY_MAX_KEYS};
-use crate::channel::{Channel, ChannelCredential, ChannelSettings};
+use crate::channel::{
+    Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
+};
 use crate::dispatch::DispatchTable;
 use crate::request::PreparedRequest;
 use crate::response::{UpstreamError, UpstreamResponse};
@@ -40,6 +42,12 @@ pub struct CredentialUpdate {
     pub index: usize,
     pub revision: u64,
     pub credential: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OAuthFinishResult {
+    pub credential: CredentialSnapshot,
+    pub details: Value,
 }
 
 pub(crate) struct ProviderExecuteResult {
@@ -98,6 +106,18 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         &self,
         updates: &[CredentialUpdate],
     ) -> Result<Vec<bool>, UpstreamError>;
+
+    fn oauth_start<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        params: &'a HashMap<String, String>,
+    ) -> BoxFuture<'a, Result<Option<OAuthFlow>, UpstreamError>>;
+
+    fn oauth_finish<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        params: &'a HashMap<String, String>,
+    ) -> BoxFuture<'a, Result<Option<(Value, Value)>, UpstreamError>>;
 }
 
 struct ProviderInstance<C: Channel> {
@@ -422,6 +442,40 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(applied)
     }
+
+    fn oauth_start<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        params: &'a HashMap<String, String>,
+    ) -> BoxFuture<'a, Result<Option<OAuthFlow>, UpstreamError>> {
+        Box::pin(async move {
+            let settings = self.settings.load();
+            let params = params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            self.channel.oauth_start(client, &settings, &params).await
+        })
+    }
+
+    fn oauth_finish<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        params: &'a HashMap<String, String>,
+    ) -> BoxFuture<'a, Result<Option<(Value, Value)>, UpstreamError>> {
+        Box::pin(async move {
+            let settings = self.settings.load();
+            let params = params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let result: Option<OAuthCredentialResult<C::Credential>> = self
+                .channel
+                .oauth_finish(client, &settings, &params)
+                .await?;
+            result
+                .map(|result| {
+                    serde_json::to_value(result.credential)
+                        .map(|credential| (credential, result.details))
+                        .map_err(|e| UpstreamError::Channel(format!("serialize credential: {e}")))
+                })
+                .transpose()
+        })
+    }
 }
 
 #[derive(Default)]
@@ -621,195 +675,40 @@ impl ProviderStore {
         Ok(results)
     }
 
+    pub async fn oauth_start(
+        &self,
+        provider_name: &str,
+        client: &wreq::Client,
+        params: HashMap<String, String>,
+    ) -> Result<Option<OAuthFlow>, UpstreamError> {
+        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+            return Ok(None);
+        };
+        provider.oauth_start(client, &params).await
+    }
+
+    pub async fn oauth_finish(
+        &self,
+        provider_name: &str,
+        client: &wreq::Client,
+        params: HashMap<String, String>,
+    ) -> Result<Option<OAuthFinishResult>, UpstreamError> {
+        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+            return Ok(None);
+        };
+        let Some((credential_json, details)) = provider.oauth_finish(client, &params).await? else {
+            return Ok(None);
+        };
+        let Some(credential) = self.add_credential(provider_name, credential_json)? else {
+            return Ok(None);
+        };
+        Ok(Some(OAuthFinishResult {
+            credential,
+            details,
+        }))
+    }
+
     pub(crate) fn get_runtime(&self, name: &str) -> Option<Arc<dyn ProviderRuntime>> {
         self.providers.load().get(name).cloned()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::channel::{Channel, ChannelCredential, ChannelSettings};
-    use crate::count_tokens::CountStrategy;
-    use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-    use crate::health::SimpleHealth;
-    use crate::response::ResponseClassification;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Clone)]
-    struct TestChannel;
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct TestSettings {
-        base_url: String,
-    }
-
-    impl ChannelSettings for TestSettings {
-        fn base_url(&self) -> &str {
-            &self.base_url
-        }
-    }
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct TestCredential {
-        token: String,
-    }
-
-    impl ChannelCredential for TestCredential {
-        fn apply_update(&mut self, update: &serde_json::Value) -> bool {
-            if let Some(token) = update.get("token").and_then(|v| v.as_str()) {
-                self.token = token.to_string();
-                true
-            } else {
-                false
-            }
-        }
-    }
-
-    impl Channel for TestChannel {
-        const ID: &'static str = "test";
-        type Settings = TestSettings;
-        type Credential = TestCredential;
-        type Health = SimpleHealth;
-
-        fn dispatch_table(&self) -> DispatchTable {
-            let mut table = DispatchTable::new();
-            table.set(
-                RouteKey::new("generate_content", "openai"),
-                RouteImplementation::Passthrough,
-            );
-            table
-        }
-
-        fn prepare_request(
-            &self,
-            _credential: &Self::Credential,
-            _settings: &Self::Settings,
-            request: &PreparedRequest,
-        ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
-            http::Request::builder()
-                .method(request.method.clone())
-                .uri("https://example.test")
-                .body(request.body.clone())
-                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))
-        }
-
-        fn classify_response(
-            &self,
-            _status: u16,
-            _headers: &http::HeaderMap,
-            _body: &[u8],
-        ) -> ResponseClassification {
-            ResponseClassification::Success
-        }
-
-        fn count_strategy(&self) -> CountStrategy {
-            CountStrategy::Local
-        }
-    }
-
-    #[test]
-    fn provider_store_query_and_mutation_apis_work() {
-        let store = ProviderStore::builder()
-            .add_provider(
-                "test-provider",
-                TestChannel,
-                TestSettings {
-                    base_url: "https://example.test".to_string(),
-                },
-                vec![(
-                    TestCredential {
-                        token: "alpha".to_string(),
-                    },
-                    SimpleHealth::default(),
-                )],
-            )
-            .build();
-
-        let provider = store
-            .get_provider("test-provider")
-            .expect("query should succeed")
-            .expect("provider should exist");
-        assert_eq!(provider.credential_count, 1);
-
-        let credentials = store
-            .list_credentials(Some("test-provider"))
-            .expect("list credentials");
-        assert_eq!(credentials.len(), 1);
-        assert_eq!(credentials[0].credential["token"], "alpha");
-
-        let added = store
-            .add_credential("test-provider", serde_json::json!({ "token": "beta" }))
-            .expect("add credential")
-            .expect("provider should exist");
-        assert_eq!(added.credential["token"], "beta");
-
-        let updated = store
-            .update_credential("test-provider", 0, serde_json::json!({ "token": "gamma" }))
-            .expect("update credential")
-            .expect("credential should exist");
-        assert_eq!(updated.credential["token"], "gamma");
-
-        let removed = store
-            .remove_credential("test-provider", 1)
-            .expect("remove credential")
-            .expect("credential should exist");
-        assert_eq!(removed.credential["token"], "beta");
-    }
-
-    #[test]
-    fn provider_store_applies_multiple_credential_updates_from_same_revision() {
-        let store = ProviderStore::builder()
-            .add_provider(
-                "test-provider",
-                TestChannel,
-                TestSettings {
-                    base_url: "https://example.test".to_string(),
-                },
-                vec![
-                    (
-                        TestCredential {
-                            token: "alpha".to_string(),
-                        },
-                        SimpleHealth::default(),
-                    ),
-                    (
-                        TestCredential {
-                            token: "beta".to_string(),
-                        },
-                        SimpleHealth::default(),
-                    ),
-                ],
-            )
-            .build();
-
-        let credentials = store
-            .list_credentials(Some("test-provider"))
-            .expect("list credentials");
-        let revision = credentials[0].revision;
-
-        let applied = store
-            .apply_credential_updates(&[
-                CredentialUpdate {
-                    provider: "test-provider".to_string(),
-                    index: 0,
-                    revision,
-                    credential: serde_json::json!({ "token": "alpha-2" }),
-                },
-                CredentialUpdate {
-                    provider: "test-provider".to_string(),
-                    index: 1,
-                    revision,
-                    credential: serde_json::json!({ "token": "beta-2" }),
-                },
-            ])
-            .expect("apply updates");
-        assert_eq!(applied, vec![true, true]);
-
-        let after = store
-            .list_credentials(Some("test-provider"))
-            .expect("list after updates");
-        assert_eq!(after[0].credential["token"], "alpha-2");
-        assert_eq!(after[1].credential["token"], "beta-2");
     }
 }

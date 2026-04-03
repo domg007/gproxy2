@@ -32,7 +32,7 @@ pub mod transform_dispatch;
 pub mod usage;
 pub mod utils;
 
-pub use channel::{Channel, ChannelCredential, ChannelSettings};
+pub use channel::{Channel, ChannelCredential, ChannelSettings, OAuthFlow};
 pub use dispatch::DispatchTable;
 pub use engine::{ExecuteRequest, ExecuteResult, GproxyEngine, Usage};
 pub use health::CredentialHealth;
@@ -41,5 +41,6 @@ pub use registry::{ChannelRegistration, ChannelRegistry};
 pub use request::PreparedRequest;
 pub use response::{ResponseClassification, UpstreamError, UpstreamResponse};
 pub use store::{
-    CredentialSnapshot, CredentialUpdate, ProviderSnapshot, ProviderStore, ProviderStoreBuilder,
+    CredentialSnapshot, CredentialUpdate, OAuthFinishResult, ProviderSnapshot, ProviderStore,
+    ProviderStoreBuilder,
 };

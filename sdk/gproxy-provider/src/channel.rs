@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
 use std::future::Future;
+use std::pin::Pin;
 
 use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
 
 use crate::dispatch::DispatchTable;
 use crate::health::CredentialHealth;
@@ -92,8 +95,29 @@ pub trait Channel: Send + Sync + 'static {
     }
 
     /// Start an OAuth flow (optional, most channels return None).
-    fn oauth_start(&self) -> Option<OAuthFlow> {
-        None
+    fn oauth_start<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        _params: &'a BTreeMap<String, String>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<OAuthFlow>, UpstreamError>> + Send + 'a>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn oauth_finish<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        _params: &'a BTreeMap<String, String>,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Option<OAuthCredentialResult<Self::Credential>>, UpstreamError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async { Ok(None) })
     }
 }
 
@@ -125,4 +149,16 @@ pub trait ChannelCredential: Send + Sync + Clone + Serialize + DeserializeOwned 
 pub struct OAuthFlow {
     pub authorize_url: String,
     pub state: String,
+    pub redirect_uri: Option<String>,
+    pub verification_uri: Option<String>,
+    pub user_code: Option<String>,
+    pub mode: Option<String>,
+    pub scope: Option<String>,
+    pub instructions: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuthCredentialResult<C> {
+    pub credential: C,
+    pub details: Value,
 }

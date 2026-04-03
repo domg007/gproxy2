@@ -1,7 +1,13 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
-use crate::channel::{Channel, ChannelCredential, ChannelSettings};
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::channel::{
+    Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
+};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
@@ -19,6 +25,256 @@ const DEFAULT_GEMINI_CLI_ARCH: &str = "x64";
 const DEFAULT_GEMINI_CLI_SURFACE: &str = "terminal";
 const DEFAULT_GOOGLE_GENAI_SDK_VERSION: &str = "1.30.0";
 const DEFAULT_GL_NODE_VERSION: &str = "20";
+const GEMINICLI_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const GEMINICLI_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const GEMINICLI_REDIRECT_URI: &str = "http://127.0.0.1:1455/oauth2callback";
+const GEMINICLI_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v2/userinfo";
+const GEMINICLI_OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+const GEMINICLI_OAUTH_STATE_TTL_MS: u64 = 600_000;
+
+#[derive(Debug, Clone)]
+struct GeminiCliOAuthState {
+    code_verifier: String,
+    redirect_uri: String,
+    project_id: Option<String>,
+    created_at_unix_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiCliTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+}
+
+fn geminicli_oauth_states() -> &'static DashMap<String, GeminiCliOAuthState> {
+    static STATES: OnceLock<DashMap<String, GeminiCliOAuthState>> = OnceLock::new();
+    STATES.get_or_init(DashMap::new)
+}
+
+fn prune_geminicli_oauth_states(now_unix_ms: u64) {
+    let expired = geminicli_oauth_states()
+        .iter()
+        .filter_map(|entry| {
+            (now_unix_ms.saturating_sub(entry.value().created_at_unix_ms)
+                > GEMINICLI_OAUTH_STATE_TTL_MS)
+                .then(|| entry.key().clone())
+        })
+        .collect::<Vec<_>>();
+    for key in expired {
+        geminicli_oauth_states().remove(key.as_str());
+    }
+}
+
+fn build_geminicli_authorize_url(redirect_uri: &str, state: &str, code_challenge: &str) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer
+        .append_pair("response_type", "code")
+        .append_pair("client_id", &default_geminicli_client_id())
+        .append_pair("redirect_uri", redirect_uri)
+        .append_pair("scope", GEMINICLI_OAUTH_SCOPE)
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent")
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("code_challenge", code_challenge)
+        .append_pair("state", state);
+    format!("{}?{}", GEMINICLI_AUTH_URL, serializer.finish())
+}
+
+async fn exchange_geminicli_code_for_tokens(
+    client: &wreq::Client,
+    code: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+) -> Result<GeminiCliTokenResponse, UpstreamError> {
+    let body = format!(
+        "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&client_secret={}&code_verifier={}",
+        crate::utils::oauth::percent_encode(code),
+        crate::utils::oauth::percent_encode(redirect_uri),
+        crate::utils::oauth::percent_encode(&default_geminicli_client_id()),
+        crate::utils::oauth::percent_encode(&default_geminicli_client_secret()),
+        crate::utils::oauth::percent_encode(code_verifier),
+    );
+    let response = client
+        .post(GEMINICLI_TOKEN_URL)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli oauth token: {e}")))?;
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli oauth body: {e}")))?;
+    if !(200..300).contains(&status) {
+        return Err(UpstreamError::Channel(format!(
+            "geminicli oauth token endpoint status {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        )));
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("geminicli oauth token parse: {e}")))
+}
+
+async fn fetch_geminicli_user_email(
+    client: &wreq::Client,
+    access_token: &str,
+) -> Result<Option<String>, UpstreamError> {
+    let response = client
+        .get(GEMINICLI_USERINFO_URL)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli userinfo: {e}")))?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli userinfo body: {e}")))?;
+    let payload: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("geminicli userinfo parse: {e}")))?;
+    Ok(payload
+        .get("email")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned))
+}
+
+fn geminicli_code_assist_metadata(project_id: Option<&str>) -> Value {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("ideType".to_string(), json!("IDE_UNSPECIFIED"));
+    metadata.insert("platform".to_string(), json!("PLATFORM_UNSPECIFIED"));
+    metadata.insert("pluginType".to_string(), json!("GEMINI"));
+    if let Some(project) = project_id.map(str::trim).filter(|value| !value.is_empty()) {
+        metadata.insert("duetProject".to_string(), json!(project));
+    }
+    Value::Object(metadata)
+}
+
+fn parse_project_id_value(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            value
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
+
+async fn load_geminicli_code_assist(
+    client: &wreq::Client,
+    access_token: &str,
+    base_url: &str,
+    project_id: Option<&str>,
+) -> Result<Option<Value>, UpstreamError> {
+    let url = format!(
+        "{}/v1internal:loadCodeAssist",
+        base_url.trim_end_matches('/')
+    );
+    let body = json!({
+        "cloudaicompanionProject": project_id,
+        "metadata": geminicli_code_assist_metadata(project_id),
+    });
+    let response = client
+        .post(url)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("content-type", "application/json")
+        .body(serde_json::to_vec(&body).map_err(|e| {
+            UpstreamError::Channel(format!("geminicli loadCodeAssist serialize: {e}"))
+        })?)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli loadCodeAssist: {e}")))?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli loadCodeAssist body: {e}")))?;
+    let payload = serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("geminicli loadCodeAssist parse: {e}")))?;
+    Ok(Some(payload))
+}
+
+async fn onboard_geminicli_project(
+    client: &wreq::Client,
+    access_token: &str,
+    base_url: &str,
+    tier_id: &str,
+    project_id: Option<&str>,
+) -> Result<Option<String>, UpstreamError> {
+    let url = format!("{}/v1internal:onboardUser", base_url.trim_end_matches('/'));
+    let body = json!({
+        "tierId": tier_id,
+        "cloudaicompanionProject": project_id,
+        "metadata": geminicli_code_assist_metadata(project_id),
+    });
+    let response = client
+        .post(url)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("content-type", "application/json")
+        .body(
+            serde_json::to_vec(&body)
+                .map_err(|e| UpstreamError::Channel(format!("geminicli onboard serialize: {e}")))?,
+        )
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli onboard: {e}")))?;
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("geminicli onboard body: {e}")))?;
+    let payload: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("geminicli onboard parse: {e}")))?;
+    Ok(payload
+        .get("response")
+        .and_then(|value| value.get("cloudaicompanionProject"))
+        .and_then(parse_project_id_value))
+}
+
+async fn resolve_geminicli_project_id(
+    client: &wreq::Client,
+    access_token: &str,
+    base_url: &str,
+    project_id: Option<&str>,
+) -> Result<String, UpstreamError> {
+    if let Some(payload) =
+        load_geminicli_code_assist(client, access_token, base_url, project_id).await?
+    {
+        if let Some(project) = payload
+            .get("cloudaicompanionProject")
+            .and_then(parse_project_id_value)
+        {
+            return Ok(project);
+        }
+    }
+
+    if let Some(project) =
+        onboard_geminicli_project(client, access_token, base_url, "legacy-tier", project_id).await?
+    {
+        return Ok(project);
+    }
+
+    project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            UpstreamError::Channel("geminicli oauth callback: missing project_id".to_string())
+        })
+}
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -370,6 +626,146 @@ impl Channel for GeminiCliChannel {
             }
             Ok(true)
         }
+    }
+
+    fn oauth_start<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<OAuthFlow>, UpstreamError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let now_unix_ms = crate::utils::oauth::current_unix_ms();
+            prune_geminicli_oauth_states(now_unix_ms);
+
+            let redirect_uri = crate::utils::oauth::parse_query_value(params, "redirect_uri")
+                .unwrap_or_else(|| GEMINICLI_REDIRECT_URI.to_string());
+            let project_id = crate::utils::oauth::parse_query_value(params, "project_id");
+            let state = crate::utils::oauth::generate_state();
+            let code_verifier = crate::utils::oauth::generate_code_verifier();
+            let code_challenge = crate::utils::oauth::generate_code_challenge(&code_verifier);
+            let authorize_url =
+                build_geminicli_authorize_url(&redirect_uri, &state, &code_challenge);
+
+            geminicli_oauth_states().insert(
+                state.clone(),
+                GeminiCliOAuthState {
+                    code_verifier,
+                    redirect_uri: redirect_uri.clone(),
+                    project_id,
+                    created_at_unix_ms: now_unix_ms,
+                },
+            );
+
+            Ok(Some(OAuthFlow {
+                authorize_url,
+                state,
+                redirect_uri: Some(redirect_uri),
+                verification_uri: None,
+                user_code: None,
+                mode: Some("authorization_code".to_string()),
+                scope: Some(GEMINICLI_OAUTH_SCOPE.to_string()),
+                instructions: Some(
+                    "Open authorize_url and complete authorization, then call oauth_finish with code/state or callback_url."
+                        .to_string(),
+                ),
+            }))
+        })
+    }
+
+    fn oauth_finish<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<OAuthCredentialResult<Self::Credential>>, UpstreamError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if let Some(error) = crate::utils::oauth::parse_query_value(params, "error") {
+                let detail = crate::utils::oauth::parse_query_value(params, "error_description")
+                    .unwrap_or(error);
+                return Err(UpstreamError::Channel(detail));
+            }
+
+            prune_geminicli_oauth_states(crate::utils::oauth::current_unix_ms());
+            let (code, state_param) = crate::utils::oauth::resolve_code_and_state(params)
+                .map_err(|e| UpstreamError::Channel(format!("geminicli oauth callback: {e}")))?;
+            let state_id = state_param.ok_or_else(|| {
+                UpstreamError::Channel("geminicli oauth callback: missing state".to_string())
+            })?;
+            let (_, oauth_state) = geminicli_oauth_states()
+                .remove(state_id.as_str())
+                .ok_or_else(|| {
+                    UpstreamError::Channel("geminicli oauth callback: missing state".to_string())
+                })?;
+
+            let token = exchange_geminicli_code_for_tokens(
+                client,
+                &code,
+                &oauth_state.redirect_uri,
+                &oauth_state.code_verifier,
+            )
+            .await?;
+
+            let access_token = token
+                .access_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel(
+                        "geminicli oauth callback: missing access_token".to_string(),
+                    )
+                })?
+                .to_string();
+            let refresh_token = token
+                .refresh_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel(
+                        "geminicli oauth callback: missing refresh_token".to_string(),
+                    )
+                })?
+                .to_string();
+            let project_id = resolve_geminicli_project_id(
+                client,
+                &access_token,
+                settings.base_url(),
+                oauth_state.project_id.as_deref(),
+            )
+            .await?;
+            let user_email = fetch_geminicli_user_email(client, &access_token).await?;
+            let expires_at_ms = crate::utils::oauth::current_unix_ms()
+                .saturating_add(token.expires_in.unwrap_or(3600).saturating_mul(1000));
+
+            Ok(Some(OAuthCredentialResult {
+                credential: GeminiCliCredential {
+                    access_token: access_token.clone(),
+                    refresh_token,
+                    expires_at_ms,
+                    project_id: project_id.clone(),
+                    client_id: default_geminicli_client_id(),
+                    client_secret: default_geminicli_client_secret(),
+                    user_email: user_email.clone(),
+                },
+                details: json!({
+                    "access_token": access_token,
+                    "project_id": project_id,
+                    "user_email": user_email,
+                    "expires_at_ms": expires_at_ms,
+                }),
+            }))
+        })
     }
 }
 

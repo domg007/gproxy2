@@ -1,8 +1,15 @@
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use base64::Engine as _;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::channel::{Channel, ChannelCredential, ChannelSettings};
+use crate::channel::{
+    Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
+};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
@@ -20,6 +27,154 @@ const DEFAULT_CODEX_OS_TYPE: &str = "Linux";
 const DEFAULT_CODEX_OS_VERSION: &str = "6.6";
 const DEFAULT_CODEX_ARCH: &str = "x86_64";
 const CODEX_SESSION_NAMESPACE: uuid::Uuid = uuid::uuid!("aef2ff08-4585-5e42-a831-1cb53cb6ea8d");
+const CODEX_OAUTH_ISSUER: &str = "https://auth.openai.com";
+const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+const CODEX_OAUTH_SCOPE: &str = "openid profile email offline_access";
+const CODEX_OAUTH_ORIGINATOR: &str = "codex_vscode";
+const CODEX_OAUTH_STATE_TTL_MS: u64 = 600_000;
+
+#[derive(Debug, Clone)]
+struct CodexOAuthState {
+    code_verifier: String,
+    redirect_uri: String,
+    issuer: String,
+    created_at_unix_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
+    expires_in: Option<u64>,
+}
+
+#[derive(Debug, Default)]
+struct CodexIdTokenClaims {
+    email: Option<String>,
+    account_id: Option<String>,
+}
+
+fn codex_oauth_states() -> &'static DashMap<String, CodexOAuthState> {
+    static STATES: OnceLock<DashMap<String, CodexOAuthState>> = OnceLock::new();
+    STATES.get_or_init(DashMap::new)
+}
+
+fn prune_codex_oauth_states(now_unix_ms: u64) {
+    let expired = codex_oauth_states()
+        .iter()
+        .filter_map(|entry| {
+            (now_unix_ms.saturating_sub(entry.value().created_at_unix_ms)
+                > CODEX_OAUTH_STATE_TTL_MS)
+                .then(|| entry.key().clone())
+        })
+        .collect::<Vec<_>>();
+    for key in expired {
+        codex_oauth_states().remove(key.as_str());
+    }
+}
+
+fn build_codex_authorize_url(
+    issuer: &str,
+    redirect_uri: &str,
+    scope: &str,
+    originator: &str,
+    code_challenge: &str,
+    state: &str,
+) -> String {
+    let query = [
+        ("response_type", "code".to_string()),
+        ("client_id", CODEX_OAUTH_CLIENT_ID.to_string()),
+        ("redirect_uri", redirect_uri.to_string()),
+        ("scope", scope.to_string()),
+        ("code_challenge", code_challenge.to_string()),
+        ("code_challenge_method", "S256".to_string()),
+        ("id_token_add_organizations", "true".to_string()),
+        ("codex_cli_simplified_flow", "true".to_string()),
+        ("state", state.to_string()),
+        ("originator", originator.to_string()),
+    ]
+    .into_iter()
+    .map(|(key, value)| format!("{key}={}", crate::utils::oauth::percent_encode(&value)))
+    .collect::<Vec<_>>()
+    .join("&");
+    format!("{}/oauth/authorize?{query}", issuer.trim_end_matches('/'))
+}
+
+async fn exchange_codex_code_for_tokens(
+    client: &wreq::Client,
+    issuer: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+    code: &str,
+) -> Result<CodexTokenResponse, UpstreamError> {
+    let body = format!(
+        "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
+        crate::utils::oauth::percent_encode(code),
+        crate::utils::oauth::percent_encode(redirect_uri),
+        crate::utils::oauth::percent_encode(CODEX_OAUTH_CLIENT_ID),
+        crate::utils::oauth::percent_encode(code_verifier),
+    );
+
+    let response = client
+        .post(format!("{}/oauth/token", issuer.trim_end_matches('/')))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("codex oauth token: {e}")))?;
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("codex oauth body: {e}")))?;
+    if !(200..300).contains(&status) {
+        return Err(UpstreamError::Channel(format!(
+            "codex oauth token endpoint status {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        )));
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("codex oauth token parse: {e}")))
+}
+
+fn parse_codex_id_token_claims(id_token: &str) -> CodexIdTokenClaims {
+    let mut claims = CodexIdTokenClaims::default();
+    let mut parts = id_token.split('.');
+    let _header = parts.next();
+    let Some(payload_b64) = parts.next() else {
+        return claims;
+    };
+    let Some(_signature) = parts.next() else {
+        return claims;
+    };
+
+    let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload_b64)
+    else {
+        return claims;
+    };
+    let Ok(payload) = serde_json::from_slice::<Value>(&payload_bytes) else {
+        return claims;
+    };
+
+    claims.email = payload
+        .get("email")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            payload
+                .get("https://api.openai.com/profile")
+                .and_then(|profile| profile.get("email"))
+                .and_then(Value::as_str)
+        })
+        .map(ToOwned::to_owned);
+    claims.account_id = payload
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    claims
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexSettings {
@@ -548,6 +703,164 @@ impl Channel for CodexChannel {
             }
             Ok(true)
         }
+    }
+
+    fn oauth_start<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<OAuthFlow>, UpstreamError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let now_unix_ms = crate::utils::oauth::current_unix_ms();
+            prune_codex_oauth_states(now_unix_ms);
+
+            let issuer = crate::utils::oauth::parse_query_value(params, "oauth_issuer")
+                .or_else(|| crate::utils::oauth::parse_query_value(params, "issuer"))
+                .unwrap_or_else(|| CODEX_OAUTH_ISSUER.to_string());
+            let redirect_uri = crate::utils::oauth::parse_query_value(params, "redirect_uri")
+                .unwrap_or_else(|| CODEX_OAUTH_REDIRECT_URI.to_string());
+            let scope = crate::utils::oauth::parse_query_value(params, "scope")
+                .unwrap_or_else(|| CODEX_OAUTH_SCOPE.to_string());
+            let originator = crate::utils::oauth::parse_query_value(params, "originator")
+                .unwrap_or_else(|| CODEX_OAUTH_ORIGINATOR.to_string());
+            let state = crate::utils::oauth::generate_state();
+            let code_verifier = crate::utils::oauth::generate_code_verifier();
+            let code_challenge = crate::utils::oauth::generate_code_challenge(&code_verifier);
+            let authorize_url = build_codex_authorize_url(
+                &issuer,
+                &redirect_uri,
+                &scope,
+                &originator,
+                &code_challenge,
+                &state,
+            );
+
+            codex_oauth_states().insert(
+                state.clone(),
+                CodexOAuthState {
+                    code_verifier,
+                    redirect_uri: redirect_uri.clone(),
+                    issuer,
+                    created_at_unix_ms: now_unix_ms,
+                },
+            );
+
+            Ok(Some(OAuthFlow {
+                authorize_url,
+                state,
+                redirect_uri: Some(redirect_uri),
+                verification_uri: None,
+                user_code: None,
+                mode: Some("authorization_code".to_string()),
+                scope: Some(scope),
+                instructions: Some(
+                    "Open authorize_url and complete authorization, then call oauth_finish with code/state or callback_url."
+                        .to_string(),
+                ),
+            }))
+        })
+    }
+
+    fn oauth_finish<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<OAuthCredentialResult<Self::Credential>>, UpstreamError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if let Some(error) = crate::utils::oauth::parse_query_value(params, "error") {
+                let detail = crate::utils::oauth::parse_query_value(params, "error_description")
+                    .unwrap_or(error);
+                return Err(UpstreamError::Channel(detail));
+            }
+
+            prune_codex_oauth_states(crate::utils::oauth::current_unix_ms());
+            let (code, state_param) = crate::utils::oauth::resolve_code_and_state(params)
+                .map_err(|e| UpstreamError::Channel(format!("codex oauth callback: {e}")))?;
+            let state_id = state_param.ok_or_else(|| {
+                UpstreamError::Channel("codex oauth callback: missing state".to_string())
+            })?;
+            let (_, oauth_state) =
+                codex_oauth_states()
+                    .remove(state_id.as_str())
+                    .ok_or_else(|| {
+                        UpstreamError::Channel("codex oauth callback: missing state".to_string())
+                    })?;
+
+            let token = exchange_codex_code_for_tokens(
+                client,
+                &oauth_state.issuer,
+                &oauth_state.redirect_uri,
+                &oauth_state.code_verifier,
+                &code,
+            )
+            .await?;
+
+            let access_token = token
+                .access_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel("codex oauth callback: missing access_token".to_string())
+                })?
+                .to_string();
+            let refresh_token = token
+                .refresh_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel(
+                        "codex oauth callback: missing refresh_token".to_string(),
+                    )
+                })?
+                .to_string();
+            let id_token = token
+                .id_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel("codex oauth callback: missing id_token".to_string())
+                })?
+                .to_string();
+            let claims = parse_codex_id_token_claims(&id_token);
+            let account_id = claims.account_id.ok_or_else(|| {
+                UpstreamError::Channel("codex oauth callback: missing account_id".to_string())
+            })?;
+            let expires_at_ms = crate::utils::oauth::current_unix_ms()
+                .saturating_add(token.expires_in.unwrap_or(3600).saturating_mul(1000));
+
+            Ok(Some(OAuthCredentialResult {
+                credential: CodexCredential {
+                    access_token: access_token.clone(),
+                    refresh_token: Some(refresh_token.clone()),
+                    id_token: Some(id_token.clone()),
+                    user_email: claims.email.clone(),
+                    account_id: Some(account_id.clone()),
+                    expires_at_ms,
+                },
+                details: json!({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "id_token": id_token,
+                    "account_id": account_id,
+                    "user_email": claims.email,
+                    "expires_at_ms": expires_at_ms,
+                }),
+            }))
+        })
     }
 }
 fn codex_dispatch_table() -> DispatchTable {

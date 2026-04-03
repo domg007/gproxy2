@@ -1,9 +1,15 @@
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::channel::{Channel, ChannelCredential, ChannelSettings};
+use crate::channel::{
+    Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
+};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::health::ModelCooldownHealth;
@@ -25,6 +31,185 @@ const BILLING_VERSION_HASH_LEN: usize = 3;
 const BILLING_VERSION_CHAR_OFFSETS: [usize; 3] = [4, 7, 20];
 const CLAUDECODE_SESSION_NAMESPACE: uuid::Uuid =
     uuid::uuid!("f348ca5a-091f-5e75-aec7-c6d7c1b8c3d6");
+const CLAUDECODE_CLAUDE_AI_BASE_URL: &str = "https://claude.ai";
+const CLAUDECODE_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
+const CLAUDECODE_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const CLAUDECODE_OAUTH_SCOPE: &str =
+    "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+const CLAUDECODE_OAUTH_BETA: &str = "oauth-2025-04-20";
+const CLAUDECODE_API_VERSION: &str = "2023-06-01";
+const CLAUDECODE_OAUTH_STATE_TTL_MS: u64 = 600_000;
+const CLAUDECODE_TOKEN_UA: &str = "claude-cli/2.1.89 (external, cli)";
+const CLAUDECODE_PROFILE_UA: &str = "claude-code/2.1.89";
+
+#[derive(Debug, Clone)]
+struct ClaudeCodeOAuthState {
+    code_verifier: String,
+    redirect_uri: String,
+    api_base_url: String,
+    claude_ai_base_url: String,
+    created_at_unix_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeCodeTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+    #[serde(default)]
+    subscription_type: Option<String>,
+    #[serde(default)]
+    rate_limit_tier: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ClaudeCodeOAuthProfileAccount {
+    uuid: Option<String>,
+    email: Option<String>,
+    #[serde(default)]
+    has_claude_max: bool,
+    #[serde(default)]
+    has_claude_pro: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ClaudeCodeOAuthProfileOrg {
+    organization_type: Option<String>,
+    rate_limit_tier: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ClaudeCodeOAuthProfile {
+    #[serde(default)]
+    account: ClaudeCodeOAuthProfileAccount,
+    #[serde(default)]
+    organization: ClaudeCodeOAuthProfileOrg,
+}
+
+fn claudecode_oauth_states() -> &'static DashMap<String, ClaudeCodeOAuthState> {
+    static STATES: OnceLock<DashMap<String, ClaudeCodeOAuthState>> = OnceLock::new();
+    STATES.get_or_init(DashMap::new)
+}
+
+fn prune_claudecode_oauth_states(now_unix_ms: u64) {
+    let expired = claudecode_oauth_states()
+        .iter()
+        .filter_map(|entry| {
+            (now_unix_ms.saturating_sub(entry.value().created_at_unix_ms)
+                > CLAUDECODE_OAUTH_STATE_TTL_MS)
+                .then(|| entry.key().clone())
+        })
+        .collect::<Vec<_>>();
+    for key in expired {
+        claudecode_oauth_states().remove(key.as_str());
+    }
+}
+
+fn build_claudecode_authorize_url(
+    claude_ai_base_url: &str,
+    redirect_uri: &str,
+    scope: &str,
+    code_challenge: &str,
+    state: &str,
+) -> String {
+    let query = [
+        ("code", "true".to_string()),
+        ("client_id", CLAUDECODE_OAUTH_CLIENT_ID.to_string()),
+        ("response_type", "code".to_string()),
+        ("redirect_uri", redirect_uri.to_string()),
+        ("scope", scope.to_string()),
+        ("code_challenge", code_challenge.to_string()),
+        ("code_challenge_method", "S256".to_string()),
+        ("state", state.to_string()),
+    ]
+    .into_iter()
+    .map(|(key, value)| format!("{key}={}", crate::utils::oauth::percent_encode(&value)))
+    .collect::<Vec<_>>()
+    .join("&");
+    format!(
+        "{}/api/oauth/authorize?{query}",
+        claude_ai_base_url.trim_end_matches('/')
+    )
+}
+
+async fn exchange_claudecode_code_for_tokens(
+    client: &wreq::Client,
+    api_base_url: &str,
+    claude_ai_base_url: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+    code: &str,
+    state: &str,
+) -> Result<ClaudeCodeTokenResponse, UpstreamError> {
+    let body = format!(
+        "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}&state={}",
+        crate::utils::oauth::percent_encode(CLAUDECODE_OAUTH_CLIENT_ID),
+        crate::utils::oauth::percent_encode(code),
+        crate::utils::oauth::percent_encode(redirect_uri),
+        crate::utils::oauth::percent_encode(code_verifier),
+        crate::utils::oauth::percent_encode(state),
+    );
+    let response = client
+        .post(format!(
+            "{}/v1/oauth/token",
+            api_base_url.trim_end_matches('/')
+        ))
+        .header("anthropic-version", CLAUDECODE_API_VERSION)
+        .header("anthropic-beta", CLAUDECODE_OAUTH_BETA)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("accept", "application/json, text/plain, */*")
+        .header("origin", claude_ai_base_url)
+        .header("user-agent", CLAUDECODE_TOKEN_UA)
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("claudecode oauth token: {e}")))?;
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("claudecode oauth body: {e}")))?;
+    if !(200..300).contains(&status) {
+        return Err(UpstreamError::Channel(format!(
+            "claudecode oauth token endpoint status {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        )));
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("claudecode oauth token parse: {e}")))
+}
+
+async fn fetch_claudecode_oauth_profile(
+    client: &wreq::Client,
+    api_base_url: &str,
+    access_token: &str,
+) -> Result<ClaudeCodeOAuthProfile, UpstreamError> {
+    let response = client
+        .get(format!(
+            "{}/api/oauth/profile",
+            api_base_url.trim_end_matches('/')
+        ))
+        .header("authorization", format!("Bearer {access_token}"))
+        .header("user-agent", CLAUDECODE_PROFILE_UA)
+        .header("accept", "application/json")
+        .header("anthropic-beta", CLAUDECODE_OAUTH_BETA)
+        .send()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("claudecode oauth profile: {e}")))?;
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| UpstreamError::Http(format!("claudecode oauth profile body: {e}")))?;
+    if !(200..300).contains(&status) {
+        return Err(UpstreamError::Channel(format!(
+            "claudecode oauth profile status {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        )));
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|e| UpstreamError::Channel(format!("claudecode oauth profile parse: {e}")))
+}
 
 // ---------------------------------------------------------------------------
 // Default-value helpers
@@ -599,6 +784,185 @@ impl Channel for ClaudeCodeChannel {
             }
             Ok(true)
         }
+    }
+
+    fn oauth_start<'a>(
+        &'a self,
+        _client: &'a wreq::Client,
+        settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<OAuthFlow>, UpstreamError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let now_unix_ms = crate::utils::oauth::current_unix_ms();
+            prune_claudecode_oauth_states(now_unix_ms);
+
+            let redirect_uri = crate::utils::oauth::parse_query_value(params, "redirect_uri")
+                .unwrap_or_else(|| CLAUDECODE_REDIRECT_URI.to_string());
+            let scope = crate::utils::oauth::parse_query_value(params, "scope")
+                .unwrap_or_else(|| CLAUDECODE_OAUTH_SCOPE.to_string());
+            let api_base_url = if settings.base_url().trim().is_empty() {
+                "https://api.anthropic.com".to_string()
+            } else {
+                settings.base_url().to_string()
+            };
+            let claude_ai_base_url =
+                crate::utils::oauth::parse_query_value(params, "claude_ai_base_url")
+                    .unwrap_or_else(|| CLAUDECODE_CLAUDE_AI_BASE_URL.to_string());
+            let state = crate::utils::oauth::generate_state();
+            let code_verifier = crate::utils::oauth::generate_code_verifier();
+            let code_challenge = crate::utils::oauth::generate_code_challenge(&code_verifier);
+            let authorize_url = build_claudecode_authorize_url(
+                &claude_ai_base_url,
+                &redirect_uri,
+                &scope,
+                &code_challenge,
+                &state,
+            );
+
+            claudecode_oauth_states().insert(
+                state.clone(),
+                ClaudeCodeOAuthState {
+                    code_verifier,
+                    redirect_uri: redirect_uri.clone(),
+                    api_base_url,
+                    claude_ai_base_url,
+                    created_at_unix_ms: now_unix_ms,
+                },
+            );
+
+            Ok(Some(OAuthFlow {
+                authorize_url,
+                state,
+                redirect_uri: Some(redirect_uri),
+                verification_uri: None,
+                user_code: None,
+                mode: Some("authorization_code".to_string()),
+                scope: Some(scope),
+                instructions: Some(
+                    "Open authorize_url and complete authorization, then call oauth_finish with code/state or callback_url."
+                        .to_string(),
+                ),
+            }))
+        })
+    }
+
+    fn oauth_finish<'a>(
+        &'a self,
+        client: &'a wreq::Client,
+        _settings: &'a Self::Settings,
+        params: &'a BTreeMap<String, String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<OAuthCredentialResult<Self::Credential>>, UpstreamError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if let Some(error) = crate::utils::oauth::parse_query_value(params, "error") {
+                let detail = crate::utils::oauth::parse_query_value(params, "error_description")
+                    .unwrap_or(error);
+                return Err(UpstreamError::Channel(detail));
+            }
+
+            prune_claudecode_oauth_states(crate::utils::oauth::current_unix_ms());
+            let (code, state_param) = crate::utils::oauth::resolve_code_and_state(params)
+                .map_err(|e| UpstreamError::Channel(format!("claudecode oauth callback: {e}")))?;
+            let state_id = state_param.ok_or_else(|| {
+                UpstreamError::Channel("claudecode oauth callback: missing state".to_string())
+            })?;
+            let (_, oauth_state) = claudecode_oauth_states()
+                .remove(state_id.as_str())
+                .ok_or_else(|| {
+                    UpstreamError::Channel("claudecode oauth callback: missing state".to_string())
+                })?;
+
+            let token = exchange_claudecode_code_for_tokens(
+                client,
+                &oauth_state.api_base_url,
+                &oauth_state.claude_ai_base_url,
+                &oauth_state.redirect_uri,
+                &oauth_state.code_verifier,
+                &code,
+                &state_id,
+            )
+            .await?;
+            let access_token = token
+                .access_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel(
+                        "claudecode oauth callback: missing access_token".to_string(),
+                    )
+                })?
+                .to_string();
+            let refresh_token = token
+                .refresh_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    UpstreamError::Channel(
+                        "claudecode oauth callback: missing refresh_token".to_string(),
+                    )
+                })?
+                .to_string();
+            let profile =
+                fetch_claudecode_oauth_profile(client, &oauth_state.api_base_url, &access_token)
+                    .await
+                    .ok();
+            let subscription_type = token.subscription_type.or_else(|| {
+                profile.as_ref().and_then(|profile| {
+                    profile.organization.organization_type.clone().or_else(|| {
+                        if profile.account.has_claude_max {
+                            Some("claude_max".to_string())
+                        } else if profile.account.has_claude_pro {
+                            Some("claude_pro".to_string())
+                        } else {
+                            None
+                        }
+                    })
+                })
+            });
+            let rate_limit_tier = token.rate_limit_tier.or_else(|| {
+                profile
+                    .as_ref()
+                    .and_then(|profile| profile.organization.rate_limit_tier.clone())
+            });
+            let user_email = profile
+                .as_ref()
+                .and_then(|profile| profile.account.email.clone());
+            let account_uuid = profile
+                .as_ref()
+                .and_then(|profile| profile.account.uuid.clone());
+            let expires_at_ms = crate::utils::oauth::current_unix_ms()
+                .saturating_add(token.expires_in.unwrap_or(3600).saturating_mul(1000));
+
+            Ok(Some(OAuthCredentialResult {
+                credential: ClaudeCodeCredential {
+                    access_token: access_token.clone(),
+                    refresh_token,
+                    expires_at_ms,
+                    device_id: default_claudecode_device_id(),
+                    account_uuid: account_uuid.clone(),
+                    subscription_type,
+                    rate_limit_tier,
+                    cookie: None,
+                    user_email: user_email.clone(),
+                },
+                details: json!({
+                    "access_token": access_token,
+                    "account_uuid": account_uuid,
+                    "user_email": user_email,
+                    "expires_at_ms": expires_at_ms,
+                }),
+            }))
+        })
     }
 }
 

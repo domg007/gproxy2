@@ -31,6 +31,7 @@ custom = []
 [dependencies]
 gproxy-protocol = { workspace = true }
 arc-swap = { workspace = true }
+base64 = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 getrandom = { workspace = true }
@@ -45,5 +46,6 @@ tiktoken-rs = { workspace = true }
 tokenizers = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
 wreq = { workspace = true }

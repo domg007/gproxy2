@@ -1833,6 +1833,7 @@ name = "gproxy-provider"
 version = "1.0.0"
 dependencies = [
  "arc-swap",
+ "base64 0.22.1",
  "bytes",
  "dashmap",
  "getrandom 0.3.4",
@@ -1848,6 +1849,7 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tracing",
+ "url",
  "uuid",
  "wreq",
 ]
