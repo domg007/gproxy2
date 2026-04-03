@@ -30,6 +30,7 @@ custom = []
 
 [dependencies]
 gproxy-protocol = { workspace = true }
+arc-swap = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 getrandom = { workspace = true }

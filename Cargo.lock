@@ -1832,6 +1832,7 @@ dependencies = [
 name = "gproxy-provider"
 version = "1.0.0"
 dependencies = [
+ "arc-swap",
  "bytes",
  "dashmap",
  "getrandom 0.3.4",

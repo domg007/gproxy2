@@ -27,6 +27,7 @@ pub mod registry;
 pub mod request;
 pub mod response;
 pub mod retry;
+pub mod store;
 pub mod transform_dispatch;
 pub mod usage;
 pub mod utils;
@@ -39,3 +40,6 @@ pub use provider::ProviderDefinition;
 pub use registry::{ChannelRegistration, ChannelRegistry};
 pub use request::PreparedRequest;
 pub use response::{ResponseClassification, UpstreamError, UpstreamResponse};
+pub use store::{
+    CredentialSnapshot, CredentialUpdate, ProviderSnapshot, ProviderStore, ProviderStoreBuilder,
+};

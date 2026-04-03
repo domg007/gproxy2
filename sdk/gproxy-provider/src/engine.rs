@@ -1,18 +1,8 @@
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
 
-use crate::affinity::{
-    CacheAffinityHint, CacheAffinityPool, DEFAULT_CACHE_AFFINITY_MAX_KEYS,
-    cache_affinity_hint_for_request,
-};
-use crate::channel::{Channel, ChannelSettings};
-use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
 use crate::request::PreparedRequest;
-use crate::response::{UpstreamError, UpstreamResponse};
-use crate::retry::retry_with_credentials_max;
+use crate::response::UpstreamError;
+use crate::store::{CredentialUpdate, ProviderStore, ProviderStoreBuilder};
 
 fn is_stream_aggregation_route(
     src_operation: &str,
@@ -65,6 +55,7 @@ pub struct ExecuteResult {
     pub body: Vec<u8>,
     pub usage: Option<Usage>,
     pub meta: Option<UpstreamRequestMeta>,
+    pub credential_updates: Vec<CredentialUpdate>,
 }
 
 /// Token usage extracted from upstream response.
@@ -92,115 +83,17 @@ pub struct UpstreamRequestMeta {
     pub credential_index: Option<usize>,
 }
 
-// === Type-erased provider ===
-
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-trait AnyProvider: Send + Sync {
-    fn dispatch_table(&self) -> &DispatchTable;
-
-    fn handle_local(
-        &self,
-        operation: &str,
-        protocol: &str,
-        body: &[u8],
-    ) -> Option<Result<Vec<u8>, UpstreamError>>;
-
-    fn finalize_request(&self, request: PreparedRequest) -> Result<PreparedRequest, UpstreamError>;
-
-    fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8>;
-
-    fn execute<'a>(
-        &'a self,
-        request: PreparedRequest,
-        affinity_hint: Option<CacheAffinityHint>,
-        client: &'a wreq::Client,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>>;
-}
-
-struct ProviderInstance<C: Channel> {
-    channel: C,
-    settings: C::Settings,
-    credentials: std::sync::Mutex<Vec<(C::Credential, C::Health)>>,
-    dispatch_table: DispatchTable,
-    affinity_pool: CacheAffinityPool,
-    round_robin_cursor: AtomicUsize,
-}
-
-impl<C: Channel> AnyProvider for ProviderInstance<C> {
-    fn dispatch_table(&self) -> &DispatchTable {
-        &self.dispatch_table
-    }
-
-    fn handle_local(
-        &self,
-        operation: &str,
-        protocol: &str,
-        body: &[u8],
-    ) -> Option<Result<Vec<u8>, UpstreamError>> {
-        self.channel.handle_local(operation, protocol, body)
-    }
-
-    fn finalize_request(&self, request: PreparedRequest) -> Result<PreparedRequest, UpstreamError> {
-        self.channel.finalize_request(&self.settings, request)
-    }
-
-    fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {
-        self.channel.normalize_response(request, body)
-    }
-
-    fn execute<'a>(
-        &'a self,
-        request: PreparedRequest,
-        affinity_hint: Option<CacheAffinityHint>,
-        client: &'a wreq::Client,
-    ) -> BoxFuture<'a, Result<UpstreamResponse, UpstreamError>> {
-        Box::pin(async move {
-            let max_retries = self.settings.max_retries_on_429();
-            let mut creds = self.credentials.lock().unwrap().clone();
-
-            let result = retry_with_credentials_max(
-                &self.channel,
-                &mut creds,
-                &self.settings,
-                &request,
-                affinity_hint.as_ref(),
-                &self.affinity_pool,
-                &self.round_robin_cursor,
-                max_retries,
-                client,
-                |req| crate::http_client::send_request(client, req),
-            )
-            .await;
-
-            // Write back credential and health state changes
-            {
-                let mut guard = self.credentials.lock().unwrap();
-                for (i, (cred, health)) in creds.into_iter().enumerate() {
-                    if let Some((stored_cred, stored_health)) = guard.get_mut(i) {
-                        *stored_cred = cred;
-                        *stored_health = health;
-                    }
-                }
-            }
-
-            result
-        })
-    }
-}
-
-// === Engine ===
-
-/// The main SDK entry point. Holds provider instances and an HTTP client.
+/// The main SDK entry point. Consumes the current provider store snapshot and an HTTP client.
 pub struct GproxyEngine {
-    providers: HashMap<String, Arc<dyn AnyProvider>>,
+    store: Arc<ProviderStore>,
     client: wreq::Client,
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
 }
 
 pub struct GproxyEngineBuilder {
-    providers: HashMap<String, Arc<dyn AnyProvider>>,
+    store: Option<Arc<ProviderStore>>,
+    store_builder: ProviderStoreBuilder,
     client: Option<wreq::Client>,
     enable_usage: bool,
     enable_upstream_log: bool,
@@ -209,11 +102,30 @@ pub struct GproxyEngineBuilder {
 impl GproxyEngineBuilder {
     pub fn new() -> Self {
         Self {
-            providers: HashMap::new(),
+            store: None,
+            store_builder: ProviderStoreBuilder::new(),
             client: None,
             enable_usage: true,
             enable_upstream_log: true,
         }
+    }
+
+    pub fn provider_store(mut self, store: Arc<ProviderStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    pub fn add_provider<C: crate::Channel>(
+        mut self,
+        name: impl Into<String>,
+        channel: C,
+        settings: C::Settings,
+        credentials: Vec<(C::Credential, C::Health)>,
+    ) -> Self {
+        self.store_builder = self
+            .store_builder
+            .add_provider(name, channel, settings, credentials);
+        self
     }
 
     /// Set the HTTP client.
@@ -234,29 +146,11 @@ impl GproxyEngineBuilder {
         self
     }
 
-    /// Add a provider instance.
-    pub fn add_provider<C: Channel>(
-        mut self,
-        name: impl Into<String>,
-        channel: C,
-        settings: C::Settings,
-        credentials: Vec<(C::Credential, C::Health)>,
-    ) -> Self {
-        let instance = Arc::new(ProviderInstance {
-            dispatch_table: channel.dispatch_table(),
-            channel,
-            settings,
-            credentials: std::sync::Mutex::new(credentials),
-            affinity_pool: CacheAffinityPool::new(DEFAULT_CACHE_AFFINITY_MAX_KEYS),
-            round_robin_cursor: AtomicUsize::new(0),
-        });
-        self.providers.insert(name.into(), instance);
-        self
-    }
-
     pub fn build(self) -> GproxyEngine {
         GproxyEngine {
-            providers: self.providers,
+            store: self
+                .store
+                .unwrap_or_else(|| Arc::new(self.store_builder.build())),
             client: self.client.unwrap_or_default(),
             enable_usage: self.enable_usage,
             enable_upstream_log: self.enable_upstream_log,
@@ -275,16 +169,20 @@ impl GproxyEngine {
         GproxyEngineBuilder::new()
     }
 
+    pub fn store(&self) -> &Arc<ProviderStore> {
+        &self.store
+    }
+
     /// Execute a request against a named provider.
     pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
-        let provider = self.providers.get(&request.provider).ok_or_else(|| {
+        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
             UpstreamError::Channel(format!("unknown provider: {}", request.provider))
         })?;
 
         let start = std::time::Instant::now();
 
         // Dispatch table lookup
-        let src_key = RouteKey::new(&request.operation, &request.protocol);
+        let src_key = crate::dispatch::RouteKey::new(&request.operation, &request.protocol);
         let route = provider
             .dispatch_table()
             .resolve(&src_key)
@@ -297,15 +195,15 @@ impl GproxyEngine {
             .clone();
 
         let (dst_op, dst_proto, needs_transform) = match &route {
-            RouteImplementation::Passthrough => {
+            crate::dispatch::RouteImplementation::Passthrough => {
                 (request.operation.clone(), request.protocol.clone(), false)
             }
-            RouteImplementation::TransformTo { destination } => (
+            crate::dispatch::RouteImplementation::TransformTo { destination } => (
                 destination.operation.clone(),
                 destination.protocol.clone(),
                 true,
             ),
-            RouteImplementation::Local => {
+            crate::dispatch::RouteImplementation::Local => {
                 let body = provider
                     .handle_local(&request.operation, &request.protocol, &request.body)
                     .unwrap_or_else(|| {
@@ -317,15 +215,17 @@ impl GproxyEngine {
                     body,
                     usage: None,
                     meta: None,
+                    credential_updates: Vec::new(),
                 });
             }
-            RouteImplementation::Unsupported => {
+            crate::dispatch::RouteImplementation::Unsupported => {
                 return Err(UpstreamError::Channel(format!(
                     "unsupported: ({}, {})",
                     request.operation, request.protocol
                 )));
             }
         };
+
         let force_stream_aggregation =
             is_stream_aggregation_route(&request.operation, &dst_op, &request.protocol, &dst_proto);
 
@@ -354,11 +254,13 @@ impl GproxyEngine {
             headers: request.headers,
         };
         let prepared = provider.finalize_request(prepared)?;
-        let affinity_hint = cache_affinity_hint_for_request(&dst_proto, &prepared);
+        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
-        let response = provider
+        let provider_result = provider
             .execute(prepared.clone(), affinity_hint, &self.client)
             .await?;
+        let response = provider_result.response;
+        let credential_updates = provider_result.credential_updates;
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);
@@ -399,7 +301,7 @@ impl GproxyEngine {
         let meta = if self.enable_upstream_log {
             Some(UpstreamRequestMeta {
                 method: "POST".to_string(),
-                url: String::new(), // TODO: fill from prepared request
+                url: String::new(),
                 request_headers: Vec::new(),
                 request_body: None,
                 response_status: Some(response.status),
@@ -422,6 +324,7 @@ impl GproxyEngine {
             body: response_body,
             usage,
             meta,
+            credential_updates,
         })
     }
 }
