@@ -10,6 +10,7 @@ pub fn transform_request(
     dst_protocol: &str,
     body: Vec<u8>,
 ) -> Result<Vec<u8>, UpstreamError> {
+    tracing::debug!(src_operation, src_protocol, dst_operation, dst_protocol, "transforming request");
     let key = (src_operation, src_protocol, dst_operation, dst_protocol);
 
     match key {
@@ -381,6 +382,7 @@ pub fn transform_response(
     dst_protocol: &str,
     body: Vec<u8>,
 ) -> Result<Vec<u8>, UpstreamError> {
+    tracing::debug!(src_operation, src_protocol, dst_operation, dst_protocol, "transforming response");
     // Response direction: upstream responded in (dst_op, dst_proto),
     // client expects (src_op, src_proto).
     let key = (dst_operation, dst_protocol, src_operation, src_protocol);

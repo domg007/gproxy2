@@ -17,6 +17,7 @@ use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::{code_assist_envelope, oauth2_refresh, vertex_normalize};
 
 use crate::utils::google_quota::classify_google_quota_response;
+use tracing::Instrument;
 
 /// Gemini CLI (Code Assist API) channel with OAuth authentication.
 pub struct GeminiCliChannel;
@@ -628,6 +629,7 @@ impl Channel for GeminiCliChannel {
         credential: &'a mut Self::Credential,
     ) -> impl std::future::Future<Output = Result<bool, UpstreamError>> + Send + 'a {
         let client = client.clone();
+        let span = tracing::info_span!("refresh_credential", channel = "geminicli");
         async move {
             if credential.refresh_token.is_empty() {
                 return Ok(false);
@@ -645,8 +647,10 @@ impl Channel for GeminiCliChannel {
             if let Some(rt) = result.refresh_token {
                 credential.refresh_token = rt;
             }
+            tracing::info!("credential refreshed");
             Ok(true)
         }
+        .instrument(span)
     }
 
     fn oauth_start<'a>(

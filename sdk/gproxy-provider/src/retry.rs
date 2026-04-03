@@ -6,6 +6,7 @@ use crate::channel::Channel;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError, UpstreamResponse};
+use tracing::Instrument;
 
 /// Parameters for credential-rotating retry.
 pub struct RetryContext<'a, C: Channel> {
@@ -32,6 +33,24 @@ pub struct RetryContext<'a, C: Channel> {
 ///
 /// The caller provides a `send` closure that performs the actual HTTP request.
 pub async fn retry_with_credentials<C, F, Fut>(
+    ctx: RetryContext<'_, C>,
+    send: F,
+) -> Result<UpstreamResponse, UpstreamError>
+where
+    C: Channel,
+    F: Fn(http::Request<Vec<u8>>) -> Fut,
+    Fut: std::future::Future<Output = Result<UpstreamResponse, UpstreamError>>,
+{
+    let span = tracing::info_span!(
+        "retry_with_credentials",
+        model = ctx.request.model.as_deref().unwrap_or(""),
+        credentials = ctx.credentials.len(),
+        max_retries = ctx.max_retries,
+    );
+    retry_with_credentials_inner(ctx, send).instrument(span).await
+}
+
+async fn retry_with_credentials_inner<C, F, Fut>(
     ctx: RetryContext<'_, C>,
     send: F,
 ) -> Result<UpstreamResponse, UpstreamError>
@@ -73,6 +92,7 @@ where
         let (remaining_idx, matched_affinity_idx) =
             pick_candidate_index(&remaining, affinity_hint, affinity_pool);
         let idx = remaining.remove(remaining_idx);
+        tracing::info!(credential = idx, "trying credential");
         let mut attempts = 0u32;
 
         loop {
@@ -82,23 +102,41 @@ where
             let http_request = match channel.prepare_request(credential, settings, request) {
                 Ok(req) => req,
                 Err(e) => {
-                    tracing::warn!("Failed to prepare request for credential {}: {}", idx, e);
+                    tracing::warn!(credential = idx, error = %e, "failed to prepare request");
                     last_error = Some(e);
                     break;
                 }
             };
 
             // Send request
+            let method = http_request.method().as_str().to_string();
+            let uri = http_request.uri().to_string();
+            tracing::info!(
+                credential = idx,
+                attempt = attempts,
+                %method,
+                %uri,
+                model = model.unwrap_or(""),
+                "sending upstream request"
+            );
+            let send_start = std::time::Instant::now();
             let response = match send(http_request).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    tracing::warn!("HTTP error for credential {}: {}", idx, e);
+                    tracing::warn!(credential = idx, %method, %uri, error = %e, "upstream request failed");
                     last_error = Some(e);
                     break;
                 }
             };
 
             // Classify response
+            let latency_ms = send_start.elapsed().as_millis() as u64;
+            tracing::info!(
+                credential = idx,
+                status = response.status,
+                latency_ms,
+                "upstream response received"
+            );
             let classification =
                 channel.classify_response(response.status, &response.headers, &response.body);
 
@@ -117,6 +155,7 @@ where
                     return Ok(response);
                 }
                 ResponseClassification::AuthDead => {
+                    tracing::warn!(credential = idx, status = response.status, model = model.unwrap_or(""), "credential auth dead, attempting refresh");
                     // Try refreshing the credential (OAuth token exchange, etc.)
                     let (credential, health) = &mut credentials[idx];
                     let refreshed = channel
@@ -131,11 +170,7 @@ where
                         {
                             Ok(req) => req,
                             Err(e) => {
-                                tracing::warn!(
-                                    "Failed to prepare retry request after refresh for credential {}: {}",
-                                    idx,
-                                    e
-                                );
+                                tracing::warn!(credential = idx, error = %e, "failed to prepare request after refresh");
                                 last_error = Some(e);
                                 break;
                             }
@@ -162,24 +197,16 @@ where
                                 }
                                 // Still failing after refresh — mark dead
                                 health.record_error(retry_response.status, model, None);
-                                tracing::warn!(
-                                    "Credential {} auth dead after refresh ({})",
-                                    idx,
-                                    retry_response.status
-                                );
+                                tracing::warn!(credential = idx, status = retry_response.status, "credential still dead after refresh");
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "HTTP error after refresh for credential {}: {}",
-                                    idx,
-                                    e
-                                );
+                                tracing::warn!(credential = idx, error = %e, "upstream request failed after refresh");
                                 last_error = Some(e);
                             }
                         }
                     } else {
                         health.record_error(response.status, model, None);
-                        tracing::warn!("Credential {} auth dead ({})", idx, response.status);
+                        tracing::warn!(credential = idx, status = response.status, "credential auth dead, refresh not available");
                     }
                     if let Some(matched_idx) = matched_affinity_idx
                         && let Some(hint) = affinity_hint
@@ -193,7 +220,13 @@ where
                     if retry_after_ms.is_some() {
                         // Has retry-after: cooldown this credential, move to next
                         health.record_error(response.status, model, retry_after_ms);
-                        tracing::info!("Credential {} rate limited with retry-after", idx);
+                        tracing::warn!(
+                            credential = idx,
+                            status = response.status,
+                            retry_after_ms = retry_after_ms.unwrap_or(0),
+                            model = model.unwrap_or(""),
+                            "rate limited with retry-after, switching credential"
+                        );
                         if let Some(matched_idx) = matched_affinity_idx
                             && let Some(hint) = affinity_hint
                             && let Some(hit) = hint.candidates.get(matched_idx)
@@ -206,10 +239,13 @@ where
                     attempts += 1;
                     if attempts >= max_retries {
                         health.record_error(response.status, model, None);
-                        tracing::info!(
-                            "Credential {} rate limited, exhausted {} retries",
-                            idx,
-                            max_retries
+                        tracing::warn!(
+                            credential = idx,
+                            status = response.status,
+                            attempts,
+                            max_retries,
+                            model = model.unwrap_or(""),
+                            "rate limited, retries exhausted"
                         );
                         if let Some(matched_idx) = matched_affinity_idx
                             && let Some(hint) = affinity_hint
@@ -220,16 +256,22 @@ where
                         break;
                     }
                     tracing::info!(
-                        "Credential {} rate limited (no retry-after), attempt {}/{}",
-                        idx,
-                        attempts,
-                        max_retries
+                        credential = idx,
+                        status = response.status,
+                        attempt = attempts,
+                        max_retries,
+                        "rate limited without retry-after, retrying"
                     );
                     continue;
                 }
                 ResponseClassification::TransientError => {
                     health.record_error(response.status, model, None);
-                    tracing::info!("Credential {} transient error ({})", idx, response.status);
+                    tracing::warn!(
+                        credential = idx,
+                        status = response.status,
+                        model = model.unwrap_or(""),
+                        "transient error"
+                    );
                     if let Some(matched_idx) = matched_affinity_idx
                         && let Some(hint) = affinity_hint
                         && let Some(hit) = hint.candidates.get(matched_idx)

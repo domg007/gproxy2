@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tracing::Instrument;
+
 use crate::request::PreparedRequest;
 use crate::response::UpstreamError;
 use crate::store::{CredentialUpdate, ProviderStore, ProviderStoreBuilder};
@@ -175,7 +177,18 @@ impl GproxyEngine {
 
     /// Execute a request against a named provider.
     pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
-        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
+        let span = tracing::info_span!(
+            "engine.execute",
+            provider = %request.provider,
+            operation = %request.operation,
+            protocol = %request.protocol,
+            model = request.model.as_deref().unwrap_or(""),
+        );
+        self.execute_inner(request).instrument(span).await
+    }
+
+    async fn execute_inner(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {        let provider = self.store.get_runtime(&request.provider).ok_or_else(|| {
+            tracing::warn!(provider = %request.provider, "unknown provider");
             UpstreamError::Channel(format!("unknown provider: {}", request.provider))
         })?;
 
@@ -187,6 +200,7 @@ impl GproxyEngine {
             .dispatch_table()
             .resolve(&src_key)
             .ok_or_else(|| {
+                tracing::warn!(operation = %request.operation, protocol = %request.protocol, "route not found");
                 UpstreamError::Channel(format!(
                     "unsupported route: ({}, {})",
                     request.operation, request.protocol
@@ -231,6 +245,7 @@ impl GproxyEngine {
 
         // Transform request if needed
         let body = if needs_transform {
+            tracing::debug!(dst_op = %dst_op, dst_proto = %dst_proto, "transforming request");
             crate::transform_dispatch::transform_request(
                 &request.operation,
                 &request.protocol,
@@ -285,6 +300,7 @@ impl GproxyEngine {
 
         // 3. Transform response if needed (cross-protocol)
         let response_body = if needs_transform {
+            tracing::debug!("transforming response");
             crate::transform_dispatch::transform_response(
                 &request.operation,
                 &request.protocol,

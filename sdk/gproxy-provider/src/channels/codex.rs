@@ -17,6 +17,7 @@ use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::oauth2_refresh;
+use tracing::Instrument;
 
 /// Codex CLI channel (OpenAI Responses API with OAuth).
 pub struct CodexChannel;
@@ -710,6 +711,7 @@ impl Channel for CodexChannel {
         credential: &'a mut Self::Credential,
     ) -> impl std::future::Future<Output = Result<bool, UpstreamError>> + Send + 'a {
         let client = client.clone();
+        let span = tracing::info_span!("refresh_credential", channel = "codex");
         async move {
             let refresh_token = match &credential.refresh_token {
                 Some(rt) if !rt.is_empty() => rt.clone(),
@@ -728,8 +730,10 @@ impl Channel for CodexChannel {
             if let Some(rt) = result.refresh_token {
                 credential.refresh_token = Some(rt);
             }
+            tracing::info!("credential refreshed");
             Ok(true)
         }
+        .instrument(span)
     }
 
     fn oauth_start<'a>(

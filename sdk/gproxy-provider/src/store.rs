@@ -613,7 +613,9 @@ impl ProviderStore {
         let Some(provider) = self.providers.load().get(provider_name).cloned() else {
             return Ok(None);
         };
-        provider.add_credential_json(credential).map(Some)
+        let result = provider.add_credential_json(credential).map(Some);
+        tracing::info!(provider = provider_name, "credential added");
+        result
     }
 
     pub fn update_credential(
@@ -625,7 +627,9 @@ impl ProviderStore {
         let Some(provider) = self.providers.load().get(provider_name).cloned() else {
             return Ok(None);
         };
-        provider.update_credential_json(index, credential)
+        let result = provider.update_credential_json(index, credential);
+        tracing::info!(provider = provider_name, index, "credential updated");
+        result
     }
 
     pub fn remove_credential(
@@ -636,7 +640,9 @@ impl ProviderStore {
         let Some(provider) = self.providers.load().get(provider_name).cloned() else {
             return Ok(None);
         };
-        provider.remove_credential_json(index)
+        let result = provider.remove_credential_json(index);
+        tracing::info!(provider = provider_name, index, "credential removed");
+        result
     }
 
     pub fn apply_credential_update(
@@ -683,6 +689,7 @@ impl ProviderStore {
         client: &wreq::Client,
         params: HashMap<String, String>,
     ) -> Result<Option<OAuthFlow>, UpstreamError> {
+        tracing::info!(provider = provider_name, "oauth flow started");
         let Some(provider) = self.providers.load().get(provider_name).cloned() else {
             return Ok(None);
         };
@@ -704,6 +711,7 @@ impl ProviderStore {
         let Some(credential) = self.add_credential(provider_name, credential_json)? else {
             return Ok(None);
         };
+        tracing::info!(provider = provider_name, "oauth flow completed");
         Ok(Some(OAuthFinishResult {
             credential,
             details,

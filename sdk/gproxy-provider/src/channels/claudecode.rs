@@ -18,6 +18,7 @@ use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::claude_cache_control as cache_control;
 use crate::utils::oauth2_refresh;
+use tracing::Instrument;
 
 /// Claude Code channel (Anthropic Messages API with OAuth).
 pub struct ClaudeCodeChannel;
@@ -799,6 +800,7 @@ impl Channel for ClaudeCodeChannel {
         credential: &'a mut Self::Credential,
     ) -> impl std::future::Future<Output = Result<bool, UpstreamError>> + Send + 'a {
         let client = client.clone();
+        let span = tracing::info_span!("refresh_credential", channel = "claudecode");
         async move {
             if credential.refresh_token.is_empty() {
                 return Ok(false);
@@ -816,11 +818,11 @@ impl Channel for ClaudeCodeChannel {
             if let Some(rt) = result.refresh_token {
                 credential.refresh_token = rt;
             }
+            tracing::info!("credential refreshed");
             Ok(true)
         }
-    }
-
-    fn oauth_start<'a>(
+        .instrument(span)
+    }    fn oauth_start<'a>(
         &'a self,
         _client: &'a wreq::Client,
         settings: &'a Self::Settings,
