@@ -91,13 +91,17 @@ pub async fn gemini_live(
         }
 
     let user_id = user_key.user_id;
+    let user_key_id = user_key.id;
     let path = format!("/v1beta/models/{target}");
 
     Ok(ws.on_upgrade(move |socket| async move {
         if let Some(ref m) = model {
             state.record_request(user_id, m);
         }
-        if let Err(e) = handle_gemini_live_ws(state, provider_name, path, socket).await {
+        if let Err(e) =
+            handle_gemini_live_ws(state, provider_name, model, user_id, user_key_id, path, socket)
+                .await
+        {
             tracing::warn!(error = %e, "gemini live websocket error");
         }
     }))
@@ -192,9 +196,21 @@ async fn handle_openai_ws(
         )
         .await
     {
-        Ok(upstream) => {
+        Ok(mut upstream) => {
             tracing::info!(provider = %provider_name, "websocket bridge active");
-            run_ws_bridge(&mut downstream, upstream).await;
+            let mut bridge = super::ws_bridge::PassthroughBridge::new("openai");
+            run_ws_bridge_with_protocol(
+                &mut downstream,
+                &mut upstream,
+                &mut bridge,
+                &state,
+                user_id,
+                user_key_id,
+                model.as_deref(),
+                "openai_response_websocket",
+                "openai",
+            )
+            .await;
         }
         Err(e) => {
             tracing::info!(provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
@@ -220,31 +236,68 @@ async fn handle_openai_ws(
 async fn handle_gemini_live_ws(
     state: Arc<AppState>,
     provider_name: String,
+    model: Option<String>,
+    user_id: i64,
+    user_key_id: i64,
     path: String,
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let upstream = state
+    let mut upstream = state
         .engine()
         .connect_upstream_ws(&provider_name, "gemini_live", "gemini", &path, None)
         .await
         .map_err(|e| format!("gemini live connect failed: {e}"))?;
 
     tracing::info!(provider = %provider_name, "gemini live websocket bridge active");
-    run_ws_bridge(&mut downstream, upstream).await;
+    let mut bridge = super::ws_bridge::PassthroughBridge::new("gemini");
+    run_ws_bridge_with_protocol(
+        &mut downstream,
+        &mut upstream,
+        &mut bridge,
+        &state,
+        user_id,
+        user_key_id,
+        model.as_deref(),
+        "gemini_live",
+        "gemini",
+    )
+    .await;
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Bidirectional WS bridge
+// Bidirectional WS bridge with protocol conversion and usage tracking
 // ---------------------------------------------------------------------------
 
-async fn run_ws_bridge(downstream: &mut WebSocket, mut upstream: UpstreamWebSocket) {
+async fn run_ws_bridge_with_protocol(
+    downstream: &mut WebSocket,
+    upstream: &mut UpstreamWebSocket,
+    bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
+    state: &AppState,
+    user_id: i64,
+    user_key_id: i64,
+    model: Option<&str>,
+    operation: &str,
+    protocol: &str,
+) {
     loop {
         tokio::select! {
             ds_msg = downstream.recv() => {
                 match ds_msg {
                     Some(Ok(Message::Text(t))) => {
-                        if upstream.send(WsMessage::text(t.to_string())).await.is_err() { break; }
+                        match bridge.convert_client_message(&t) {
+                            Ok(msgs) => {
+                                for msg in msgs {
+                                    if upstream.send(WsMessage::text(msg)).await.is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "ws bridge: client message conversion failed");
+                                break;
+                            }
+                        }
                     }
                     Some(Ok(Message::Binary(b))) => {
                         if upstream.send(WsMessage::binary(b.to_vec())).await.is_err() { break; }
@@ -259,7 +312,20 @@ async fn run_ws_bridge(downstream: &mut WebSocket, mut upstream: UpstreamWebSock
             us_msg = upstream.recv() => {
                 match us_msg {
                     Some(Ok(WsMessage::Text(t))) => {
-                        if downstream.send(Message::Text(t.to_string().into())).await.is_err() { break; }
+                        let text = t.to_string();
+                        match bridge.convert_server_message(&text) {
+                            Ok((msgs, _usage)) => {
+                                for msg in msgs {
+                                    if downstream.send(Message::Text(msg.into())).await.is_err() {
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "ws bridge: server message conversion failed");
+                                break;
+                            }
+                        }
                     }
                     Some(Ok(WsMessage::Binary(b))) => {
                         if downstream.send(Message::Binary(b)).await.is_err() { break; }
@@ -272,6 +338,20 @@ async fn run_ws_bridge(downstream: &mut WebSocket, mut upstream: UpstreamWebSock
                 }
             }
         }
+    }
+
+    // Record accumulated usage from the WS session
+    if let Some(usage) = bridge.final_usage() {
+        super::handler::record_usage(
+            state,
+            user_id,
+            user_key_id,
+            model,
+            operation,
+            protocol,
+            &usage,
+        )
+        .await;
     }
 }
 

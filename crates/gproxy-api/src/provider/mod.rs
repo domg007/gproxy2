@@ -8,6 +8,7 @@ use gproxy_server::AppState;
 pub mod handler;
 pub mod oauth;
 pub mod websocket;
+pub mod ws_bridge;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
