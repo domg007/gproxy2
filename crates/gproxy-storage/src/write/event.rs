@@ -132,6 +132,54 @@ pub struct UsageWrite {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelWrite {
+    pub id: i64,
+    pub provider_id: i64,
+    pub model_id: String,
+    pub display_name: Option<String>,
+    pub enabled: bool,
+    pub price_input_tokens: Option<f64>,
+    pub price_output_tokens: Option<f64>,
+    pub price_cache_read_input_tokens: Option<f64>,
+    pub price_cache_creation_input_tokens: Option<f64>,
+    pub price_cache_creation_input_tokens_5min: Option<f64>,
+    pub price_cache_creation_input_tokens_1h: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelAliasWrite {
+    pub id: i64,
+    pub alias: String,
+    pub provider_id: i64,
+    pub model_id: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserModelPermissionWrite {
+    pub id: i64,
+    pub user_id: i64,
+    pub model_pattern: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRateLimitWrite {
+    pub id: i64,
+    pub user_id: i64,
+    pub model_pattern: String,
+    pub rpm: Option<i32>,
+    pub rpd: Option<i32>,
+    pub total_tokens: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserQuotaWrite {
+    pub user_id: i64,
+    pub tokens_used: i64,
+    pub cost_used: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageWriteEvent {
     UpsertGlobalSettings(GlobalSettingsWrite),
     UpsertProvider(ProviderWrite),
@@ -144,6 +192,15 @@ pub enum StorageWriteEvent {
     DeleteUser { id: i64 },
     UpsertUserKey(UserKeyWrite),
     DeleteUserKey { id: i64 },
+    UpsertModel(ModelWrite),
+    DeleteModel { id: i64 },
+    UpsertModelAlias(ModelAliasWrite),
+    DeleteModelAlias { id: i64 },
+    UpsertUserModelPermission(UserModelPermissionWrite),
+    DeleteUserModelPermission { id: i64 },
+    UpsertUserRateLimit(UserRateLimitWrite),
+    DeleteUserRateLimit { id: i64 },
+    UpsertUserQuota(UserQuotaWrite),
     UpsertDownstreamRequest(DownstreamRequestWrite),
     UpsertUpstreamRequest(UpstreamRequestWrite),
     UpsertUsage(UsageWrite),
@@ -163,6 +220,15 @@ pub struct StorageWriteBatch {
     pub users_delete: HashSet<i64>,
     pub user_keys_upsert: HashMap<String, UserKeyWrite>,
     pub user_keys_delete: HashSet<i64>,
+    pub models_upsert: HashMap<i64, ModelWrite>,
+    pub models_delete: HashSet<i64>,
+    pub model_aliases_upsert: HashMap<i64, ModelAliasWrite>,
+    pub model_aliases_delete: HashSet<i64>,
+    pub user_model_permissions_upsert: HashMap<i64, UserModelPermissionWrite>,
+    pub user_model_permissions_delete: HashSet<i64>,
+    pub user_rate_limits_upsert: HashMap<i64, UserRateLimitWrite>,
+    pub user_rate_limits_delete: HashSet<i64>,
+    pub user_quotas_upsert: HashMap<i64, UserQuotaWrite>,
     pub downstream_requests_upsert: Vec<DownstreamRequestWrite>,
     pub upstream_requests_upsert: Vec<UpstreamRequestWrite>,
     pub usages_upsert: Vec<UsageWrite>,
@@ -223,6 +289,41 @@ impl StorageWriteBatch {
             StorageWriteEvent::DeleteUserKey { id } => {
                 self.user_keys_upsert.retain(|_, row| row.id != id);
                 self.user_keys_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertModel(value) => {
+                self.models_delete.remove(&value.id);
+                self.models_upsert.insert(value.id, value);
+            }
+            StorageWriteEvent::DeleteModel { id } => {
+                self.models_upsert.remove(&id);
+                self.models_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertModelAlias(value) => {
+                self.model_aliases_delete.remove(&value.id);
+                self.model_aliases_upsert.insert(value.id, value);
+            }
+            StorageWriteEvent::DeleteModelAlias { id } => {
+                self.model_aliases_upsert.remove(&id);
+                self.model_aliases_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertUserModelPermission(value) => {
+                self.user_model_permissions_delete.remove(&value.id);
+                self.user_model_permissions_upsert.insert(value.id, value);
+            }
+            StorageWriteEvent::DeleteUserModelPermission { id } => {
+                self.user_model_permissions_upsert.remove(&id);
+                self.user_model_permissions_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertUserRateLimit(value) => {
+                self.user_rate_limits_delete.remove(&value.id);
+                self.user_rate_limits_upsert.insert(value.id, value);
+            }
+            StorageWriteEvent::DeleteUserRateLimit { id } => {
+                self.user_rate_limits_upsert.remove(&id);
+                self.user_rate_limits_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertUserQuota(value) => {
+                self.user_quotas_upsert.insert(value.user_id, value);
             }
             StorageWriteEvent::UpsertDownstreamRequest(value) => {
                 self.downstream_requests_upsert.push(value);

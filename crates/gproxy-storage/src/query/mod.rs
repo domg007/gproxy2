@@ -1,15 +1,23 @@
 mod common;
 mod credentials;
 mod global_settings;
+mod model_aliases;
+mod models;
 mod providers;
 mod requests;
 mod usages;
+mod user_permissions;
+mod user_rate_limits;
 mod users;
 
 pub use common::*;
 pub use credentials::*;
 pub use global_settings::*;
+pub use model_aliases::*;
+pub use models::*;
 pub use providers::*;
 pub use requests::*;
 pub use usages::*;
+pub use user_permissions::*;
+pub use user_rate_limits::*;
 pub use users::*;

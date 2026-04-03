@@ -1915,6 +1915,7 @@ dependencies = [
  "async-stream",
  "axum",
  "base64 0.22.1",
+ "dashmap",
  "ed25519-dalek",
  "futures-util",
  "gproxy-api",
