@@ -21,6 +21,9 @@ use crate::retry::{RetryContext, retry_with_credentials, retry_with_credentials_
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// Snapshot of credentials, revision, paired health states, and max retries for a retry cycle.
+type RetryState<Cred, Health> = (Arc<Vec<Cred>>, u64, Vec<(Cred, Health)>, u32);
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderSnapshot {
     pub name: String,
@@ -234,12 +237,7 @@ impl<C: Channel> ProviderInstance<C> {
 
     fn prepare_retry_state(
         &self,
-    ) -> (
-        Arc<Vec<C::Credential>>,
-        u64,
-        Vec<(C::Credential, C::Health)>,
-        u32,
-    ) {
+    ) -> RetryState<C::Credential, C::Health> {
         let settings = self.settings.load_full();
         let credentials_snapshot = self.credentials.load_full();
         let revision = self
