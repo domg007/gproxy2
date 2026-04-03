@@ -1802,6 +1802,7 @@ dependencies = [
  "gproxy-server",
  "gproxy-storage",
  "http",
+ "rand 0.10.0",
  "sea-orm",
  "serde",
  "serde_json",

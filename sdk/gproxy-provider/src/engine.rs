@@ -186,6 +186,58 @@ impl GproxyEngine {
         &self.store
     }
 
+    /// Start an OAuth flow for a provider.
+    pub async fn oauth_start(
+        &self,
+        provider_name: &str,
+        params: std::collections::HashMap<String, String>,
+    ) -> Result<Option<crate::channel::OAuthFlow>, UpstreamError> {
+        let span = tracing::info_span!("engine.oauth_start", provider = provider_name);
+        async {
+            self.store
+                .oauth_start(provider_name, &self.client, params)
+                .await
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Finish an OAuth flow (exchange code for tokens).
+    pub async fn oauth_finish(
+        &self,
+        provider_name: &str,
+        params: std::collections::HashMap<String, String>,
+    ) -> Result<Option<crate::store::OAuthFinishResult>, UpstreamError> {
+        let span = tracing::info_span!("engine.oauth_finish", provider = provider_name);
+        async {
+            self.store
+                .oauth_finish(provider_name, &self.client, params)
+                .await
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Query upstream quota/usage for a provider credential.
+    pub async fn query_quota(
+        &self,
+        provider_name: &str,
+    ) -> Result<Option<crate::response::UpstreamResponse>, UpstreamError> {
+        let span = tracing::info_span!("engine.query_quota", provider = provider_name);
+        async {
+            let provider = self.store.get_runtime(provider_name).ok_or_else(|| {
+                UpstreamError::Channel(format!("unknown provider: {provider_name}"))
+            })?;
+            let Some(http_request) = provider.prepare_quota_request()? else {
+                return Ok(None);
+            };
+            let response = crate::http_client::send_request(&self.client, http_request).await?;
+            Ok(Some(response))
+        }
+        .instrument(span)
+        .await
+    }
+
     /// Execute a request against a named provider.
     pub async fn execute(&self, request: ExecuteRequest) -> Result<ExecuteResult, UpstreamError> {
         let span = tracing::info_span!(

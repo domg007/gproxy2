@@ -25,7 +25,7 @@ pub struct UserRateLimitQueryRow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserQuotaRow {
     pub user_id: i64,
-    pub tokens_used: i64,
+    pub quota: f64,
     pub cost_used: f64,
     pub updated_at: OffsetDateTime,
 }

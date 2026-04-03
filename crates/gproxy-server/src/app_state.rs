@@ -29,6 +29,7 @@ pub struct MemoryModel {
     pub model_id: String,
     pub display_name: Option<String>,
     pub enabled: bool,
+    pub price_each_call: Option<f64>,
     pub price_input_tokens: Option<f64>,
     pub price_output_tokens: Option<f64>,
     pub price_cache_read_input_tokens: Option<f64>,
@@ -49,7 +50,7 @@ pub struct AppState {
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
-    user_quotas: ArcSwap<HashMap<i64, (i64, f64)>>,
+    user_quotas: ArcSwap<HashMap<i64, (f64, f64)>>,
     pub rate_counters: RateLimitCounters,
 }
 
@@ -87,12 +88,30 @@ impl AppState {
         Some(key.clone())
     }
 
+    /// Get all keys for a user (from memory).
+    pub fn keys_for_user(&self, user_id: i64) -> Vec<MemoryUserKey> {
+        let keys = self.keys.load();
+        keys.values()
+            .filter(|k| k.user_id == user_id)
+            .cloned()
+            .collect()
+    }
+
     pub fn find_model(&self, model_id: &str) -> Option<MemoryModel> {
         self.models
             .load()
             .iter()
             .find(|m| m.model_id == model_id && m.enabled)
             .cloned()
+    }
+
+    /// Get user quota info: (quota, cost_used). Returns (0, 0) if not set.
+    pub fn get_user_quota(&self, user_id: i64) -> (f64, f64) {
+        self.user_quotas
+            .load()
+            .get(&user_id)
+            .copied()
+            .unwrap_or((0.0, 0.0))
     }
 
     pub fn resolve_model_alias(&self, alias: &str) -> Option<ModelAliasTarget> {
@@ -128,19 +147,13 @@ impl AppState {
         {
             return Err(RateLimitRejection::Rpd { limit: rpd });
         }
-        if let Some(total_tokens) = rule.total_tokens {
-            let used = self
-                .user_quotas
-                .load()
-                .get(&user_id)
-                .map(|(t, _)| *t)
-                .unwrap_or(0);
-            if used >= total_tokens {
-                return Err(RateLimitRejection::TokenQuota {
-                    used,
-                    limit: total_tokens,
-                });
-            }
+        // Check cost quota
+        let (quota, cost_used) = self.get_user_quota(user_id);
+        if quota > 0.0 && cost_used >= quota {
+            return Err(RateLimitRejection::QuotaExhausted {
+                quota,
+                cost_used,
+            });
         }
         Ok(())
     }
@@ -149,10 +162,9 @@ impl AppState {
         self.rate_counters.check_and_increment(user_id, model);
     }
 
-    pub fn add_token_usage(&self, user_id: i64, tokens: i64, cost: f64) {
+    pub fn add_cost_usage(&self, user_id: i64, cost: f64) {
         let mut quotas = (*self.user_quotas.load_full()).clone();
-        let entry = quotas.entry(user_id).or_insert((0, 0.0));
-        entry.0 = entry.0.saturating_add(tokens);
+        let entry = quotas.entry(user_id).or_insert((0.0, 0.0));
         entry.1 += cost;
         self.user_quotas.store(Arc::new(quotas));
     }
@@ -221,8 +233,114 @@ impl AppState {
         self.user_rate_limits.store(Arc::new(limits));
     }
 
-    pub fn replace_user_quotas(&self, quotas: HashMap<i64, (i64, f64)>) {
+    pub fn replace_user_quotas(&self, quotas: HashMap<i64, (f64, f64)>) {
         self.user_quotas.store(Arc::new(quotas));
+    }
+
+    // --- Models ---
+
+    pub fn models(&self) -> Arc<Vec<MemoryModel>> {
+        self.models.load_full()
+    }
+
+    pub fn upsert_model_in_memory(&self, model: MemoryModel) {
+        let mut models = (*self.models.load_full()).clone();
+        if let Some(existing) = models.iter_mut().find(|m| m.id == model.id) {
+            *existing = model;
+        } else {
+            models.push(model);
+        }
+        self.models.store(Arc::new(models));
+    }
+
+    pub fn remove_model_from_memory(&self, model_id: i64) {
+        let mut models = (*self.models.load_full()).clone();
+        models.retain(|m| m.id != model_id);
+        self.models.store(Arc::new(models));
+    }
+
+    // --- Model aliases ---
+
+    pub fn model_aliases_snapshot(&self) -> Arc<HashMap<String, ModelAliasTarget>> {
+        self.model_aliases.load_full()
+    }
+
+    pub fn upsert_model_alias_in_memory(&self, alias: String, target: ModelAliasTarget) {
+        let mut aliases = (*self.model_aliases.load_full()).clone();
+        aliases.insert(alias, target);
+        self.model_aliases.store(Arc::new(aliases));
+    }
+
+    pub fn remove_model_alias_from_memory(&self, alias: &str) {
+        let mut aliases = (*self.model_aliases.load_full()).clone();
+        aliases.remove(alias);
+        self.model_aliases.store(Arc::new(aliases));
+    }
+
+    // --- User permissions ---
+
+    pub fn user_permissions_snapshot(&self) -> Arc<HashMap<i64, Vec<PermissionEntry>>> {
+        self.user_permissions.load_full()
+    }
+
+    pub fn upsert_permission_in_memory(&self, user_id: i64, entry: PermissionEntry) {
+        let mut perms = (*self.user_permissions.load_full()).clone();
+        let entries = perms.entry(user_id).or_default();
+        // Replace if same provider_id + model_pattern, else append
+        if let Some(existing) = entries.iter_mut().find(|e| {
+            e.provider_id == entry.provider_id && e.model_pattern == entry.model_pattern
+        }) {
+            *existing = entry;
+        } else {
+            entries.push(entry);
+        }
+        self.user_permissions.store(Arc::new(perms));
+    }
+
+    pub fn remove_permission_from_memory(
+        &self,
+        user_id: i64,
+        provider_id: Option<i64>,
+        model_pattern: &str,
+    ) {
+        let mut perms = (*self.user_permissions.load_full()).clone();
+        if let Some(entries) = perms.get_mut(&user_id) {
+            entries.retain(|e| {
+                !(e.provider_id == provider_id && e.model_pattern == model_pattern)
+            });
+            if entries.is_empty() {
+                perms.remove(&user_id);
+            }
+        }
+        self.user_permissions.store(Arc::new(perms));
+    }
+
+    // --- User rate limits ---
+
+    pub fn user_rate_limits_snapshot(&self) -> Arc<HashMap<i64, Vec<RateLimitRule>>> {
+        self.user_rate_limits.load_full()
+    }
+
+    pub fn upsert_rate_limit_in_memory(&self, user_id: i64, rule: RateLimitRule) {
+        let mut limits = (*self.user_rate_limits.load_full()).clone();
+        let rules = limits.entry(user_id).or_default();
+        if let Some(existing) = rules.iter_mut().find(|r| r.model_pattern == rule.model_pattern) {
+            *existing = rule;
+        } else {
+            rules.push(rule);
+        }
+        self.user_rate_limits.store(Arc::new(limits));
+    }
+
+    pub fn remove_rate_limit_from_memory(&self, user_id: i64, model_pattern: &str) {
+        let mut limits = (*self.user_rate_limits.load_full()).clone();
+        if let Some(rules) = limits.get_mut(&user_id) {
+            rules.retain(|r| r.model_pattern != model_pattern);
+            if rules.is_empty() {
+                limits.remove(&user_id);
+            }
+        }
+        self.user_rate_limits.store(Arc::new(limits));
     }
 }
 

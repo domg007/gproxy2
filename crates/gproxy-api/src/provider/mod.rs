@@ -16,7 +16,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{provider}/v1/messages/count-tokens", post(handler::proxy))
         .route("/{provider}/v1/chat/completions", post(handler::proxy))
         .route("/{provider}/v1/responses", post(handler::proxy))
-        .route("/{provider}/v1/responses/input_tokens", post(handler::proxy))
+        .route(
+            "/{provider}/v1/responses/input_tokens",
+            post(handler::proxy),
+        )
         .route("/{provider}/v1/responses/compact", post(handler::proxy))
         .route("/{provider}/v1/embeddings", post(handler::proxy))
         .route("/{provider}/v1/images/generations", post(handler::proxy))

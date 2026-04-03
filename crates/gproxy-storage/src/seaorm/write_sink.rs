@@ -354,6 +354,7 @@ impl SeaOrmStorage {
                         model_id: Set(m.model_id.clone()),
                         display_name: Set(m.display_name.clone()),
                         enabled: Set(m.enabled),
+                        price_each_call: Set(m.price_each_call),
                         price_input_tokens: Set(m.price_input_tokens),
                         price_output_tokens: Set(m.price_output_tokens),
                         price_cache_read_input_tokens: Set(m.price_cache_read_input_tokens),
@@ -377,6 +378,7 @@ impl SeaOrmStorage {
                             models::Column::ModelId,
                             models::Column::DisplayName,
                             models::Column::Enabled,
+                            models::Column::PriceEachCall,
                             models::Column::PriceInputTokens,
                             models::Column::PriceOutputTokens,
                             models::Column::PriceCacheReadInputTokens,
@@ -507,9 +509,9 @@ impl SeaOrmStorage {
         for q in batch.user_quotas_upsert.values() {
             let now = OffsetDateTime::now_utc();
             let model = user_token_usage::ActiveModel {
-                id: Set(0), // auto-increment, overwritten by upsert
+                id: Set(0),
                 user_id: Set(q.user_id),
-                tokens_used: Set(q.tokens_used),
+                quota: Set(q.quota),
                 cost_used: Set(q.cost_used),
                 updated_at: Set(now),
             };
@@ -517,7 +519,7 @@ impl SeaOrmStorage {
                 .on_conflict(
                     OnConflict::column(user_token_usage::Column::UserId)
                         .update_columns([
-                            user_token_usage::Column::TokensUsed,
+                            user_token_usage::Column::Quota,
                             user_token_usage::Column::CostUsed,
                             user_token_usage::Column::UpdatedAt,
                         ])

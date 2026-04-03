@@ -26,7 +26,7 @@ pub struct RateLimitRule {
 pub enum RateLimitRejection {
     Rpm { limit: i32 },
     Rpd { limit: i32 },
-    TokenQuota { used: i64, limit: i64 },
+    QuotaExhausted { quota: f64, cost_used: f64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -112,18 +112,16 @@ impl Default for RateLimitCounters {
 // Axum middleware
 // ---------------------------------------------------------------------------
 
-/// Axum middleware: enforce rate limits (RPM/RPD/token quota).
+/// Axum middleware placeholder for rate limit enforcement.
 ///
-/// Requires auth context (user_id) in extensions.
-/// Returns 429 if rate limit exceeded.
-/// TODO: wire up when auth middleware provides user_id.
+/// Rate limiting is currently done inside the provider handler
+/// (after authentication and model resolution).
+/// This middleware is a pass-through reserved for future use.
 pub async fn rate_limit_middleware(
     State(_state): State<Arc<AppState>>,
     request: Request,
     next: Next,
 ) -> Response {
-    // TODO: extract user_id from auth context, check rate limits
-    // For now, pass through
     next.run(request).await
 }
 

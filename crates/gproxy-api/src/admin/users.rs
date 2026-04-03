@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use axum::extract::State;
-use axum::http::HeaderMap;
-use axum::Json;
-use gproxy_server::AppState;
-use gproxy_storage::{UserQuery, UserQueryRow, UserKeyQuery, UserKeyQueryRow};
 use crate::auth::authorize_admin;
 use crate::error::{AckResponse, HttpError};
+use axum::Json;
+use axum::extract::State;
+use axum::http::HeaderMap;
+use gproxy_server::AppState;
+use gproxy_storage::{UserKeyQuery, UserKeyQueryRow, UserQuery, UserQueryRow};
+use std::sync::Arc;
 
 pub async fn query_users(
     State(state): State<Arc<AppState>>,
@@ -18,19 +18,42 @@ pub async fn query_users(
 }
 
 pub async fn upsert_user(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<gproxy_storage::UserWrite>,
 ) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    authorize_admin(&headers, &state)?;
+    state.upsert_user_in_memory(gproxy_server::MemoryUser {
+        id: payload.id,
+        name: payload.name.clone(),
+        enabled: payload.enabled,
+    });
+    let sender = state.storage_writes();
+    sender
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(payload))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DeleteUserPayload {
+    id: i64,
 }
 
 pub async fn delete_user(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteUserPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    authorize_admin(&headers, &state)?;
+    state.remove_user_from_memory(payload.id);
+    let sender = state.storage_writes();
+    sender
+        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id: payload.id })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
 }
 
 pub async fn query_user_keys(
@@ -43,18 +66,171 @@ pub async fn query_user_keys(
     Ok(Json(rows))
 }
 
+#[derive(serde::Deserialize)]
+pub struct GenerateUserKeyPayload {
+    pub user_id: i64,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct GenerateUserKeyResponse {
+    pub ok: bool,
+    pub id: i64,
+    pub api_key: String,
+}
+
 pub async fn generate_user_key(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
-) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<GenerateUserKeyPayload>,
+) -> Result<Json<GenerateUserKeyResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let api_key = generate_unique_api_key_for(&state);
+    let id = state
+        .storage()
+        .create_user_key(payload.user_id, &api_key, payload.label.as_deref(), true)
+        .await?;
+    state.upsert_key_in_memory(gproxy_server::MemoryUserKey {
+        id,
+        user_id: payload.user_id,
+        api_key: api_key.clone(),
+        enabled: true,
+    });
+    Ok(Json(GenerateUserKeyResponse {
+        ok: true,
+        id,
+        api_key,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DeleteUserKeyPayload {
+    id: i64,
 }
 
 pub async fn delete_user_key(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteUserKeyPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    authorize_admin(&headers, &state)?;
+    state.remove_key_from_memory(payload.id);
+    let sender = state.storage_writes();
+    sender
+        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: payload.id })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+pub async fn batch_upsert_users(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(items): Json<Vec<gproxy_storage::UserWrite>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let sender = state.storage_writes();
+    for item in items {
+        sender
+            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(item))
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+    }
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+pub async fn batch_delete_users(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let sender = state.storage_writes();
+    for id in ids {
+        sender
+            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id })
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+    }
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+pub async fn batch_delete_user_keys(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let sender = state.storage_writes();
+    for id in ids {
+        sender
+            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id })
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+    }
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct BatchGenerateUserKeysPayload {
+    pub user_id: i64,
+    pub count: usize,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct BatchGenerateUserKeysResponse {
+    pub ok: bool,
+    pub keys: Vec<GeneratedKey>,
+}
+
+#[derive(serde::Serialize)]
+pub struct GeneratedKey {
+    pub id: i64,
+    pub api_key: String,
+}
+
+pub async fn batch_upsert_user_keys(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<BatchGenerateUserKeysPayload>,
+) -> Result<Json<BatchGenerateUserKeysResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let mut keys = Vec::with_capacity(payload.count);
+    for _ in 0..payload.count {
+        let api_key = generate_unique_api_key_for(&state);
+        let id = state
+            .storage()
+            .create_user_key(payload.user_id, &api_key, payload.label.as_deref(), true)
+            .await?;
+        state.upsert_key_in_memory(gproxy_server::MemoryUserKey {
+            id,
+            user_id: payload.user_id,
+            api_key: api_key.clone(),
+            enabled: true,
+        });
+        keys.push(GeneratedKey { id, api_key });
+    }
+    Ok(Json(BatchGenerateUserKeysResponse { ok: true, keys }))
+}
+
+/// Generate a unique API key in `sk-api01-{random hex}` format.
+/// Ensures the key doesn't collide with admin_key or existing keys.
+pub fn generate_unique_api_key_for(state: &AppState) -> String {
+    use rand::RngExt;
+    let admin_key = state.config().admin_key.clone();
+    let mut rng = rand::rng();
+    loop {
+        let n: u64 = rng.random_range(0..1u64 << 48);
+        let key = format!("sk-api01-{n:012x}");
+        if key == admin_key {
+            continue;
+        }
+        if state.authenticate_api_key(&key).is_some() {
+            continue;
+        }
+        return key;
+    }
 }

@@ -1,4 +1,3 @@
-
 use axum::http::HeaderMap;
 
 use gproxy_server::AppState;
@@ -12,28 +11,33 @@ pub fn extract_api_key(headers: &HeaderMap) -> Result<String, HttpError> {
     // Authorization: Bearer <key>
     if let Some(value) = headers.get("authorization")
         && let Ok(s) = value.to_str()
-            && let Some(token) = s.strip_prefix("Bearer ").or_else(|| s.strip_prefix("bearer ")) {
-                let trimmed = token.trim();
-                if !trimmed.is_empty() {
-                    return Ok(trimmed.to_string());
-                }
-            }
+        && let Some(token) = s
+            .strip_prefix("Bearer ")
+            .or_else(|| s.strip_prefix("bearer "))
+    {
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
     // x-api-key
     if let Some(value) = headers.get("x-api-key")
-        && let Ok(s) = value.to_str() {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
+        && let Ok(s) = value.to_str()
+    {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
         }
+    }
     // x-goog-api-key
     if let Some(value) = headers.get("x-goog-api-key")
-        && let Ok(s) = value.to_str() {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
+        && let Ok(s) = value.to_str()
+    {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
         }
+    }
     Err(HttpError::unauthorized("missing API key"))
 }
 

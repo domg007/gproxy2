@@ -17,6 +17,7 @@ pub struct Model {
     pub model_id: String,
     pub display_name: Option<String>,
     pub enabled: bool,
+    pub price_each_call: Option<f64>,
     /// Pricing per million tokens (USD or any unit). Null = not priced.
     pub price_input_tokens: Option<f64>,
     pub price_output_tokens: Option<f64>,

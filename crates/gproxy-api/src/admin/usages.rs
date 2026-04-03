@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use crate::auth::authorize_admin;
+use crate::error::{AckResponse, HttpError};
+use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::Json;
 use gproxy_server::AppState;
-use gproxy_storage::{UsageQuery, UsageQueryRow, UsageQueryCount};
-use crate::auth::authorize_admin;
-use crate::error::HttpError;
+use gproxy_storage::{UsageQuery, UsageQueryCount, UsageQueryRow};
+use std::sync::Arc;
 
 pub async fn query_usages(
     State(state): State<Arc<AppState>>,
@@ -25,4 +25,19 @@ pub async fn count_usages(
     authorize_admin(&headers, &state)?;
     let count = state.storage().count_usages(&query).await?;
     Ok(Json(count))
+}
+
+pub async fn batch_delete_usages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    let trace_ids = if ids.is_empty() {
+        None
+    } else {
+        Some(ids.as_slice())
+    };
+    state.storage().delete_usages(trace_ids).await?;
+    Ok(Json(AckResponse { ok: true, id: None }))
 }

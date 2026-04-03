@@ -108,6 +108,8 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         updates: &[CredentialUpdate],
     ) -> Result<Vec<bool>, UpstreamError>;
 
+    fn prepare_quota_request(&self) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError>;
+
     fn oauth_start<'a>(
         &'a self,
         client: &'a wreq::Client,
@@ -449,6 +451,15 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         self.credential_revision
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(applied)
+    }
+
+    fn prepare_quota_request(&self) -> Result<Option<http::Request<Vec<u8>>>, UpstreamError> {
+        let settings = self.settings.load();
+        let credentials = self.credentials.load();
+        let Some(credential) = credentials.first() else {
+            return Ok(None);
+        };
+        self.channel.prepare_quota_request(credential, &settings)
     }
 
     fn oauth_start<'a>(

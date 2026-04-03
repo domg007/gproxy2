@@ -255,6 +255,15 @@ impl SeaOrmStorage {
         Ok(result.rows_affected)
     }
 
+    pub async fn delete_usages(&self, trace_ids: Option<&[i64]>) -> Result<u64, DbErr> {
+        let mut delete = usages::Entity::delete_many();
+        if let Some(ids) = trace_ids {
+            delete = delete.filter(usages::Column::TraceId.is_in(ids.to_vec()));
+        }
+        let result = delete.exec(&self.db).await?;
+        Ok(result.rows_affected)
+    }
+
     // --- Encryption helpers (write direction) ---
 
     fn encrypt_string(&self, plaintext: &str) -> String {

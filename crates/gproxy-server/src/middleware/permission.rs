@@ -16,19 +16,16 @@ pub struct PermissionEntry {
     pub model_pattern: String,
 }
 
-/// Axum middleware: check user model permissions (whitelist).
+/// Axum middleware placeholder for permission checks.
 ///
-/// Requires `AuthContext` (user_id) and model info in extensions.
-/// Returns 403 if user is not authorized for this model/provider.
+/// Permission enforcement is currently done inside the provider handler
+/// (after authentication extracts user_id and model resolution is complete).
+/// This middleware is a pass-through reserved for future use.
 pub async fn permission_middleware(
     State(_state): State<Arc<AppState>>,
     request: Request,
     next: Next,
 ) -> Response {
-    // Get user_id and model from extensions
-    // These would be set by auth and request_model middlewares
-    // For now, pass through — actual enforcement happens when we have auth middleware
-    // TODO: extract user_id from auth context extension, check permission
     next.run(request).await
 }
 

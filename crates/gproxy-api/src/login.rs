@@ -1,8 +1,12 @@
 use std::sync::Arc;
-use axum::extract::State;
+
 use axum::Json;
+use axum::extract::State;
 use serde::{Deserialize, Serialize};
+
 use gproxy_server::AppState;
+use gproxy_storage::Scope;
+
 use crate::error::HttpError;
 
 #[derive(Deserialize)]
@@ -18,9 +22,42 @@ pub struct LoginResponse {
 }
 
 pub async fn login(
-    State(_state): State<Arc<AppState>>,
-    Json(_payload): Json<LoginRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, HttpError> {
-    // TODO: validate username/password against storage, return API key
-    Err(HttpError::internal("login not yet implemented"))
+    let storage = state.storage();
+    let users = storage
+        .list_users(&gproxy_storage::UserQuery {
+            name: Scope::Eq(payload.username.clone()),
+            ..Default::default()
+        })
+        .await?;
+
+    let user = users
+        .first()
+        .ok_or_else(|| HttpError::unauthorized("invalid username or password"))?;
+
+    if user.password != payload.password {
+        return Err(HttpError::unauthorized("invalid username or password"));
+    }
+
+    if !user.enabled {
+        return Err(HttpError::forbidden("user is disabled"));
+    }
+
+    let keys = storage
+        .list_user_keys(&gproxy_storage::UserKeyQuery {
+            user_id: Scope::Eq(user.id),
+            ..Default::default()
+        })
+        .await?;
+
+    let key = keys
+        .first()
+        .ok_or_else(|| HttpError::internal("user has no API key"))?;
+
+    Ok(Json(LoginResponse {
+        user_id: user.id,
+        api_key: key.api_key.clone(),
+    }))
 }

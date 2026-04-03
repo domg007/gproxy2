@@ -294,6 +294,7 @@ impl SeaOrmStorage {
                 model_id: r.model_id,
                 display_name: r.display_name,
                 enabled: r.enabled,
+                price_each_call: r.price_each_call,
                 price_input_tokens: r.price_input_tokens,
                 price_output_tokens: r.price_output_tokens,
                 price_cache_read_input_tokens: r.price_cache_read_input_tokens,
@@ -423,7 +424,7 @@ impl SeaOrmStorage {
             .into_iter()
             .map(|r| UserQuotaRow {
                 user_id: r.user_id,
-                tokens_used: r.tokens_used,
+                quota: r.quota,
                 cost_used: r.cost_used,
                 updated_at: r.updated_at,
             })

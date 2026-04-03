@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use axum::extract::State;
-use axum::http::HeaderMap;
-use axum::Json;
-use gproxy_server::AppState;
-use gproxy_storage::{UsageQuery, UsageQueryRow, UsageQueryCount, Scope};
 use crate::auth::authenticate_user;
 use crate::error::HttpError;
+use axum::Json;
+use axum::extract::State;
+use axum::http::HeaderMap;
+use gproxy_server::AppState;
+use gproxy_storage::{Scope, UsageQuery, UsageQueryCount, UsageQueryRow};
+use std::sync::Arc;
 
 pub async fn query_usages(
     State(state): State<Arc<AppState>>,

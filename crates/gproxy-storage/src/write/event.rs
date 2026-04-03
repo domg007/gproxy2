@@ -138,6 +138,7 @@ pub struct ModelWrite {
     pub model_id: String,
     pub display_name: Option<String>,
     pub enabled: bool,
+    pub price_each_call: Option<f64>,
     pub price_input_tokens: Option<f64>,
     pub price_output_tokens: Option<f64>,
     pub price_cache_read_input_tokens: Option<f64>,
@@ -176,7 +177,7 @@ pub struct UserRateLimitWrite {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserQuotaWrite {
     pub user_id: i64,
-    pub tokens_used: i64,
+    pub quota: f64,
     pub cost_used: f64,
 }
 

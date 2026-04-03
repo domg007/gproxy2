@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use axum::extract::State;
-use axum::http::HeaderMap;
-use axum::Json;
-use gproxy_server::AppState;
-use gproxy_storage::*;
 use crate::auth::authorize_admin;
 use crate::error::{AckResponse, HttpError};
+use axum::Json;
+use axum::extract::State;
+use axum::http::HeaderMap;
+use gproxy_server::AppState;
+use gproxy_storage::*;
+use std::sync::Arc;
 
 pub async fn query_upstream_requests(
     State(state): State<Arc<AppState>>,
@@ -27,12 +27,23 @@ pub async fn count_upstream_requests(
     Ok(Json(count))
 }
 
+#[derive(serde::Deserialize)]
+pub struct DeleteRequestsPayload {
+    trace_ids: Vec<i64>,
+}
+
 pub async fn delete_upstream_requests(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteRequestsPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .delete_upstream_requests(Some(&payload.trace_ids))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
 }
 
 pub async fn query_downstream_requests(
@@ -56,9 +67,43 @@ pub async fn count_downstream_requests(
 }
 
 pub async fn delete_downstream_requests(
-    State(_state): State<Arc<AppState>>,
-    _headers: HeaderMap,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteRequestsPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
-    Err(HttpError::internal("not yet implemented"))
+    authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .delete_downstream_requests(Some(&payload.trace_ids))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+pub async fn batch_delete_upstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .delete_upstream_requests(Some(&ids))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+pub async fn batch_delete_downstream_requests(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<AckResponse>, HttpError> {
+    authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .delete_downstream_requests(Some(&ids))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(Json(AckResponse { ok: true, id: None }))
 }
