@@ -10,8 +10,6 @@ pub struct Model {
     pub host: String,
     pub port: i32,
     pub admin_key: String,
-    pub hf_token: Option<String>,
-    pub hf_url: Option<String>,
     pub proxy: Option<String>,
     pub spoof_emulation: Option<String>,
     pub update_source: Option<String>,
