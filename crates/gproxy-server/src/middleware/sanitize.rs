@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 
 use tower::{Layer, Service};
 
-use crate::classify::ClassifiedRequest;
+use crate::middleware::classify::ClassifiedRequest;
 
 /// Headers removed by the sanitize middleware.
 const AUTH_HEADERS: &[&str] = &["authorization", "x-api-key", "x-goog-api-key"];
@@ -124,7 +124,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classify::classify_request_payload;
+    use crate::middleware::classify::classify_request_payload;
     use bytes::Bytes;
     use http::Request;
 

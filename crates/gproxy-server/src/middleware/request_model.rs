@@ -7,9 +7,9 @@ use std::task::{Context, Poll};
 use serde_json::Value;
 use tower::{Layer, Service};
 
-use crate::classify::ClassifiedRequest;
-use crate::error::MiddlewareError;
-use crate::kinds::{OperationFamily, ProtocolKind};
+use crate::middleware::classify::ClassifiedRequest;
+use crate::middleware::error::MiddlewareError;
+use crate::middleware::kinds::{OperationFamily, ProtocolKind};
 
 /// A classified request enriched with the extracted model identifier.
 pub struct ModelScopedRequest {
@@ -117,7 +117,7 @@ fn model_source(op: OperationFamily, proto: ProtocolKind) -> ModelSource {
 /// `/v1/models/gpt-4o`.
 pub fn extract_model_from_uri_path(path: &str) -> Option<String> {
     // Normalize: strip /v1, /v1beta, etc.
-    let normalized = crate::classify::normalize_path(path);
+    let normalized = crate::middleware::classify::normalize_path(path);
     // Expect `/models/{model}` or `/models/{model}:action`
     let tail = normalized.strip_prefix("/models/")?;
     if tail.is_empty() {

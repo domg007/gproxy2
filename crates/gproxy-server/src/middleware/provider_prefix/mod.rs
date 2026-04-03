@@ -8,8 +8,8 @@ use std::task::{Context, Poll};
 
 use tower::{Layer, Service};
 
-use crate::classify::ClassifiedRequest;
-use crate::error::MiddlewareError;
+use crate::middleware::classify::ClassifiedRequest;
+use crate::middleware::error::MiddlewareError;
 
 pub use capture::{add_provider_prefix, split_provider_prefixed_model};
 

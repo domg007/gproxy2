@@ -9,8 +9,8 @@ use http::{HeaderMap, Method, Request};
 use serde::Deserialize;
 use tower::{Layer, Service};
 
-use crate::error::MiddlewareError;
-use crate::kinds::{OperationFamily, ProtocolKind};
+use crate::middleware::error::MiddlewareError;
+use crate::middleware::kinds::{OperationFamily, ProtocolKind};
 
 /// Raw HTTP request with a buffered body.
 pub type ClassifyRequest = Request<Bytes>;

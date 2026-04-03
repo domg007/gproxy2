@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::kinds::{OperationFamily, ProtocolKind};
+use crate::middleware::kinds::{OperationFamily, ProtocolKind};
 
 /// Errors produced by the middleware layer.
 #[derive(Debug, Clone, PartialEq, Eq)]

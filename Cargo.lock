@@ -1802,8 +1802,8 @@ dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
  "futures-util",
- "gproxy-middleware",
  "gproxy-sdk",
+ "gproxy-server",
  "gproxy-storage",
  "sea-orm",
  "serde",
@@ -1820,19 +1820,6 @@ dependencies = [
  "wreq",
  "wreq-util",
  "zip",
-]
-
-[[package]]
-name = "gproxy-middleware"
-version = "1.0.0"
-dependencies = [
- "bytes",
- "futures-util",
- "gproxy-protocol",
- "http",
- "serde",
- "serde_json",
- "tower",
 ]
 
 [[package]]
@@ -1915,13 +1902,13 @@ dependencies = [
  "async-stream",
  "axum",
  "base64 0.22.1",
+ "bytes",
  "dashmap",
  "ed25519-dalek",
  "futures-util",
- "gproxy-api",
- "gproxy-middleware",
  "gproxy-sdk",
  "gproxy-storage",
+ "http",
  "serde",
  "serde_json",
  "sha2 0.11.0",

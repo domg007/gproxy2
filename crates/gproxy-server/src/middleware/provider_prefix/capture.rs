@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use serde_json::Value;
 
-use crate::classify::ClassifiedRequest;
-use crate::error::MiddlewareError;
-use crate::kinds::{OperationFamily, ProtocolKind};
+use crate::middleware::classify::ClassifiedRequest;
+use crate::middleware::error::MiddlewareError;
+use crate::middleware::kinds::{OperationFamily, ProtocolKind};
 
 // ---------------------------------------------------------------------------
 // Public utilities
@@ -117,7 +117,7 @@ pub(super) fn strip_provider_prefix_from_classified(
     // --- URI path-based model (Gemini, ModelGet) ---
     if capture.provider.is_none()
         && let Some(model_in_path) =
-            crate::request_model::extract_model_from_uri_path(req.request.uri().path())
+            crate::middleware::request_model::extract_model_from_uri_path(req.request.uri().path())
         && let Some((has_models, provider, model)) = split_provider_prefixed_model(&model_in_path)
     {
         capture.provider = Some(provider.to_string());
