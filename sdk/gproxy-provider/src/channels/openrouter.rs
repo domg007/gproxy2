@@ -77,12 +77,7 @@ impl Channel for OpenRouterChannel {
             // === Generate content (non-stream) ===
             pass("generate_content", "openai_response"),
             pass("generate_content", "openai_chat_completions"),
-            xform(
-                "generate_content",
-                "claude",
-                "generate_content",
-                "openai_response",
-            ),
+            pass("generate_content", "claude"),
             xform(
                 "generate_content",
                 "gemini",
@@ -92,12 +87,7 @@ impl Channel for OpenRouterChannel {
             // === Generate content (stream) ===
             pass("stream_generate_content", "openai_response"),
             pass("stream_generate_content", "openai_chat_completions"),
-            xform(
-                "stream_generate_content",
-                "claude",
-                "stream_generate_content",
-                "openai_response",
-            ),
+            pass("stream_generate_content", "claude"),
             xform(
                 "stream_generate_content",
                 "gemini",
