@@ -99,19 +99,20 @@ pub async fn proxy(
         state.record_request(user_key.user_id, m);
     }
 
+    // Build usage context (shared by record_usage and stream_with_usage_tracking)
+    let usage_ctx = UsageRecordContext {
+        state: state.clone(),
+        user_id: user_key.user_id,
+        user_key_id: user_key.id,
+        model: effective_model.clone(),
+        operation: operation.clone(),
+        protocol: protocol.clone(),
+        downstream_trace_id: Some(trace_id),
+    };
+
     // Record usage via storage write channel
     if let Some(ref usage) = result.usage {
-        record_usage(
-            &state,
-            user_key.user_id,
-            user_key.id,
-            effective_model.as_deref(),
-            &operation,
-            &protocol,
-            usage,
-            Some(trace_id),
-        )
-        .await;
+        record_usage(&usage_ctx, usage).await;
     }
 
     // Record upstream log
@@ -177,14 +178,8 @@ pub async fn proxy(
             )
             .await;
             Body::from_stream(stream_with_usage_tracking(
-                state.clone(),
-                user_key.user_id,
-                user_key.id,
-                effective_model.clone(),
-                operation.clone(),
-                protocol.clone(),
+                usage_ctx.clone(),
                 stream,
-                Some(trace_id),
             ))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
@@ -260,6 +255,16 @@ pub async fn proxy_unscoped(
         })
         .await?;
 
+    let usage_ctx = UsageRecordContext {
+        state: state.clone(),
+        user_id: user_key.user_id,
+        user_key_id: user_key.id,
+        model: Some(target_model.clone()),
+        operation: operation.clone(),
+        protocol: protocol.clone(),
+        downstream_trace_id: Some(trace_id),
+    };
+
     // Record upstream log
     record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
 
@@ -321,14 +326,8 @@ pub async fn proxy_unscoped(
             )
             .await;
             Body::from_stream(stream_with_usage_tracking(
-                state.clone(),
-                user_key.user_id,
-                user_key.id,
-                Some(target_model.clone()),
-                operation,
-                protocol,
+                usage_ctx.clone(),
                 stream,
-                Some(trace_id),
             ))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
@@ -413,42 +412,46 @@ fn compute_cost(usage: &Usage, model: &gproxy_server::MemoryModel) -> f64 {
     cost
 }
 
+/// Shared context for usage recording, avoids passing 8+ args.
+#[derive(Clone)]
+pub(crate) struct UsageRecordContext {
+    pub state: Arc<AppState>,
+    pub user_id: i64,
+    pub user_key_id: i64,
+    pub model: Option<String>,
+    pub operation: String,
+    pub protocol: String,
+    pub downstream_trace_id: Option<i64>,
+}
+
 /// Record usage (cost tracking + storage write). Shared by HTTP and WebSocket handlers.
-pub(crate) async fn record_usage(
-    state: &AppState,
-    user_id: i64,
-    user_key_id: i64,
-    model: Option<&str>,
-    operation: &str,
-    protocol: &str,
-    usage: &Usage,
-    downstream_trace_id: Option<i64>,
-) {
-    let model_info = model.and_then(|m| state.find_model(m));
+pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
+    let model_info = ctx.model.as_deref().and_then(|m| ctx.state.find_model(m));
     let cost = model_info
         .map(|info| compute_cost(usage, &info))
         .unwrap_or(0.0);
     if cost > 0.0 {
-        state.add_cost_usage(user_id, cost);
+        ctx.state.add_cost_usage(ctx.user_id, cost);
     }
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
-    let _ = state
+    let _ = ctx
+        .state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
-                downstream_trace_id,
+                downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
                 provider_id: None,
                 credential_id: None,
-                user_id: Some(user_id),
-                user_key_id: Some(user_key_id),
-                operation: operation.to_string(),
-                protocol: protocol.to_string(),
-                model: model.map(String::from),
+                user_id: Some(ctx.user_id),
+                user_key_id: Some(ctx.user_key_id),
+                operation: ctx.operation.clone(),
+                protocol: ctx.protocol.clone(),
+                model: ctx.model.clone(),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
                 cache_read_input_tokens: usage.cache_read_input_tokens,
@@ -461,29 +464,15 @@ pub(crate) async fn record_usage(
 }
 
 fn stream_with_usage_tracking(
-    state: Arc<AppState>,
-    user_id: i64,
-    user_key_id: i64,
-    model: Option<String>,
-    operation: String,
-    protocol: String,
+    ctx: UsageRecordContext,
     mut stream: gproxy_sdk::provider::engine::ExecuteBodyStream,
-    downstream_trace_id: Option<i64>,
 ) -> impl futures_util::Stream<
     Item = Result<bytes::Bytes, gproxy_sdk::provider::response::UpstreamError>,
 > + Send {
-    let recorder = StreamUsageRecorder::new(
-        state.clone(),
-        user_id,
-        user_key_id,
-        model.clone(),
-        operation.clone(),
-        protocol.clone(),
-        downstream_trace_id,
-    );
+    let recorder = StreamUsageRecorder::new(ctx.clone());
 
     try_stream! {
-        let mut decoder = UsageChunkDecoder::new(&protocol);
+        let mut decoder = UsageChunkDecoder::new(&ctx.protocol);
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -498,20 +487,9 @@ fn stream_with_usage_tracking(
         }
 
         if let Some(usage) = recorder.finish_completed() {
-            record_stream_usage(state, user_id, user_key_id, model, operation, protocol, usage, downstream_trace_id).await;
+            record_stream_usage(&ctx, usage).await;
         }
     }
-}
-
-#[derive(Clone)]
-struct StreamUsageRecorderContext {
-    state: Arc<AppState>,
-    user_id: i64,
-    user_key_id: i64,
-    model: Option<String>,
-    operation: String,
-    protocol: String,
-    downstream_trace_id: Option<i64>,
 }
 
 #[derive(Default)]
@@ -523,30 +501,14 @@ struct StreamUsageRecorderState {
 }
 
 struct StreamUsageRecorder {
-    ctx: StreamUsageRecorderContext,
+    ctx: UsageRecordContext,
     state: Arc<Mutex<StreamUsageRecorderState>>,
 }
 
 impl StreamUsageRecorder {
-    fn new(
-        state: Arc<AppState>,
-        user_id: i64,
-        user_key_id: i64,
-        model: Option<String>,
-        operation: String,
-        protocol: String,
-        downstream_trace_id: Option<i64>,
-    ) -> Self {
+    fn new(ctx: UsageRecordContext) -> Self {
         Self {
-            ctx: StreamUsageRecorderContext {
-                state,
-                user_id,
-                user_key_id,
-                model,
-                operation,
-                protocol,
-                downstream_trace_id,
-            },
+            ctx,
             state: Arc::new(Mutex::new(StreamUsageRecorderState::default())),
         }
     }
@@ -624,57 +586,39 @@ impl Drop for StreamUsageRecorder {
         let ctx = self.ctx.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
-                record_stream_usage(
-                    ctx.state,
-                    ctx.user_id,
-                    ctx.user_key_id,
-                    ctx.model,
-                    ctx.operation,
-                    ctx.protocol,
-                    usage,
-                    ctx.downstream_trace_id,
-                )
-                .await;
+                record_stream_usage(&ctx, usage).await;
             });
         }
     }
 }
 
-async fn record_stream_usage(
-    state: Arc<AppState>,
-    user_id: i64,
-    user_key_id: i64,
-    model: Option<String>,
-    operation: String,
-    protocol: String,
-    usage: Usage,
-    downstream_trace_id: Option<i64>,
-) {
-    let model_info = model.as_deref().and_then(|m| state.find_model(m));
+async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
+    let model_info = ctx.model.as_deref().and_then(|m| ctx.state.find_model(m));
     let cost = model_info
         .map(|info| compute_cost(&usage, &info))
         .unwrap_or(0.0);
     if cost > 0.0 {
-        state.add_cost_usage(user_id, cost);
+        ctx.state.add_cost_usage(ctx.user_id, cost);
     }
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
-    let _ = state
+    let _ = ctx
+        .state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
-                downstream_trace_id,
+                downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
                 provider_id: None,
                 credential_id: None,
-                user_id: Some(user_id),
-                user_key_id: Some(user_key_id),
-                operation,
-                protocol,
-                model,
+                user_id: Some(ctx.user_id),
+                user_key_id: Some(ctx.user_key_id),
+                operation: ctx.operation.clone(),
+                protocol: ctx.protocol.clone(),
+                model: ctx.model.clone(),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
                 cache_read_input_tokens: usage.cache_read_input_tokens,

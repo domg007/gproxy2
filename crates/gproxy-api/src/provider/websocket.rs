@@ -190,12 +190,13 @@ async fn handle_openai_ws(
     let trace_id = super::handler::generate_trace_id();
     // Try upstream WebSocket via SDK
     let ctx = WsBridgeContext {
-        state: &state,
+        state: state.clone(),
+        provider_name: provider_name.clone(),
         user_id,
         user_key_id,
-        model: model.as_deref(),
-        operation: "openai_response_websocket",
-        protocol: "openai",
+        model: model.clone(),
+        operation: "openai_response_websocket".to_string(),
+        protocol: "openai".to_string(),
         trace_id,
     };
 
@@ -240,12 +241,7 @@ async fn handle_openai_ws(
         Err(e) => {
             tracing::info!(trace_id, provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
             run_http_sse_fallback(
-                state,
-                provider_name,
-                model,
-                user_id,
-                user_key_id,
-                trace_id,
+                &ctx,
                 headers,
                 &mut downstream,
             )
@@ -270,12 +266,13 @@ async fn handle_gemini_live_ws(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let trace_id = super::handler::generate_trace_id();
     let ctx = WsBridgeContext {
-        state: &state,
+        state: state.clone(),
+        provider_name: provider_name.clone(),
         user_id,
         user_key_id,
-        model: model.as_deref(),
-        operation: "gemini_live",
-        protocol: "gemini",
+        model: model.clone(),
+        operation: "gemini_live".to_string(),
+        protocol: "gemini".to_string(),
         trace_id,
     };
 
@@ -327,13 +324,14 @@ async fn handle_gemini_live_ws(
 // Bidirectional WS bridge with protocol conversion and usage tracking
 // ---------------------------------------------------------------------------
 
-struct WsBridgeContext<'a> {
-    state: &'a AppState,
+struct WsBridgeContext {
+    state: Arc<AppState>,
+    provider_name: String,
     user_id: i64,
     user_key_id: i64,
-    model: Option<&'a str>,
-    operation: &'a str,
-    protocol: &'a str,
+    model: Option<String>,
+    operation: String,
+    protocol: String,
     trace_id: i64,
 }
 
@@ -341,7 +339,7 @@ async fn run_ws_bridge_with_protocol(
     downstream: &mut WebSocket,
     upstream: &mut UpstreamWebSocket,
     bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
-    ctx: &WsBridgeContext<'_>,
+    ctx: &WsBridgeContext,
 ) {
     // Collect WS messages for logging (only if downstream log + body enabled)
     let collect_body = {
@@ -415,17 +413,16 @@ async fn run_ws_bridge_with_protocol(
 
     // Record accumulated usage from the WS session
     if let Some(usage) = bridge.final_usage() {
-        super::handler::record_usage(
-            ctx.state,
-            ctx.user_id,
-            ctx.user_key_id,
-            ctx.model,
-            ctx.operation,
-            ctx.protocol,
-            &usage,
-            Some(ctx.trace_id),
-        )
-        .await;
+        let usage_ctx = super::handler::UsageRecordContext {
+            state: ctx.state.clone(),
+            user_id: ctx.user_id,
+            user_key_id: ctx.user_key_id,
+            model: ctx.model.clone(),
+            operation: ctx.operation.clone(),
+            protocol: ctx.protocol.clone(),
+            downstream_trace_id: Some(ctx.trace_id),
+        };
+        super::handler::record_usage(&usage_ctx, &usage).await;
     }
 
     // Record downstream log for WS session (request = client messages, response = server messages)
@@ -474,12 +471,7 @@ async fn run_ws_bridge_with_protocol(
 // ---------------------------------------------------------------------------
 
 async fn run_http_sse_fallback(
-    state: Arc<AppState>,
-    provider_name: String,
-    model: Option<String>,
-    user_id: i64,
-    user_key_id: i64,
-    trace_id: i64,
+    ctx: &WsBridgeContext,
     headers: HeaderMap,
     downstream: &mut WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -508,7 +500,7 @@ async fn run_http_sse_fallback(
                     // Drop current stream, start new request
                     drop(active_stream.take());
                     active_stream = start_http_request(
-                        &state, &provider_name, &model, user_id, user_key_id, trace_id,
+                        ctx,
                         &headers, &text, downstream,
                     ).await?;
                 }
@@ -563,7 +555,7 @@ async fn run_http_sse_fallback(
                 _ => continue,
             };
             active_stream = start_http_request(
-                &state, &provider_name, &model, user_id, user_key_id, trace_id,
+                ctx,
                 &headers, &text, downstream,
             ).await?;
         }
@@ -573,14 +565,8 @@ async fn run_http_sse_fallback(
 
 /// Parse a downstream WS message, execute via engine, and return the active stream (if streaming).
 /// Full (non-streaming) responses are sent directly and return None.
-#[allow(clippy::too_many_arguments)]
 async fn start_http_request(
-    state: &AppState,
-    provider_name: &str,
-    model: &Option<String>,
-    user_id: i64,
-    user_key_id: i64,
-    trace_id: i64,
+    ctx: &WsBridgeContext,
     headers: &HeaderMap,
     text: &str,
     downstream: &mut WebSocket,
@@ -603,7 +589,7 @@ async fn start_http_request(
         .get("response")
         .cloned()
         .unwrap_or(client_msg.clone());
-    if let Some(m) = model {
+    if let Some(ref m) = ctx.model {
         body.as_object_mut()
             .map(|o| o.insert("model".to_string(), serde_json::json!(m)));
     }
@@ -613,32 +599,32 @@ async fn start_http_request(
     let operation = "stream_generate_content".to_string();
     let protocol = "openai_response".to_string();
 
-    let result = state
+    let result = ctx
+        .state
         .engine()
         .execute(ExecuteRequest {
-            provider: provider_name.to_string(),
+            provider: ctx.provider_name.clone(),
             operation: operation.clone(),
             protocol: protocol.clone(),
             body: serde_json::to_vec(&body).unwrap_or_default(),
             headers: headers.clone(),
-            model: model.clone(),
+            model: ctx.model.clone(),
         })
         .await;
 
     match result {
         Ok(result) => {
             if let Some(ref usage) = result.usage {
-                super::handler::record_usage(
-                    state,
-                    user_id,
-                    user_key_id,
-                    model.as_deref(),
-                    &operation,
-                    &protocol,
-                    usage,
-                    Some(trace_id),
-                )
-                .await;
+                let usage_ctx = super::handler::UsageRecordContext {
+                    state: ctx.state.clone(),
+                    user_id: ctx.user_id,
+                    user_key_id: ctx.user_key_id,
+                    model: ctx.model.clone(),
+                    operation: operation.clone(),
+                    protocol: protocol.clone(),
+                    downstream_trace_id: Some(ctx.trace_id),
+                };
+                super::handler::record_usage(&usage_ctx, usage).await;
             }
 
             match result.body {
