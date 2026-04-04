@@ -5,7 +5,6 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use gproxy_server::AppState;
 use gproxy_storage::Scope;
@@ -23,24 +22,14 @@ pub fn hash_password(password: &str) -> String {
         .to_string()
 }
 
-/// Verify a password against a stored hash.
-/// Supports both Argon2 PHC strings and legacy SHA-256 hex digests.
+/// Verify a password against a stored Argon2 PHC hash.
 pub fn verify_password(password: &str, stored_hash: &str) -> bool {
-    if stored_hash.starts_with("$argon2") {
-        let Ok(parsed) = PasswordHash::new(stored_hash) else {
-            return false;
-        };
-        Argon2::default()
-            .verify_password(password.as_bytes(), &parsed)
-            .is_ok()
-    } else {
-        // Legacy SHA-256 fallback for pre-migration hashes
-        let mut hasher = Sha256::new();
-        hasher.update(password.as_bytes());
-        let result = hasher.finalize();
-        let hex: String = result.iter().map(|b| format!("{b:02x}")).collect();
-        hex == stored_hash
-    }
+    let Ok(parsed) = PasswordHash::new(stored_hash) else {
+        return false;
+    };
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
 }
 
 #[derive(Deserialize)]
