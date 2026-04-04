@@ -143,12 +143,8 @@ pub struct ModelWrite {
     pub display_name: Option<String>,
     pub enabled: bool,
     pub price_each_call: Option<f64>,
-    pub price_input_tokens: Option<f64>,
-    pub price_output_tokens: Option<f64>,
-    pub price_cache_read_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens_5min: Option<f64>,
-    pub price_cache_creation_input_tokens_1h: Option<f64>,
+    #[serde(default)]
+    pub price_tiers_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

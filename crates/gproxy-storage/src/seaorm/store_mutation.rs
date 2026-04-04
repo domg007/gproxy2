@@ -114,12 +114,6 @@ impl SeaOrmStorage {
             model_id: Set(model_id.to_string()),
             display_name: Set(display_name.map(String::from)),
             enabled: Set(enabled),
-            price_input_tokens: Set(None),
-            price_output_tokens: Set(None),
-            price_cache_read_input_tokens: Set(None),
-            price_cache_creation_input_tokens: Set(None),
-            price_cache_creation_input_tokens_5min: Set(None),
-            price_cache_creation_input_tokens_1h: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()

@@ -21,6 +21,23 @@ pub use crate::middleware::rate_limit::{
     RateLimitRejection as RateLimitRejectionExport, RateLimitRule as RateLimitRuleExport,
 };
 
+/// A price tier based on input_tokens threshold.
+///
+/// When `input_tokens` in usage falls within this tier's range,
+/// all token types use this tier's prices.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PriceTier {
+    /// Upper bound of input_tokens for this tier (exclusive).
+    /// Use `i64::MAX` or omit for the last tier.
+    pub input_tokens_up_to: i64,
+    pub price_input_tokens: Option<f64>,
+    pub price_output_tokens: Option<f64>,
+    pub price_cache_read_input_tokens: Option<f64>,
+    pub price_cache_creation_input_tokens: Option<f64>,
+    pub price_cache_creation_input_tokens_5min: Option<f64>,
+    pub price_cache_creation_input_tokens_1h: Option<f64>,
+}
+
 /// In-memory model record (from models table).
 #[derive(Debug, Clone)]
 pub struct MemoryModel {
@@ -30,12 +47,10 @@ pub struct MemoryModel {
     pub display_name: Option<String>,
     pub enabled: bool,
     pub price_each_call: Option<f64>,
-    pub price_input_tokens: Option<f64>,
-    pub price_output_tokens: Option<f64>,
-    pub price_cache_read_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens_5min: Option<f64>,
-    pub price_cache_creation_input_tokens_1h: Option<f64>,
+    /// Tiered pricing: the first tier whose `input_tokens_up_to`
+    /// exceeds the request's input_tokens is used for per-token prices.
+    /// Sorted by `input_tokens_up_to` ascending.
+    pub price_tiers: Vec<PriceTier>,
 }
 
 /// Central application state shared across all request handlers.

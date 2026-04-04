@@ -3,7 +3,7 @@ use crate::error::{AckResponse, HttpError};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use gproxy_server::{AppState, MemoryModel, ModelAliasTarget};
+use gproxy_server::{AppState, MemoryModel, ModelAliasTarget, PriceTier};
 use gproxy_storage::Scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,12 +41,7 @@ pub struct MemoryModelRow {
     pub display_name: Option<String>,
     pub enabled: bool,
     pub price_each_call: Option<f64>,
-    pub price_input_tokens: Option<f64>,
-    pub price_output_tokens: Option<f64>,
-    pub price_cache_read_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens: Option<f64>,
-    pub price_cache_creation_input_tokens_5min: Option<f64>,
-    pub price_cache_creation_input_tokens_1h: Option<f64>,
+    pub price_tiers: Vec<PriceTier>,
 }
 
 /// Query filter for models (simplified from storage ModelQuery).
@@ -91,12 +86,7 @@ pub async fn query_models(
             display_name: m.display_name.clone(),
             enabled: m.enabled,
             price_each_call: m.price_each_call,
-            price_input_tokens: m.price_input_tokens,
-            price_output_tokens: m.price_output_tokens,
-            price_cache_read_input_tokens: m.price_cache_read_input_tokens,
-            price_cache_creation_input_tokens: m.price_cache_creation_input_tokens,
-            price_cache_creation_input_tokens_5min: m.price_cache_creation_input_tokens_5min,
-            price_cache_creation_input_tokens_1h: m.price_cache_creation_input_tokens_1h,
+            price_tiers: m.price_tiers.clone(),
         })
         .collect();
 
@@ -118,6 +108,11 @@ pub async fn upsert_model(
     authorize_admin(&headers, &state)?;
 
     // Sync in-memory state
+    let price_tiers: Vec<PriceTier> = payload
+        .price_tiers_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
     state.upsert_model_in_memory(MemoryModel {
         id: payload.id,
         provider_id: payload.provider_id,
@@ -125,12 +120,7 @@ pub async fn upsert_model(
         display_name: payload.display_name.clone(),
         enabled: payload.enabled,
         price_each_call: payload.price_each_call,
-        price_input_tokens: payload.price_input_tokens,
-        price_output_tokens: payload.price_output_tokens,
-        price_cache_read_input_tokens: payload.price_cache_read_input_tokens,
-        price_cache_creation_input_tokens: payload.price_cache_creation_input_tokens,
-        price_cache_creation_input_tokens_5min: payload.price_cache_creation_input_tokens_5min,
-        price_cache_creation_input_tokens_1h: payload.price_cache_creation_input_tokens_1h,
+        price_tiers,
     });
 
     // Enqueue DB write
@@ -252,6 +242,11 @@ pub async fn batch_upsert_models(
     authorize_admin(&headers, &state)?;
     let sender = state.storage_writes();
     for item in items {
+        let price_tiers: Vec<PriceTier> = item
+            .price_tiers_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
         state.upsert_model_in_memory(MemoryModel {
             id: item.id,
             provider_id: item.provider_id,
@@ -259,12 +254,7 @@ pub async fn batch_upsert_models(
             display_name: item.display_name.clone(),
             enabled: item.enabled,
             price_each_call: item.price_each_call,
-            price_input_tokens: item.price_input_tokens,
-            price_output_tokens: item.price_output_tokens,
-            price_cache_read_input_tokens: item.price_cache_read_input_tokens,
-            price_cache_creation_input_tokens: item.price_cache_creation_input_tokens,
-            price_cache_creation_input_tokens_5min: item.price_cache_creation_input_tokens_5min,
-            price_cache_creation_input_tokens_1h: item.price_cache_creation_input_tokens_1h,
+            price_tiers,
         });
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::UpsertModel(item))

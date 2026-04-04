@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
 use gproxy_server::{
     AppState, GlobalConfig, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget,
-    PermissionEntry, RateLimitRule,
+    PermissionEntry, PriceTier, RateLimitRule,
 };
 
 use crate::auth::authorize_admin;
@@ -100,17 +100,7 @@ pub struct ModelToml {
     #[serde(default)]
     pub price_each_call: Option<f64>,
     #[serde(default)]
-    pub price_input_tokens: Option<f64>,
-    #[serde(default)]
-    pub price_output_tokens: Option<f64>,
-    #[serde(default)]
-    pub price_cache_read_input_tokens: Option<f64>,
-    #[serde(default)]
-    pub price_cache_creation_input_tokens: Option<f64>,
-    #[serde(default)]
-    pub price_cache_creation_input_tokens_5min: Option<f64>,
-    #[serde(default)]
-    pub price_cache_creation_input_tokens_1h: Option<f64>,
+    pub price_tiers: Vec<PriceTier>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -232,12 +222,7 @@ pub async fn export_toml(
             display_name: m.display_name.clone(),
             enabled: m.enabled,
             price_each_call: m.price_each_call,
-            price_input_tokens: m.price_input_tokens,
-            price_output_tokens: m.price_output_tokens,
-            price_cache_read_input_tokens: m.price_cache_read_input_tokens,
-            price_cache_creation_input_tokens: m.price_cache_creation_input_tokens,
-            price_cache_creation_input_tokens_5min: m.price_cache_creation_input_tokens_5min,
-            price_cache_creation_input_tokens_1h: m.price_cache_creation_input_tokens_1h,
+            price_tiers: m.price_tiers.clone(),
         })
         .collect();
 
@@ -417,12 +402,7 @@ pub async fn import_toml(
                 display_name: m.display_name.clone(),
                 enabled: m.enabled,
                 price_each_call: m.price_each_call,
-                price_input_tokens: m.price_input_tokens,
-                price_output_tokens: m.price_output_tokens,
-                price_cache_read_input_tokens: m.price_cache_read_input_tokens,
-                price_cache_creation_input_tokens: m.price_cache_creation_input_tokens,
-                price_cache_creation_input_tokens_5min: m.price_cache_creation_input_tokens_5min,
-                price_cache_creation_input_tokens_1h: m.price_cache_creation_input_tokens_1h,
+                price_tiers: m.price_tiers.clone(),
             }
         })
         .collect();

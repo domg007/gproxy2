@@ -299,12 +299,7 @@ impl SeaOrmStorage {
                 display_name: r.display_name,
                 enabled: r.enabled,
                 price_each_call: r.price_each_call,
-                price_input_tokens: r.price_input_tokens,
-                price_output_tokens: r.price_output_tokens,
-                price_cache_read_input_tokens: r.price_cache_read_input_tokens,
-                price_cache_creation_input_tokens: r.price_cache_creation_input_tokens,
-                price_cache_creation_input_tokens_5min: r.price_cache_creation_input_tokens_5min,
-                price_cache_creation_input_tokens_1h: r.price_cache_creation_input_tokens_1h,
+                price_tiers_json: r.price_tiers_json,
                 created_at: r.created_at,
                 updated_at: r.updated_at,
             })

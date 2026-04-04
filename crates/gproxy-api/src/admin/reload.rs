@@ -8,7 +8,7 @@ use serde::Serialize;
 use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
 use gproxy_server::{
     AppState, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget, PermissionEntry,
-    RateLimitRule,
+    PriceTier, RateLimitRule,
 };
 
 use crate::auth::authorize_admin;
@@ -129,19 +129,21 @@ pub async fn reload(
     let model_count = models.len();
     let memory_models: Vec<MemoryModel> = models
         .iter()
-        .map(|m| MemoryModel {
-            id: m.id,
-            provider_id: m.provider_id,
-            model_id: m.model_id.clone(),
-            display_name: m.display_name.clone(),
-            enabled: m.enabled,
-            price_each_call: m.price_each_call,
-            price_input_tokens: m.price_input_tokens,
-            price_output_tokens: m.price_output_tokens,
-            price_cache_read_input_tokens: m.price_cache_read_input_tokens,
-            price_cache_creation_input_tokens: m.price_cache_creation_input_tokens,
-            price_cache_creation_input_tokens_5min: m.price_cache_creation_input_tokens_5min,
-            price_cache_creation_input_tokens_1h: m.price_cache_creation_input_tokens_1h,
+        .map(|m| {
+            let price_tiers: Vec<PriceTier> = m
+                .price_tiers_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default();
+            MemoryModel {
+                id: m.id,
+                provider_id: m.provider_id,
+                model_id: m.model_id.clone(),
+                display_name: m.display_name.clone(),
+                enabled: m.enabled,
+                price_each_call: m.price_each_call,
+                price_tiers,
+            }
         })
         .collect();
     state.replace_models(memory_models);

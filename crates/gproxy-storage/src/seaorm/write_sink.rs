@@ -363,16 +363,7 @@ impl SeaOrmStorage {
                         display_name: Set(m.display_name.clone()),
                         enabled: Set(m.enabled),
                         price_each_call: Set(m.price_each_call),
-                        price_input_tokens: Set(m.price_input_tokens),
-                        price_output_tokens: Set(m.price_output_tokens),
-                        price_cache_read_input_tokens: Set(m.price_cache_read_input_tokens),
-                        price_cache_creation_input_tokens: Set(m.price_cache_creation_input_tokens),
-                        price_cache_creation_input_tokens_5min: Set(
-                            m.price_cache_creation_input_tokens_5min
-                        ),
-                        price_cache_creation_input_tokens_1h: Set(
-                            m.price_cache_creation_input_tokens_1h
-                        ),
+                        price_tiers_json: Set(m.price_tiers_json.clone()),
                         created_at: Set(now),
                         updated_at: Set(now),
                     }
@@ -387,12 +378,7 @@ impl SeaOrmStorage {
                             models::Column::DisplayName,
                             models::Column::Enabled,
                             models::Column::PriceEachCall,
-                            models::Column::PriceInputTokens,
-                            models::Column::PriceOutputTokens,
-                            models::Column::PriceCacheReadInputTokens,
-                            models::Column::PriceCacheCreationInputTokens,
-                            models::Column::PriceCacheCreationInputTokens5min,
-                            models::Column::PriceCacheCreationInputTokens1h,
+                            models::Column::PriceTiersJson,
                             models::Column::UpdatedAt,
                         ])
                         .to_owned(),

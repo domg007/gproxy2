@@ -502,35 +502,43 @@ fn compute_cost(usage: &Usage, model: &gproxy_server::MemoryModel) -> f64 {
     if let Some(price) = model.price_each_call {
         cost += price;
     }
-    if let (Some(tokens), Some(price)) = (usage.input_tokens, model.price_input_tokens) {
-        cost += tokens as f64 * price / 1_000_000.0;
-    }
-    if let (Some(tokens), Some(price)) = (usage.output_tokens, model.price_output_tokens) {
-        cost += tokens as f64 * price / 1_000_000.0;
-    }
-    if let (Some(tokens), Some(price)) = (
-        usage.cache_read_input_tokens,
-        model.price_cache_read_input_tokens,
-    ) {
-        cost += tokens as f64 * price / 1_000_000.0;
-    }
-    if let (Some(tokens), Some(price)) = (
-        usage.cache_creation_input_tokens,
-        model.price_cache_creation_input_tokens,
-    ) {
-        cost += tokens as f64 * price / 1_000_000.0;
-    }
-    if let (Some(tokens), Some(price)) = (
-        usage.cache_creation_input_tokens_5min,
-        model.price_cache_creation_input_tokens_5min,
-    ) {
-        cost += tokens as f64 * price / 1_000_000.0;
-    }
-    if let (Some(tokens), Some(price)) = (
-        usage.cache_creation_input_tokens_1h,
-        model.price_cache_creation_input_tokens_1h,
-    ) {
-        cost += tokens as f64 * price / 1_000_000.0;
+    // Find matching tier: first tier where input_tokens <= tier.input_tokens_up_to
+    let input_tokens = usage.input_tokens.unwrap_or(0);
+    let tier = model
+        .price_tiers
+        .iter()
+        .find(|t| input_tokens <= t.input_tokens_up_to);
+    if let Some(tier) = tier {
+        if let (Some(tokens), Some(price)) = (usage.input_tokens, tier.price_input_tokens) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
+        if let (Some(tokens), Some(price)) = (usage.output_tokens, tier.price_output_tokens) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
+        if let (Some(tokens), Some(price)) = (
+            usage.cache_read_input_tokens,
+            tier.price_cache_read_input_tokens,
+        ) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
+        if let (Some(tokens), Some(price)) = (
+            usage.cache_creation_input_tokens,
+            tier.price_cache_creation_input_tokens,
+        ) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
+        if let (Some(tokens), Some(price)) = (
+            usage.cache_creation_input_tokens_5min,
+            tier.price_cache_creation_input_tokens_5min,
+        ) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
+        if let (Some(tokens), Some(price)) = (
+            usage.cache_creation_input_tokens_1h,
+            tier.price_cache_creation_input_tokens_1h,
+        ) {
+            cost += tokens as f64 * price / 1_000_000.0;
+        }
     }
     cost
 }
