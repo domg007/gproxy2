@@ -92,15 +92,39 @@ pub struct UpsertCredentialPayload {
     pub credential: serde_json::Value,
 }
 
-/// Generate a unique ID for new credentials using timestamp + random bits.
-fn generate_credential_id() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
-    let random: u16 = rand::random();
-    ts * 1000 + (random % 1000) as i64
+async fn create_credential_and_sync_runtime(
+    state: &AppState,
+    provider: &ProviderQueryRow,
+    credential: serde_json::Value,
+) -> Result<i64, HttpError> {
+    let store = state.engine().store().clone();
+    let snapshot = store
+        .add_credential(&provider.name, credential.clone())
+        .map_err(|e| HttpError::internal(e.to_string()))?
+        .ok_or_else(|| HttpError::not_found(format!("provider '{}' not found", provider.name)))?;
+
+    let credential_json = credential.to_string();
+    let id = match state
+        .storage()
+        .create_credential(provider.id, None, &provider.channel, &credential_json, true)
+        .await
+    {
+        Ok(id) => id,
+        Err(err) => {
+            if let Err(remove_err) = store.remove_credential(&provider.name, snapshot.index) {
+                tracing::error!(
+                    provider = %provider.name,
+                    index = snapshot.index,
+                    error = %remove_err,
+                    "failed to roll back runtime credential after database insert error"
+                );
+            }
+            return Err(err.into());
+        }
+    };
+
+    state.append_provider_credential_id_in_memory(&provider.name, id);
+    Ok(id)
 }
 
 /// Add or update a credential in SDK engine memory + persist to DB.
@@ -111,28 +135,7 @@ pub async fn upsert_credential(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
-    let id = generate_credential_id();
-    // Add to SDK engine memory
-    state
-        .engine()
-        .store()
-        .add_credential(&payload.provider_name, payload.credential.clone())
-        .map_err(|e| HttpError::internal(e.to_string()))?;
-    state.append_provider_credential_id_in_memory(&payload.provider_name, id);
-    // Persist to DB
-    let write = gproxy_storage::CredentialWrite {
-        id,
-        provider_id: provider.id,
-        name: None,
-        kind: provider.channel.clone(),
-        secret_json: payload.credential.to_string(),
-        enabled: true,
-    };
-    state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertCredential(write))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+    create_credential_and_sync_runtime(&state, &provider, payload.credential).await?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -173,29 +176,9 @@ pub async fn batch_upsert_credentials(
     Json(items): Json<Vec<UpsertCredentialPayload>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let engine = state.engine();
-    let store = engine.store();
-    let sender = state.storage_writes();
     for item in &items {
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
-        let id = generate_credential_id();
-        store
-            .add_credential(&item.provider_name, item.credential.clone())
-            .map_err(|e| HttpError::internal(e.to_string()))?;
-        state.append_provider_credential_id_in_memory(&item.provider_name, id);
-        // Persist to DB
-        let write = gproxy_storage::CredentialWrite {
-            id,
-            provider_id: provider.id,
-            name: None,
-            kind: provider.channel.clone(),
-            secret_json: item.credential.to_string(),
-            enabled: true,
-        };
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertCredential(write))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
+        create_credential_and_sync_runtime(&state, &provider, item.credential.clone()).await?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
