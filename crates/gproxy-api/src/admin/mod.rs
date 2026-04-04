@@ -176,9 +176,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/usages/query", post(usages::query_usages))
         .route("/usages/count", post(usages::count_usages))
         .route("/usages/batch-delete", post(usages::batch_delete_usages))
-        // Config export/import
+        // Config export
         .route("/config/export-toml", post(config_toml::export_toml))
-        .route("/config/import-toml", post(config_toml::import_toml))
         // Self-update
         .route("/update/check", post(update::check_update))
         .route("/update", post(update::perform_update))

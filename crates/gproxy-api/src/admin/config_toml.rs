@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
@@ -325,26 +324,6 @@ pub async fn export_toml(
 // ---------------------------------------------------------------------------
 // Import: TOML → memory + database
 // ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-pub struct ImportPayload {
-    pub toml: String,
-}
-
-pub async fn import_toml(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(payload): Json<ImportPayload>,
-) -> Result<Json<crate::error::AckResponse>, HttpError> {
-    authorize_admin(&headers, &state)?;
-
-    // Delegate to seed_from_toml which handles both memory and DB persistence
-    crate::bootstrap::seed_from_toml(&state, &payload.toml)
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
-
-    Ok(Json(crate::error::AckResponse { ok: true, id: None }))
-}
 
 #[cfg(test)]
 mod tests {
