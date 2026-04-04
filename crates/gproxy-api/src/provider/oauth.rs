@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 
 use gproxy_server::AppState;
 
-use crate::auth::authenticate_user;
+use crate::auth::authorize_admin;
 use crate::error::HttpError;
 
 /// Start an OAuth flow for a provider.
@@ -18,7 +18,7 @@ pub async fn oauth_start(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    let _user_key = authenticate_user(&headers, &state)?;
+    authorize_admin(&headers, &state)?;
     let params = parse_query_string(query.as_deref());
 
     let result = state.engine().oauth_start(&provider_name, params).await?;
@@ -47,7 +47,7 @@ pub async fn oauth_callback(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    let _user_key = authenticate_user(&headers, &state)?;
+    authorize_admin(&headers, &state)?;
     let params = parse_query_string(query.as_deref());
 
     let result = state.engine().oauth_finish(&provider_name, params).await?;
@@ -70,7 +70,7 @@ pub async fn upstream_usage(
     RawQuery(_query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, HttpError> {
-    let _user_key = authenticate_user(&headers, &state)?;
+    authorize_admin(&headers, &state)?;
 
     let result = state.engine().query_quota(&provider_name).await?;
 
