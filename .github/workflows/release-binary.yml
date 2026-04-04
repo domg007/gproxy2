@@ -1,0 +1,232 @@
+name: Release Binary
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            platform: linux
+            arch: aarch64
+            cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            platform: linux
+            arch: x86_64-musl
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            platform: linux
+            arch: aarch64-musl
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            platform: macos
+            arch: x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            platform: macos
+            arch: aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            platform: windows
+            arch: x86_64
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            platform: windows
+            arch: aarch64
+          - target: aarch64-linux-android
+            os: ubuntu-latest
+            platform: android
+            arch: aarch64
+            cross: true
+          - target: x86_64-linux-android
+            os: ubuntu-latest
+            platform: android
+            arch: x86_64
+            cross: true
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux cross-compilation)
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Install musl tools
+        if: contains(matrix.arch, 'musl') && !matrix.cross
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        env:
+          GPROXY_DOWNLOAD_BASE: ${{ secrets.GPROXY_DOWNLOAD_BASE || 'https://github.com/LeenHawk/gproxy/releases/download' }}
+          GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64: ${{ secrets.GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64 }}
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p gproxy
+          else
+            cargo build --release --target ${{ matrix.target }} -p gproxy
+          fi
+        shell: bash
+
+      - name: Package (Unix)
+        if: matrix.platform != 'windows'
+        run: |
+          ASSET_NAME="gproxy-${{ matrix.platform }}-${{ matrix.arch }}"
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/gproxy dist/
+          cd dist && zip ../${ASSET_NAME}.zip gproxy
+          cd .. && sha256sum ${ASSET_NAME}.zip | awk '{print $1}' > ${ASSET_NAME}.zip.sha256
+        shell: bash
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          $ASSET_NAME = "gproxy-${{ matrix.platform }}-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/gproxy.exe" -Destination "dist/"
+          Compress-Archive -Path "dist/gproxy.exe" -DestinationPath "${ASSET_NAME}.zip"
+          $hash = (Get-FileHash "${ASSET_NAME}.zip" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "${ASSET_NAME}.zip.sha256" -Value $hash
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gproxy-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            gproxy-*.zip
+            gproxy-*.zip.sha256
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Sign release assets
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Validate signing secrets
+        run: |
+          if [ -z "${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}" ]; then
+            echo "::error::UPDATE_SIGNING_PRIVATE_KEY_B64 secret is not set"
+            exit 1
+          fi
+          if [ -z "${{ secrets.GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64 }}" ]; then
+            echo "::error::GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64 secret is not set"
+            exit 1
+          fi
+
+      - name: Sign checksum files
+        env:
+          PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
+        run: |
+          # Decode private key
+          echo "$PRIVATE_KEY_B64" | base64 -d > private.pem
+
+          # Sign each .sha256 file
+          for sha_file in artifacts/*.sha256; do
+            echo "Signing $sha_file"
+            openssl pkeyutl -sign -rawin \
+              -inkey private.pem \
+              -in "$sha_file" \
+              -out "${sha_file}.sig.bin"
+            base64 -w0 "${sha_file}.sig.bin" > "${sha_file}.sig"
+            rm "${sha_file}.sig.bin"
+            echo "  -> ${sha_file}.sig"
+          done
+
+          rm private.pem
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: |
+            artifacts/*.zip
+            artifacts/*.sha256
+            artifacts/*.sha256.sig
+
+  publish:
+    needs: sign
+    runs-on: ubuntu-latest
+    name: Publish release assets
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download signed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release
+          path: release
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate latest.json manifest
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          cat > release/latest.json <<MANIFEST
+          {
+            "version": "${VERSION}",
+            "tag": "${TAG}"
+          }
+          MANIFEST
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.sha256
+            release/*.sha256.sig
+            release/latest.json
+
+      - name: Upload manifest for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            release/*.zip
+            release/*.sha256
+            release/*.sha256.sig
+            release/latest.json
