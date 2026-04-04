@@ -212,10 +212,22 @@ pub async fn export_toml(
 
     // Models
     let memory_models = state.models();
+    // Build provider_id → provider_name map from SDK engine snapshots
+    let provider_id_to_name: std::collections::HashMap<i64, String> = {
+        let db_providers = state
+            .storage()
+            .list_providers(&gproxy_storage::ProviderQuery::default())
+            .await
+            .unwrap_or_default();
+        db_providers.into_iter().map(|p| (p.id, p.name)).collect()
+    };
     let models: Vec<ModelToml> = memory_models
         .iter()
         .map(|m| ModelToml {
-            provider_name: m.provider_id.to_string(),
+            provider_name: provider_id_to_name
+                .get(&m.provider_id)
+                .cloned()
+                .unwrap_or_else(|| m.provider_id.to_string()),
             model_id: m.model_id.clone(),
             display_name: m.display_name.clone(),
             enabled: m.enabled,
@@ -273,7 +285,12 @@ pub async fn export_toml(
         for e in entries {
             permissions.push(PermissionToml {
                 user_name: user_name.clone(),
-                provider_name: e.provider_id.map(|id| id.to_string()),
+                provider_name: e.provider_id.map(|id| {
+                    provider_id_to_name
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| id.to_string())
+                }),
                 model_pattern: e.model_pattern.clone(),
             });
         }
@@ -375,15 +392,27 @@ pub async fn import_toml(
     }
     state.replace_engine(builder.build());
 
+    // Build provider name → synthetic id map for resolving model/permission references
+    let provider_name_to_id: std::collections::HashMap<String, i64> = config
+        .providers
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.clone(), i as i64 + 1))
+        .collect();
+
     // 3. Models
     let models: Vec<MemoryModel> = config
         .models
         .iter()
         .enumerate()
         .map(|(i, m)| {
+            let provider_id = provider_name_to_id
+                .get(&m.provider_name)
+                .copied()
+                .unwrap_or(0);
             MemoryModel {
                 id: i as i64 + 1,
-                provider_id: 0, // Resolved by name at bootstrap
+                provider_id,
                 model_id: m.model_id.clone(),
                 display_name: m.display_name.clone(),
                 enabled: m.enabled,
@@ -446,8 +475,12 @@ pub async fn import_toml(
         std::collections::HashMap::new();
     for p in &config.permissions {
         if let Some(&user_id) = user_id_map.get(&p.user_name) {
+            let provider_id = p
+                .provider_name
+                .as_ref()
+                .and_then(|name| provider_name_to_id.get(name).copied());
             perm_map.entry(user_id).or_default().push(PermissionEntry {
-                provider_id: None, // TODO: resolve provider_name to id
+                provider_id,
                 model_pattern: p.model_pattern.clone(),
             });
         }
