@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod auth;
+pub mod bootstrap;
 pub mod cors;
 pub mod error;
 pub mod login;
