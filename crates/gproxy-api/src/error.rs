@@ -69,7 +69,8 @@ impl IntoResponse for HttpError {
 
 impl From<sea_orm::DbErr> for HttpError {
     fn from(err: sea_orm::DbErr) -> Self {
-        Self::internal(err.to_string())
+        tracing::error!(error = %err, "database error");
+        Self::internal("internal database error")
     }
 }
 
