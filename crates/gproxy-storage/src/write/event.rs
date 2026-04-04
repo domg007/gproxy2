@@ -36,7 +36,6 @@ pub struct ProviderWrite {
     pub channel: String,
     pub settings_json: String,
     pub dispatch_json: String,
-    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

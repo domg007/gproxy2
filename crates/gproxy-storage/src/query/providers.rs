@@ -8,7 +8,6 @@ use super::Scope;
 pub struct ProviderQuery {
     pub channel: Scope<String>,
     pub name: Scope<String>,
-    pub enabled: Scope<bool>,
     pub limit: Option<u64>,
 }
 
@@ -19,7 +18,6 @@ pub struct ProviderQueryRow {
     pub channel: String,
     pub settings_json: Value,
     pub dispatch_json: Value,
-    pub enabled: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

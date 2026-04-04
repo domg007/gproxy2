@@ -12,7 +12,6 @@ impl SeaOrmStorage {
         channel: &str,
         settings_json: &str,
         dispatch_json: &str,
-        enabled: bool,
     ) -> Result<i64, DbErr> {
         let settings: serde_json::Value = serde_json::from_str(settings_json)
             .map_err(|e| DbErr::Custom(format!("invalid settings_json: {e}")))?;
@@ -24,7 +23,6 @@ impl SeaOrmStorage {
             channel: Set(channel.to_string()),
             settings_json: Set(settings),
             dispatch_json: Set(dispatch),
-            enabled: Set(enabled),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()

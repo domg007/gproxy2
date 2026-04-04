@@ -80,8 +80,6 @@ pub struct ProviderToml {
     pub name: String,
     pub channel: String,
     #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
     pub settings: serde_json::Value,
     #[serde(default)]
     pub credentials: Vec<serde_json::Value>,
@@ -193,7 +191,6 @@ pub async fn export_toml(
         providers.push(ProviderToml {
             name: p.name.clone(),
             channel: p.channel.clone(),
-            enabled: true,
             settings: p.settings.clone(),
             credentials: creds.into_iter().map(|c| c.credential).collect(),
         });

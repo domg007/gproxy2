@@ -70,13 +70,6 @@ async fn sync_provider_runtime(
     state.upsert_provider_name_in_memory(payload.name.clone(), payload.id);
     state.upsert_provider_channel_in_memory(payload.name.clone(), payload.channel.clone());
 
-    if !payload.enabled {
-        store.remove_provider(&payload.name);
-        state.remove_provider_channel_from_memory(&payload.name);
-        state.remove_provider_credentials_from_memory(&payload.name);
-        return Ok(());
-    }
-
     let settings_json = serde_json::from_str(&payload.settings_json).unwrap_or_default();
     let current = store
         .get_provider(&payload.name)

@@ -12,7 +12,6 @@ pub struct Model {
     pub channel: String,
     pub settings_json: Json,
     pub dispatch_json: Json,
-    pub enabled: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     #[sea_orm(has_many)]

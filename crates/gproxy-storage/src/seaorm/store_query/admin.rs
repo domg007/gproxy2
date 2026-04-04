@@ -52,9 +52,6 @@ impl SeaOrmStorage {
         } else if let Scope::In(ref v) = query.name {
             select = select.filter(providers::Column::Name.is_in(v.clone()));
         }
-        if let Scope::Eq(ref v) = query.enabled {
-            select = select.filter(providers::Column::Enabled.eq(*v));
-        }
         if let Some(limit) = query.limit {
             select = select.limit(limit);
         }
@@ -67,7 +64,6 @@ impl SeaOrmStorage {
                 channel: r.channel,
                 settings_json: r.settings_json,
                 dispatch_json: r.dispatch_json,
-                enabled: r.enabled,
                 created_at: r.created_at,
                 updated_at: r.updated_at,
             })

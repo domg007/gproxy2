@@ -156,7 +156,6 @@ impl SeaOrmStorage {
                         channel: Set(p.channel.clone()),
                         settings_json: Set(settings),
                         dispatch_json: Set(dispatch),
-                        enabled: Set(p.enabled),
                         created_at: Set(now),
                         updated_at: Set(now),
                     }
@@ -170,7 +169,6 @@ impl SeaOrmStorage {
                             providers::Column::Channel,
                             providers::Column::SettingsJson,
                             providers::Column::DispatchJson,
-                            providers::Column::Enabled,
                             providers::Column::UpdatedAt,
                         ])
                         .to_owned(),

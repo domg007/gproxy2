@@ -1,4 +1,4 @@
-//! Bootstrap logic shared by the startup path and admin reload/import endpoints.
+//! Bootstrap logic shared by the startup path and admin reload endpoint.
 
 use std::collections::HashMap;
 
@@ -9,7 +9,7 @@ use gproxy_server::{
 };
 use gproxy_storage::StorageWriteEvent;
 
-use crate::admin::config_toml::GproxyToml;
+use crate::admin::config_toml::{GproxyToml, ProviderToml};
 
 /// Counts of items loaded during a reload.
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -24,6 +24,61 @@ pub struct ReloadCounts {
     pub permissions: usize,
     pub rate_limits: usize,
     pub quotas: usize,
+}
+
+struct SeedProviderRuntimeState {
+    provider_configs: Vec<ProviderConfig>,
+    provider_name_to_id: HashMap<String, i64>,
+    provider_channel_map: HashMap<String, String>,
+    provider_credentials: HashMap<String, Vec<i64>>,
+    credential_positions: HashMap<i64, (String, usize)>,
+}
+
+fn synthetic_provider_id(index: usize) -> i64 {
+    index as i64 + 1
+}
+
+fn synthetic_credential_id(provider_id: i64, index: usize) -> i64 {
+    provider_id * 1000 + index as i64
+}
+
+fn build_seed_provider_runtime_state(providers: &[ProviderToml]) -> SeedProviderRuntimeState {
+    let mut provider_configs = Vec::new();
+    let mut provider_name_to_id = HashMap::new();
+    let mut provider_channel_map = HashMap::new();
+    let mut provider_credentials = HashMap::new();
+    let mut credential_positions = HashMap::new();
+
+    for (provider_index, provider) in providers.iter().enumerate() {
+        let provider_id = synthetic_provider_id(provider_index);
+        provider_name_to_id.insert(provider.name.clone(), provider_id);
+        provider_configs.push(ProviderConfig {
+            name: provider.name.clone(),
+            channel: provider.channel.clone(),
+            settings_json: provider.settings.clone(),
+            credentials: provider.credentials.clone(),
+        });
+        provider_channel_map.insert(provider.name.clone(), provider.channel.clone());
+
+        let credential_ids: Vec<i64> = provider
+            .credentials
+            .iter()
+            .enumerate()
+            .map(|(credential_index, _)| synthetic_credential_id(provider_id, credential_index))
+            .collect();
+        for (credential_index, credential_id) in credential_ids.iter().copied().enumerate() {
+            credential_positions.insert(credential_id, (provider.name.clone(), credential_index));
+        }
+        provider_credentials.insert(provider.name.clone(), credential_ids);
+    }
+
+    SeedProviderRuntimeState {
+        provider_configs,
+        provider_name_to_id,
+        provider_channel_map,
+        provider_credentials,
+        credential_positions,
+    }
 }
 
 pub(crate) async fn apply_persisted_credential_statuses(
@@ -100,9 +155,6 @@ pub async fn reload_from_db(
     );
     let mut provider_count = 0;
     for provider in &providers {
-        if !provider.enabled {
-            continue;
-        }
         let creds: Vec<serde_json::Value> = all_credentials
             .iter()
             .filter(|c| c.provider_id == provider.id && c.enabled)
@@ -120,7 +172,6 @@ pub async fn reload_from_db(
 
     let credential_positions: HashMap<i64, (String, usize)> = providers
         .iter()
-        .filter(|p| p.enabled)
         .flat_map(|provider| {
             all_credentials
                 .iter()
@@ -132,7 +183,6 @@ pub async fn reload_from_db(
     apply_persisted_credential_statuses(state, &credential_positions).await?;
     let provider_credentials: HashMap<String, Vec<i64>> = providers
         .iter()
-        .filter(|p| p.enabled)
         .map(|provider| {
             let ids = all_credentials
                 .iter()
@@ -150,7 +200,6 @@ pub async fn reload_from_db(
     state.replace_provider_names(provider_name_map.clone());
     let provider_channel_map: HashMap<String, String> = providers
         .iter()
-        .filter(|p| p.enabled)
         .map(|p| (p.name.clone(), p.channel.clone()))
         .collect();
     state.replace_provider_channels(provider_channel_map);
@@ -344,9 +393,7 @@ pub async fn reload_from_db(
     })
 }
 
-/// Import a TOML config string into memory AND persist everything to the database.
-///
-/// Used by the initial bootstrap when seeding from a TOML file.
+/// Seed startup state from a TOML config string and persist it to the database.
 pub async fn seed_from_toml(
     state: &AppState,
     toml_str: &str,
@@ -398,23 +445,21 @@ pub async fn seed_from_toml(
     // 2. Providers → engine + DB
     let proxy = config.global.as_ref().and_then(|g| g.proxy.as_deref());
     let spoof = config.global.as_ref().map(|g| g.spoof_emulation.as_str());
+    let provider_runtime = build_seed_provider_runtime_state(&config.providers);
     let mut builder = GproxyEngineBuilder::new().configure_clients(proxy, spoof);
+    for provider_config in provider_runtime.provider_configs {
+        builder = builder.add_provider_json(provider_config)?;
+    }
     for (i, p) in config.providers.iter().enumerate() {
-        builder = builder.add_provider_json(ProviderConfig {
-            name: p.name.clone(),
-            channel: p.channel.clone(),
-            settings_json: p.settings.clone(),
-            credentials: p.credentials.clone(),
-        })?;
+        let provider_id = synthetic_provider_id(i);
         // Persist provider
         state
             .storage_writes()
             .enqueue(StorageWriteEvent::UpsertProvider(
                 gproxy_storage::ProviderWrite {
-                    id: i as i64 + 1,
+                    id: provider_id,
                     name: p.name.clone(),
                     channel: p.channel.clone(),
-                    enabled: p.enabled,
                     settings_json: serde_json::to_string(&p.settings).unwrap_or_default(),
                     dispatch_json: String::new(),
                 },
@@ -426,8 +471,8 @@ pub async fn seed_from_toml(
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertCredential(
                     gproxy_storage::CredentialWrite {
-                        id: (i as i64 + 1) * 1000 + j as i64,
-                        provider_id: i as i64 + 1,
+                        id: synthetic_credential_id(provider_id, j),
+                        provider_id,
                         name: None,
                         kind: p.channel.clone(),
                         enabled: true,
@@ -438,15 +483,11 @@ pub async fn seed_from_toml(
         }
     }
     state.replace_engine(builder.build());
+    apply_persisted_credential_statuses(state, &provider_runtime.credential_positions).await?;
 
-    // Provider name → synthetic id
-    let provider_name_to_id: HashMap<String, i64> = config
-        .providers
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.name.clone(), i as i64 + 1))
-        .collect();
-    state.replace_provider_names(provider_name_to_id.clone());
+    state.replace_provider_names(provider_runtime.provider_name_to_id.clone());
+    state.replace_provider_channels(provider_runtime.provider_channel_map);
+    state.replace_provider_credentials(provider_runtime.provider_credentials);
 
     // 3. Users → memory + DB
     for (i, u) in config.users.iter().enumerate() {
@@ -496,7 +537,8 @@ pub async fn seed_from_toml(
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let provider_id = provider_name_to_id
+            let provider_id = provider_runtime
+                .provider_name_to_id
                 .get(&m.provider_name)
                 .copied()
                 .unwrap_or(0);
@@ -537,7 +579,8 @@ pub async fn seed_from_toml(
         if !a.enabled {
             continue;
         }
-        let provider_id = provider_name_to_id
+        let provider_id = provider_runtime
+            .provider_name_to_id
             .get(&a.provider_name)
             .copied()
             .unwrap_or(0);
@@ -576,7 +619,7 @@ pub async fn seed_from_toml(
             let provider_id = p
                 .provider_name
                 .as_ref()
-                .and_then(|name| provider_name_to_id.get(name).copied());
+                .and_then(|name| provider_runtime.provider_name_to_id.get(name).copied());
             perm_map.entry(user_id).or_default().push(PermissionEntry {
                 provider_id,
                 model_pattern: p.model_pattern.clone(),
@@ -641,6 +684,69 @@ pub async fn seed_from_toml(
     state.replace_user_quotas(quota_map);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::build_seed_provider_runtime_state;
+    use crate::admin::config_toml::ProviderToml;
+
+    #[test]
+    fn seed_provider_runtime_matches_reload_shape() {
+        let state = build_seed_provider_runtime_state(&[
+            ProviderToml {
+                name: "first".to_string(),
+                channel: "anthropic".to_string(),
+                settings: json!({"region": "us"}),
+                credentials: vec![json!({"api_key": "key-1"})],
+            },
+            ProviderToml {
+                name: "second".to_string(),
+                channel: "claudecode".to_string(),
+                settings: json!({"region": "eu"}),
+                credentials: vec![json!({"api_key": "key-2"}), json!({"api_key": "key-3"})],
+            },
+        ]);
+
+        assert_eq!(state.provider_configs.len(), 2);
+        assert_eq!(state.provider_configs[0].name, "first");
+        assert_eq!(state.provider_configs[1].name, "second");
+
+        assert_eq!(state.provider_name_to_id.get("first"), Some(&1));
+        assert_eq!(state.provider_name_to_id.get("second"), Some(&2));
+
+        assert_eq!(
+            state.provider_channel_map.get("first").map(String::as_str),
+            Some("anthropic")
+        );
+        assert_eq!(
+            state.provider_channel_map.get("second").map(String::as_str),
+            Some("claudecode")
+        );
+
+        assert_eq!(
+            state.provider_credentials.get("first"),
+            Some(&vec![1000])
+        );
+        assert_eq!(
+            state.provider_credentials.get("second"),
+            Some(&vec![2000, 2001])
+        );
+        assert_eq!(
+            state.credential_positions.get(&1000),
+            Some(&("first".to_string(), 0))
+        );
+        assert_eq!(
+            state.credential_positions.get(&2000),
+            Some(&("second".to_string(), 0))
+        );
+        assert_eq!(
+            state.credential_positions.get(&2001),
+            Some(&("second".to_string(), 1))
+        );
+    }
 }
 
 /// Seed the database with minimal defaults (global_settings only).
