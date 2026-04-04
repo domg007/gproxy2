@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
@@ -56,44 +57,44 @@ impl Channel for CustomChannel {
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
         let pass =
-            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
 
         // Universal passthrough — all protocols supported as-is
         let ops = [
-            "model_list",
-            "model_get",
-            "count_tokens",
-            "generate_content",
-            "stream_generate_content",
-            "embeddings",
-            "create_image",
-            "stream_create_image",
-            "create_image_edit",
-            "stream_create_image_edit",
-            "compact",
+            OperationFamily::ModelList,
+            OperationFamily::ModelGet,
+            OperationFamily::CountToken,
+            OperationFamily::GenerateContent,
+            OperationFamily::StreamGenerateContent,
+            OperationFamily::Embedding,
+            OperationFamily::CreateImage,
+            OperationFamily::StreamCreateImage,
+            OperationFamily::CreateImageEdit,
+            OperationFamily::StreamCreateImageEdit,
+            OperationFamily::Compact,
         ];
         let protos = [
-            "openai",
-            "openai_response",
-            "openai_chat_completions",
-            "claude",
-            "gemini",
-            "gemini_ndjson",
+            ProtocolKind::OpenAi,
+            ProtocolKind::OpenAiResponse,
+            ProtocolKind::OpenAiChatCompletion,
+            ProtocolKind::Claude,
+            ProtocolKind::Gemini,
+            ProtocolKind::GeminiNDJson,
         ];
 
-        for op in &ops {
-            for proto in &protos {
+        for &op in &ops {
+            for &proto in &protos {
                 t.set(pass(op, proto).0, pass(op, proto).1);
             }
         }
 
         // WebSocket and Live
         t.set(
-            RouteKey::new("openai_response_websocket", "openai"),
+            RouteKey::new(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
             RouteImplementation::Passthrough,
         );
         t.set(
-            RouteKey::new("gemini_live", "gemini"),
+            RouteKey::new(OperationFamily::GeminiLive, ProtocolKind::Gemini),
             RouteImplementation::Passthrough,
         );
 

@@ -12,6 +12,7 @@ use crate::channel::{
 };
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
@@ -489,8 +490,8 @@ impl Channel for CodexChannel {
         // transform other request protocols into openai_response.
         let mut t = DispatchTable::new();
         let pass =
-            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
+            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -501,103 +502,103 @@ impl Channel for CodexChannel {
 
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // Model list/get
-            pass("model_list", "openai"),
-            xform("model_list", "claude", "model_list", "openai"),
-            xform("model_list", "gemini", "model_list", "openai"),
-            pass("model_get", "openai"),
-            xform("model_get", "claude", "model_get", "openai"),
-            xform("model_get", "gemini", "model_get", "openai"),
+            pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
             // === No count_tokens routes — uses CountStrategy::Local ===
 
             // Generate content (internally force stream, then aggregate back)
             xform(
-                "generate_content",
-                "openai_response",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "generate_content",
-                "openai_chat_completions",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "generate_content",
-                "claude",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "generate_content",
-                "gemini",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // Generate content (stream)
-            pass("stream_generate_content", "openai_response"),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
             xform(
-                "stream_generate_content",
-                "openai_chat_completions",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_generate_content",
-                "claude",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_generate_content",
-                "gemini",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_generate_content",
-                "gemini_ndjson",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::GeminiNDJson,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // WebSocket
-            pass("openai_response_websocket", "openai"),
+            pass(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
             xform(
-                "gemini_live",
-                "gemini",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GeminiLive,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // Images — route through Responses API
             xform(
-                "create_image",
-                "openai",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::CreateImage,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_create_image",
-                "openai",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamCreateImage,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "create_image_edit",
-                "openai",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::CreateImageEdit,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_create_image_edit",
-                "openai",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamCreateImageEdit,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // Embeddings
-            pass("embeddings", "openai"),
-            xform("embeddings", "gemini", "embeddings", "openai"),
+            pass(OperationFamily::Embedding, ProtocolKind::OpenAi),
+            xform(OperationFamily::Embedding, ProtocolKind::Gemini, OperationFamily::Embedding, ProtocolKind::OpenAi),
             // Compact
-            pass("compact", "openai"),
+            pass(OperationFamily::Compact, ProtocolKind::OpenAi),
         ];
 
         for (key, imp) in routes {

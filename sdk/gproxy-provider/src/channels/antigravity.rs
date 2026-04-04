@@ -10,6 +10,7 @@ use crate::channel::{
 };
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
@@ -420,11 +421,11 @@ impl Channel for AntigravityChannel {
     type Health = ModelCooldownHealth;
 
     fn dispatch_table(&self) -> DispatchTable {
-        // Same as geminicli / vertex — native protocol is "gemini"
+        // Same as geminicli / vertex — native protocol is ProtocolKind::Gemini
         let mut t = DispatchTable::new();
         let pass =
-            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
+            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -434,73 +435,73 @@ impl Channel for AntigravityChannel {
         };
 
         let routes = vec![
-            pass("model_list", "gemini"),
-            xform("model_list", "claude", "model_list", "gemini"),
-            xform("model_list", "openai", "model_list", "gemini"),
-            pass("model_get", "gemini"),
-            xform("model_get", "claude", "model_get", "gemini"),
-            xform("model_get", "openai", "model_get", "gemini"),
-            pass("count_tokens", "gemini"),
-            xform("count_tokens", "claude", "count_tokens", "gemini"),
-            xform("count_tokens", "openai", "count_tokens", "gemini"),
-            pass("generate_content", "gemini"),
-            xform("generate_content", "claude", "generate_content", "gemini"),
+            pass(OperationFamily::ModelList, ProtocolKind::Gemini),
+            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::Gemini),
+            xform(OperationFamily::ModelList, ProtocolKind::OpenAi, OperationFamily::ModelList, ProtocolKind::Gemini),
+            pass(OperationFamily::ModelGet, ProtocolKind::Gemini),
+            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::Gemini),
+            xform(OperationFamily::ModelGet, ProtocolKind::OpenAi, OperationFamily::ModelGet, ProtocolKind::Gemini),
+            pass(OperationFamily::CountToken, ProtocolKind::Gemini),
+            xform(OperationFamily::CountToken, ProtocolKind::Claude, OperationFamily::CountToken, ProtocolKind::Gemini),
+            xform(OperationFamily::CountToken, ProtocolKind::OpenAi, OperationFamily::CountToken, ProtocolKind::Gemini),
+            pass(OperationFamily::GenerateContent, ProtocolKind::Gemini),
+            xform(OperationFamily::GenerateContent, ProtocolKind::Claude, OperationFamily::GenerateContent, ProtocolKind::Gemini),
             xform(
-                "generate_content",
-                "openai_chat_completions",
-                "generate_content",
-                "gemini",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
             ),
             xform(
-                "generate_content",
-                "openai_response",
-                "generate_content",
-                "gemini",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
             ),
-            pass("stream_generate_content", "gemini"),
-            pass("stream_generate_content", "gemini_ndjson"),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::Gemini),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson),
             xform(
-                "stream_generate_content",
-                "claude",
-                "stream_generate_content",
-                "gemini",
-            ),
-            xform(
-                "stream_generate_content",
-                "openai_chat_completions",
-                "stream_generate_content",
-                "gemini",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
             ),
             xform(
-                "stream_generate_content",
-                "openai_response",
-                "stream_generate_content",
-                "gemini",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
             ),
-            pass("gemini_live", "gemini"),
             xform(
-                "openai_response_websocket",
-                "openai",
-                "stream_generate_content",
-                "gemini",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
             ),
-            xform("create_image", "openai", "create_image", "gemini"),
+            pass(OperationFamily::GeminiLive, ProtocolKind::Gemini),
             xform(
-                "stream_create_image",
-                "openai",
-                "stream_create_image",
-                "gemini",
+                OperationFamily::OpenAiResponseWebSocket,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
             ),
-            xform("create_image_edit", "openai", "create_image_edit", "gemini"),
+            xform(OperationFamily::CreateImage, ProtocolKind::OpenAi, OperationFamily::CreateImage, ProtocolKind::Gemini),
             xform(
-                "stream_create_image_edit",
-                "openai",
-                "stream_create_image_edit",
-                "gemini",
+                OperationFamily::StreamCreateImage,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamCreateImage,
+                ProtocolKind::Gemini,
             ),
-            pass("embeddings", "gemini"),
-            xform("embeddings", "openai", "embeddings", "gemini"),
-            xform("compact", "openai", "generate_content", "gemini"),
+            xform(OperationFamily::CreateImageEdit, ProtocolKind::OpenAi, OperationFamily::CreateImageEdit, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::StreamCreateImageEdit,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamCreateImageEdit,
+                ProtocolKind::Gemini,
+            ),
+            pass(OperationFamily::Embedding, ProtocolKind::Gemini),
+            xform(OperationFamily::Embedding, ProtocolKind::OpenAi, OperationFamily::Embedding, ProtocolKind::Gemini),
+            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::Gemini),
         ];
 
         for (key, imp) in routes {

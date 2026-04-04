@@ -57,62 +57,10 @@ impl DispatchTable {
 }
 
 impl RouteKey {
-    pub fn new<O, P>(operation: O, protocol: P) -> Self
-    where
-        O: IntoRouteOperation,
-        P: IntoRouteProtocol,
-    {
+    pub const fn new(operation: OperationFamily, protocol: ProtocolKind) -> Self {
         Self {
-            operation: operation.into_operation(),
-            protocol: protocol.into_protocol(),
+            operation,
+            protocol,
         }
-    }
-}
-
-pub trait IntoRouteOperation {
-    fn into_operation(self) -> OperationFamily;
-}
-
-impl IntoRouteOperation for OperationFamily {
-    fn into_operation(self) -> OperationFamily {
-        self
-    }
-}
-
-impl IntoRouteOperation for &str {
-    fn into_operation(self) -> OperationFamily {
-        OperationFamily::try_from(self)
-            .unwrap_or_else(|_| panic!("unknown operation family: {self}"))
-    }
-}
-
-impl IntoRouteOperation for String {
-    fn into_operation(self) -> OperationFamily {
-        OperationFamily::try_from(self.as_str())
-            .unwrap_or_else(|_| panic!("unknown operation family: {self}"))
-    }
-}
-
-pub trait IntoRouteProtocol {
-    fn into_protocol(self) -> ProtocolKind;
-}
-
-impl IntoRouteProtocol for ProtocolKind {
-    fn into_protocol(self) -> ProtocolKind {
-        self
-    }
-}
-
-impl IntoRouteProtocol for &str {
-    fn into_protocol(self) -> ProtocolKind {
-        ProtocolKind::try_from(self)
-            .unwrap_or_else(|_| panic!("unknown protocol kind: {self}"))
-    }
-}
-
-impl IntoRouteProtocol for String {
-    fn into_protocol(self) -> ProtocolKind {
-        ProtocolKind::try_from(self.as_str())
-            .unwrap_or_else(|_| panic!("unknown protocol kind: {self}"))
     }
 }

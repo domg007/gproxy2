@@ -12,6 +12,7 @@ use crate::channel::{
 };
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
@@ -585,8 +586,8 @@ impl Channel for ClaudeCodeChannel {
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
         let pass =
-            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
+            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -596,68 +597,68 @@ impl Channel for ClaudeCodeChannel {
         };
 
         let routes = vec![
-            pass("model_list", "claude"),
-            xform("model_list", "openai", "model_list", "claude"),
-            xform("model_list", "gemini", "model_list", "claude"),
-            pass("model_get", "claude"),
-            xform("model_get", "openai", "model_get", "claude"),
-            xform("model_get", "gemini", "model_get", "claude"),
-            pass("count_tokens", "claude"),
-            xform("count_tokens", "openai", "count_tokens", "claude"),
-            xform("count_tokens", "gemini", "count_tokens", "claude"),
-            pass("generate_content", "claude"),
+            pass(OperationFamily::ModelList, ProtocolKind::Claude),
+            xform(OperationFamily::ModelList, ProtocolKind::OpenAi, OperationFamily::ModelList, ProtocolKind::Claude),
+            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::Claude),
+            pass(OperationFamily::ModelGet, ProtocolKind::Claude),
+            xform(OperationFamily::ModelGet, ProtocolKind::OpenAi, OperationFamily::ModelGet, ProtocolKind::Claude),
+            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::Claude),
+            pass(OperationFamily::CountToken, ProtocolKind::Claude),
+            xform(OperationFamily::CountToken, ProtocolKind::OpenAi, OperationFamily::CountToken, ProtocolKind::Claude),
+            xform(OperationFamily::CountToken, ProtocolKind::Gemini, OperationFamily::CountToken, ProtocolKind::Claude),
+            pass(OperationFamily::GenerateContent, ProtocolKind::Claude),
             xform(
-                "generate_content",
-                "openai_chat_completions",
-                "generate_content",
-                "claude",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
             ),
             xform(
-                "generate_content",
-                "openai_response",
-                "generate_content",
-                "claude",
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
             ),
-            xform("generate_content", "gemini", "generate_content", "claude"),
-            pass("stream_generate_content", "claude"),
+            xform(OperationFamily::GenerateContent, ProtocolKind::Gemini, OperationFamily::GenerateContent, ProtocolKind::Claude),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
             xform(
-                "stream_generate_content",
-                "openai_chat_completions",
-                "stream_generate_content",
-                "claude",
-            ),
-            xform(
-                "stream_generate_content",
-                "openai_response",
-                "stream_generate_content",
-                "claude",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
             ),
             xform(
-                "stream_generate_content",
-                "gemini",
-                "stream_generate_content",
-                "claude",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
             ),
             xform(
-                "stream_generate_content",
-                "gemini_ndjson",
-                "stream_generate_content",
-                "claude",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
             ),
-            xform("gemini_live", "gemini", "stream_generate_content", "claude"),
             xform(
-                "openai_response_websocket",
-                "openai",
-                "stream_generate_content",
-                "claude",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::GeminiNDJson,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
             ),
-            xform("compact", "openai", "generate_content", "claude"),
+            xform(OperationFamily::GeminiLive, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::OpenAiResponseWebSocket,
+                ProtocolKind::OpenAi,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+            ),
+            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::Claude),
             // Files API
-            pass("file_upload", "claude"),
-            pass("file_list", "claude"),
-            pass("file_content", "claude"),
-            pass("file_get", "claude"),
-            pass("file_delete", "claude"),
+            pass(OperationFamily::FileUpload, ProtocolKind::Claude),
+            pass(OperationFamily::FileList, ProtocolKind::Claude),
+            pass(OperationFamily::FileContent, ProtocolKind::Claude),
+            pass(OperationFamily::FileGet, ProtocolKind::Claude),
+            pass(OperationFamily::FileDelete, ProtocolKind::Claude),
         ];
 
         for (key, imp) in routes {

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
@@ -54,9 +55,9 @@ impl Channel for OpenAiChannel {
 
         // Helper: passthrough = src and dst are same
         let pass =
-            |op: &str, proto: &str| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
         // Helper: transform = src converts to different dst
-        let xform = |op: &str, proto: &str, dst_op: &str, dst_proto: &str| {
+        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -67,70 +68,70 @@ impl Channel for OpenAiChannel {
 
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
-            pass("model_list", "openai"),
-            xform("model_list", "claude", "model_list", "openai"),
-            xform("model_list", "gemini", "model_list", "openai"),
-            pass("model_get", "openai"),
-            xform("model_get", "claude", "model_get", "openai"),
-            xform("model_get", "gemini", "model_get", "openai"),
+            pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
             // === Count tokens ===
-            pass("count_tokens", "openai"),
-            xform("count_tokens", "claude", "count_tokens", "openai"),
-            xform("count_tokens", "gemini", "count_tokens", "openai"),
+            pass(OperationFamily::CountToken, ProtocolKind::OpenAi),
+            xform(OperationFamily::CountToken, ProtocolKind::Claude, OperationFamily::CountToken, ProtocolKind::OpenAi),
+            xform(OperationFamily::CountToken, ProtocolKind::Gemini, OperationFamily::CountToken, ProtocolKind::OpenAi),
             // === Generate content (non-stream) ===
-            pass("generate_content", "openai_response"),
-            pass("generate_content", "openai_chat_completions"),
+            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
+            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
             xform(
-                "generate_content",
-                "claude",
-                "generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "generate_content",
-                "gemini",
-                "generate_content",
-                "openai_response",
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // === Generate content (stream) ===
-            pass("stream_generate_content", "openai_response"),
-            pass("stream_generate_content", "openai_chat_completions"),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
+            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
             xform(
-                "stream_generate_content",
-                "claude",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_generate_content",
-                "gemini",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             xform(
-                "stream_generate_content",
-                "gemini_ndjson",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::GeminiNDJson,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // === WebSocket ===
-            pass("openai_response_websocket", "openai"),
+            pass(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
             xform(
-                "gemini_live",
-                "gemini",
-                "stream_generate_content",
-                "openai_response",
+                OperationFamily::GeminiLive,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
             ),
             // === Images ===
-            pass("create_image", "openai"),
-            pass("stream_create_image", "openai"),
-            pass("create_image_edit", "openai"),
-            pass("stream_create_image_edit", "openai"),
+            pass(OperationFamily::CreateImage, ProtocolKind::OpenAi),
+            pass(OperationFamily::StreamCreateImage, ProtocolKind::OpenAi),
+            pass(OperationFamily::CreateImageEdit, ProtocolKind::OpenAi),
+            pass(OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi),
             // === Embeddings ===
-            pass("embeddings", "openai"),
-            xform("embeddings", "gemini", "embeddings", "openai"),
+            pass(OperationFamily::Embedding, ProtocolKind::OpenAi),
+            xform(OperationFamily::Embedding, ProtocolKind::Gemini, OperationFamily::Embedding, ProtocolKind::OpenAi),
             // === Compact (OpenAI Responses only) ===
-            pass("compact", "openai"),
+            pass(OperationFamily::Compact, ProtocolKind::OpenAi),
         ];
 
         for (key, implementation) in routes {
