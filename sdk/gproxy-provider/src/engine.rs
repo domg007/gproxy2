@@ -326,8 +326,9 @@ impl GproxyEngine {
 
     /// Connect to an upstream WebSocket endpoint for a provider.
     ///
-    /// Returns the wreq WebSocket on success, or an error (e.g. 426, connection
-    /// refused) that the caller can use to decide whether to fall back to HTTP.
+    /// Returns `Connected` for passthrough (same protocol), `NeedsProtocolBridge`
+    /// when the dispatch table maps to a different WS operation, or an error
+    /// (e.g. 426, no WS support) that the caller can use to fall back to HTTP.
     pub async fn connect_upstream_ws(
         &self,
         provider_name: &str,
@@ -335,7 +336,7 @@ impl GproxyEngine {
         protocol: &str,
         path: &str,
         model: Option<&str>,
-    ) -> Result<UpstreamWebSocket, UpstreamError> {
+    ) -> Result<WsConnectionResult, UpstreamError> {
         let span =
             tracing::info_span!("engine.connect_upstream_ws", provider = provider_name, path);
         async {
@@ -343,19 +344,36 @@ impl GproxyEngine {
                 UpstreamError::Channel(format!("unknown provider: {provider_name}"))
             })?;
 
-            // Check dispatch table: only attempt native WS for passthrough routes
+            // Check dispatch table to determine WS routing strategy
             let route_key = crate::dispatch::RouteKey::new(operation, protocol);
-            match provider.dispatch_table().resolve(&route_key) {
-                Some(crate::dispatch::RouteImplementation::Passthrough) => {}
-                _ => {
-                    return Err(UpstreamError::Channel(
-                        "upstream does not support native WebSocket for this operation; use HTTP fallback".into(),
-                    ));
-                }
-            }
+            let (ws_path, ws_model, src_protocol, dst_protocol) =
+                match provider.dispatch_table().resolve(&route_key) {
+                    Some(crate::dispatch::RouteImplementation::Passthrough) => {
+                        (path.to_string(), model, protocol.to_string(), protocol.to_string())
+                    }
+                    Some(crate::dispatch::RouteImplementation::TransformTo { destination }) => {
+                        // Check if destination is also a WS operation
+                        let dst_op = &destination.operation;
+                        let dst_proto = &destination.protocol;
+                        let (target_path, target_model) = ws_path_for_operation(dst_op, dst_proto, model);
+                        match target_path {
+                            Some(p) => (p, target_model, protocol.to_string(), dst_proto.clone()),
+                            None => {
+                                return Err(UpstreamError::Channel(
+                                    "upstream does not support native WebSocket for this operation; use HTTP fallback".into(),
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(UpstreamError::Channel(
+                            "upstream does not support native WebSocket for this operation; use HTTP fallback".into(),
+                        ));
+                    }
+                };
 
             // Use channel-aware auth via prepare_ws_auth
-            let (auth_url, auth_headers) = provider.prepare_ws_auth(path, model)?;
+            let (auth_url, auth_headers) = provider.prepare_ws_auth(&ws_path, ws_model)?;
 
             // Convert URL scheme to wss/ws
             let ws_url = auth_url
@@ -363,7 +381,7 @@ impl GproxyEngine {
                 .replace("http://", "ws://");
 
             // Append model query param if not already in the URL
-            let ws_url = if let Some(m) = model
+            let ws_url = if let Some(m) = ws_model
                 && !ws_url.contains("model=")
             {
                 let sep = if ws_url.contains('?') { "&" } else { "?" };
@@ -377,7 +395,6 @@ impl GproxyEngine {
             // Build WS request with channel-specific auth headers
             let mut ws_builder = wreq::websocket(&ws_url);
             for (name, value) in auth_headers.iter() {
-                // Skip Content-Type — irrelevant for WS handshake
                 if name != http::header::CONTENT_TYPE {
                     ws_builder = ws_builder.header(name.as_str(), value.to_str().unwrap_or(""));
                 }
@@ -401,7 +418,17 @@ impl GproxyEngine {
                 .map_err(|e| UpstreamError::Http(format!("ws upgrade failed: {e}")))?;
 
             tracing::info!("upstream websocket connected");
-            Ok(UpstreamWebSocket { inner: ws })
+            let upstream = UpstreamWebSocket { inner: ws };
+
+            if src_protocol == dst_protocol {
+                Ok(WsConnectionResult::Connected(upstream))
+            } else {
+                Ok(WsConnectionResult::NeedsProtocolBridge {
+                    upstream,
+                    src_protocol,
+                    dst_protocol,
+                })
+            }
         }
         .instrument(span)
         .await
@@ -812,6 +839,36 @@ fn parse_emulation(name: &str) -> wreq_util::Emulation {
         "safari_18.3" => wreq_util::Emulation::Safari18_3,
         "safari_18.5" => wreq_util::Emulation::Safari18_5,
         _ => wreq_util::Emulation::Chrome136,
+    }
+}
+
+/// Result of a WebSocket connection attempt.
+pub enum WsConnectionResult {
+    /// Direct passthrough — same protocol upstream and downstream.
+    Connected(UpstreamWebSocket),
+    /// Cross-protocol bridge needed — upstream uses a different WS protocol.
+    NeedsProtocolBridge {
+        upstream: UpstreamWebSocket,
+        src_protocol: String,
+        dst_protocol: String,
+    },
+}
+
+/// Determine the WS path for a given destination operation.
+/// Returns `None` if the destination is not a WS-capable operation.
+fn ws_path_for_operation<'a>(
+    operation: &str,
+    _protocol: &str,
+    model: Option<&'a str>,
+) -> (Option<String>, Option<&'a str>) {
+    match operation {
+        "openai_response_websocket" => (Some("/v1/responses".to_string()), model),
+        "gemini_live" => {
+            let model_name = model.unwrap_or("unknown");
+            let path = format!("/v1beta/models/{model_name}:streamGenerateContent");
+            (Some(path), None) // model is in the path, not query
+        }
+        _ => (None, model),
     }
 }
 

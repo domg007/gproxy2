@@ -6,7 +6,9 @@ use axum::http::HeaderMap;
 use axum::response::Response;
 use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsMessage};
+use gproxy_sdk::provider::engine::{
+    ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage,
+};
 use gproxy_server::AppState;
 
 use crate::auth::authenticate_user;
@@ -185,6 +187,15 @@ async fn handle_openai_ws(
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Try upstream WebSocket via SDK
+    let ctx = WsBridgeContext {
+        state: &state,
+        user_id,
+        user_key_id,
+        model: model.as_deref(),
+        operation: "openai_response_websocket",
+        protocol: "openai",
+    };
+
     match state
         .engine()
         .connect_upstream_ws(
@@ -196,21 +207,29 @@ async fn handle_openai_ws(
         )
         .await
     {
-        Ok(mut upstream) => {
-            tracing::info!(provider = %provider_name, "websocket bridge active");
+        Ok(WsConnectionResult::Connected(mut upstream)) => {
+            tracing::info!(provider = %provider_name, "websocket bridge active (passthrough)");
             let mut bridge = super::ws_bridge::PassthroughBridge::new("openai");
-            run_ws_bridge_with_protocol(
-                &mut downstream,
-                &mut upstream,
-                &mut bridge,
-                &state,
-                user_id,
-                user_key_id,
-                model.as_deref(),
-                "openai_response_websocket",
-                "openai",
-            )
-            .await;
+            run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
+        }
+        Ok(WsConnectionResult::NeedsProtocolBridge {
+            mut upstream,
+            dst_protocol,
+            ..
+        }) => {
+            tracing::info!(provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
+            {
+                "gemini" => Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(
+                    model.clone(),
+                )),
+                _ => {
+                    tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
+                    return Ok(());
+                }
+            };
+            run_ws_bridge_with_protocol(&mut downstream, &mut upstream, bridge.as_mut(), &ctx)
+                .await;
         }
         Err(e) => {
             tracing::info!(provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
@@ -242,26 +261,53 @@ async fn handle_gemini_live_ws(
     path: String,
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut upstream = state
+    let ctx = WsBridgeContext {
+        state: &state,
+        user_id,
+        user_key_id,
+        model: model.as_deref(),
+        operation: "gemini_live",
+        protocol: "gemini",
+    };
+
+    let result = state
         .engine()
-        .connect_upstream_ws(&provider_name, "gemini_live", "gemini", &path, None)
+        .connect_upstream_ws(
+            &provider_name,
+            "gemini_live",
+            "gemini",
+            &path,
+            model.as_deref(),
+        )
         .await
         .map_err(|e| format!("gemini live connect failed: {e}"))?;
 
-    tracing::info!(provider = %provider_name, "gemini live websocket bridge active");
-    let mut bridge = super::ws_bridge::PassthroughBridge::new("gemini");
-    run_ws_bridge_with_protocol(
-        &mut downstream,
-        &mut upstream,
-        &mut bridge,
-        &state,
-        user_id,
-        user_key_id,
-        model.as_deref(),
-        "gemini_live",
-        "gemini",
-    )
-    .await;
+    match result {
+        WsConnectionResult::Connected(mut upstream) => {
+            tracing::info!(provider = %provider_name, "gemini live websocket bridge active (passthrough)");
+            let mut bridge = super::ws_bridge::PassthroughBridge::new("gemini");
+            run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
+        }
+        WsConnectionResult::NeedsProtocolBridge {
+            mut upstream,
+            dst_protocol,
+            ..
+        } => {
+            tracing::info!(provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
+            {
+                "openai" => Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(
+                    model.clone(),
+                )),
+                _ => {
+                    tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
+                    return Ok(());
+                }
+            };
+            run_ws_bridge_with_protocol(&mut downstream, &mut upstream, bridge.as_mut(), &ctx)
+                .await;
+        }
+    }
     Ok(())
 }
 
@@ -269,16 +315,21 @@ async fn handle_gemini_live_ws(
 // Bidirectional WS bridge with protocol conversion and usage tracking
 // ---------------------------------------------------------------------------
 
+struct WsBridgeContext<'a> {
+    state: &'a AppState,
+    user_id: i64,
+    user_key_id: i64,
+    model: Option<&'a str>,
+    operation: &'a str,
+    protocol: &'a str,
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_ws_bridge_with_protocol(
     downstream: &mut WebSocket,
     upstream: &mut UpstreamWebSocket,
     bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
-    state: &AppState,
-    user_id: i64,
-    user_key_id: i64,
-    model: Option<&str>,
-    operation: &str,
-    protocol: &str,
+    ctx: &WsBridgeContext<'_>,
 ) {
     loop {
         tokio::select! {
@@ -343,12 +394,12 @@ async fn run_ws_bridge_with_protocol(
     // Record accumulated usage from the WS session
     if let Some(usage) = bridge.final_usage() {
         super::handler::record_usage(
-            state,
-            user_id,
-            user_key_id,
-            model,
-            operation,
-            protocol,
+            ctx.state,
+            ctx.user_id,
+            ctx.user_key_id,
+            ctx.model,
+            ctx.operation,
+            ctx.protocol,
             &usage,
         )
         .await;
