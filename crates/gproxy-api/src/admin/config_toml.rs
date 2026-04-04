@@ -197,7 +197,7 @@ pub async fn export_toml(
             .map_err(|e| HttpError::internal(e.to_string()))?;
         providers.push(ProviderToml {
             name: p.name.clone(),
-            channel: String::new(), // ProviderSnapshot doesn't expose channel
+            channel: p.channel.clone(),
             enabled: true,
             settings: p.settings.clone(),
             credentials: creds.into_iter().map(|c| c.credential).collect(),

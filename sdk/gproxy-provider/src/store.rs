@@ -27,6 +27,7 @@ type RetryState<Cred, Health> = (Arc<Vec<Cred>>, u64, Vec<(Cred, Health)>, u32);
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderSnapshot {
     pub name: String,
+    pub channel: String,
     pub settings: Value,
     pub credential_count: usize,
     pub credential_revision: u64,
@@ -433,6 +434,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
             .load(std::sync::atomic::Ordering::SeqCst);
         Ok(ProviderSnapshot {
             name: self.name.clone(),
+            channel: C::ID.to_string(),
             settings: serde_json::to_value(&**settings)
                 .map_err(|e| UpstreamError::Channel(format!("serialize settings: {e}")))?,
             credential_count: credentials.len(),

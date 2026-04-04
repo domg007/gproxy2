@@ -44,12 +44,12 @@ pub async fn query_providers(
             _ => true,
         })
         .filter(|s| match &query.channel {
-            Scope::Eq(v) => s.settings.to_string().contains(v.as_str()),
+            Scope::Eq(v) => s.channel == *v,
             _ => true,
         })
         .map(|s| ProviderRow {
             name: s.name,
-            channel: String::new(), // ProviderSnapshot doesn't expose channel
+            channel: s.channel,
             settings_json: s.settings,
             dispatch_json: serde_json::Value::Null,
             credential_count: s.credential_count,
