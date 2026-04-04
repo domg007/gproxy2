@@ -76,11 +76,46 @@ fn classify_route(
                 protocol: classify_models_protocol(headers, query),
             });
         }
+        if path == "/files" {
+            return Ok(Classification {
+                operation: OperationFamily::FileList,
+                protocol: ProtocolKind::OpenAi,
+            });
+        }
+        if is_file_content_path(path) {
+            return Ok(Classification {
+                operation: OperationFamily::FileContent,
+                protocol: ProtocolKind::OpenAi,
+            });
+        }
+        if is_file_get_path(path) {
+            return Ok(Classification {
+                operation: OperationFamily::FileGet,
+                protocol: ProtocolKind::OpenAi,
+            });
+        }
         return Err("unsupported GET path");
+    }
+
+    if *method == Method::DELETE {
+        if let Some(_file_id) = extract_file_id_from_normalized(path) {
+            return Ok(Classification {
+                operation: OperationFamily::FileDelete,
+                protocol: ProtocolKind::OpenAi,
+            });
+        }
+        return Err("unsupported DELETE path");
     }
 
     if *method != Method::POST {
         return Err("unsupported HTTP method");
+    }
+
+    if path == "/files" {
+        return Ok(Classification {
+            operation: OperationFamily::FileUpload,
+            protocol: ProtocolKind::OpenAi,
+        });
     }
 
     if path == "/responses" {
@@ -199,6 +234,25 @@ fn is_model_get_path(path: &str) -> bool {
         return false;
     };
     !tail.is_empty() && !tail.contains('/') && !tail.contains(':')
+}
+
+fn is_file_get_path(path: &str) -> bool {
+    extract_file_id_from_normalized(path).is_some()
+}
+
+fn is_file_content_path(path: &str) -> bool {
+    let Some(tail) = path.strip_prefix("/files/") else {
+        return false;
+    };
+    tail.ends_with("/content")
+}
+
+fn extract_file_id_from_normalized(path: &str) -> Option<&str> {
+    let tail = path.strip_prefix("/files/")?;
+    if tail.is_empty() || tail.contains('/') {
+        return None;
+    }
+    Some(tail)
 }
 
 pub fn normalize_path(path: &str) -> String {

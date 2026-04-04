@@ -16,6 +16,11 @@ pub enum OperationFamily {
     OpenAiResponseWebSocket,
     GeminiLive,
     Embedding,
+    FileUpload,
+    FileList,
+    FileGet,
+    FileContent,
+    FileDelete,
 }
 
 impl OperationFamily {

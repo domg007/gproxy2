@@ -97,8 +97,7 @@ pub async fn proxy(
     // File affinity: bind file_id to credential on upload, unbind on delete
     bind_file_affinity_if_applicable(
         &state,
-        &req_method,
-        &req_path,
+        &classification,
         &result,
         &effective_provider,
     );
@@ -417,8 +416,7 @@ pub async fn proxy_unscoped_files(
     // File affinity: bind file_id to credential on upload, unbind on delete
     bind_file_affinity_if_applicable(
         &state,
-        &req_method,
-        &req_path,
+        &classification,
         &result,
         &target_provider,
     );
@@ -501,6 +499,11 @@ fn operation_to_string(op: OperationFamily) -> String {
         OperationFamily::StreamCreateImageEdit => "stream_create_image_edit".to_string(),
         OperationFamily::OpenAiResponseWebSocket => "openai_response_websocket".to_string(),
         OperationFamily::GeminiLive => "gemini_live".to_string(),
+        OperationFamily::FileUpload => "file_upload".to_string(),
+        OperationFamily::FileList => "file_list".to_string(),
+        OperationFamily::FileGet => "file_get".to_string(),
+        OperationFamily::FileContent => "file_content".to_string(),
+        OperationFamily::FileDelete => "file_delete".to_string(),
     }
 }
 
@@ -1113,8 +1116,7 @@ fn headers_to_json(headers: &http::HeaderMap) -> String {
 /// that handled it. After a successful file deletion, remove the binding.
 fn bind_file_affinity_if_applicable(
     state: &AppState,
-    method: &str,
-    path: &str,
+    classification: &Classification,
     result: &ExecuteResult,
     provider_name: &str,
 ) {
@@ -1126,40 +1128,24 @@ fn bind_file_affinity_if_applicable(
         _ => return,
     };
 
-    // POST /v1/files or /{provider}/v1/files → file upload, bind file_id
-    if method == "POST" && path_is_file_upload(path) {
-        if let Some(file_id) = extract_id_from_json(body) {
-            state
-                .engine()
-                .store()
-                .bind_file(&file_id, provider_name, result.credential_index);
-            tracing::debug!(file_id, provider_name, credential = result.credential_index, "file affinity bound");
+    match classification.operation {
+        OperationFamily::FileUpload => {
+            if let Some(file_id) = extract_id_from_json(body) {
+                state
+                    .engine()
+                    .store()
+                    .bind_file(&file_id, provider_name, result.credential_index);
+                tracing::debug!(file_id, provider_name, credential = result.credential_index, "file affinity bound");
+            }
         }
-    }
-
-    // DELETE /v1/files/{file_id} → file deletion, unbind
-    if method == "DELETE" {
-        if let Some(file_id) = extract_file_id_from_path(path) {
-            state.engine().store().unbind_file(&file_id);
-            tracing::debug!(file_id, "file affinity unbound");
+        OperationFamily::FileDelete => {
+            if let Some(file_id) = extract_id_from_json(body) {
+                state.engine().store().unbind_file(&file_id);
+                tracing::debug!(file_id, "file affinity unbound");
+            }
         }
+        _ => {}
     }
-}
-
-fn path_is_file_upload(path: &str) -> bool {
-    let normalized = path.trim_end_matches('/');
-    normalized.ends_with("/v1/files") || normalized == "/v1/files"
-}
-
-fn extract_file_id_from_path(path: &str) -> Option<String> {
-    // Match /v1/files/{file_id} or /{provider}/v1/files/{file_id}
-    let idx = path.find("/v1/files/")?;
-    let rest = &path[idx + "/v1/files/".len()..];
-    let file_id = rest.split('/').next()?;
-    if file_id.is_empty() {
-        return None;
-    }
-    Some(file_id.to_string())
 }
 
 fn extract_id_from_json(body: &[u8]) -> Option<String> {
