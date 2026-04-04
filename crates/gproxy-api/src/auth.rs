@@ -1,4 +1,5 @@
 use axum::http::HeaderMap;
+use subtle::ConstantTimeEq;
 
 use gproxy_server::AppState;
 use gproxy_server::principal::MemoryUserKey;
@@ -56,7 +57,7 @@ pub fn authenticate_user(
 pub fn authorize_admin(headers: &HeaderMap, state: &AppState) -> Result<(), HttpError> {
     let api_key = extract_api_key(headers)?;
     let config = state.config();
-    if api_key == config.admin_key {
+    if api_key.as_bytes().ct_eq(config.admin_key.as_bytes()).into() {
         Ok(())
     } else {
         Err(HttpError::forbidden("admin access required"))
