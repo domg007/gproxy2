@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 
 use gproxy_sdk::provider::engine::GproxyEngine;
 use gproxy_storage::{SeaOrmStorage, StorageWriteSender};
@@ -65,7 +66,7 @@ pub struct AppState {
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
-    user_quotas: ArcSwap<HashMap<i64, (f64, f64)>>,
+    user_quotas: DashMap<i64, (f64, f64)>,
     pub rate_counters: RateLimitCounters,
 }
 
@@ -133,9 +134,8 @@ impl AppState {
     /// Get user quota info: (quota, cost_used). Returns (0, 0) if not set.
     pub fn get_user_quota(&self, user_id: i64) -> (f64, f64) {
         self.user_quotas
-            .load()
             .get(&user_id)
-            .copied()
+            .map(|e| *e.value())
             .unwrap_or((0.0, 0.0))
     }
 
@@ -184,11 +184,11 @@ impl AppState {
         self.rate_counters.check_and_increment(user_id, model);
     }
 
-    pub fn add_cost_usage(&self, user_id: i64, cost: f64) {
-        let mut quotas = (*self.user_quotas.load_full()).clone();
-        let entry = quotas.entry(user_id).or_insert((0.0, 0.0));
+    /// Atomically add cost to a user's quota usage. Returns (quota, new_cost_used).
+    pub fn add_cost_usage(&self, user_id: i64, cost: f64) -> (f64, f64) {
+        let mut entry = self.user_quotas.entry(user_id).or_insert((0.0, 0.0));
         entry.1 += cost;
-        self.user_quotas.store(Arc::new(quotas));
+        *entry.value()
     }
 
     // -----------------------------------------------------------------------
@@ -265,12 +265,18 @@ impl AppState {
         self.user_rate_limits.store(Arc::new(limits));
     }
 
-    pub fn user_quotas_snapshot(&self) -> Arc<HashMap<i64, (f64, f64)>> {
-        self.user_quotas.load_full()
+    pub fn user_quotas_snapshot(&self) -> HashMap<i64, (f64, f64)> {
+        self.user_quotas
+            .iter()
+            .map(|e| (*e.key(), *e.value()))
+            .collect()
     }
 
     pub fn replace_user_quotas(&self, quotas: HashMap<i64, (f64, f64)>) {
-        self.user_quotas.store(Arc::new(quotas));
+        self.user_quotas.clear();
+        for (k, v) in quotas {
+            self.user_quotas.insert(k, v);
+        }
     }
 
     // --- Models ---
@@ -457,7 +463,7 @@ impl AppStateBuilder {
             model_aliases: ArcSwap::from_pointee(HashMap::new()),
             user_permissions: ArcSwap::from_pointee(HashMap::new()),
             user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
-            user_quotas: ArcSwap::from_pointee(HashMap::new()),
+            user_quotas: DashMap::new(),
             rate_counters: RateLimitCounters::new(),
         }
     }

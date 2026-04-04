@@ -562,7 +562,18 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
         .map(|info| compute_cost(usage, &info))
         .unwrap_or(0.0);
     if cost > 0.0 {
-        ctx.state.add_cost_usage(ctx.user_id, cost);
+        let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
+        let _ = ctx
+            .state
+            .storage_writes()
+            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserQuota(
+                gproxy_storage::UserQuotaWrite {
+                    user_id: ctx.user_id,
+                    quota,
+                    cost_used,
+                },
+            ))
+            .await;
     }
 
     let now_ms = std::time::SystemTime::now()
@@ -729,7 +740,18 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
         .map(|info| compute_cost(&usage, &info))
         .unwrap_or(0.0);
     if cost > 0.0 {
-        ctx.state.add_cost_usage(ctx.user_id, cost);
+        let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
+        let _ = ctx
+            .state
+            .storage_writes()
+            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserQuota(
+                gproxy_storage::UserQuotaWrite {
+                    user_id: ctx.user_id,
+                    quota,
+                    cost_used,
+                },
+            ))
+            .await;
     }
 
     let now_ms = std::time::SystemTime::now()
