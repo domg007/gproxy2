@@ -14,6 +14,12 @@ impl SeaOrmStorage {
             .order_by_desc(usages::Column::At)
             .order_by_desc(usages::Column::TraceId);
 
+        if let Scope::Eq(ref v) = query.provider_id {
+            select = select.filter(usages::Column::ProviderId.eq(*v));
+        }
+        if let Scope::Eq(ref v) = query.credential_id {
+            select = select.filter(usages::Column::CredentialId.eq(*v));
+        }
         if let Scope::Eq(ref v) = query.model {
             select = select.filter(usages::Column::Model.eq(v.clone()));
         }
@@ -70,6 +76,12 @@ impl SeaOrmStorage {
 
     pub async fn count_usages(&self, query: &UsageQuery) -> Result<UsageQueryCount, DbErr> {
         let mut select = usages::Entity::find();
+        if let Scope::Eq(ref v) = query.provider_id {
+            select = select.filter(usages::Column::ProviderId.eq(*v));
+        }
+        if let Scope::Eq(ref v) = query.credential_id {
+            select = select.filter(usages::Column::CredentialId.eq(*v));
+        }
         if let Scope::Eq(ref v) = query.model {
             select = select.filter(usages::Column::Model.eq(v.clone()));
         }

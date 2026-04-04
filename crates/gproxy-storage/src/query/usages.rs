@@ -5,6 +5,8 @@ use super::Scope;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct UsageQuery {
+    pub provider_id: Scope<i64>,
+    pub credential_id: Scope<i64>,
     pub channel: Scope<String>,
     pub model: Scope<String>,
     pub user_id: Scope<i64>,
