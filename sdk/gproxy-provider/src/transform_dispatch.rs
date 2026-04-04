@@ -1301,6 +1301,35 @@ impl
     }
 }
 
+#[derive(Default)]
+struct ResponseStreamToImageStreamConverter(
+    gproxy_protocol::transform::openai::create_image::openai_response::stream::ResponseStreamToImageStream,
+);
+
+impl
+    EventConverter<
+        gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+    > for ResponseStreamToImageStreamConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+        out: &mut Vec<gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.on_event(input, out);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        out: &mut Vec<gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        self.0.finish(out);
+        Ok(())
+    }
+}
+
 fn build_stream_transform<Input, Output, Converter>(
     src_protocol: &str,
     dst_protocol: &str,
@@ -1557,6 +1586,24 @@ pub fn create_stream_response_transformer(
             OpenAiResponseToGeminiConverter::default(),
             normalizer,
         ),
+
+        // =====================================================================
+        // stream_create_image / stream_create_image_edit → openai_response
+        // =====================================================================
+
+        ("stream_create_image", "openai", "stream_generate_content", "openai_response")
+        | ("stream_create_image_edit", "openai", "stream_generate_content", "openai_response") => {
+            build_stream_transform::<
+                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+                gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+                ResponseStreamToImageStreamConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                ResponseStreamToImageStreamConverter::default(),
+                normalizer,
+            )
+        }
 
         _ => Err(UpstreamError::Channel(format!(
             "no stream response transform from upstream ({}, {}) to client ({}, {})",
