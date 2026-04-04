@@ -71,6 +71,7 @@ pub async fn login(
     let keys = storage
         .list_user_keys(&gproxy_storage::UserKeyQuery {
             user_id: Scope::Eq(user.id),
+            enabled: Scope::Eq(true),
             ..Default::default()
         })
         .await?;

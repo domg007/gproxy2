@@ -21,6 +21,7 @@ pub struct UserKeyQuery {
     pub id: Scope<i64>,
     pub user_id: Scope<i64>,
     pub api_key: Scope<String>,
+    pub enabled: Scope<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

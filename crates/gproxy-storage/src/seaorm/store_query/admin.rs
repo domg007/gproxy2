@@ -217,6 +217,9 @@ impl SeaOrmStorage {
         if let Scope::Eq(ref v) = query.user_id {
             select = select.filter(user_keys::Column::UserId.eq(*v));
         }
+        if let Scope::Eq(ref v) = query.enabled {
+            select = select.filter(user_keys::Column::Enabled.eq(*v));
+        }
         let rows = select.all(&self.db).await?;
         Ok(rows
             .into_iter()
