@@ -67,13 +67,6 @@ pub async fn proxy(
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
 
-    // Check rate limit
-    if let Some(ref m) = effective_model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
-    {
-        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
-    }
-
     // Map classification to SDK operation/protocol strings
     let operation = classification.operation;
     let protocol = classification.protocol;
@@ -88,6 +81,17 @@ pub async fn proxy(
         req_query.as_deref(),
         body.to_vec(),
     );
+
+    // Check rate limit after buffering so declared token budgets can be enforced.
+    if let Some(ref m) = effective_model
+        && let Err(rejection) = state.check_rate_limit_request(
+            user_key.user_id,
+            m,
+            extract_requested_total_tokens(operation, protocol, &req_body),
+        )
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     let result = state
         .engine()
@@ -104,17 +108,13 @@ pub async fn proxy(
     // File affinity: bind file_id to credential on upload, unbind on delete
     bind_file_affinity_if_applicable(&state, &classification, &result, &effective_provider);
 
-    // Record request for rate limiting
-    if let Some(ref m) = effective_model {
-        state.record_request(user_key.user_id, m);
-    }
-
     // Build usage context (shared by record_usage and stream_with_usage_tracking)
     let usage_ctx = UsageRecordContext {
         state: state.clone(),
         user_id: user_key.user_id,
         user_key_id: user_key.id,
         provider_name: effective_provider.clone(),
+        credential_index: Some(result.credential_index),
         precomputed_cost: result.cost,
         model: effective_model.clone(),
         billing_context: result.billing_context.clone(),
@@ -129,7 +129,7 @@ pub async fn proxy(
     }
 
     // Record upstream log
-    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+    record_upstream_log(&state, trace_id, &effective_provider, result.meta.as_ref()).await;
 
     let resp_status = result.status;
     let resp_headers_json = headers_to_json(&result.headers);
@@ -261,13 +261,18 @@ pub async fn proxy_unscoped(
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
 
-    // Check rate limit
-    if let Err(rejection) = state.check_rate_limit(user_key.user_id, &target_model) {
-        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
-    }
-
     let operation = classification.operation;
     let protocol = classification.protocol;
+    let req_body = normalize_unscoped_request_body(operation, protocol, req_body, &target_model);
+
+    // Check rate limit after rewriting the request body to the canonical target model.
+    if let Err(rejection) = state.check_rate_limit_request(
+        user_key.user_id,
+        &target_model,
+        extract_requested_total_tokens(operation, protocol, &req_body),
+    ) {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     let result = state
         .engine()
@@ -281,14 +286,12 @@ pub async fn proxy_unscoped(
         })
         .await?;
 
-    // Record request for rate limiting
-    state.record_request(user_key.user_id, &target_model);
-
     let usage_ctx = UsageRecordContext {
         state: state.clone(),
         user_id: user_key.user_id,
         user_key_id: user_key.id,
         provider_name: target_provider.clone(),
+        credential_index: Some(result.credential_index),
         precomputed_cost: result.cost,
         model: Some(target_model.clone()),
         billing_context: result.billing_context.clone(),
@@ -303,7 +306,7 @@ pub async fn proxy_unscoped(
     }
 
     // Record upstream log
-    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+    record_upstream_log(&state, trace_id, &target_provider, result.meta.as_ref()).await;
 
     let resp_status = result.status;
     let resp_headers_json = headers_to_json(&result.headers);
@@ -443,6 +446,7 @@ pub async fn proxy_unscoped_files(
             user_id: user_key.user_id,
             user_key_id: user_key.id,
             provider_name: target_provider.clone(),
+            credential_index: Some(result.credential_index),
             precomputed_cost: result.cost,
             model: None,
             billing_context: result.billing_context.clone(),
@@ -454,7 +458,7 @@ pub async fn proxy_unscoped_files(
     }
 
     // Record upstream log
-    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+    record_upstream_log(&state, trace_id, &target_provider, result.meta.as_ref()).await;
 
     let resp_status = result.status;
     let resp_headers_json = headers_to_json(&result.headers);
@@ -509,6 +513,7 @@ pub(crate) struct UsageRecordContext {
     pub user_id: i64,
     pub user_key_id: i64,
     pub provider_name: String,
+    pub credential_index: Option<usize>,
     pub precomputed_cost: Option<f64>,
     pub model: Option<String>,
     pub billing_context: Option<gproxy_sdk::provider::billing::BillingContext>,
@@ -548,6 +553,10 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
+    let provider_id = ctx.state.provider_id_for_name(&ctx.provider_name);
+    let credential_id = ctx
+        .credential_index
+        .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
     let _ = ctx
         .state
         .storage_writes()
@@ -555,8 +564,8 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
             gproxy_storage::UsageWrite {
                 downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
-                provider_id: None,
-                credential_id: None,
+                provider_id,
+                credential_id,
                 user_id: Some(ctx.user_id),
                 user_key_id: Some(ctx.user_key_id),
                 operation: ctx.operation.to_string(),
@@ -732,6 +741,10 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
+    let provider_id = ctx.state.provider_id_for_name(&ctx.provider_name);
+    let credential_id = ctx
+        .credential_index
+        .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
     let _ = ctx
         .state
         .storage_writes()
@@ -739,8 +752,8 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
             gproxy_storage::UsageWrite {
                 downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
-                provider_id: None,
-                credential_id: None,
+                provider_id,
+                credential_id,
                 user_id: Some(ctx.user_id),
                 user_key_id: Some(ctx.user_key_id),
                 operation: ctx.operation.to_string(),
@@ -1131,6 +1144,101 @@ fn build_execute_body(
     }
 }
 
+fn normalize_unscoped_request_body(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: Vec<u8>,
+    target_model: &str,
+) -> Vec<u8> {
+    let pointers: &[(&str, bool)] = match (operation, protocol) {
+        (OperationFamily::CountToken, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => &[
+            ("/generate_content_request/model", true),
+            ("/generateContentRequest/model", true),
+        ],
+        (OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
+        | (OperationFamily::Embedding, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
+        | (OperationFamily::ModelGet, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
+        | (OperationFamily::ModelList, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => &[],
+        _ => &[("/model", false)],
+    };
+    if pointers.is_empty() || body.is_empty() {
+        return body;
+    }
+
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return body;
+    };
+    for (pointer, gemini_resource) in pointers {
+        let Some(slot) = value.pointer_mut(pointer) else {
+            continue;
+        };
+        let Some(raw) = slot.as_str() else { continue };
+        let replacement = if *gemini_resource {
+            format!("models/{target_model}")
+        } else {
+            target_model.to_string()
+        };
+        if raw != replacement {
+            *slot = serde_json::Value::String(replacement);
+        }
+    }
+
+    serde_json::to_vec(&value).unwrap_or(body)
+}
+
+fn extract_requested_total_tokens(
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+    body: &[u8],
+) -> Option<i64> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    match (operation, protocol) {
+        (
+            OperationFamily::GenerateContent
+                | OperationFamily::StreamGenerateContent
+                | OperationFamily::Compact,
+            ProtocolKind::Claude,
+        ) => json.get("max_tokens").and_then(|value| value.as_i64()),
+        (
+            OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiChatCompletion,
+        ) => json
+            .get("max_completion_tokens")
+            .and_then(|value| value.as_i64())
+            .or_else(|| json.get("max_tokens").and_then(|value| value.as_i64())),
+        (
+            OperationFamily::GenerateContent
+                | OperationFamily::StreamGenerateContent
+                | OperationFamily::Compact,
+            ProtocolKind::OpenAiResponse,
+        )
+        | (OperationFamily::CountToken, ProtocolKind::OpenAi) => json
+            .get("max_output_tokens")
+            .and_then(|value| value.as_i64()),
+        (
+            OperationFamily::GenerateContent
+                | OperationFamily::StreamGenerateContent
+                | OperationFamily::CountToken,
+            ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
+        ) => json
+            .pointer("/generationConfig/maxOutputTokens")
+            .and_then(|value| value.as_i64())
+            .or_else(|| {
+                json.pointer("/generation_config/max_output_tokens")
+                    .and_then(|value| value.as_i64())
+            })
+            .or_else(|| {
+                json.pointer("/generateContentRequest/generationConfig/maxOutputTokens")
+                    .and_then(|value| value.as_i64())
+            })
+            .or_else(|| {
+                json.pointer("/generate_content_request/generation_config/max_output_tokens")
+                    .and_then(|value| value.as_i64())
+            }),
+        _ => None,
+    }
+}
+
 fn build_model_request_body(
     operation: OperationFamily,
     _request_path: &str,
@@ -1252,7 +1360,12 @@ fn extract_file_id_from_request_path(path: &str) -> Option<&str> {
 }
 
 /// Record upstream request/response log to DB.
-async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&UpstreamRequestMeta>) {
+async fn record_upstream_log(
+    state: &AppState,
+    trace_id: i64,
+    provider_name: &str,
+    meta: Option<&UpstreamRequestMeta>,
+) {
     let config = state.config();
     if !config.enable_upstream_log {
         return;
@@ -1265,6 +1378,10 @@ async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&Upst
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
+    let provider_id = state.provider_id_for_name(provider_name);
+    let credential_id = meta
+        .credential_index
+        .and_then(|index| state.credential_id_for_index(provider_name, index));
     let _ = state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
@@ -1272,8 +1389,8 @@ async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&Upst
                 downstream_trace_id: Some(trace_id),
                 at_unix_ms: now_ms,
                 internal: false,
-                provider_id: None,
-                credential_id: None,
+                provider_id,
+                credential_id,
                 request_method: meta.method.clone(),
                 request_headers_json: serde_json::to_string(&meta.request_headers)
                     .unwrap_or_else(|_| "[]".to_string()),

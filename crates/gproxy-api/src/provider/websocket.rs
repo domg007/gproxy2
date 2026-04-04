@@ -41,7 +41,7 @@ pub async fn openai_responses_ws(
 
     // Rate limit check
     if let Some(ref m) = model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+        && let Err(rejection) = state.check_rate_limit_request(user_key.user_id, m, None)
     {
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
@@ -51,10 +51,6 @@ pub async fn openai_responses_ws(
     let headers_clone = headers.clone();
 
     Ok(ws.on_upgrade(move |socket| async move {
-        // Record request for rate limit counters
-        if let Some(ref m) = model {
-            state.record_request(user_id, m);
-        }
         if let Err(e) = handle_openai_ws(
             state,
             provider_name,
@@ -93,7 +89,7 @@ pub async fn gemini_live(
 
     // Rate limit check
     if let Some(ref m) = model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+        && let Err(rejection) = state.check_rate_limit_request(user_key.user_id, m, None)
     {
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
@@ -103,9 +99,6 @@ pub async fn gemini_live(
     let path = format!("/v1beta/models/{target}");
 
     Ok(ws.on_upgrade(move |socket| async move {
-        if let Some(ref m) = model {
-            state.record_request(user_id, m);
-        }
         if let Err(e) = handle_gemini_live_ws(
             state,
             provider_name,
@@ -160,7 +153,7 @@ pub async fn openai_responses_ws_unscoped(
 
     // Rate limit check
     if let Some(ref m) = target_model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+        && let Err(rejection) = state.check_rate_limit_request(user_key.user_id, m, None)
     {
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
@@ -170,9 +163,6 @@ pub async fn openai_responses_ws_unscoped(
     let headers_clone = headers.clone();
 
     Ok(ws.on_upgrade(move |socket| async move {
-        if let Some(ref m) = target_model {
-            state.record_request(user_id, m);
-        }
         if let Err(e) = handle_openai_ws(
             state,
             target_provider,
@@ -210,6 +200,7 @@ async fn handle_openai_ws(
         user_id,
         user_key_id,
         model: model.clone(),
+        credential_index: None,
         operation: OperationFamily::OpenAiResponseWebSocket,
         protocol: ProtocolKind::OpenAi,
         trace_id,
@@ -228,7 +219,11 @@ async fn handle_openai_ws(
     {
         Ok(WsConnectionResult::Connected(mut upstream, ws_meta)) => {
             tracing::info!(trace_id, provider = %provider_name, "websocket bridge active (passthrough)");
-            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
+            record_ws_upstream_log(&state, trace_id, &provider_name, &ws_meta).await;
+            let ctx = WsBridgeContext {
+                credential_index: Some(ws_meta.credential_index),
+                ..ctx
+            };
             let mut bridge = super::ws_bridge::PassthroughBridge::new("openai");
             run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
         }
@@ -239,7 +234,11 @@ async fn handle_openai_ws(
             ..
         }) => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
-            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
+            record_ws_upstream_log(&state, trace_id, &provider_name, &ws_meta).await;
+            let ctx = WsBridgeContext {
+                credential_index: Some(ws_meta.credential_index),
+                ..ctx
+            };
             let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol {
                 ProtocolKind::Gemini => {
                     Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(model.clone()))
@@ -280,6 +279,7 @@ async fn handle_gemini_live_ws(
         user_id,
         user_key_id,
         model: model.clone(),
+        credential_index: None,
         operation: OperationFamily::GeminiLive,
         protocol: ProtocolKind::Gemini,
         trace_id,
@@ -300,7 +300,11 @@ async fn handle_gemini_live_ws(
     match result {
         WsConnectionResult::Connected(mut upstream, ws_meta) => {
             tracing::info!(trace_id, provider = %provider_name, "gemini live websocket bridge active (passthrough)");
-            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
+            record_ws_upstream_log(&state, trace_id, &provider_name, &ws_meta).await;
+            let ctx = WsBridgeContext {
+                credential_index: Some(ws_meta.credential_index),
+                ..ctx
+            };
             let mut bridge = super::ws_bridge::PassthroughBridge::new("gemini");
             run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
         }
@@ -311,7 +315,11 @@ async fn handle_gemini_live_ws(
             ..
         } => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
-            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
+            record_ws_upstream_log(&state, trace_id, &provider_name, &ws_meta).await;
+            let ctx = WsBridgeContext {
+                credential_index: Some(ws_meta.credential_index),
+                ..ctx
+            };
             let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol {
                 ProtocolKind::OpenAi | ProtocolKind::OpenAiResponse => {
                     Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(model.clone()))
@@ -338,6 +346,7 @@ struct WsBridgeContext {
     user_id: i64,
     user_key_id: i64,
     model: Option<String>,
+    credential_index: Option<usize>,
     operation: OperationFamily,
     protocol: ProtocolKind,
     trace_id: i64,
@@ -426,6 +435,7 @@ async fn run_ws_bridge_with_protocol(
             user_id: ctx.user_id,
             user_key_id: ctx.user_key_id,
             provider_name: ctx.provider_name.clone(),
+            credential_index: ctx.credential_index,
             precomputed_cost: None,
             model: ctx.model.clone(),
             billing_context: None,
@@ -626,6 +636,7 @@ async fn start_http_request(
                     user_id: ctx.user_id,
                     user_key_id: ctx.user_key_id,
                     provider_name: ctx.provider_name.clone(),
+                    credential_index: Some(result.credential_index),
                     precomputed_cost: result.cost,
                     model: ctx.model.clone(),
                     billing_context: result.billing_context.clone(),
@@ -682,7 +693,12 @@ async fn send_ws_error(socket: &mut WebSocket, message: &str) {
 
 use gproxy_sdk::protocol::stream::split_lines_owned as split_sse_events;
 
-async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstreamMeta) {
+async fn record_ws_upstream_log(
+    state: &AppState,
+    trace_id: i64,
+    provider_name: &str,
+    meta: &WsUpstreamMeta,
+) {
     if !state.config().enable_upstream_log {
         return;
     }
@@ -692,6 +708,8 @@ async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstre
         .as_millis() as i64;
     let headers_json =
         serde_json::to_string(&meta.request_headers).unwrap_or_else(|_| "[]".to_string());
+    let provider_id = state.provider_id_for_name(provider_name);
+    let credential_id = state.credential_id_for_index(provider_name, meta.credential_index);
     let _ = state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
@@ -699,8 +717,8 @@ async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstre
                 downstream_trace_id: Some(trace_id),
                 at_unix_ms: now_ms,
                 internal: false,
-                provider_id: None,
-                credential_id: Some(meta.credential_index as i64),
+                provider_id,
+                credential_id,
                 request_method: "WEBSOCKET".to_string(),
                 request_headers_json: headers_json,
                 request_url: Some(meta.url.clone()),

@@ -26,6 +26,7 @@ pub struct RateLimitRule {
 pub enum RateLimitRejection {
     Rpm { limit: i32 },
     Rpd { limit: i32 },
+    TotalTokens { limit: i64, requested: i64 },
     QuotaExhausted { quota: f64, cost_used: f64 },
 }
 
@@ -46,67 +47,71 @@ const DAY: Duration = Duration::from_secs(86400);
 /// If multi-instance or frequent-restart scenarios arise, consider persisting
 /// RPD counters to the database or a shared store (e.g. Redis).
 pub struct RateLimitCounters {
-    minute: DashMap<(i64, String), WindowCounter>,
-    day: DashMap<(i64, String), WindowCounter>,
+    requests: DashMap<(i64, String), RequestWindowCounter>,
 }
 
-struct WindowCounter {
-    count: u32,
-    window_start: Instant,
+struct RequestWindowCounter {
+    minute_count: u32,
+    minute_window_start: Instant,
+    day_count: u32,
+    day_window_start: Instant,
 }
 
 impl RateLimitCounters {
     pub fn new() -> Self {
         Self {
-            minute: DashMap::new(),
-            day: DashMap::new(),
+            requests: DashMap::new(),
         }
     }
 
-    pub fn check_and_increment(&self, user_id: i64, model: &str) {
+    pub fn try_acquire(
+        &self,
+        user_id: i64,
+        model: &str,
+        rpm: Option<i32>,
+        rpd: Option<i32>,
+    ) -> Result<(), RateLimitRejection> {
         let key = (user_id, model.to_string());
-        Self::increment(&self.minute, &key, MINUTE);
-        Self::increment(&self.day, &key, DAY);
-    }
-
-    pub fn check_rpm(&self, user_id: i64, model: &str) -> u32 {
-        Self::check(&self.minute, &(user_id, model.to_string()), MINUTE)
-    }
-
-    pub fn check_rpd(&self, user_id: i64, model: &str) -> u32 {
-        Self::check(&self.day, &(user_id, model.to_string()), DAY)
-    }
-
-    fn check(
-        map: &DashMap<(i64, String), WindowCounter>,
-        key: &(i64, String),
-        window: Duration,
-    ) -> u32 {
-        let Some(entry) = map.get(key) else {
-            return 0;
-        };
-        if entry.window_start.elapsed() >= window {
-            0
-        } else {
-            entry.count
-        }
-    }
-
-    fn increment(
-        map: &DashMap<(i64, String), WindowCounter>,
-        key: &(i64, String),
-        window: Duration,
-    ) {
-        let mut entry = map.entry(key.clone()).or_insert(WindowCounter {
-            count: 0,
-            window_start: Instant::now(),
+        let mut entry = self.requests.entry(key).or_insert(RequestWindowCounter {
+            minute_count: 0,
+            minute_window_start: Instant::now(),
+            day_count: 0,
+            day_window_start: Instant::now(),
         });
-        if entry.window_start.elapsed() >= window {
-            entry.count = 1;
-            entry.window_start = Instant::now();
-        } else {
-            entry.count += 1;
+
+        if entry.minute_window_start.elapsed() >= MINUTE {
+            entry.minute_count = 0;
+            entry.minute_window_start = Instant::now();
         }
+        if entry.day_window_start.elapsed() >= DAY {
+            entry.day_count = 0;
+            entry.day_window_start = Instant::now();
+        }
+
+        if let Some(limit) = rpm
+            && entry.minute_count >= limit as u32
+        {
+            return Err(RateLimitRejection::Rpm { limit });
+        }
+        if let Some(limit) = rpd
+            && entry.day_count >= limit as u32
+        {
+            return Err(RateLimitRejection::Rpd { limit });
+        }
+
+        entry.minute_count += 1;
+        entry.day_count += 1;
+        Ok(())
+    }
+
+    pub fn add_tokens(
+        &self,
+        _user_id: i64,
+        _model: &str,
+        _total_tokens: i64,
+    ) {
+        // Reserved for future cumulative token windows. Per-request token caps are
+        // enforced before dispatch using the declared token budget in the request.
     }
 }
 

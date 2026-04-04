@@ -65,6 +65,7 @@ pub struct AppState {
     models: ArcSwap<Vec<MemoryModel>>,
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
     provider_names: ArcSwap<HashMap<String, i64>>,
+    provider_credentials: ArcSwap<HashMap<String, Vec<i64>>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
     user_quotas: DashMap<i64, (f64, f64)>,
@@ -162,6 +163,15 @@ impl AppState {
     }
 
     pub fn check_rate_limit(&self, user_id: i64, model: &str) -> Result<(), RateLimitRejection> {
+        self.check_rate_limit_request(user_id, model, None)
+    }
+
+    pub fn check_rate_limit_request(
+        &self,
+        user_id: i64,
+        model: &str,
+        requested_total_tokens: Option<i64>,
+    ) -> Result<(), RateLimitRejection> {
         let limits = self.user_rate_limits.load();
         let Some(user_limits) = limits.get(&user_id) else {
             return Ok(());
@@ -169,16 +179,16 @@ impl AppState {
         let Some(rule) = find_matching_rule(user_limits, model) else {
             return Ok(());
         };
-        if let Some(rpm) = rule.rpm
-            && self.rate_counters.check_rpm(user_id, model) >= rpm as u32
+
+        if let (Some(limit), Some(requested)) = (rule.total_tokens, requested_total_tokens)
+            && requested > limit
         {
-            return Err(RateLimitRejection::Rpm { limit: rpm });
+            return Err(RateLimitRejection::TotalTokens { limit, requested });
         }
-        if let Some(rpd) = rule.rpd
-            && self.rate_counters.check_rpd(user_id, model) >= rpd as u32
-        {
-            return Err(RateLimitRejection::Rpd { limit: rpd });
-        }
+
+        self.rate_counters
+            .try_acquire(user_id, model, rule.rpm, rule.rpd)?;
+
         // Check cost quota
         let (quota, cost_used) = self.get_user_quota(user_id);
         if quota > 0.0 && cost_used >= quota {
@@ -187,15 +197,27 @@ impl AppState {
         Ok(())
     }
 
-    pub fn record_request(&self, user_id: i64, model: &str) {
-        self.rate_counters.check_and_increment(user_id, model);
-    }
-
     /// Atomically add cost to a user's quota usage. Returns (quota, new_cost_used).
     pub fn add_cost_usage(&self, user_id: i64, cost: f64) -> (f64, f64) {
         let mut entry = self.user_quotas.entry(user_id).or_insert((0.0, 0.0));
         entry.1 += cost;
         *entry.value()
+    }
+
+    pub fn provider_id_for_name(&self, provider_name: &str) -> Option<i64> {
+        self.provider_names.load().get(provider_name).copied()
+    }
+
+    pub fn credential_id_for_index(&self, provider_name: &str, index: usize) -> Option<i64> {
+        self.provider_credentials
+            .load()
+            .get(provider_name)
+            .and_then(|ids| ids.get(index))
+            .copied()
+    }
+
+    pub fn provider_credential_ids_for(&self, provider_name: &str) -> Option<Vec<i64>> {
+        self.provider_credentials.load().get(provider_name).cloned()
     }
 
     // -----------------------------------------------------------------------
@@ -278,6 +300,41 @@ impl AppState {
         let mut names = (*self.provider_names.load_full()).clone();
         names.remove(name);
         self.provider_names.store(Arc::new(names));
+    }
+
+    pub fn replace_provider_credentials(&self, map: HashMap<String, Vec<i64>>) {
+        self.provider_credentials.store(Arc::new(map));
+    }
+
+    pub fn replace_provider_credential_ids_in_memory(&self, name: String, ids: Vec<i64>) {
+        let mut map = (*self.provider_credentials.load_full()).clone();
+        map.insert(name, ids);
+        self.provider_credentials.store(Arc::new(map));
+    }
+
+    pub fn append_provider_credential_id_in_memory(&self, name: &str, credential_id: i64) {
+        let mut map = (*self.provider_credentials.load_full()).clone();
+        map.entry(name.to_string()).or_default().push(credential_id);
+        self.provider_credentials.store(Arc::new(map));
+    }
+
+    pub fn remove_provider_credential_index_in_memory(&self, name: &str, index: usize) {
+        let mut map = (*self.provider_credentials.load_full()).clone();
+        if let Some(ids) = map.get_mut(name) {
+            if index < ids.len() {
+                ids.remove(index);
+            }
+            if ids.is_empty() {
+                map.remove(name);
+            }
+        }
+        self.provider_credentials.store(Arc::new(map));
+    }
+
+    pub fn remove_provider_credentials_from_memory(&self, name: &str) {
+        let mut map = (*self.provider_credentials.load_full()).clone();
+        map.remove(name);
+        self.provider_credentials.store(Arc::new(map));
     }
 
     pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
@@ -485,6 +542,7 @@ impl AppStateBuilder {
             models: ArcSwap::from_pointee(Vec::new()),
             model_aliases: ArcSwap::from_pointee(HashMap::new()),
             provider_names: ArcSwap::from_pointee(HashMap::new()),
+            provider_credentials: ArcSwap::from_pointee(HashMap::new()),
             user_permissions: ArcSwap::from_pointee(HashMap::new()),
             user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
             user_quotas: DashMap::new(),
