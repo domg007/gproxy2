@@ -31,7 +31,7 @@ const CODEX_SESSION_NAMESPACE: uuid::Uuid = uuid::uuid!("aef2ff08-4585-5e42-a831
 const CODEX_OAUTH_ISSUER: &str = "https://auth.openai.com";
 const CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
-const CODEX_OAUTH_SCOPE: &str = "openid profile email offline_access";
+const CODEX_OAUTH_SCOPE: &str = "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const CODEX_OAUTH_ORIGINATOR: &str = "codex_vscode";
 const CODEX_OAUTH_STATE_TTL_MS: u64 = 600_000;
 
