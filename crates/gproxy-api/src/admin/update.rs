@@ -328,15 +328,21 @@ fn verify_ed25519(pub_key_b64: &str, message: &[u8], signature: &[u8]) -> Result
 
     // Try parsing signature as raw bytes (64), hex (128 chars), or base64
     let sig = if signature.len() == 64 {
-        Signature::from_bytes(signature.try_into().unwrap())
+        Signature::from_bytes(
+            signature
+                .try_into()
+                .map_err(|_| "signature must be 64 bytes")?,
+        )
     } else if let Ok(s) = std::str::from_utf8(signature) {
         let trimmed = s.trim();
         if trimmed.len() == 128 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
             // Hex
-            let bytes: Vec<u8> = (0..64)
-                .map(|i| u8::from_str_radix(&trimmed[i * 2..i * 2 + 2], 16).unwrap())
-                .collect();
-            Signature::from_bytes(bytes.as_slice().try_into().unwrap())
+            let mut bytes = [0u8; 64];
+            for i in 0..64 {
+                bytes[i] = u8::from_str_radix(&trimmed[i * 2..i * 2 + 2], 16)
+                    .map_err(|e| format!("invalid hex in signature: {e}"))?;
+            }
+            Signature::from_bytes(&bytes)
         } else {
             // Base64
             let bytes = base64::engine::general_purpose::STANDARD
