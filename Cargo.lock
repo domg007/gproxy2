@@ -1840,6 +1840,7 @@ dependencies = [
  "toml",
  "tower",
  "tracing",
+ "url",
  "uuid",
  "wreq",
  "zip",

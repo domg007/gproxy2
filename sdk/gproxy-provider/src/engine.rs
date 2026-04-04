@@ -1028,7 +1028,7 @@ pub enum WsConnectionResult {
 /// (file_id, model_id, query params) appended by `build_operation_path`.
 fn operation_http_method(operation: &str) -> http::Method {
     match operation {
-        "file_list" | "file_download" | "file_get" | "model_list" | "model_get" => {
+        "file_list" | "file_content" | "file_get" | "model_list" | "model_get" => {
             http::Method::GET
         }
         "file_delete" => http::Method::DELETE,
@@ -1050,7 +1050,7 @@ fn build_operation_path(operation: &str, body: &mut Vec<u8>) -> String {
             *body = Vec::new(); // GET has no body
             path
         }
-        "file_download" => {
+        "file_content" => {
             let file_id = extract_path_param(body, "file_id");
             *body = Vec::new();
             format!("/v1/files/{}/content", file_id)
@@ -1111,7 +1111,7 @@ fn build_file_list_path(body: &[u8]) -> String {
 pub fn is_file_operation(operation: &str) -> bool {
     matches!(
         operation,
-        "file_upload" | "file_list" | "file_download" | "file_get" | "file_delete"
+        "file_upload" | "file_list" | "file_content" | "file_get" | "file_delete"
     )
 }
 

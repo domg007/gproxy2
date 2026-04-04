@@ -81,7 +81,7 @@ pub async fn proxy(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = body.to_vec();
+    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
 
     let result = state
         .engine()
@@ -233,7 +233,7 @@ pub async fn proxy_unscoped(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = body.to_vec();
+    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
 
     // Resolve provider: alias → prefix → error
     let (target_provider, target_model) = if let Some(alias) = state.resolve_model_alias(model_name)
@@ -399,7 +399,7 @@ pub async fn proxy_unscoped_files(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = body.to_vec();
+    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
 
     let operation = operation_to_string(classification.operation);
     let protocol = protocol_to_string(classification.protocol);
@@ -1154,6 +1154,101 @@ fn bind_file_affinity_if_applicable(
 fn extract_id_from_json(body: &[u8]) -> Option<String> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     json.get("id")?.as_str().map(String::from)
+}
+
+fn build_execute_body(
+    operation: OperationFamily,
+    request_path: &str,
+    request_query: Option<&str>,
+    original_body: Vec<u8>,
+) -> Vec<u8> {
+    match operation {
+        OperationFamily::FileList
+        | OperationFamily::FileGet
+        | OperationFamily::FileContent
+        | OperationFamily::FileDelete => {
+            build_file_request_body(operation, request_path, request_query).unwrap_or_default()
+        }
+        _ => original_body,
+    }
+}
+
+fn build_file_request_body(
+    operation: OperationFamily,
+    request_path: &str,
+    request_query: Option<&str>,
+) -> Option<Vec<u8>> {
+    let normalized = normalize_routed_api_path(request_path);
+    let mut root = serde_json::Map::new();
+
+    match operation {
+        OperationFamily::FileList => {
+            let mut query = serde_json::Map::new();
+            if let Some(raw_query) = request_query {
+                for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
+                    match key.as_ref() {
+                        "after_id" | "before_id" => {
+                            query.insert(key.into_owned(), serde_json::Value::String(value.into_owned()));
+                        }
+                        "limit" => {
+                            if let Ok(limit) = value.parse::<u64>() {
+                                query.insert(
+                                    "limit".to_string(),
+                                    serde_json::Value::Number(limit.into()),
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if !query.is_empty() {
+                root.insert("query".to_string(), serde_json::Value::Object(query));
+            }
+        }
+        OperationFamily::FileGet
+        | OperationFamily::FileContent
+        | OperationFamily::FileDelete => {
+            let file_id = extract_file_id_from_request_path(&normalized)?;
+            root.insert(
+                "path".to_string(),
+                serde_json::json!({ "file_id": file_id }),
+            );
+        }
+        _ => return None,
+    }
+
+    serde_json::to_vec(&serde_json::Value::Object(root)).ok()
+}
+
+fn normalize_routed_api_path(path: &str) -> String {
+    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    let start = if matches!(segments.first(), Some(&"v1" | &"v1beta" | &"v1beta1")) {
+        1
+    } else if matches!(segments.get(1), Some(&"v1" | &"v1beta" | &"v1beta1")) {
+        2
+    } else {
+        0
+    };
+
+    if start >= segments.len() {
+        "/".to_string()
+    } else {
+        format!("/{}", segments[start..].join("/"))
+    }
+}
+
+fn extract_file_id_from_request_path(path: &str) -> Option<&str> {
+    let tail = path.strip_prefix("/files/")?;
+    if let Some(file_id) = tail.strip_suffix("/content") {
+        if !file_id.is_empty() && !file_id.contains('/') {
+            return Some(file_id);
+        }
+    }
+    if !tail.is_empty() && !tail.contains('/') {
+        return Some(tail);
+    }
+    None
 }
 
 /// Record upstream request/response log to DB.

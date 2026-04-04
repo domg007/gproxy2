@@ -138,7 +138,7 @@ impl Channel for AnthropicChannel {
             // Files API
             pass("file_upload", "claude"),
             pass("file_list", "claude"),
-            pass("file_download", "claude"),
+            pass("file_content", "claude"),
             pass("file_get", "claude"),
             pass("file_delete", "claude"),
         ];
