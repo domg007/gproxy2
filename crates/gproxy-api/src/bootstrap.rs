@@ -246,7 +246,7 @@ pub async fn seed_from_toml(
     }
     // Persist global settings
     let cfg = state.config().clone();
-    let _ = state
+    state
         .storage_writes()
         .enqueue(StorageWriteEvent::UpsertGlobalSettings(
             gproxy_storage::GlobalSettingsWrite {
@@ -265,7 +265,7 @@ pub async fn seed_from_toml(
                 data_dir: cfg.data_dir.clone(),
             },
         ))
-        .await;
+        .await?;
 
     // 2. Providers → engine + DB
     let proxy = config.global.as_ref().and_then(|g| g.proxy.as_deref());
@@ -279,7 +279,7 @@ pub async fn seed_from_toml(
             credentials: p.credentials.clone(),
         })?;
         // Persist provider
-        let _ = state
+        state
             .storage_writes()
             .enqueue(StorageWriteEvent::UpsertProvider(
                 gproxy_storage::ProviderWrite {
@@ -291,10 +291,10 @@ pub async fn seed_from_toml(
                     dispatch_json: String::new(),
                 },
             ))
-            .await;
+            .await?;
         // Persist credentials
         for (j, cred) in p.credentials.iter().enumerate() {
-            let _ = state
+            state
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertCredential(
                     gproxy_storage::CredentialWrite {
@@ -306,7 +306,7 @@ pub async fn seed_from_toml(
                         secret_json: serde_json::to_string(cred).unwrap_or_default(),
                     },
                 ))
-                .await;
+                .await?;
         }
     }
     state.replace_engine(builder.build());
@@ -328,7 +328,7 @@ pub async fn seed_from_toml(
             name: u.name.clone(),
             enabled: u.enabled,
         });
-        let _ = state
+        state
             .storage_writes()
             .enqueue(StorageWriteEvent::UpsertUser(gproxy_storage::UserWrite {
                 id: user_id,
@@ -336,7 +336,7 @@ pub async fn seed_from_toml(
                 password: hashed_password,
                 enabled: u.enabled,
             }))
-            .await;
+            .await?;
         for (j, key) in u.keys.iter().enumerate() {
             let key_id = user_id * 1000 + j as i64;
             state.upsert_key_in_memory(MemoryUserKey {
@@ -345,7 +345,7 @@ pub async fn seed_from_toml(
                 api_key: key.clone(),
                 enabled: true,
             });
-            let _ = state
+            state
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertUserKey(
                     gproxy_storage::UserKeyWrite {
@@ -356,7 +356,7 @@ pub async fn seed_from_toml(
                         enabled: true,
                     },
                 ))
-                .await;
+                .await?;
         }
     }
 
@@ -382,7 +382,7 @@ pub async fn seed_from_toml(
         })
         .collect();
     for m in &models {
-        let _ = state
+        state
             .storage_writes()
             .enqueue(StorageWriteEvent::UpsertModel(gproxy_storage::ModelWrite {
                 id: m.id,
@@ -397,7 +397,7 @@ pub async fn seed_from_toml(
                     serde_json::to_string(&m.price_tiers).ok()
                 },
             }))
-            .await;
+            .await?;
     }
     state.replace_models(models);
 
@@ -411,7 +411,7 @@ pub async fn seed_from_toml(
             .get(&a.provider_name)
             .copied()
             .unwrap_or(0);
-        let _ = state
+        state
             .storage_writes()
             .enqueue(StorageWriteEvent::UpsertModelAlias(
                 gproxy_storage::ModelAliasWrite {
@@ -422,7 +422,7 @@ pub async fn seed_from_toml(
                     enabled: true,
                 },
             ))
-            .await;
+            .await?;
         alias_map.insert(
             a.alias.clone(),
             ModelAliasTarget {
@@ -449,7 +449,7 @@ pub async fn seed_from_toml(
                 provider_id,
                 model_pattern: p.model_pattern.clone(),
             });
-            let _ = state
+            state
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertUserModelPermission(
                     gproxy_storage::UserModelPermissionWrite {
@@ -459,7 +459,7 @@ pub async fn seed_from_toml(
                         model_pattern: p.model_pattern.clone(),
                     },
                 ))
-                .await;
+                .await?;
         }
     }
     state.replace_user_permissions(perm_map);
@@ -473,7 +473,7 @@ pub async fn seed_from_toml(
                 rpd: r.rpd,
                 total_tokens: r.total_tokens,
             });
-            let _ = state
+            state
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertUserRateLimit(
                     gproxy_storage::UserRateLimitWrite {
@@ -485,7 +485,7 @@ pub async fn seed_from_toml(
                         total_tokens: r.total_tokens,
                     },
                 ))
-                .await;
+                .await?;
         }
     }
     state.replace_user_rate_limits(limit_map);
@@ -493,7 +493,7 @@ pub async fn seed_from_toml(
     let mut quota_map: HashMap<i64, (f64, f64)> = HashMap::new();
     for q in &config.quotas {
         if let Some(&user_id) = user_id_map.get(&q.user_name) {
-            let _ = state
+            state
                 .storage_writes()
                 .enqueue(StorageWriteEvent::UpsertUserQuota(
                     gproxy_storage::UserQuotaWrite {
@@ -502,7 +502,7 @@ pub async fn seed_from_toml(
                         cost_used: q.cost_used,
                     },
                 ))
-                .await;
+                .await?;
             quota_map.insert(user_id, (q.quota, q.cost_used));
         }
     }
@@ -516,7 +516,7 @@ pub async fn seed_defaults(
     state: &AppState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cfg = state.config().clone();
-    let _ = state
+    state
         .storage_writes()
         .enqueue(StorageWriteEvent::UpsertGlobalSettings(
             gproxy_storage::GlobalSettingsWrite {
@@ -535,6 +535,6 @@ pub async fn seed_defaults(
                 data_dir: cfg.data_dir.clone(),
             },
         ))
-        .await;
+        .await?;
     Ok(())
 }
