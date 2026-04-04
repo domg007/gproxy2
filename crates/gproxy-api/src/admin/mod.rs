@@ -7,6 +7,7 @@ use gproxy_server::AppState;
 
 pub mod config_toml;
 pub mod credentials;
+pub mod health;
 pub mod models;
 pub mod permissions;
 pub mod providers;
@@ -19,6 +20,8 @@ pub mod users;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        // Health
+        .route("/health", get(health::health))
         // Reload all caches from database
         .route("/reload", post(reload::reload))
         // Global settings
