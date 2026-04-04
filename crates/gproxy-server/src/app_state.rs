@@ -239,6 +239,16 @@ impl AppState {
         self.keys.store(Arc::new(keys));
     }
 
+    pub fn replace_users(&self, users: Vec<MemoryUser>) {
+        self.users.store(Arc::new(users));
+    }
+
+    pub fn replace_keys(&self, keys: Vec<MemoryUserKey>) {
+        let map: HashMap<String, MemoryUserKey> =
+            keys.into_iter().map(|k| (k.api_key.clone(), k)).collect();
+        self.keys.store(Arc::new(map));
+    }
+
     pub fn replace_models(&self, models: Vec<MemoryModel>) {
         self.models.store(Arc::new(models));
     }

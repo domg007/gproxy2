@@ -82,30 +82,34 @@ pub async fn reload_from_db(state: &AppState) -> Result<ReloadCounts, Box<dyn st
     }
     state.replace_engine(builder.build());
 
-    // Users
+    // Users — atomic replace to remove stale entries
     let users = storage
         .list_users(&gproxy_storage::UserQuery::default())
         .await?;
     let user_count = users.len();
-    for u in &users {
-        state.upsert_user_in_memory(MemoryUser {
+    let memory_users: Vec<MemoryUser> = users
+        .iter()
+        .map(|u| MemoryUser {
             id: u.id,
             name: u.name.clone(),
             enabled: u.enabled,
-        });
-    }
+        })
+        .collect();
+    state.replace_users(memory_users);
 
-    // User keys
+    // User keys — atomic replace to remove stale entries
     let keys = storage.list_user_keys_for_memory().await?;
     let key_count = keys.len();
-    for k in &keys {
-        state.upsert_key_in_memory(MemoryUserKey {
+    let memory_keys: Vec<MemoryUserKey> = keys
+        .iter()
+        .map(|k| MemoryUserKey {
             id: k.id,
             user_id: k.user_id,
             api_key: k.api_key.clone(),
             enabled: k.enabled,
-        });
-    }
+        })
+        .collect();
+    state.replace_keys(memory_keys);
 
     // Models
     let models = storage

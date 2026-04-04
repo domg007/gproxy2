@@ -209,9 +209,10 @@ pub async fn batch_delete_users(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let sender = state.storage_writes();
-    for id in ids {
+    for id in &ids {
+        state.remove_user_from_memory(*id);
         sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id })
+            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id: *id })
             .await
             .map_err(|e| HttpError::internal(e.to_string()))?;
     }
@@ -225,9 +226,10 @@ pub async fn batch_delete_user_keys(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let sender = state.storage_writes();
-    for id in ids {
+    for id in &ids {
+        state.remove_key_from_memory(*id);
         sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id })
+            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: *id })
             .await
             .map_err(|e| HttpError::internal(e.to_string()))?;
     }
