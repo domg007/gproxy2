@@ -652,6 +652,12 @@ impl Channel for ClaudeCodeChannel {
                 "claude",
             ),
             xform("compact", "openai", "generate_content", "claude"),
+            // Files API
+            pass("file_upload", "claude"),
+            pass("file_list", "claude"),
+            pass("file_download", "claude"),
+            pass("file_get", "claude"),
+            pass("file_delete", "claude"),
         ];
 
         for (key, imp) in routes {
@@ -666,14 +672,22 @@ impl Channel for ClaudeCodeChannel {
         settings: &Self::Settings,
         request: &PreparedRequest,
     ) -> Result<http::Request<Vec<u8>>, UpstreamError> {
-        let mut body_json: Value = serde_json::from_slice(&request.body)
-            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
-        let session_id = request_session_id(request, &body_json);
+        let is_file_op = crate::engine::is_file_operation_path(&request.path);
 
-        let user_id_value = build_metadata_user_id(credential, &session_id);
-        inject_metadata_user_id(&mut body_json, &user_id_value);
-        let body = serde_json::to_vec(&body_json)
-            .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+        // For file operations, pass body through as-is (may be multipart or empty).
+        // For normal operations, parse JSON to inject metadata.
+        let (body, session_id) = if is_file_op {
+            (request.body.clone(), String::new())
+        } else {
+            let mut body_json: Value = serde_json::from_slice(&request.body)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+            let sid = request_session_id(request, &body_json);
+            let user_id_value = build_metadata_user_id(credential, &sid);
+            inject_metadata_user_id(&mut body_json, &user_id_value);
+            let b = serde_json::to_vec(&body_json)
+                .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
+            (b, sid)
+        };
 
         // -- 2. Build the User-Agent ------------------------------------
         let user_agent = match settings.user_agent() {
@@ -701,11 +715,16 @@ impl Channel for ClaudeCodeChannel {
             .header("anthropic-version", "2023-06-01")
             .header("x-app", "cli")
             .header("User-Agent", &user_agent)
-            .header("X-Claude-Code-Session-Id", &session_id)
-            .header("x-client-request-id", &client_request_id)
-            .header("Content-Type", "application/json");
+            .header("x-client-request-id", &client_request_id);
+
+        if !is_file_op {
+            builder = builder
+                .header("X-Claude-Code-Session-Id", &session_id)
+                .header("Content-Type", "application/json");
+        }
 
         // Forward any additional headers from the prepared request
+        // (includes Content-Type for file uploads, anthropic-beta for files, etc.)
         for (key, value) in request.headers.iter() {
             builder = builder.header(key, value);
         }
@@ -720,6 +739,15 @@ impl Channel for ClaudeCodeChannel {
         settings: &Self::Settings,
         mut request: PreparedRequest,
     ) -> Result<PreparedRequest, UpstreamError> {
+        // File operations: inject beta header, skip JSON body normalization.
+        if crate::engine::is_file_operation_path(&request.path) {
+            request.headers.insert(
+                "anthropic-beta",
+                http::HeaderValue::from_static("files-api-2025-04-14"),
+            );
+            return Ok(request);
+        }
+
         let mut body_json: Value = serde_json::from_slice(&request.body)
             .map_err(|e| UpstreamError::RequestBuild(e.to_string()))?;
 

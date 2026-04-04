@@ -135,6 +135,12 @@ impl Channel for AnthropicChannel {
             ),
             // Compact → generate
             xform("compact", "openai", "generate_content", "claude"),
+            // Files API
+            pass("file_upload", "claude"),
+            pass("file_list", "claude"),
+            pass("file_download", "claude"),
+            pass("file_get", "claude"),
+            pass("file_delete", "claude"),
         ];
 
         for (key, implementation) in routes {
@@ -154,8 +160,13 @@ impl Channel for AnthropicChannel {
             .method(request.method.clone())
             .uri(&url)
             .header("x-api-key", &credential.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json");
+            .header("anthropic-version", "2023-06-01");
+
+        // File operations: don't force Content-Type to application/json
+        // (multipart upload carries its own Content-Type via request.headers).
+        if !crate::engine::is_file_operation_path(&request.path) {
+            builder = builder.header("Content-Type", "application/json");
+        }
 
         if let Some(ua) = settings.user_agent() {
             builder = builder.header("User-Agent", ua);
@@ -175,6 +186,15 @@ impl Channel for AnthropicChannel {
         settings: &Self::Settings,
         mut request: PreparedRequest,
     ) -> Result<PreparedRequest, UpstreamError> {
+        // File operations: inject beta header, skip JSON body normalization.
+        if crate::engine::is_file_operation_path(&request.path) {
+            request.headers.insert(
+                "anthropic-beta",
+                http::HeaderValue::from_static("files-api-2025-04-14"),
+            );
+            return Ok(request);
+        }
+
         if !settings.enable_magic_cache && settings.cache_breakpoints.is_empty() {
             return Ok(request);
         }

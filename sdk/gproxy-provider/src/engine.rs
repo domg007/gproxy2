@@ -599,9 +599,13 @@ impl GproxyEngine {
             request.body
         };
 
+        let method = operation_http_method(&dst_op);
+        let mut body = body;
+        let path = build_operation_path(&dst_op, &mut body);
+
         let prepared = PreparedRequest {
-            method: http::Method::POST,
-            path: format!("/{}", dst_op),
+            method,
+            path,
             model: request.model.clone(),
             body,
             headers: request.headers,
@@ -755,9 +759,13 @@ impl GproxyEngine {
             request.body
         };
 
+        let method = operation_http_method(&dst_op);
+        let mut body = body;
+        let path = build_operation_path(&dst_op, &mut body);
+
         let prepared = PreparedRequest {
-            method: http::Method::POST,
-            path: format!("/{}", dst_op),
+            method,
+            path,
             model: request.model.clone(),
             body,
             headers: request.headers,
@@ -874,6 +882,106 @@ pub enum WsConnectionResult {
         src_protocol: String,
         dst_protocol: String,
     },
+}
+
+/// Determine HTTP method and base path for a given operation.
+///
+/// For most operations the engine historically used `POST /{op}`.
+/// File and model endpoints require specific methods and real API paths.
+/// Returns `(method, path)` where `path` may still need dynamic segments
+/// (file_id, model_id, query params) appended by `build_operation_path`.
+fn operation_http_method(operation: &str) -> http::Method {
+    match operation {
+        "file_list" | "file_download" | "file_get" | "model_list" | "model_get" => {
+            http::Method::GET
+        }
+        "file_delete" => http::Method::DELETE,
+        _ => http::Method::POST,
+    }
+}
+
+/// Build the full upstream path for an operation, extracting path/query
+/// parameters from the body JSON when needed.
+///
+/// For file operations the body carries a protocol-style JSON descriptor
+/// with `path` and `query` sub-objects.  We extract what we need and
+/// return the cleaned body (empty for GET/DELETE, original for POST).
+fn build_operation_path(operation: &str, body: &mut Vec<u8>) -> String {
+    match operation {
+        "file_upload" => "/v1/files".to_string(),
+        "file_list" => {
+            let path = build_file_list_path(body);
+            *body = Vec::new(); // GET has no body
+            path
+        }
+        "file_download" => {
+            let file_id = extract_path_param(body, "file_id");
+            *body = Vec::new();
+            format!("/v1/files/{}/content", file_id)
+        }
+        "file_get" => {
+            let file_id = extract_path_param(body, "file_id");
+            *body = Vec::new();
+            format!("/v1/files/{}", file_id)
+        }
+        "file_delete" => {
+            let file_id = extract_path_param(body, "file_id");
+            *body = Vec::new();
+            format!("/v1/files/{}", file_id)
+        }
+        _ => format!("/{}", operation),
+    }
+}
+
+/// Extract a path parameter from a JSON body like `{"path":{"file_id":"..."}}`
+fn extract_path_param(body: &[u8], param: &str) -> String {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.pointer(&format!("/path/{}", param))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_default()
+}
+
+/// Build `/v1/files?after_id=...&before_id=...&limit=...` from the body JSON.
+fn build_file_list_path(body: &[u8]) -> String {
+    let mut base = "/v1/files".to_string();
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return base;
+    };
+    let query = v.get("query");
+    let mut params = Vec::new();
+    if let Some(q) = query {
+        if let Some(s) = q.get("after_id").and_then(|v| v.as_str()) {
+            params.push(format!("after_id={}", s));
+        }
+        if let Some(s) = q.get("before_id").and_then(|v| v.as_str()) {
+            params.push(format!("before_id={}", s));
+        }
+        if let Some(n) = q.get("limit").and_then(|v| v.as_u64()) {
+            params.push(format!("limit={}", n));
+        }
+    }
+    if !params.is_empty() {
+        base.push('?');
+        base.push_str(&params.join("&"));
+    }
+    base
+}
+
+/// Returns true when the operation is one of the Files API endpoints.
+pub fn is_file_operation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "file_upload" | "file_list" | "file_download" | "file_get" | "file_delete"
+    )
+}
+
+/// Returns true when the prepared request path belongs to a Files API endpoint.
+pub fn is_file_operation_path(path: &str) -> bool {
+    path.starts_with("/v1/files")
 }
 
 /// Determine the WS path for a given destination operation.
