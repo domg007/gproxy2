@@ -24,6 +24,38 @@ pub struct ReloadCounts {
     pub quotas: usize,
 }
 
+pub(crate) async fn apply_persisted_credential_statuses(
+    state: &AppState,
+    credential_positions: &HashMap<i64, (String, usize)>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if credential_positions.is_empty() {
+        return Ok(());
+    }
+
+    let statuses = state
+        .storage()
+        .list_credential_statuses(&gproxy_storage::CredentialStatusQuery::default())
+        .await?;
+    let store = state.engine().store().clone();
+
+    for status in statuses {
+        let Some((provider_name, index)) = credential_positions.get(&status.credential_id) else {
+            continue;
+        };
+        match status.health_kind.as_str() {
+            "dead" => {
+                store.mark_credential_dead(provider_name, *index);
+            }
+            "healthy" => {
+                store.mark_credential_healthy(provider_name, *index);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
 /// Reload all in-memory state from the database.
 ///
 /// Used by both the initial bootstrap and the `POST /admin/reload` endpoint.
@@ -81,6 +113,19 @@ pub async fn reload_from_db(state: &AppState) -> Result<ReloadCounts, Box<dyn st
         provider_count += 1;
     }
     state.replace_engine(builder.build());
+
+    let credential_positions: HashMap<i64, (String, usize)> = providers
+        .iter()
+        .filter(|p| p.enabled)
+        .flat_map(|provider| {
+            all_credentials
+                .iter()
+                .filter(move |c| c.provider_id == provider.id && c.enabled)
+                .enumerate()
+                .map(move |(index, cred)| (cred.id, (provider.name.clone(), index)))
+        })
+        .collect();
+    apply_persisted_credential_statuses(state, &credential_positions).await?;
 
     // Provider name → id map for permission checks
     let provider_name_map: HashMap<String, i64> =

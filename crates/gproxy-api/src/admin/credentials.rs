@@ -255,6 +255,8 @@ pub async fn update_credential_status(
     Json(payload): Json<UpdateCredentialStatusPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
+    let credential_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
     let engine = state.engine();
     let store = engine.store();
     let ok = match payload.status.as_str() {
@@ -269,5 +271,24 @@ pub async fn update_credential_status(
             "provider or credential index not found",
         ));
     }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    state
+        .storage_writes()
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertCredentialStatus(
+            gproxy_storage::CredentialStatusWrite {
+                id: None,
+                credential_id,
+                channel: provider.channel,
+                health_kind: payload.status,
+                health_json: None,
+                checked_at_unix_ms: Some(now_ms),
+                last_error: None,
+            },
+        ))
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }

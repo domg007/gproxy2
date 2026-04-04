@@ -268,6 +268,18 @@ impl AppState {
         self.provider_names.store(Arc::new(names));
     }
 
+    pub fn upsert_provider_name_in_memory(&self, name: String, provider_id: i64) {
+        let mut names = (*self.provider_names.load_full()).clone();
+        names.insert(name, provider_id);
+        self.provider_names.store(Arc::new(names));
+    }
+
+    pub fn remove_provider_name_from_memory(&self, name: &str) {
+        let mut names = (*self.provider_names.load_full()).clone();
+        names.remove(name);
+        self.provider_names.store(Arc::new(names));
+    }
+
     pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
         self.user_permissions.store(Arc::new(perms));
     }

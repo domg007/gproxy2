@@ -239,7 +239,7 @@ impl SeaOrmStorage {
                     let checked_at = s.checked_at_unix_ms.map(unix_ms_to_datetime);
                     let now = OffsetDateTime::now_utc();
                     credential_statuses::ActiveModel {
-                        id: Set(s.id.unwrap_or_default()),
+                        id: s.id.map(Set).unwrap_or(NotSet),
                         credential_id: Set(s.credential_id),
                         channel: Set(s.channel.clone()),
                         health_kind: Set(s.health_kind.clone()),

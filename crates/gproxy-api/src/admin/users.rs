@@ -194,6 +194,11 @@ pub async fn batch_upsert_users(
     let sender = state.storage_writes();
     for mut item in items {
         item.password = hash_password(&item.password);
+        state.upsert_user_in_memory(gproxy_server::MemoryUser {
+            id: item.id,
+            name: item.name.clone(),
+            enabled: item.enabled,
+        });
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(item))
             .await

@@ -746,6 +746,54 @@ impl ProviderStore {
         self.providers.store(Arc::new(updated));
     }
 
+    /// Add or replace a provider from serialized JSON config.
+    pub fn add_provider_json(
+        &self,
+        config: crate::engine::ProviderConfig,
+    ) -> Result<(), UpstreamError> {
+        macro_rules! add {
+            ($self:expr, $ch:expr, $cfg:expr) => {{
+                let settings = serde_json::from_value($cfg.settings_json).map_err(|e| {
+                    UpstreamError::Channel(format!("invalid settings for '{}': {e}", $cfg.name))
+                })?;
+                let creds: Vec<_> = $cfg
+                    .credentials
+                    .into_iter()
+                    .filter_map(|c| {
+                        serde_json::from_value(c)
+                            .ok()
+                            .map(|c| (c, crate::health::ModelCooldownHealth::default()))
+                    })
+                    .collect();
+                $self.add_provider(&$cfg.name, $ch, settings, creds);
+                Ok(())
+            }};
+        }
+
+        use crate::channels::*;
+
+        match config.channel.as_str() {
+            "openai" => add!(self, openai::OpenAiChannel, config),
+            "anthropic" => add!(self, anthropic::AnthropicChannel, config),
+            "claudecode" => add!(self, claudecode::ClaudeCodeChannel, config),
+            "codex" => add!(self, codex::CodexChannel, config),
+            "vertex" => add!(self, vertex::VertexChannel, config),
+            "vertexexpress" => add!(self, vertexexpress::VertexExpressChannel, config),
+            "aistudio" => add!(self, aistudio::AiStudioChannel, config),
+            "geminicli" => add!(self, geminicli::GeminiCliChannel, config),
+            "antigravity" => add!(self, antigravity::AntigravityChannel, config),
+            "nvidia" => add!(self, nvidia::NvidiaChannel, config),
+            "deepseek" => add!(self, deepseek::DeepSeekChannel, config),
+            "groq" => add!(self, groq::GroqChannel, config),
+            "openrouter" => add!(self, openrouter::OpenRouterChannel, config),
+            "custom" => add!(self, custom::CustomChannel, config),
+            _ => Err(UpstreamError::Channel(format!(
+                "unknown channel: {}",
+                config.channel
+            ))),
+        }
+    }
+
     pub fn remove_provider(&self, name: &str) -> bool {
         let mut updated = (*self.providers.load_full()).clone();
         let removed = updated.remove(name).is_some();
