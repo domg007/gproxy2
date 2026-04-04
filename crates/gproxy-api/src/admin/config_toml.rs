@@ -5,11 +5,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 
-use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
-use gproxy_server::{
-    AppState, GlobalConfig, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget,
-    PermissionEntry, PriceTier, RateLimitRule,
-};
+use gproxy_server::{AppState, PriceTier};
 
 use crate::auth::authorize_admin;
 use crate::error::HttpError;
@@ -341,160 +337,10 @@ pub async fn import_toml(
 ) -> Result<Json<crate::error::AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    let config: GproxyToml = toml::from_str(&payload.toml)
-        .map_err(|e| HttpError::bad_request(format!("invalid TOML: {e}")))?;
-
-    // 1. Global settings
-    if let Some(gs) = &config.global {
-        state.replace_config(GlobalConfig {
-            host: gs.host.clone(),
-            port: gs.port,
-            admin_key: gs.admin_key.clone(),
-            proxy: gs.proxy.clone(),
-            spoof_emulation: gs.spoof_emulation.clone(),
-            update_source: gs.update_source.clone(),
-            enable_usage: gs.enable_usage,
-            enable_upstream_log: gs.enable_upstream_log,
-            enable_upstream_log_body: gs.enable_upstream_log_body,
-            enable_downstream_log: gs.enable_downstream_log,
-            enable_downstream_log_body: gs.enable_downstream_log_body,
-            dsn: gs.dsn.clone(),
-            data_dir: gs.data_dir.clone(),
-        });
-    }
-
-    // 2. Rebuild engine from providers
-    let proxy = config.global.as_ref().and_then(|g| g.proxy.as_deref());
-    let spoof = config.global.as_ref().map(|g| g.spoof_emulation.as_str());
-    let mut builder = GproxyEngineBuilder::new().configure_clients(proxy, spoof);
-    for p in &config.providers {
-        let pc = ProviderConfig {
-            name: p.name.clone(),
-            channel: p.channel.clone(),
-            settings_json: p.settings.clone(),
-            credentials: p.credentials.clone(),
-        };
-        builder = builder
-            .add_provider_json(pc)
-            .map_err(|e| HttpError::internal(e.to_string()))?;
-    }
-    state.replace_engine(builder.build());
-
-    // Build provider name → synthetic id map for resolving model/permission references
-    let provider_name_to_id: std::collections::HashMap<String, i64> = config
-        .providers
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.name.clone(), i as i64 + 1))
-        .collect();
-
-    // 3. Models
-    let models: Vec<MemoryModel> = config
-        .models
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let provider_id = provider_name_to_id
-                .get(&m.provider_name)
-                .copied()
-                .unwrap_or(0);
-            MemoryModel {
-                id: i as i64 + 1,
-                provider_id,
-                model_id: m.model_id.clone(),
-                display_name: m.display_name.clone(),
-                enabled: m.enabled,
-                price_each_call: m.price_each_call,
-                price_tiers: m.price_tiers.clone(),
-            }
-        })
-        .collect();
-    state.replace_models(models);
-
-    // 4. Model aliases
-    let aliases = config
-        .model_aliases
-        .iter()
-        .filter(|a| a.enabled)
-        .map(|a| {
-            (
-                a.alias.clone(),
-                ModelAliasTarget {
-                    provider_name: a.provider_name.clone(),
-                    model_id: a.model_id.clone(),
-                },
-            )
-        })
-        .collect();
-    state.replace_model_aliases(aliases);
-
-    // 5. Users + keys
-    for (i, u) in config.users.iter().enumerate() {
-        let user_id = i as i64 + 1;
-        state.upsert_user_in_memory(MemoryUser {
-            id: user_id,
-            name: u.name.clone(),
-            enabled: u.enabled,
-        });
-        for (j, key) in u.keys.iter().enumerate() {
-            state.upsert_key_in_memory(MemoryUserKey {
-                id: (user_id * 1000) + j as i64,
-                user_id,
-                api_key: key.clone(),
-                enabled: true,
-            });
-        }
-    }
-
-    // Build user name → id map
-    let users_snapshot = state.users_snapshot();
-    let user_id_map: std::collections::HashMap<String, i64> = users_snapshot
-        .iter()
-        .map(|u| (u.name.clone(), u.id))
-        .collect();
-
-    // 6. Permissions
-    let mut perm_map: std::collections::HashMap<i64, Vec<PermissionEntry>> =
-        std::collections::HashMap::new();
-    for p in &config.permissions {
-        if let Some(&user_id) = user_id_map.get(&p.user_name) {
-            let provider_id = p
-                .provider_name
-                .as_ref()
-                .and_then(|name| provider_name_to_id.get(name).copied());
-            perm_map.entry(user_id).or_default().push(PermissionEntry {
-                provider_id,
-                model_pattern: p.model_pattern.clone(),
-            });
-        }
-    }
-    state.replace_user_permissions(perm_map);
-
-    // 7. Rate limits
-    let mut limit_map: std::collections::HashMap<i64, Vec<RateLimitRule>> =
-        std::collections::HashMap::new();
-    for r in &config.rate_limits {
-        if let Some(&user_id) = user_id_map.get(&r.user_name) {
-            limit_map.entry(user_id).or_default().push(RateLimitRule {
-                model_pattern: r.model_pattern.clone(),
-                rpm: r.rpm,
-                rpd: r.rpd,
-                total_tokens: r.total_tokens,
-            });
-        }
-    }
-    state.replace_user_rate_limits(limit_map);
-
-    // 8. Quotas
-    let quota_map: std::collections::HashMap<i64, (f64, f64)> = config
-        .quotas
-        .iter()
-        .filter_map(|q| {
-            let user_id = user_id_map.get(&q.user_name)?;
-            Some((*user_id, (q.quota, q.cost_used)))
-        })
-        .collect();
-    state.replace_user_quotas(quota_map);
+    // Delegate to seed_from_toml which handles both memory and DB persistence
+    crate::bootstrap::seed_from_toml(&state, &payload.toml)
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
 
     Ok(Json(crate::error::AckResponse { ok: true, id: None }))
 }
