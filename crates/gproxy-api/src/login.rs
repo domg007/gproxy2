@@ -22,6 +22,21 @@ pub fn hash_password(password: &str) -> String {
         .to_string()
 }
 
+fn is_argon2_password_hash(password_or_hash: &str) -> bool {
+    PasswordHash::new(password_or_hash)
+        .ok()
+        .is_some_and(|hash| hash.algorithm.as_str().starts_with("argon2"))
+}
+
+/// Accept either a plaintext password or an existing Argon2 PHC hash.
+pub fn normalize_password_for_storage(password_or_hash: &str) -> String {
+    if is_argon2_password_hash(password_or_hash) {
+        password_or_hash.to_string()
+    } else {
+        hash_password(password_or_hash)
+    }
+}
+
 /// Verify a password against a stored Argon2 PHC hash.
 pub fn verify_password(password: &str, stored_hash: &str) -> bool {
     let Ok(parsed) = PasswordHash::new(stored_hash) else {
@@ -84,4 +99,22 @@ pub async fn login(
         user_id: user.id,
         api_key: key.api_key.clone(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hash_password, normalize_password_for_storage, verify_password};
+
+    #[test]
+    fn normalize_password_hashes_plaintext() {
+        let stored = normalize_password_for_storage("secret-password");
+        assert_ne!(stored, "secret-password");
+        assert!(verify_password("secret-password", &stored));
+    }
+
+    #[test]
+    fn normalize_password_preserves_argon2_hashes() {
+        let hash = hash_password("secret-password");
+        assert_eq!(normalize_password_for_storage(&hash), hash);
+    }
 }

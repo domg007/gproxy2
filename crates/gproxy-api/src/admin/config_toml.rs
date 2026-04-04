@@ -114,6 +114,7 @@ pub struct ModelAliasToml {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserToml {
     pub name: String,
+    /// Plaintext password or an Argon2 PHC hash.
     #[serde(default)]
     pub password: String,
     #[serde(default = "default_true")]
@@ -250,7 +251,7 @@ pub async fn export_toml(
                 .collect();
             UserToml {
                 name: u.name.clone(),
-                password: String::new(), // Don't export passwords
+                password: u.password_hash.clone(),
                 enabled: u.enabled,
                 keys: user_keys,
             }
@@ -343,4 +344,28 @@ pub async fn import_toml(
         .map_err(|e| HttpError::internal(e.to_string()))?;
 
     Ok(Json(crate::error::AckResponse { ok: true, id: None }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserToml;
+
+    #[test]
+    fn user_toml_round_trips_argon2_hashes() {
+        let hash = crate::login::hash_password("secret-password");
+        let user = UserToml {
+            name: "alice".to_string(),
+            password: hash.clone(),
+            enabled: true,
+            keys: vec!["sk-api01-demo".to_string()],
+        };
+
+        let toml = toml::to_string(&user).expect("serialize user toml");
+        let parsed: UserToml = toml::from_str(&toml).expect("deserialize user toml");
+
+        assert_eq!(
+            crate::login::normalize_password_for_storage(&parsed.password),
+            hash
+        );
+    }
 }

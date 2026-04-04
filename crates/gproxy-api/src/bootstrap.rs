@@ -166,6 +166,7 @@ pub async fn reload_from_db(
             id: u.id,
             name: u.name.clone(),
             enabled: u.enabled,
+            password_hash: u.password.clone(),
         })
         .collect();
     state.replace_users(memory_users);
@@ -450,11 +451,12 @@ pub async fn seed_from_toml(
     // 3. Users → memory + DB
     for (i, u) in config.users.iter().enumerate() {
         let user_id = i as i64 + 1;
-        let hashed_password = crate::login::hash_password(&u.password);
+        let hashed_password = crate::login::normalize_password_for_storage(&u.password);
         state.upsert_user_in_memory(MemoryUser {
             id: user_id,
             name: u.name.clone(),
             enabled: u.enabled,
+            password_hash: hashed_password.clone(),
         });
         state
             .storage_writes()

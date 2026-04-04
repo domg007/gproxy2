@@ -6,6 +6,8 @@ pub struct MemoryUser {
     pub id: i64,
     pub name: String,
     pub enabled: bool,
+    #[serde(skip)]
+    pub password_hash: String,
 }
 
 /// In-memory API key record for fast authentication lookup.
