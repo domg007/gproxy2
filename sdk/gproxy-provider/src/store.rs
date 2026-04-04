@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use arc_swap::ArcSwap;
@@ -754,41 +753,17 @@ impl ProviderStoreBuilder {
     pub fn build(self) -> ProviderStore {
         ProviderStore {
             providers: ArcSwap::from(Arc::new(self.providers)),
-            file_affinity: DashMap::new(),
         }
     }
 }
 
 pub struct ProviderStore {
     providers: ArcSwap<HashMap<String, Arc<dyn ProviderRuntime>>>,
-    /// File ID → (provider_name, credential_index) binding.
-    /// Used to route file operations to the credential that created the file.
-    file_affinity: DashMap<String, (String, usize)>,
 }
 
 impl ProviderStore {
     pub fn builder() -> ProviderStoreBuilder {
         ProviderStoreBuilder::new()
-    }
-
-    // --- File affinity ---
-
-    /// Bind a file ID to a specific provider + credential index.
-    pub fn bind_file(&self, file_id: &str, provider_name: &str, credential_index: usize) {
-        self.file_affinity.insert(
-            file_id.to_string(),
-            (provider_name.to_string(), credential_index),
-        );
-    }
-
-    /// Look up which credential owns a file ID.
-    pub fn get_file_credential(&self, file_id: &str) -> Option<(String, usize)> {
-        self.file_affinity.get(file_id).map(|e| e.value().clone())
-    }
-
-    /// Remove a file ID binding (e.g. after file deletion).
-    pub fn unbind_file(&self, file_id: &str) {
-        self.file_affinity.remove(file_id);
     }
 
     pub fn add_provider<C: Channel>(

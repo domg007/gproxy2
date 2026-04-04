@@ -662,10 +662,7 @@ impl GproxyEngine {
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
-        // Check file affinity: if the request references a file_id, force that credential
-        let forced_credential = request
-            .forced_credential_index
-            .or_else(|| find_file_credential(&self.store, &request.provider, &prepared.body));
+        let forced_credential = request.forced_credential_index;
 
         let provider_result = provider
             .execute(
@@ -866,9 +863,7 @@ impl GproxyEngine {
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
-        let forced_credential = request
-            .forced_credential_index
-            .or_else(|| find_file_credential(&self.store, &request.provider, &prepared.body));
+        let forced_credential = request.forced_credential_index;
 
         let provider_result = provider
             .execute_stream(
@@ -976,45 +971,6 @@ impl GproxyEngine {
             credential_updates,
             credential_index: used_credential_index,
         })
-    }
-}
-
-/// Scan request body JSON for file_id references and look up file affinity.
-fn find_file_credential(
-    store: &crate::store::ProviderStore,
-    provider_name: &str,
-    body: &[u8],
-) -> Option<usize> {
-    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let mut file_ids = Vec::new();
-    collect_file_ids(&json, &mut file_ids);
-    for file_id in file_ids {
-        if let Some((bound_provider_name, cred_idx)) = store.get_file_credential(&file_id)
-            && bound_provider_name == provider_name
-        {
-            return Some(cred_idx);
-        }
-    }
-    None
-}
-
-/// Recursively collect all string values from "file_id" keys in a JSON value.
-fn collect_file_ids(value: &serde_json::Value, out: &mut Vec<String>) {
-    match value {
-        serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::String(id)) = map.get("file_id") {
-                out.push(id.clone());
-            }
-            for v in map.values() {
-                collect_file_ids(v, out);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for v in arr {
-                collect_file_ids(v, out);
-            }
-        }
-        _ => {}
     }
 }
 

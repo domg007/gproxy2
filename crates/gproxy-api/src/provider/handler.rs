@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
 use gproxy_sdk::provider::engine::{
-    ExecuteBody, ExecuteRequest, ExecuteResult, UpstreamRequestMeta, Usage,
+    ExecuteBody, ExecuteRequest, UpstreamRequestMeta, Usage,
 };
 use gproxy_server::middleware::classify::Classification;
 use gproxy_server::middleware::model_alias::ResolvedAlias;
@@ -107,26 +107,33 @@ pub async fn proxy(
     {
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
+    if is_file_operation(operation)
+        && let Err(rejection) = state.check_rate_limit_request(
+            user_key.user_id,
+            &file_rate_limit_key(&effective_provider, operation),
+            None,
+        )
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     if let Some(FileOperationPlan::ShortCircuitJson(resp_body)) = &file_plan {
-        return Ok(
-            respond_with_local_json(
-                LocalJsonResponseContext {
-                    state: &state,
-                    start,
-                    trace_id,
-                    user_id: user_key.user_id,
-                    user_key_id: user_key.id,
-                    req_method: &req_method,
-                    req_path: &req_path,
-                    req_query: req_query.as_deref(),
-                    req_headers_json: &req_headers_json,
-                    req_body: Some(&req_body),
-                },
-                resp_body.clone(),
-            )
-            .await,
-        );
+        return Ok(respond_with_local_json(
+            LocalJsonResponseContext {
+                state: &state,
+                start,
+                trace_id,
+                user_id: user_key.user_id,
+                user_key_id: user_key.id,
+                req_method: &req_method,
+                req_path: &req_path,
+                req_query: req_query.as_deref(),
+                req_headers_json: &req_headers_json,
+                req_body: Some(&req_body),
+            },
+            resp_body.clone(),
+        )
+        .await);
     }
 
     let forced_credential_index = file_plan
@@ -156,8 +163,6 @@ pub async fn proxy(
         ExecuteBody::Stream(_) => None,
     };
 
-    // File affinity: bind file_id to credential on upload, unbind on delete
-    bind_file_affinity_if_applicable(&state, &classification, &result, &effective_provider);
     persist_claude_file_side_effects(ClaudeFileSideEffectsContext {
         state: &state,
         user_id: user_key.user_id,
@@ -502,25 +507,31 @@ pub async fn proxy_unscoped_files(
         req_query.as_deref(),
     )?;
 
+    if let Err(rejection) = state.check_rate_limit_request(
+        user_key.user_id,
+        &file_rate_limit_key(&target_provider, operation),
+        None,
+    ) {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
+
     if let Some(FileOperationPlan::ShortCircuitJson(resp_body)) = &file_plan {
-        return Ok(
-            respond_with_local_json(
-                LocalJsonResponseContext {
-                    state: &state,
-                    start,
-                    trace_id,
-                    user_id: user_key.user_id,
-                    user_key_id: user_key.id,
-                    req_method: &req_method,
-                    req_path: &req_path,
-                    req_query: req_query.as_deref(),
-                    req_headers_json: &req_headers_json,
-                    req_body: Some(&req_body),
-                },
-                resp_body.clone(),
-            )
-            .await,
-        );
+        return Ok(respond_with_local_json(
+            LocalJsonResponseContext {
+                state: &state,
+                start,
+                trace_id,
+                user_id: user_key.user_id,
+                user_key_id: user_key.id,
+                req_method: &req_method,
+                req_path: &req_path,
+                req_query: req_query.as_deref(),
+                req_headers_json: &req_headers_json,
+                req_body: Some(&req_body),
+            },
+            resp_body.clone(),
+        )
+        .await);
     }
 
     let forced_credential_index = file_plan
@@ -550,8 +561,6 @@ pub async fn proxy_unscoped_files(
         ExecuteBody::Stream(_) => None,
     };
 
-    // File affinity: bind file_id to credential on upload, unbind on delete
-    bind_file_affinity_if_applicable(&state, &classification, &result, &target_provider);
     persist_claude_file_side_effects(ClaudeFileSideEffectsContext {
         state: &state,
         user_id: user_key.user_id,
@@ -706,6 +715,10 @@ fn is_file_operation(operation: OperationFamily) -> bool {
             | OperationFamily::FileContent
             | OperationFamily::FileDelete
     )
+}
+
+fn file_rate_limit_key(provider_name: &str, operation: OperationFamily) -> String {
+    format!("file/{provider_name}/{operation}")
 }
 
 fn is_claude_file_provider(state: &AppState, provider_name: &str) -> bool {
@@ -932,7 +945,10 @@ fn plan_file_operation(
     }
 }
 
-async fn respond_with_local_json(ctx: LocalJsonResponseContext<'_>, resp_body: Vec<u8>) -> Response {
+async fn respond_with_local_json(
+    ctx: LocalJsonResponseContext<'_>,
+    resp_body: Vec<u8>,
+) -> Response {
     let mut response = Response::builder()
         .status(StatusCode::OK)
         .body(Body::from(resp_body.clone()))
@@ -991,9 +1007,9 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
             let Some(provider_id) = ctx.state.provider_id_for_name(ctx.provider_name) else {
                 return;
             };
-            let Some(credential_id) =
-                ctx.state
-                    .credential_id_for_index(ctx.provider_name, ctx.result_credential_index)
+            let Some(credential_id) = ctx
+                .state
+                .credential_id_for_index(ctx.provider_name, ctx.result_credential_index)
             else {
                 return;
             };
@@ -1013,11 +1029,11 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
             ctx.state.upsert_user_file_in_memory(file_record);
             ctx.state
                 .upsert_claude_file_in_memory(gproxy_server::MemoryClaudeFile {
-                provider_id,
-                file_id: metadata.id.clone(),
-                file_created_at_unix_ms: parse_claude_timestamp_ms(&metadata.created_at),
-                metadata: metadata.clone(),
-            });
+                    provider_id,
+                    file_id: metadata.id.clone(),
+                    file_created_at_unix_ms: parse_claude_timestamp_ms(&metadata.created_at),
+                    metadata: metadata.clone(),
+                });
             let _ = ctx
                 .state
                 .storage_writes()
@@ -1659,52 +1675,6 @@ fn headers_to_json(headers: &http::HeaderMap) -> String {
         .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
         .collect();
     serde_json::to_string(&map).unwrap_or_else(|_| "[]".to_string())
-}
-
-/// After a successful file upload, bind the returned file_id to the credential
-/// that handled it. After a successful file deletion, remove the binding.
-fn bind_file_affinity_if_applicable(
-    state: &AppState,
-    classification: &Classification,
-    result: &ExecuteResult,
-    provider_name: &str,
-) {
-    if !(200..=299).contains(&result.status) {
-        return;
-    }
-    let body = match &result.body {
-        ExecuteBody::Full(b) => b,
-        _ => return,
-    };
-
-    match classification.operation {
-        OperationFamily::FileUpload => {
-            if let Some(file_id) = extract_id_from_json(body) {
-                state
-                    .engine()
-                    .store()
-                    .bind_file(&file_id, provider_name, result.credential_index);
-                tracing::debug!(
-                    file_id,
-                    provider_name,
-                    credential = result.credential_index,
-                    "file affinity bound"
-                );
-            }
-        }
-        OperationFamily::FileDelete => {
-            if let Some(file_id) = extract_id_from_json(body) {
-                state.engine().store().unbind_file(&file_id);
-                tracing::debug!(file_id, "file affinity unbound");
-            }
-        }
-        _ => {}
-    }
-}
-
-fn extract_id_from_json(body: &[u8]) -> Option<String> {
-    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
-    json.get("id")?.as_str().map(String::from)
 }
 
 fn build_execute_body(
