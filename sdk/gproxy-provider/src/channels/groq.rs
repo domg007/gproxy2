@@ -1,13 +1,15 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// Groq API channel.
 pub struct GroqChannel;
@@ -24,6 +26,12 @@ pub struct GroqSettings {
 
 fn default_groq_base_url() -> String {
     "https://api.groq.com/openai".to_string()
+}
+
+fn groq_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING
+        .get_or_init(|| crate::billing::parse_model_prices_json(include_str!("pricing/groq.json")))
 }
 
 impl ChannelSettings for GroqSettings {
@@ -55,10 +63,14 @@ impl Channel for GroqChannel {
         let mut t = DispatchTable::new();
 
         // Helper: passthrough = src and dst are same
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
         // Helper: transform = src converts to different dst
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -70,16 +82,42 @@ impl Channel for GroqChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // No count_tokens routes - uses CountStrategy::Local
 
             // === Generate content (non-stream) ===
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::GenerateContent,
                 ProtocolKind::Claude,
@@ -93,8 +131,14 @@ impl Channel for GroqChannel {
                 ProtocolKind::OpenAiChatCompletion,
             ),
             // === Generate content (stream) ===
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::Claude,
@@ -128,13 +172,22 @@ impl Channel for GroqChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // === Compact -> generate ===
-            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
+            xform(
+                OperationFamily::Compact,
+                ProtocolKind::OpenAi,
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
         ];
 
         for (key, implementation) in routes {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        groq_model_pricing()
     }
 
     fn prepare_request(

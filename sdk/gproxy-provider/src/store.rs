@@ -84,6 +84,15 @@ pub(crate) struct ProviderExecuteStreamResult {
 
 pub(crate) trait ProviderRuntime: Send + Sync {
     fn dispatch_table(&self) -> &DispatchTable;
+    fn build_billing_context(
+        &self,
+        request: &PreparedRequest,
+    ) -> Option<crate::billing::BillingContext>;
+    fn estimate_billing(
+        &self,
+        context: &crate::billing::BillingContext,
+        usage: &crate::engine::Usage,
+    ) -> Option<crate::billing::BillingResult>;
 
     fn handle_local(
         &self,
@@ -180,6 +189,7 @@ pub(crate) trait ProviderRuntime: Send + Sync {
 struct ProviderInstance<C: Channel> {
     name: String,
     channel: C,
+    model_pricing: &'static [crate::billing::ModelPrice],
     settings: ArcSwap<C::Settings>,
     credentials: ArcSwap<Vec<C::Credential>>,
     health: Mutex<Vec<C::Health>>,
@@ -199,6 +209,7 @@ impl<C: Channel> ProviderInstance<C> {
         let (credential_values, health_values): (Vec<_>, Vec<_>) = credentials.into_iter().unzip();
         Self {
             name,
+            model_pricing: channel.model_pricing(),
             dispatch_table: channel.dispatch_table(),
             channel,
             settings: ArcSwap::from_pointee(settings),
@@ -303,6 +314,21 @@ impl<C: Channel> ProviderInstance<C> {
 impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
     fn dispatch_table(&self) -> &DispatchTable {
         &self.dispatch_table
+    }
+
+    fn build_billing_context(
+        &self,
+        request: &PreparedRequest,
+    ) -> Option<crate::billing::BillingContext> {
+        crate::billing::build_billing_context(C::ID, request)
+    }
+
+    fn estimate_billing(
+        &self,
+        context: &crate::billing::BillingContext,
+        usage: &crate::engine::Usage,
+    ) -> Option<crate::billing::BillingResult> {
+        crate::billing::estimate_billing(self.model_pricing, context, usage)
     }
 
     fn handle_local(
@@ -749,8 +775,10 @@ impl ProviderStore {
 
     /// Bind a file ID to a specific provider + credential index.
     pub fn bind_file(&self, file_id: &str, provider_name: &str, credential_index: usize) {
-        self.file_affinity
-            .insert(file_id.to_string(), (provider_name.to_string(), credential_index));
+        self.file_affinity.insert(
+            file_id.to_string(),
+            (provider_name.to_string(), credential_index),
+        );
     }
 
     /// Look up which credential owns a file ID.
@@ -1045,6 +1073,16 @@ impl ProviderStore {
         let providers = self.providers.load();
         let provider = providers.get(name)?;
         Some(provider.dispatch_table().clone())
+    }
+
+    pub fn estimate_billing(
+        &self,
+        provider_name: &str,
+        context: &crate::billing::BillingContext,
+        usage: &crate::engine::Usage,
+    ) -> Option<crate::billing::BillingResult> {
+        self.get_runtime(provider_name)
+            .and_then(|provider| provider.estimate_billing(context, usage))
     }
 
     pub(crate) fn get_runtime(&self, name: &str) -> Option<Arc<dyn ProviderRuntime>> {

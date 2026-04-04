@@ -15,6 +15,7 @@
 
 mod affinity;
 
+pub mod billing;
 pub mod channel;
 pub mod channels;
 pub mod count_tokens;
@@ -33,6 +34,7 @@ pub mod transform_dispatch;
 pub mod usage;
 pub mod utils;
 
+pub use billing::{ModelPrice, ModelPriceTier};
 pub use channel::{Channel, ChannelCredential, ChannelSettings, OAuthFlow};
 pub use dispatch::DispatchTable;
 pub use engine::{ExecuteBody, ExecuteRequest, ExecuteResult, GproxyEngine, ProviderConfig, Usage};

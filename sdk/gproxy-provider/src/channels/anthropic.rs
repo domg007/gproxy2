@@ -1,15 +1,17 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::claude_cache_control as cache_control;
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// Anthropic Claude API channel.
 pub struct AnthropicChannel;
@@ -32,6 +34,13 @@ pub struct AnthropicSettings {
 
 fn default_anthropic_base_url() -> String {
     "https://api.anthropic.com".to_string()
+}
+
+fn anthropic_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/anthropic.json"))
+    })
 }
 
 impl ChannelSettings for AnthropicSettings {
@@ -61,9 +70,13 @@ impl Channel for AnthropicChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -75,15 +88,45 @@ impl Channel for AnthropicChannel {
         let routes = vec![
             // Model list/get
             pass(OperationFamily::ModelList, ProtocolKind::Claude),
-            xform(OperationFamily::ModelList, ProtocolKind::OpenAi, OperationFamily::ModelList, ProtocolKind::Claude),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::Claude),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::Claude),
-            xform(OperationFamily::ModelGet, ProtocolKind::OpenAi, OperationFamily::ModelGet, ProtocolKind::Claude),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::Claude),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+            ),
             // Count tokens
             pass(OperationFamily::CountToken, ProtocolKind::Claude),
-            xform(OperationFamily::CountToken, ProtocolKind::OpenAi, OperationFamily::CountToken, ProtocolKind::Claude),
-            xform(OperationFamily::CountToken, ProtocolKind::Gemini, OperationFamily::CountToken, ProtocolKind::Claude),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::OpenAi,
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::Gemini,
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+            ),
             // Generate content (non-stream)
             pass(OperationFamily::GenerateContent, ProtocolKind::Claude),
             xform(
@@ -98,7 +141,12 @@ impl Channel for AnthropicChannel {
                 OperationFamily::GenerateContent,
                 ProtocolKind::Claude,
             ),
-            xform(OperationFamily::GenerateContent, ProtocolKind::Gemini, OperationFamily::GenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+            ),
             // Generate content (stream)
             pass(OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
             xform(
@@ -126,7 +174,12 @@ impl Channel for AnthropicChannel {
                 ProtocolKind::Claude,
             ),
             // Live API
-            xform(OperationFamily::GeminiLive, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::GeminiLive,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+            ),
             // WebSocket → stream
             xform(
                 OperationFamily::OpenAiResponseWebSocket,
@@ -135,7 +188,12 @@ impl Channel for AnthropicChannel {
                 ProtocolKind::Claude,
             ),
             // Compact → generate
-            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::Compact,
+                ProtocolKind::OpenAi,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+            ),
             // Files API
             pass(OperationFamily::FileUpload, ProtocolKind::Claude),
             pass(OperationFamily::FileList, ProtocolKind::Claude),
@@ -148,6 +206,10 @@ impl Channel for AnthropicChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        anthropic_model_pricing()
     }
 
     fn prepare_request(

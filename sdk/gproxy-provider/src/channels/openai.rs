@@ -1,12 +1,14 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// OpenAI API channel.
 pub struct OpenAiChannel;
@@ -23,6 +25,13 @@ pub struct OpenAiSettings {
 
 fn default_openai_base_url() -> String {
     "https://api.openai.com".to_string()
+}
+
+fn openai_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/openai.json"))
+    })
 }
 
 impl ChannelSettings for OpenAiSettings {
@@ -54,10 +63,14 @@ impl Channel for OpenAiChannel {
         let mut t = DispatchTable::new();
 
         // Helper: passthrough = src and dst are same
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
         // Helper: transform = src converts to different dst
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -69,18 +82,54 @@ impl Channel for OpenAiChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // === Count tokens ===
             pass(OperationFamily::CountToken, ProtocolKind::OpenAi),
-            xform(OperationFamily::CountToken, ProtocolKind::Claude, OperationFamily::CountToken, ProtocolKind::OpenAi),
-            xform(OperationFamily::CountToken, ProtocolKind::Gemini, OperationFamily::CountToken, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+                OperationFamily::CountToken,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::Gemini,
+                OperationFamily::CountToken,
+                ProtocolKind::OpenAi,
+            ),
             // === Generate content (non-stream) ===
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::GenerateContent,
                 ProtocolKind::Claude,
@@ -94,8 +143,14 @@ impl Channel for OpenAiChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // === Generate content (stream) ===
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::Claude,
@@ -115,7 +170,10 @@ impl Channel for OpenAiChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // === WebSocket ===
-            pass(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
+            pass(
+                OperationFamily::OpenAiResponseWebSocket,
+                ProtocolKind::OpenAi,
+            ),
             xform(
                 OperationFamily::GeminiLive,
                 ProtocolKind::Gemini,
@@ -129,7 +187,12 @@ impl Channel for OpenAiChannel {
             pass(OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi),
             // === Embeddings ===
             pass(OperationFamily::Embedding, ProtocolKind::OpenAi),
-            xform(OperationFamily::Embedding, ProtocolKind::Gemini, OperationFamily::Embedding, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::Embedding,
+                ProtocolKind::Gemini,
+                OperationFamily::Embedding,
+                ProtocolKind::OpenAi,
+            ),
             // === Compact (OpenAI Responses only) ===
             pass(OperationFamily::Compact, ProtocolKind::OpenAi),
         ];
@@ -138,6 +201,10 @@ impl Channel for OpenAiChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        openai_model_pricing()
     }
 
     fn prepare_request(

@@ -1,13 +1,15 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// DeepSeek API channel.
 pub struct DeepSeekChannel;
@@ -24,6 +26,13 @@ pub struct DeepSeekSettings {
 
 fn default_deepseek_base_url() -> String {
     "https://api.deepseek.com".to_string()
+}
+
+fn deepseek_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/deepseek.json"))
+    })
 }
 
 impl ChannelSettings for DeepSeekSettings {
@@ -54,9 +63,13 @@ impl Channel for DeepSeekChannel {
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
 
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -68,15 +81,38 @@ impl Channel for DeepSeekChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // === No count_tokens routes — uses CountStrategy::Local ===
 
             // === Generate content (non-stream) ===
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::GenerateContent,
                 ProtocolKind::OpenAiResponse,
@@ -96,7 +132,10 @@ impl Channel for DeepSeekChannel {
                 ProtocolKind::OpenAiChatCompletion,
             ),
             // === Generate content (stream) ===
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::OpenAiResponse,
@@ -148,6 +187,10 @@ impl Channel for DeepSeekChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        deepseek_model_pricing()
     }
 
     fn prepare_request(

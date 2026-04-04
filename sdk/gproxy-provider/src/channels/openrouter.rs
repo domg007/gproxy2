@@ -1,13 +1,15 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// OpenRouter API channel (key authentication only).
 pub struct OpenRouterChannel;
@@ -24,6 +26,13 @@ pub struct OpenRouterSettings {
 
 fn default_openrouter_base_url() -> String {
     "https://openrouter.ai/api".to_string()
+}
+
+fn openrouter_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/openrouter.json"))
+    })
 }
 
 impl ChannelSettings for OpenRouterSettings {
@@ -54,9 +63,13 @@ impl Channel for OpenRouterChannel {
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
 
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -68,16 +81,42 @@ impl Channel for OpenRouterChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // No count_tokens routes - uses CountStrategy::Local
 
             // === Generate content (non-stream) ===
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             pass(OperationFamily::GenerateContent, ProtocolKind::Claude),
             xform(
                 OperationFamily::GenerateContent,
@@ -86,8 +125,14 @@ impl Channel for OpenRouterChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // === Generate content (stream) ===
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             pass(OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
             xform(
                 OperationFamily::StreamGenerateContent,
@@ -116,13 +161,22 @@ impl Channel for OpenRouterChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // === Compact -> generate ===
-            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::OpenAiResponse),
+            xform(
+                OperationFamily::Compact,
+                ProtocolKind::OpenAi,
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
         ];
 
         for (key, implementation) in routes {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        openrouter_model_pricing()
     }
 
     fn prepare_request(

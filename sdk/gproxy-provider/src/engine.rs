@@ -27,7 +27,9 @@ fn is_stream_aggregation_route(
 
 fn aggregate_stream_body(protocol: ProtocolKind, body: &[u8]) -> Result<Vec<u8>, UpstreamError> {
     let ndjson = match protocol {
-        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAiChatCompletion | ProtocolKind::Claude => {
+        ProtocolKind::OpenAiResponse
+        | ProtocolKind::OpenAiChatCompletion
+        | ProtocolKind::Claude => {
             gproxy_protocol::stream::sse_to_ndjson_stream(&String::from_utf8_lossy(body))
         }
         ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
@@ -66,6 +68,9 @@ pub struct ExecuteResult {
     pub headers: http::HeaderMap,
     pub body: ExecuteBody,
     pub usage: Option<Usage>,
+    pub cost: Option<f64>,
+    pub billing: Option<crate::billing::BillingResult>,
+    pub billing_context: Option<crate::billing::BillingContext>,
     pub meta: Option<UpstreamRequestMeta>,
     pub credential_updates: Vec<CredentialUpdate>,
     pub credential_index: usize,
@@ -292,6 +297,15 @@ impl GproxyEngine {
 
     pub fn store(&self) -> &Arc<ProviderStore> {
         &self.store
+    }
+
+    pub fn estimate_billing(
+        &self,
+        provider_name: &str,
+        context: &crate::billing::BillingContext,
+        usage: &Usage,
+    ) -> Option<crate::billing::BillingResult> {
+        self.store.estimate_billing(provider_name, context, usage)
     }
 
     /// Create a new engine with different HTTP clients but the same provider store.
@@ -564,11 +578,9 @@ impl GproxyEngine {
             crate::dispatch::RouteImplementation::Passthrough => {
                 (request.operation, request.protocol, false)
             }
-            crate::dispatch::RouteImplementation::TransformTo { destination } => (
-                destination.operation,
-                destination.protocol,
-                true,
-            ),
+            crate::dispatch::RouteImplementation::TransformTo { destination } => {
+                (destination.operation, destination.protocol, true)
+            }
             crate::dispatch::RouteImplementation::Local => {
                 let body = provider
                     .handle_local(request.operation, request.protocol, &request.body)
@@ -580,6 +592,9 @@ impl GproxyEngine {
                     headers: http::HeaderMap::new(),
                     body: ExecuteBody::Full(body),
                     usage: None,
+                    cost: None,
+                    billing: None,
+                    billing_context: None,
                     meta: None,
                     credential_updates: Vec::new(),
                     credential_index: 0,
@@ -664,7 +679,11 @@ impl GproxyEngine {
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);
-        let response_transform_dst_op = if force_stream_aggregation { request.operation } else { dst_op };
+        let response_transform_dst_op = if force_stream_aggregation {
+            request.operation
+        } else {
+            dst_op
+        };
         let normalized_nonstream_body =
             if force_stream_aggregation && (200..=299).contains(&response.status) {
                 aggregate_stream_body(dst_proto, &normalized_body)?
@@ -678,6 +697,13 @@ impl GproxyEngine {
         } else {
             None
         };
+        let billing_context = provider.build_billing_context(&prepared);
+        let billing = usage.as_ref().and_then(|usage| {
+            billing_context
+                .as_ref()
+                .and_then(|context| provider.estimate_billing(context, usage))
+        });
+        let cost = billing.as_ref().map(|billing| billing.total_cost);
 
         // 2.5. Suffix response rewriting: append suffix to model field
         let mut normalized_nonstream_body = normalized_nonstream_body;
@@ -726,6 +752,9 @@ impl GproxyEngine {
             headers: response.headers,
             body: ExecuteBody::Full(response_body),
             usage,
+            cost,
+            billing,
+            billing_context,
             meta,
             credential_updates,
             credential_index: used_credential_index,
@@ -760,11 +789,9 @@ impl GproxyEngine {
             crate::dispatch::RouteImplementation::Passthrough => {
                 (request.operation, request.protocol, false)
             }
-            crate::dispatch::RouteImplementation::TransformTo { destination } => (
-                destination.operation,
-                destination.protocol,
-                true,
-            ),
+            crate::dispatch::RouteImplementation::TransformTo { destination } => {
+                (destination.operation, destination.protocol, true)
+            }
             crate::dispatch::RouteImplementation::Local => {
                 let body = provider
                     .handle_local(request.operation, request.protocol, &request.body)
@@ -776,6 +803,9 @@ impl GproxyEngine {
                     headers: http::HeaderMap::new(),
                     body: ExecuteBody::Full(body),
                     usage: None,
+                    cost: None,
+                    billing: None,
+                    billing_context: None,
                     meta: None,
                     credential_updates: Vec::new(),
                     credential_index: 0,
@@ -927,12 +957,16 @@ impl GproxyEngine {
         } else {
             ExecuteBody::Stream(response.body)
         };
+        let billing_context = provider.build_billing_context(&prepared);
 
         Ok(ExecuteResult {
             status: response.status,
             headers: response.headers,
             body,
             usage: None,
+            cost: None,
+            billing: None,
+            billing_context,
             meta,
             credential_updates,
             credential_index: used_credential_index,
@@ -941,10 +975,7 @@ impl GproxyEngine {
 }
 
 /// Scan request body JSON for file_id references and look up file affinity.
-fn find_file_credential(
-    store: &crate::store::ProviderStore,
-    body: &[u8],
-) -> Option<usize> {
+fn find_file_credential(store: &crate::store::ProviderStore, body: &[u8]) -> Option<usize> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     let mut file_ids = Vec::new();
     collect_file_ids(&json, &mut file_ids);
@@ -1031,9 +1062,7 @@ fn operation_http_method(operation: OperationFamily) -> http::Method {
         | OperationFamily::FileContent
         | OperationFamily::FileGet
         | OperationFamily::ModelList
-        | OperationFamily::ModelGet => {
-            http::Method::GET
-        }
+        | OperationFamily::ModelGet => http::Method::GET,
         OperationFamily::FileDelete => http::Method::DELETE,
         _ => http::Method::POST,
     }

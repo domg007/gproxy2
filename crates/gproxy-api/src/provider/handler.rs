@@ -7,11 +7,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, ExecuteResult, UpstreamRequestMeta, Usage};
-use gproxy_server::{AppState, OperationFamily, ProtocolKind};
+use gproxy_sdk::provider::engine::{
+    ExecuteBody, ExecuteRequest, ExecuteResult, UpstreamRequestMeta, Usage,
+};
 use gproxy_server::middleware::classify::Classification;
 use gproxy_server::middleware::model_alias::ResolvedAlias;
 use gproxy_server::middleware::request_model::ExtractedModel;
+use gproxy_server::{AppState, OperationFamily, ProtocolKind};
 
 use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
@@ -80,7 +82,12 @@ pub async fn proxy(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
+    let req_body = build_execute_body(
+        classification.operation,
+        &req_path,
+        req_query.as_deref(),
+        body.to_vec(),
+    );
 
     let result = state
         .engine()
@@ -95,12 +102,7 @@ pub async fn proxy(
         .await?;
 
     // File affinity: bind file_id to credential on upload, unbind on delete
-    bind_file_affinity_if_applicable(
-        &state,
-        &classification,
-        &result,
-        &effective_provider,
-    );
+    bind_file_affinity_if_applicable(&state, &classification, &result, &effective_provider);
 
     // Record request for rate limiting
     if let Some(ref m) = effective_model {
@@ -112,7 +114,10 @@ pub async fn proxy(
         state: state.clone(),
         user_id: user_key.user_id,
         user_key_id: user_key.id,
+        provider_name: effective_provider.clone(),
+        precomputed_cost: result.cost,
         model: effective_model.clone(),
+        billing_context: result.billing_context.clone(),
         operation,
         protocol,
         downstream_trace_id: Some(trace_id),
@@ -232,7 +237,12 @@ pub async fn proxy_unscoped(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
+    let req_body = build_execute_body(
+        classification.operation,
+        &req_path,
+        req_query.as_deref(),
+        body.to_vec(),
+    );
 
     // Resolve provider: alias → prefix → error
     let (target_provider, target_model) = if let Some(alias) = state.resolve_model_alias(model_name)
@@ -262,7 +272,7 @@ pub async fn proxy_unscoped(
     let result = state
         .engine()
         .execute(ExecuteRequest {
-            provider: target_provider,
+            provider: target_provider.clone(),
             operation,
             protocol,
             body: req_body.clone(),
@@ -278,7 +288,10 @@ pub async fn proxy_unscoped(
         state: state.clone(),
         user_id: user_key.user_id,
         user_key_id: user_key.id,
+        provider_name: target_provider.clone(),
+        precomputed_cost: result.cost,
         model: Some(target_model.clone()),
+        billing_context: result.billing_context.clone(),
         operation,
         protocol,
         downstream_trace_id: Some(trace_id),
@@ -398,7 +411,12 @@ pub async fn proxy_unscoped_files(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
-    let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
+    let req_body = build_execute_body(
+        classification.operation,
+        &req_path,
+        req_query.as_deref(),
+        body.to_vec(),
+    );
 
     let operation = classification.operation;
     let protocol = classification.protocol;
@@ -416,12 +434,7 @@ pub async fn proxy_unscoped_files(
         .await?;
 
     // File affinity: bind file_id to credential on upload, unbind on delete
-    bind_file_affinity_if_applicable(
-        &state,
-        &classification,
-        &result,
-        &target_provider,
-    );
+    bind_file_affinity_if_applicable(&state, &classification, &result, &target_provider);
 
     // Record usage via storage write channel
     if let Some(ref usage) = result.usage {
@@ -429,7 +442,10 @@ pub async fn proxy_unscoped_files(
             state: state.clone(),
             user_id: user_key.user_id,
             user_key_id: user_key.id,
+            provider_name: target_provider.clone(),
+            precomputed_cost: result.cost,
             model: None,
+            billing_context: result.billing_context.clone(),
             operation,
             protocol,
             downstream_trace_id: Some(trace_id),
@@ -486,60 +502,16 @@ pub async fn proxy_unscoped_files(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn compute_cost(usage: &Usage, model: &gproxy_server::MemoryModel) -> f64 {
-    let mut cost = 0.0;
-    // Per-call fixed price
-    if let Some(price) = model.price_each_call {
-        cost += price;
-    }
-    // Find matching tier: first tier where input_tokens <= tier.input_tokens_up_to
-    let input_tokens = usage.input_tokens.unwrap_or(0);
-    let tier = model
-        .price_tiers
-        .iter()
-        .find(|t| input_tokens <= t.input_tokens_up_to);
-    if let Some(tier) = tier {
-        if let (Some(tokens), Some(price)) = (usage.input_tokens, tier.price_input_tokens) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-        if let (Some(tokens), Some(price)) = (usage.output_tokens, tier.price_output_tokens) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-        if let (Some(tokens), Some(price)) = (
-            usage.cache_read_input_tokens,
-            tier.price_cache_read_input_tokens,
-        ) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-        if let (Some(tokens), Some(price)) = (
-            usage.cache_creation_input_tokens,
-            tier.price_cache_creation_input_tokens,
-        ) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-        if let (Some(tokens), Some(price)) = (
-            usage.cache_creation_input_tokens_5min,
-            tier.price_cache_creation_input_tokens_5min,
-        ) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-        if let (Some(tokens), Some(price)) = (
-            usage.cache_creation_input_tokens_1h,
-            tier.price_cache_creation_input_tokens_1h,
-        ) {
-            cost += tokens as f64 * price / 1_000_000.0;
-        }
-    }
-    cost
-}
-
 /// Shared context for usage recording, avoids passing 8+ args.
 #[derive(Clone)]
 pub(crate) struct UsageRecordContext {
     pub state: Arc<AppState>,
     pub user_id: i64,
     pub user_key_id: i64,
+    pub provider_name: String,
+    pub precomputed_cost: Option<f64>,
     pub model: Option<String>,
+    pub billing_context: Option<gproxy_sdk::provider::billing::BillingContext>,
     pub operation: OperationFamily,
     pub protocol: ProtocolKind,
     pub downstream_trace_id: Option<i64>,
@@ -547,9 +519,15 @@ pub(crate) struct UsageRecordContext {
 
 /// Record usage (cost tracking + storage write). Shared by HTTP and WebSocket handlers.
 pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
-    let model_info = ctx.model.as_deref().and_then(|m| ctx.state.find_model(m));
-    let cost = model_info
-        .map(|info| compute_cost(usage, &info))
+    let cost = ctx
+        .precomputed_cost
+        .or_else(|| {
+            let billing_context = ctx.billing_context.as_ref()?;
+            ctx.state
+                .engine()
+                .estimate_billing(&ctx.provider_name, billing_context, usage)
+                .map(|billing| billing.total_cost)
+        })
         .unwrap_or(0.0);
     if cost > 0.0 {
         let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
@@ -725,9 +703,15 @@ impl Drop for StreamUsageRecorder {
 }
 
 async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
-    let model_info = ctx.model.as_deref().and_then(|m| ctx.state.find_model(m));
-    let cost = model_info
-        .map(|info| compute_cost(&usage, &info))
+    let cost = ctx
+        .precomputed_cost
+        .or_else(|| {
+            let billing_context = ctx.billing_context.as_ref()?;
+            ctx.state
+                .engine()
+                .estimate_billing(&ctx.provider_name, billing_context, &usage)
+                .map(|billing| billing.total_cost)
+        })
         .unwrap_or(0.0);
     if cost > 0.0 {
         let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
@@ -1104,7 +1088,12 @@ fn bind_file_affinity_if_applicable(
                     .engine()
                     .store()
                     .bind_file(&file_id, provider_name, result.credential_index);
-                tracing::debug!(file_id, provider_name, credential = result.credential_index, "file affinity bound");
+                tracing::debug!(
+                    file_id,
+                    provider_name,
+                    credential = result.credential_index,
+                    "file affinity bound"
+                );
             }
         }
         OperationFamily::FileDelete => {
@@ -1154,7 +1143,10 @@ fn build_file_request_body(
                 for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
                     match key.as_ref() {
                         "after_id" | "before_id" => {
-                            query.insert(key.into_owned(), serde_json::Value::String(value.into_owned()));
+                            query.insert(
+                                key.into_owned(),
+                                serde_json::Value::String(value.into_owned()),
+                            );
                         }
                         "limit" => {
                             if let Ok(limit) = value.parse::<u64>() {
@@ -1172,9 +1164,7 @@ fn build_file_request_body(
                 root.insert("query".to_string(), serde_json::Value::Object(query));
             }
         }
-        OperationFamily::FileGet
-        | OperationFamily::FileContent
-        | OperationFamily::FileDelete => {
+        OperationFamily::FileGet | OperationFamily::FileContent | OperationFamily::FileDelete => {
             let file_id = extract_file_id_from_request_path(&normalized)?;
             root.insert(
                 "path".to_string(),
@@ -1188,7 +1178,10 @@ fn build_file_request_body(
 }
 
 fn normalize_routed_api_path(path: &str) -> String {
-    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    let segments: Vec<&str> = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
     let start = if matches!(segments.first(), Some(&"v1" | &"v1beta" | &"v1beta1")) {
         1
     } else if matches!(segments.get(1), Some(&"v1" | &"v1beta" | &"v1beta1")) {

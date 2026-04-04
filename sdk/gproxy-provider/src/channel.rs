@@ -35,6 +35,11 @@ pub trait Channel: Send + Sync + 'static {
     /// Default dispatch table mapping (operation, protocol) → route strategy.
     fn dispatch_table(&self) -> DispatchTable;
 
+    /// Channel-owned default pricing table.
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        &[]
+    }
+
     /// Build an HTTP request from credential + settings + prepared request.
     fn prepare_request(
         &self,

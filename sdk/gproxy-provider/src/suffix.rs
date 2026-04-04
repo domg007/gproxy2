@@ -318,11 +318,9 @@ pub static CLAUDE_SUFFIX_GROUPS: &[SuffixGroup] = &[
 
 /// Channel-specific extras for Claude channels (context window suffixes).
 /// The protocol-level thinking/speed/effort groups are applied automatically.
-pub static CLAUDE_EXTRA_SUFFIX_GROUPS: &[SuffixGroup] = &[
-    SuffixGroup {
-        entries: CLAUDE_CONTEXT.entries,
-    },
-];
+pub static CLAUDE_EXTRA_SUFFIX_GROUPS: &[SuffixGroup] = &[SuffixGroup {
+    entries: CLAUDE_CONTEXT.entries,
+}];
 
 // ===========================================================================
 // OpenAI Response API suffix groups
@@ -375,6 +373,46 @@ static OPENAI_RESPONSE_THINKING: SuffixGroup = SuffixGroup {
 
 static OPENAI_RESPONSE_SPEED: SuffixGroup = SuffixGroup {
     entries: &[
+        SuffixEntry {
+            suffix: "-tier-auto",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("auto");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-default",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("default");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-flex",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("flex");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-scale",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("scale");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-priority",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("priority");
+                });
+            },
+        },
         SuffixEntry {
             suffix: "-fast",
             apply: |req| {
@@ -486,6 +524,46 @@ static OPENAI_CHAT_THINKING: SuffixGroup = SuffixGroup {
 
 static OPENAI_CHAT_SPEED: SuffixGroup = SuffixGroup {
     entries: &[
+        SuffixEntry {
+            suffix: "-tier-auto",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("auto");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-default",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("default");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-flex",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("flex");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-scale",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("scale");
+                });
+            },
+        },
+        SuffixEntry {
+            suffix: "-tier-priority",
+            apply: |req| {
+                mutate_body(req, |v| {
+                    v["service_tier"] = serde_json::json!("priority");
+                });
+            },
+        },
         SuffixEntry {
             suffix: "-fast",
             apply: |req| {
