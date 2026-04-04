@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, UpstreamRequestMeta, Usage};
+use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, ExecuteResult, UpstreamRequestMeta, Usage};
 use gproxy_server::AppState;
 use gproxy_server::middleware::classify::Classification;
 use gproxy_server::middleware::kinds::{OperationFamily, ProtocolKind};
@@ -85,7 +85,7 @@ pub async fn proxy(
     let result = state
         .engine()
         .execute(ExecuteRequest {
-            provider: effective_provider,
+            provider: effective_provider.clone(),
             operation: operation.clone(),
             protocol: protocol.clone(),
             body: req_body.clone(),
@@ -93,6 +93,15 @@ pub async fn proxy(
             model: effective_model.clone(),
         })
         .await?;
+
+    // File affinity: bind file_id to credential on upload, unbind on delete
+    bind_file_affinity_if_applicable(
+        &state,
+        &req_method,
+        &req_path,
+        &result,
+        &effective_provider,
+    );
 
     // Record request for rate limiting
     if let Some(ref m) = effective_model {
@@ -396,7 +405,7 @@ pub async fn proxy_unscoped_files(
     let result = state
         .engine()
         .execute(ExecuteRequest {
-            provider: target_provider,
+            provider: target_provider.clone(),
             operation: operation.clone(),
             protocol: protocol.clone(),
             body: req_body.clone(),
@@ -404,6 +413,15 @@ pub async fn proxy_unscoped_files(
             model: None,
         })
         .await?;
+
+    // File affinity: bind file_id to credential on upload, unbind on delete
+    bind_file_affinity_if_applicable(
+        &state,
+        &req_method,
+        &req_path,
+        &result,
+        &target_provider,
+    );
 
     // Record usage via storage write channel
     if let Some(ref usage) = result.usage {
@@ -1089,6 +1107,64 @@ fn headers_to_json(headers: &http::HeaderMap) -> String {
         .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
         .collect();
     serde_json::to_string(&map).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// After a successful file upload, bind the returned file_id to the credential
+/// that handled it. After a successful file deletion, remove the binding.
+fn bind_file_affinity_if_applicable(
+    state: &AppState,
+    method: &str,
+    path: &str,
+    result: &ExecuteResult,
+    provider_name: &str,
+) {
+    if !(200..=299).contains(&result.status) {
+        return;
+    }
+    let body = match &result.body {
+        ExecuteBody::Full(b) => b,
+        _ => return,
+    };
+
+    // POST /v1/files or /{provider}/v1/files → file upload, bind file_id
+    if method == "POST" && path_is_file_upload(path) {
+        if let Some(file_id) = extract_id_from_json(body) {
+            state
+                .engine()
+                .store()
+                .bind_file(&file_id, provider_name, result.credential_index);
+            tracing::debug!(file_id, provider_name, credential = result.credential_index, "file affinity bound");
+        }
+    }
+
+    // DELETE /v1/files/{file_id} → file deletion, unbind
+    if method == "DELETE" {
+        if let Some(file_id) = extract_file_id_from_path(path) {
+            state.engine().store().unbind_file(&file_id);
+            tracing::debug!(file_id, "file affinity unbound");
+        }
+    }
+}
+
+fn path_is_file_upload(path: &str) -> bool {
+    let normalized = path.trim_end_matches('/');
+    normalized.ends_with("/v1/files") || normalized == "/v1/files"
+}
+
+fn extract_file_id_from_path(path: &str) -> Option<String> {
+    // Match /v1/files/{file_id} or /{provider}/v1/files/{file_id}
+    let idx = path.find("/v1/files/")?;
+    let rest = &path[idx + "/v1/files/".len()..];
+    let file_id = rest.split('/').next()?;
+    if file_id.is_empty() {
+        return None;
+    }
+    Some(file_id.to_string())
+}
+
+fn extract_id_from_json(body: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    json.get("id")?.as_str().map(String::from)
 }
 
 /// Record upstream request/response log to DB.

@@ -3,6 +3,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use arc_swap::ArcSwap;
@@ -69,11 +71,13 @@ pub struct CredentialHealthSnapshot {
 pub(crate) struct ProviderExecuteResult {
     pub response: UpstreamResponse,
     pub credential_updates: Vec<CredentialUpdate>,
+    pub credential_index: usize,
 }
 
 pub(crate) struct ProviderExecuteStreamResult {
     pub response: UpstreamStreamingResponse,
     pub credential_updates: Vec<CredentialUpdate>,
+    pub credential_index: usize,
 }
 
 pub(crate) trait ProviderRuntime: Send + Sync {
@@ -103,6 +107,7 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         &'a self,
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
+        forced_credential: Option<usize>,
         client: &'a wreq::Client,
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>>;
@@ -111,6 +116,7 @@ pub(crate) trait ProviderRuntime: Send + Sync {
         &'a self,
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
+        forced_credential: Option<usize>,
         client: &'a wreq::Client,
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteStreamResult, UpstreamError>>;
@@ -358,6 +364,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         &'a self,
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
+        forced_credential: Option<usize>,
         client: &'a wreq::Client,
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteResult, UpstreamError>> {
@@ -382,6 +389,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
                     max_retries,
                     http_client: client,
                     spoof_client,
+                    forced_credential,
                 },
                 |c, req| {
                     let c = c.clone();
@@ -392,9 +400,10 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
 
             let credential_updates =
                 self.finalize_credentials(&credentials_snapshot, revision, &creds)?;
-            result.map(|response| ProviderExecuteResult {
-                response,
+            result.map(|r| ProviderExecuteResult {
+                response: r.output,
                 credential_updates,
+                credential_index: r.credential_index,
             })
         })
     }
@@ -403,6 +412,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         &'a self,
         request: PreparedRequest,
         affinity_hint: Option<CacheAffinityHint>,
+        forced_credential: Option<usize>,
         client: &'a wreq::Client,
         spoof_client: Option<&'a wreq::Client>,
     ) -> BoxFuture<'a, Result<ProviderExecuteStreamResult, UpstreamError>> {
@@ -427,6 +437,7 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
                     max_retries,
                     http_client: client,
                     spoof_client,
+                    forced_credential,
                 },
                 |c, req| {
                     let c = c.clone();
@@ -437,9 +448,10 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
 
             let credential_updates =
                 self.finalize_credentials(&credentials_snapshot, revision, &creds)?;
-            result.map(|response| ProviderExecuteStreamResult {
-                response,
+            result.map(|r| ProviderExecuteStreamResult {
+                response: r.output,
                 credential_updates,
+                credential_index: r.credential_index,
             })
         })
     }
@@ -714,17 +726,39 @@ impl ProviderStoreBuilder {
     pub fn build(self) -> ProviderStore {
         ProviderStore {
             providers: ArcSwap::from(Arc::new(self.providers)),
+            file_affinity: DashMap::new(),
         }
     }
 }
 
 pub struct ProviderStore {
     providers: ArcSwap<HashMap<String, Arc<dyn ProviderRuntime>>>,
+    /// File ID → (provider_name, credential_index) binding.
+    /// Used to route file operations to the credential that created the file.
+    file_affinity: DashMap<String, (String, usize)>,
 }
 
 impl ProviderStore {
     pub fn builder() -> ProviderStoreBuilder {
         ProviderStoreBuilder::new()
+    }
+
+    // --- File affinity ---
+
+    /// Bind a file ID to a specific provider + credential index.
+    pub fn bind_file(&self, file_id: &str, provider_name: &str, credential_index: usize) {
+        self.file_affinity
+            .insert(file_id.to_string(), (provider_name.to_string(), credential_index));
+    }
+
+    /// Look up which credential owns a file ID.
+    pub fn get_file_credential(&self, file_id: &str) -> Option<(String, usize)> {
+        self.file_affinity.get(file_id).map(|e| e.value().clone())
+    }
+
+    /// Remove a file ID binding (e.g. after file deletion).
+    pub fn unbind_file(&self, file_id: &str) {
+        self.file_affinity.remove(file_id);
     }
 
     pub fn add_provider<C: Channel>(

@@ -65,6 +65,7 @@ pub struct ExecuteResult {
     pub usage: Option<Usage>,
     pub meta: Option<UpstreamRequestMeta>,
     pub credential_updates: Vec<CredentialUpdate>,
+    pub credential_index: usize,
 }
 
 pub type ExecuteBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, UpstreamError>> + Send>>;
@@ -578,6 +579,7 @@ impl GproxyEngine {
                     usage: None,
                     meta: None,
                     credential_updates: Vec::new(),
+                    credential_index: 0,
                 });
             }
             crate::dispatch::RouteImplementation::Unsupported => {
@@ -641,16 +643,21 @@ impl GproxyEngine {
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
+        // Check file affinity: if the request references a file_id, force that credential
+        let forced_credential = find_file_credential(&self.store, &prepared.body);
+
         let provider_result = provider
             .execute(
                 prepared.clone(),
                 affinity_hint,
+                forced_credential,
                 &self.client,
                 self.spoof_client.as_ref(),
             )
             .await?;
         let response = provider_result.response;
         let credential_updates = provider_result.credential_updates;
+        let used_credential_index = provider_result.credential_index;
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);
@@ -709,7 +716,7 @@ impl GproxyEngine {
                     .collect(),
                 model: request.model,
                 latency_ms,
-                credential_index: None,
+                credential_index: Some(used_credential_index),
             })
         } else {
             None
@@ -722,6 +729,7 @@ impl GproxyEngine {
             usage,
             meta,
             credential_updates,
+            credential_index: used_credential_index,
         })
     }
 
@@ -771,6 +779,7 @@ impl GproxyEngine {
                     usage: None,
                     meta: None,
                     credential_updates: Vec::new(),
+                    credential_index: 0,
                 });
             }
             crate::dispatch::RouteImplementation::Unsupported => {
@@ -825,16 +834,20 @@ impl GproxyEngine {
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
+        let forced_credential = find_file_credential(&self.store, &prepared.body);
+
         let provider_result = provider
             .execute_stream(
                 prepared.clone(),
                 affinity_hint,
+                forced_credential,
                 &self.client,
                 self.spoof_client.as_ref(),
             )
             .await?;
         let response = provider_result.response;
         let credential_updates = provider_result.credential_updates;
+        let used_credential_index = provider_result.credential_index;
 
         let meta = if self.enable_upstream_log {
             Some(UpstreamRequestMeta {
@@ -850,7 +863,7 @@ impl GproxyEngine {
                     .collect(),
                 model: request.model.clone(),
                 latency_ms: start.elapsed().as_millis() as u64,
-                credential_index: None,
+                credential_index: Some(used_credential_index),
             })
         } else {
             None
@@ -923,7 +936,44 @@ impl GproxyEngine {
             usage: None,
             meta,
             credential_updates,
+            credential_index: used_credential_index,
         })
+    }
+}
+
+/// Scan request body JSON for file_id references and look up file affinity.
+fn find_file_credential(
+    store: &crate::store::ProviderStore,
+    body: &[u8],
+) -> Option<usize> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let mut file_ids = Vec::new();
+    collect_file_ids(&json, &mut file_ids);
+    for file_id in file_ids {
+        if let Some((_, cred_idx)) = store.get_file_credential(&file_id) {
+            return Some(cred_idx);
+        }
+    }
+    None
+}
+
+/// Recursively collect all string values from "file_id" keys in a JSON value.
+fn collect_file_ids(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(id)) = map.get("file_id") {
+                out.push(id.clone());
+            }
+            for v in map.values() {
+                collect_file_ids(v, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_file_ids(v, out);
+            }
+        }
+        _ => {}
     }
 }
 

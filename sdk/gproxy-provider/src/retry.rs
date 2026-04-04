@@ -78,6 +78,12 @@ impl RetryableResult for RetryableUpstreamResponse {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Result from credential-rotating retry, including which credential succeeded.
+pub struct RetryResult<T> {
+    pub output: T,
+    pub credential_index: usize,
+}
+
 /// Parameters for credential-rotating retry.
 pub struct RetryContext<'a, C: Channel> {
     pub channel: &'a C,
@@ -92,6 +98,8 @@ pub struct RetryContext<'a, C: Channel> {
     /// Browser-impersonating client for credentials that need cookie auth.
     /// Falls back to `http_client` when `None`.
     pub spoof_client: Option<&'a wreq::Client>,
+    /// Force a specific credential (e.g. for file operations bound to a credential).
+    pub forced_credential: Option<usize>,
 }
 
 /// Retry a request across multiple credentials.
@@ -108,7 +116,7 @@ pub struct RetryContext<'a, C: Channel> {
 pub async fn retry_with_credentials<C, F, Fut>(
     ctx: RetryContext<'_, C>,
     send: F,
-) -> Result<UpstreamResponse, UpstreamError>
+) -> Result<RetryResult<UpstreamResponse>, UpstreamError>
 where
     C: Channel,
     F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
@@ -128,7 +136,7 @@ where
 pub async fn retry_with_credentials_stream<C, F, Fut>(
     ctx: RetryContext<'_, C>,
     send: F,
-) -> Result<UpstreamStreamingResponse, UpstreamError>
+) -> Result<RetryResult<UpstreamStreamingResponse>, UpstreamError>
 where
     C: Channel,
     F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
@@ -150,7 +158,7 @@ where
 async fn retry_common_inner<C, F, Fut, R>(
     ctx: RetryContext<'_, C>,
     send: F,
-) -> Result<R::Output, UpstreamError>
+) -> Result<RetryResult<R::Output>, UpstreamError>
 where
     C: Channel,
     F: Fn(&wreq::Client, http::Request<Vec<u8>>) -> Fut,
@@ -168,6 +176,7 @@ where
         max_retries,
         http_client,
         spoof_client,
+        forced_credential,
     } = ctx;
 
     let model = request.model.as_deref();
@@ -184,11 +193,16 @@ where
         return Err(UpstreamError::NoEligibleCredentials);
     }
 
-    let mut remaining = build_remaining_candidates(
-        &eligible,
-        round_robin_cursor,
-        affinity_hint.is_some(),
-    );
+    // If a specific credential is forced (file affinity), try it first
+    let mut remaining = if let Some(forced) = forced_credential
+        && eligible.contains(&forced)
+    {
+        let mut v = vec![forced];
+        v.extend(eligible.iter().filter(|&&i| i != forced));
+        v
+    } else {
+        build_remaining_candidates(&eligible, round_robin_cursor, affinity_hint.is_some())
+    };
     let mut last_error = None;
 
     while !remaining.is_empty() {
@@ -253,7 +267,7 @@ where
                     let (_, health) = &mut credentials[idx];
                     health.record_success(model);
                     bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
-                    return Ok(output);
+                    return Ok(RetryResult { output, credential_index: idx });
                 }
                 RetryAction::Classifiable(resp) => resp,
             };
@@ -273,7 +287,7 @@ where
                 ResponseClassification::Success => {
                     health.record_success(model);
                     bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
-                    return Ok(R::wrap_buffered(response));
+                    return Ok(RetryResult { output: R::wrap_buffered(response), credential_index: idx });
                 }
                 ResponseClassification::AuthDead => {
                     tracing::warn!(
@@ -310,7 +324,7 @@ where
                                         idx,
                                         matched_affinity_idx,
                                     );
-                                    return Ok(output);
+                                    return Ok(RetryResult { output, credential_index: idx });
                                 }
                                 RetryAction::Classifiable(retry_response) => {
                                     let retry_class = channel.classify_response(
@@ -326,7 +340,7 @@ where
                                             idx,
                                             matched_affinity_idx,
                                         );
-                                        return Ok(R::wrap_buffered(retry_response));
+                                        return Ok(RetryResult { output: R::wrap_buffered(retry_response), credential_index: idx });
                                     }
                                     health.record_error(retry_response.status, model, None);
                                     tracing::warn!(
@@ -400,7 +414,7 @@ where
                     break;
                 }
                 ResponseClassification::PermanentError => {
-                    return Ok(R::wrap_buffered(response));
+                    return Ok(RetryResult { output: R::wrap_buffered(response), credential_index: idx });
                 }
             }
         }
