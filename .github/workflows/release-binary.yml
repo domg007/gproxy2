@@ -84,7 +84,6 @@ jobs:
 
       - name: Build
         env:
-          GPROXY_DOWNLOAD_BASE: ${{ secrets.GPROXY_DOWNLOAD_BASE || 'https://github.com/LeenHawk/gproxy/releases/download' }}
           GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64: ${{ secrets.GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64 }}
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
@@ -93,6 +92,40 @@ jobs:
             cargo build --release --target ${{ matrix.target }} -p gproxy
           fi
         shell: bash
+
+      - name: Verify binary runs
+        if: ${{ !matrix.cross && matrix.platform != 'windows' }}
+        run: target/${{ matrix.target }}/release/gproxy --help
+
+      - name: Verify binary runs (Windows)
+        if: ${{ matrix.platform == 'windows' && matrix.arch == 'x86_64' }}
+        shell: pwsh
+        run: |
+          & "target/${{ matrix.target }}/release/gproxy.exe" --help
+
+      - name: Install UPX (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends upx-ucl zip
+
+      - name: Install UPX (Windows)
+        if: ${{ runner.os == 'Windows' && matrix.arch != 'aarch64' }}
+        shell: pwsh
+        run: choco install upx -y
+
+      - name: Compress with UPX (Linux/Android)
+        if: ${{ runner.os == 'Linux' }}
+        run: upx --best --lzma target/${{ matrix.target }}/release/gproxy
+
+      - name: Compress with UPX (Windows x86_64)
+        if: ${{ runner.os == 'Windows' && matrix.arch == 'x86_64' }}
+        shell: pwsh
+        run: upx --best --lzma target/${{ matrix.target }}/release/gproxy.exe
+
+      - name: Codesign (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        run: codesign --force --sign - target/${{ matrix.target }}/release/gproxy
 
       - name: Package (Unix)
         if: matrix.platform != 'windows'

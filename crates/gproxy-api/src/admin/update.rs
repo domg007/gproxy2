@@ -28,12 +28,9 @@ use crate::error::HttpError;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Default download base URL, set at compile time.
-/// Falls back to GitHub releases if not specified.
-const DEFAULT_DOWNLOAD_BASE: &str = match option_env!("GPROXY_DOWNLOAD_BASE") {
-    Some(url) => url,
-    None => "https://github.com/LeenHawk/gproxy/releases/download",
-};
+/// Built-in update sources.
+const GITHUB_DOWNLOAD_BASE: &str = "https://github.com/LeenHawk/gproxy/releases/download";
+const WEB_DOWNLOAD_BASE: &str = "https://dl.gproxy.leenhawk.com";
 
 /// Ed25519 public key for verifying update signatures (base64-encoded).
 /// If not set at build time, signature verification is skipped.
@@ -104,13 +101,19 @@ struct VersionManifest {
     tag: Option<String>,
 }
 
+/// Resolve the download base URL from `update_source` config.
+///
+/// Built-in values:
+/// - `"github"` (default) → GitHub Releases
+/// - `"web"` → dl.gproxy.leenhawk.com
+/// - Any other value is treated as a custom base URL.
 fn resolve_download_base(state: &AppState) -> String {
     let config = state.config();
     let source = config.update_source.trim();
-    if source.is_empty() || source == "default" {
-        DEFAULT_DOWNLOAD_BASE.to_string()
-    } else {
-        source.to_string()
+    match source {
+        "" | "default" | "github" => GITHUB_DOWNLOAD_BASE.to_string(),
+        "web" => WEB_DOWNLOAD_BASE.to_string(),
+        custom => custom.to_string(),
     }
 }
 
