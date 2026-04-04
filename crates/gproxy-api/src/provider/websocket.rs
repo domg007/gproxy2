@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use futures_util::StreamExt;
@@ -11,7 +11,7 @@ use gproxy_sdk::provider::engine::{
 };
 use gproxy_server::AppState;
 
-use crate::auth::authenticate_user;
+use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
 
 #[derive(serde::Deserialize, Default)]
@@ -25,10 +25,11 @@ pub async fn openai_responses_ws(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     Query(params): Query<WsQueryParams>,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
     let model = params.model.clone();
 
     // Permission check
@@ -74,10 +75,11 @@ pub async fn openai_responses_ws(
 pub async fn gemini_live(
     State(state): State<Arc<AppState>>,
     Path((provider_name, target)): Path<(String, String)>,
-    headers: HeaderMap,
+    Extension(authenticated): Extension<AuthenticatedUser>,
+    _headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
 
     // Extract model from path (e.g. "gemini-2.0-flash:streamGenerateContent")
     let model = target.split(':').next().map(String::from);
@@ -124,10 +126,11 @@ pub async fn gemini_live(
 pub async fn openai_responses_ws_unscoped(
     State(state): State<Arc<AppState>>,
     Query(params): Query<WsQueryParams>,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
     let model = params.model.clone();
 
     let Some(model_name) = &model else {

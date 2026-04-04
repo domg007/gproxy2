@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{Extension, State};
 use serde::Serialize;
 
 use gproxy_server::AppState;
 
-use crate::auth::authenticate_user;
+use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
 
 #[derive(Serialize)]
@@ -19,9 +18,9 @@ pub struct UserKeyRow {
 /// List the authenticated user's API keys (from memory).
 pub async fn query_keys(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    Extension(authenticated): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<UserKeyRow>>, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
     let keys: Vec<UserKeyRow> = state
         .keys_for_user(user_key.user_id)
         .into_iter()
@@ -48,10 +47,10 @@ pub struct GenerateKeyResponse {
 /// User-facing key generation — generates a new API key for the authenticated user.
 pub async fn generate_key(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     Json(payload): Json<GenerateKeyPayload>,
 ) -> Result<Json<GenerateKeyResponse>, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
     let api_key = crate::admin::users::generate_unique_api_key_for(&state);
     let id = state
         .storage()

@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{Extension, State};
 use serde::Serialize;
 
 use gproxy_server::AppState;
 
-use crate::auth::authenticate_user;
+use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
 
 #[derive(Serialize)]
@@ -24,9 +23,9 @@ pub struct QuotaResponse {
 /// Get the authenticated user's quota and cost.
 pub async fn get_quota(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    Extension(authenticated): Extension<AuthenticatedUser>,
 ) -> Result<Json<QuotaResponse>, HttpError> {
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
     let (quota, cost_used) = state.get_user_quota(user_key.user_id);
     Ok(Json(QuotaResponse {
         user_id: user_key.user_id,

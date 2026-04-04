@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use async_stream::try_stream;
 use axum::body::Body;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Extension, Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
@@ -14,13 +14,14 @@ use gproxy_server::middleware::kinds::{OperationFamily, ProtocolKind};
 use gproxy_server::middleware::model_alias::ResolvedAlias;
 use gproxy_server::middleware::request_model::ExtractedModel;
 
-use crate::auth::authenticate_user;
+use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
 
 /// Proxy handler for provider-scoped routes: `/{provider}/v1/...`
 pub async fn proxy(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     request: Request,
 ) -> Result<Response, HttpError> {
     let start = std::time::Instant::now();
@@ -30,7 +31,7 @@ pub async fn proxy(
     let req_query = request.uri().query().map(String::from);
     let headers = request.headers().clone();
     let req_headers_json = headers_to_json(&headers);
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
 
     // Extract classification from middleware extensions
     let classification = request
@@ -202,6 +203,7 @@ pub async fn proxy(
 /// Proxy handler for unscoped routes: `/v1/...`
 pub async fn proxy_unscoped(
     State(state): State<Arc<AppState>>,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     request: Request,
 ) -> Result<Response, HttpError> {
     let start = std::time::Instant::now();
@@ -211,7 +213,7 @@ pub async fn proxy_unscoped(
     let req_query = request.uri().query().map(String::from);
     let headers = request.headers().clone();
     let req_headers_json = headers_to_json(&headers);
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
 
     let model = request
         .extensions()
@@ -367,6 +369,7 @@ pub async fn proxy_unscoped(
 /// the `X-Provider` header.
 pub async fn proxy_unscoped_files(
     State(state): State<Arc<AppState>>,
+    Extension(authenticated): Extension<AuthenticatedUser>,
     request: Request,
 ) -> Result<Response, HttpError> {
     let start = std::time::Instant::now();
@@ -376,7 +379,7 @@ pub async fn proxy_unscoped_files(
     let req_query = request.uri().query().map(String::from);
     let headers = request.headers().clone();
     let req_headers_json = headers_to_json(&headers);
-    let user_key = authenticate_user(&headers, &state)?;
+    let user_key = authenticated.0;
 
     // Resolve provider from X-Provider header
     let target_provider = headers

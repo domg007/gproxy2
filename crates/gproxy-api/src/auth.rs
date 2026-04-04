@@ -1,10 +1,18 @@
+use std::sync::Arc;
+
+use axum::extract::{Request, State};
 use axum::http::HeaderMap;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use subtle::ConstantTimeEq;
 
 use gproxy_server::AppState;
 use gproxy_server::principal::MemoryUserKey;
 
 use crate::error::HttpError;
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUser(pub MemoryUserKey);
 
 /// Extract API key from request headers.
 /// Checks: Authorization: Bearer <key>, x-api-key, x-goog-api-key.
@@ -61,5 +69,30 @@ pub fn authorize_admin(headers: &HeaderMap, state: &AppState) -> Result<(), Http
         Ok(())
     } else {
         Err(HttpError::forbidden("admin access required"))
+    }
+}
+
+pub async fn require_user_middleware(
+    State(state): State<Arc<AppState>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    match authenticate_user(request.headers(), &state) {
+        Ok(user_key) => {
+            request.extensions_mut().insert(AuthenticatedUser(user_key));
+            next.run(request).await
+        }
+        Err(err) => err.into_response(),
+    }
+}
+
+pub async fn require_admin_middleware(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    match authorize_admin(request.headers(), &state) {
+        Ok(()) => next.run(request).await,
+        Err(err) => err.into_response(),
     }
 }
