@@ -78,6 +78,12 @@ fn prune_codex_oauth_states(now_unix_ms: u64) {
     }
 }
 
+fn codex_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING
+        .get_or_init(|| crate::billing::parse_model_prices_json(include_str!("pricing/codex.json")))
+}
+
 fn build_codex_authorize_url(
     issuer: &str,
     redirect_uri: &str,
@@ -640,6 +646,10 @@ impl Channel for CodexChannel {
             t.set(key, imp);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        codex_model_pricing()
     }
 
     fn prepare_request(

@@ -32,6 +32,13 @@ const ANTIGRAVITY_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/use
 const ANTIGRAVITY_OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 const ANTIGRAVITY_OAUTH_STATE_TTL_MS: u64 = 600_000;
 
+fn antigravity_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/antigravity.json"))
+    })
+}
+
 #[derive(Debug, Clone)]
 struct AntigravityOAuthState {
     code_verifier: String,
@@ -570,6 +577,10 @@ impl Channel for AntigravityChannel {
             t.set(key, imp);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        antigravity_model_pricing()
     }
 
     fn prepare_request(

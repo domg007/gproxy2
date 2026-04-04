@@ -153,12 +153,20 @@
     },
     "price_tiers": [
       {
-        "input_tokens_up_to": 9223372036854775807,
+        "input_tokens_up_to": 200000,
         "price_input_tokens": 3.0,
         "price_output_tokens": 15.0,
         "price_cache_read_input_tokens": 0.3,
         "price_cache_creation_input_tokens_5min": 3.75,
         "price_cache_creation_input_tokens_1h": 6.0
+      },
+      {
+        "input_tokens_up_to": 9223372036854775807,
+        "price_input_tokens": 6.0,
+        "price_output_tokens": 22.5,
+        "price_cache_read_input_tokens": 0.6,
+        "price_cache_creation_input_tokens_5min": 7.5,
+        "price_cache_creation_input_tokens_1h": 12.0
       }
     ]
   },
@@ -170,12 +178,20 @@
     },
     "price_tiers": [
       {
-        "input_tokens_up_to": 9223372036854775807,
+        "input_tokens_up_to": 200000,
         "price_input_tokens": 3.0,
         "price_output_tokens": 15.0,
         "price_cache_read_input_tokens": 0.3,
         "price_cache_creation_input_tokens_5min": 3.75,
         "price_cache_creation_input_tokens_1h": 6.0
+      },
+      {
+        "input_tokens_up_to": 9223372036854775807,
+        "price_input_tokens": 6.0,
+        "price_output_tokens": 22.5,
+        "price_cache_read_input_tokens": 0.6,
+        "price_cache_creation_input_tokens_5min": 7.5,
+        "price_cache_creation_input_tokens_1h": 12.0
       }
     ]
   },
@@ -187,12 +203,20 @@
     },
     "price_tiers": [
       {
-        "input_tokens_up_to": 9223372036854775807,
+        "input_tokens_up_to": 200000,
         "price_input_tokens": 3.0,
         "price_output_tokens": 15.0,
         "price_cache_read_input_tokens": 0.3,
         "price_cache_creation_input_tokens_5min": 3.75,
         "price_cache_creation_input_tokens_1h": 6.0
+      },
+      {
+        "input_tokens_up_to": 9223372036854775807,
+        "price_input_tokens": 6.0,
+        "price_output_tokens": 22.5,
+        "price_cache_read_input_tokens": 0.6,
+        "price_cache_creation_input_tokens_5min": 7.5,
+        "price_cache_creation_input_tokens_1h": 12.0
       }
     ]
   },
@@ -204,12 +228,20 @@
     },
     "price_tiers": [
       {
-        "input_tokens_up_to": 9223372036854775807,
+        "input_tokens_up_to": 200000,
         "price_input_tokens": 3.0,
         "price_output_tokens": 15.0,
         "price_cache_read_input_tokens": 0.3,
         "price_cache_creation_input_tokens_5min": 3.75,
         "price_cache_creation_input_tokens_1h": 6.0
+      },
+      {
+        "input_tokens_up_to": 9223372036854775807,
+        "price_input_tokens": 6.0,
+        "price_output_tokens": 22.5,
+        "price_cache_read_input_tokens": 0.6,
+        "price_cache_creation_input_tokens_5min": 7.5,
+        "price_cache_creation_input_tokens_1h": 12.0
       }
     ]
   },

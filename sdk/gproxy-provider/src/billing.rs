@@ -80,103 +80,23 @@ pub struct ModelPrice {
 }
 
 pub fn parse_model_prices_json(raw: &str) -> Vec<ModelPrice> {
-    let value: serde_json::Value =
+    let mut models: Vec<ModelPrice> =
         serde_json::from_str(raw).expect("invalid built-in model pricing JSON");
-    let mut models = match value {
-        serde_json::Value::Array(_) => {
-            serde_json::from_value(value).expect("invalid built-in model pricing JSON")
-        }
-        serde_json::Value::Object(_) => parse_openrouter_model_prices(value),
-        _ => panic!("invalid built-in model pricing JSON"),
-    };
     for model in &mut models {
         model
             .price_tiers
             .sort_by_key(|tier| tier.input_tokens_up_to);
+        model
+            .flex_price_tiers
+            .sort_by_key(|tier| tier.input_tokens_up_to);
+        model
+            .scale_price_tiers
+            .sort_by_key(|tier| tier.input_tokens_up_to);
+        model
+            .priority_price_tiers
+            .sort_by_key(|tier| tier.input_tokens_up_to);
     }
     models
-}
-
-fn parse_openrouter_model_prices(value: serde_json::Value) -> Vec<ModelPrice> {
-    #[derive(Deserialize)]
-    struct OpenRouterFile {
-        data: Vec<OpenRouterModel>,
-    }
-
-    #[derive(Deserialize)]
-    struct OpenRouterModel {
-        id: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        pricing: OpenRouterPricing,
-    }
-
-    #[derive(Default, Deserialize)]
-    struct OpenRouterPricing {
-        #[serde(default)]
-        prompt: Option<String>,
-        #[serde(default)]
-        completion: Option<String>,
-        #[serde(default)]
-        input_cache_read: Option<String>,
-        #[serde(default)]
-        input_cache_write: Option<String>,
-        #[serde(flatten, default)]
-        extra: BTreeMap<String, serde_json::Value>,
-    }
-
-    fn parse_price(value: Option<String>) -> Option<f64> {
-        let parsed = value?.parse::<f64>().ok()?;
-        (parsed >= 0.0).then_some(parsed * 1_000_000.0)
-    }
-
-    let file: OpenRouterFile =
-        serde_json::from_value(value).expect("invalid OpenRouter model pricing JSON");
-    file.data
-        .into_iter()
-        .filter_map(|model| {
-            let tier = ModelPriceTier {
-                input_tokens_up_to: i64::MAX,
-                price_input_tokens: parse_price(model.pricing.prompt),
-                price_output_tokens: parse_price(model.pricing.completion),
-                price_cache_read_input_tokens: parse_price(model.pricing.input_cache_read),
-                price_cache_creation_input_tokens: parse_price(model.pricing.input_cache_write),
-                price_cache_creation_input_tokens_5min: None,
-                price_cache_creation_input_tokens_1h: None,
-            };
-            let tool_call_prices = model
-                .pricing
-                .extra
-                .into_iter()
-                .filter_map(|(key, value)| {
-                    value
-                        .as_str()
-                        .and_then(|value| value.parse::<f64>().ok())
-                        .filter(|value| *value >= 0.0)
-                        .map(|value| (key, value))
-                })
-                .collect::<BTreeMap<_, _>>();
-            let has_prices = tier.price_input_tokens.is_some()
-                || tier.price_output_tokens.is_some()
-                || tier.price_cache_read_input_tokens.is_some()
-                || tier.price_cache_creation_input_tokens.is_some()
-                || !tool_call_prices.is_empty();
-            has_prices.then_some(ModelPrice {
-                model_id: model.id,
-                display_name: model.name,
-                price_each_call: None,
-                price_tiers: vec![tier],
-                flex_price_each_call: None,
-                flex_price_tiers: Vec::new(),
-                scale_price_each_call: None,
-                scale_price_tiers: Vec::new(),
-                priority_price_each_call: None,
-                priority_price_tiers: Vec::new(),
-                tool_call_prices,
-            })
-        })
-        .collect()
 }
 
 pub fn build_billing_context(
@@ -237,7 +157,7 @@ pub fn estimate_billing(
         });
     }
 
-    if let Some(tier) = select_tier(price_tiers, usage.input_tokens.unwrap_or(0)) {
+    if let Some(tier) = select_tier(price_tiers, effective_input_tokens(usage)) {
         push_usage_cost(
             &mut line_items,
             &mut total_cost,
@@ -313,6 +233,14 @@ fn select_tier(tiers: &[ModelPriceTier], input_tokens: i64) -> Option<&ModelPric
         .iter()
         .find(|tier| input_tokens <= tier.input_tokens_up_to)
         .or_else(|| tiers.last())
+}
+
+fn effective_input_tokens(usage: &Usage) -> i64 {
+    usage.input_tokens.unwrap_or(0)
+        + usage.cache_read_input_tokens.unwrap_or(0)
+        + usage.cache_creation_input_tokens.unwrap_or(0)
+        + usage.cache_creation_input_tokens_5min.unwrap_or(0)
+        + usage.cache_creation_input_tokens_1h.unwrap_or(0)
 }
 
 fn push_usage_cost(
@@ -487,39 +415,5 @@ mod tests {
         };
         let priority_cost = estimate_cost(&prices, &priority_context, &usage).unwrap();
         assert!((priority_cost - 0.51).abs() < 1e-9);
-    }
-
-    #[test]
-    fn parses_openrouter_snapshot_shape() {
-        let prices = parse_model_prices_json(
-            r#"
-            {
-              "data": [
-                {
-                  "id": "openai/gpt-test",
-                  "name": "OpenAI: GPT Test",
-                  "pricing": {
-                    "prompt": "0.000001",
-                    "completion": "0.000002",
-                    "input_cache_read": "0.0000005",
-                    "input_cache_write": "0.0000015"
-                  }
-                }
-              ]
-            }
-            "#,
-        );
-        assert_eq!(prices.len(), 1);
-        assert_eq!(prices[0].model_id, "openai/gpt-test");
-        assert_eq!(prices[0].price_tiers[0].price_input_tokens, Some(1.0));
-        assert_eq!(prices[0].price_tiers[0].price_output_tokens, Some(2.0));
-        assert_eq!(
-            prices[0].price_tiers[0].price_cache_read_input_tokens,
-            Some(0.5)
-        );
-        assert_eq!(
-            prices[0].price_tiers[0].price_cache_creation_input_tokens,
-            Some(1.5)
-        );
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
@@ -24,6 +26,13 @@ pub struct VertexExpressSettings {
 
 fn default_vertexexpress_base_url() -> String {
     "https://aiplatform.googleapis.com".to_string()
+}
+
+fn vertexexpress_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/vertexexpress.json"))
+    })
 }
 
 impl ChannelSettings for VertexExpressSettings {
@@ -213,6 +222,10 @@ impl Channel for VertexExpressChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        vertexexpress_model_pricing()
     }
 
     fn prepare_request(

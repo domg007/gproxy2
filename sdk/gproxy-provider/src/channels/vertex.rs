@@ -16,6 +16,13 @@ use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 const DEFAULT_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
+fn vertex_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/vertex.json"))
+    })
+}
+
 /// Vertex AI (Google Cloud) channel using OAuth2 service account authentication.
 ///
 /// Token refresh is automatic: `refresh_credential` is called before each
@@ -364,6 +371,10 @@ impl Channel for VertexChannel {
             t.set(key, implementation);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        vertex_model_pricing()
     }
 
     fn normalize_response(&self, _request: &PreparedRequest, body: Vec<u8>) -> Vec<u8> {

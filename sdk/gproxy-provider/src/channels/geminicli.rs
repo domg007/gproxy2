@@ -36,6 +36,13 @@ const GEMINICLI_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v2/useri
 const GEMINICLI_OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 const GEMINICLI_OAUTH_STATE_TTL_MS: u64 = 600_000;
 
+fn geminicli_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/geminicli.json"))
+    })
+}
+
 #[derive(Debug, Clone)]
 struct GeminiCliOAuthState {
     code_verifier: String,
@@ -570,6 +577,10 @@ impl Channel for GeminiCliChannel {
             t.set(key, imp);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        geminicli_model_pricing()
     }
 
     fn prepare_request(

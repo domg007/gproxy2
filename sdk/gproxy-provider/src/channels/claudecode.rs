@@ -44,6 +44,13 @@ const CLAUDECODE_OAUTH_STATE_TTL_MS: u64 = 600_000;
 const CLAUDECODE_TOKEN_UA: &str = "claude-cli/2.1.89 (external, cli)";
 const CLAUDECODE_PROFILE_UA: &str = "claude-code/2.1.89";
 
+fn claudecode_model_pricing() -> &'static [crate::billing::ModelPrice] {
+    static PRICING: OnceLock<Vec<crate::billing::ModelPrice>> = OnceLock::new();
+    PRICING.get_or_init(|| {
+        crate::billing::parse_model_prices_json(include_str!("pricing/claudecode.json"))
+    })
+}
+
 #[derive(Debug, Clone)]
 struct ClaudeCodeOAuthState {
     code_verifier: String,
@@ -714,6 +721,10 @@ impl Channel for ClaudeCodeChannel {
             t.set(key, imp);
         }
         t
+    }
+
+    fn model_pricing(&self) -> &'static [crate::billing::ModelPrice] {
+        claudecode_model_pricing()
     }
 
     fn prepare_request(
