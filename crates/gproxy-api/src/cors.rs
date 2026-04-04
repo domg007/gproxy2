@@ -111,7 +111,9 @@ fn inject_cors_headers(
             );
         }
         AllowOrigin::List(origins) => {
-            if let Some(req_origin) = request_origin && origins.iter().any(|o| o == req_origin) {
+            if let Some(req_origin) = request_origin
+                && origins.iter().any(|o| o == req_origin)
+            {
                 headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, req_origin.clone());
                 // Vary so caches key on Origin
                 headers.append(header::VARY, HeaderValue::from_static("Origin"));

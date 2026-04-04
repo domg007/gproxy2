@@ -7,8 +7,7 @@ use axum::response::Response;
 use futures_util::StreamExt;
 
 use gproxy_sdk::provider::engine::{
-    ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage,
-    WsUpstreamMeta,
+    ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage, WsUpstreamMeta,
 };
 use gproxy_server::AppState;
 
@@ -34,15 +33,17 @@ pub async fn openai_responses_ws(
 
     // Permission check
     if let Some(ref m) = model
-        && !state.check_model_permission(user_key.user_id, 0, m) {
-            return Err(HttpError::forbidden("model not authorized for this user"));
-        }
+        && !state.check_model_permission(user_key.user_id, 0, m)
+    {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
 
     // Rate limit check
     if let Some(ref m) = model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
-            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
-        }
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     let user_id = user_key.user_id;
     let user_key_id = user_key.id;
@@ -83,15 +84,17 @@ pub async fn gemini_live(
 
     // Permission check
     if let Some(ref m) = model
-        && !state.check_model_permission(user_key.user_id, 0, m) {
-            return Err(HttpError::forbidden("model not authorized for this user"));
-        }
+        && !state.check_model_permission(user_key.user_id, 0, m)
+    {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
 
     // Rate limit check
     if let Some(ref m) = model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
-            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
-        }
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     let user_id = user_key.user_id;
     let user_key_id = user_key.id;
@@ -101,9 +104,16 @@ pub async fn gemini_live(
         if let Some(ref m) = model {
             state.record_request(user_id, m);
         }
-        if let Err(e) =
-            handle_gemini_live_ws(state, provider_name, model, user_id, user_key_id, path, socket)
-                .await
+        if let Err(e) = handle_gemini_live_ws(
+            state,
+            provider_name,
+            model,
+            user_id,
+            user_key_id,
+            path,
+            socket,
+        )
+        .await
         {
             tracing::warn!(error = %e, "gemini live websocket error");
         }
@@ -127,28 +137,30 @@ pub async fn openai_responses_ws_unscoped(
     };
 
     // Resolve provider from model (alias or provider/model format)
-    let (target_provider, target_model) =
-        if let Some(alias) = state.resolve_model_alias(model_name) {
-            (alias.provider_name, Some(alias.model_id))
-        } else if let Some((provider, model)) = model_name.split_once('/') {
-            (provider.to_string(), Some(model.to_string()))
-        } else {
-            return Err(HttpError::bad_request(
-                "model must have provider prefix (provider/model) or match an alias",
-            ));
-        };
+    let (target_provider, target_model) = if let Some(alias) = state.resolve_model_alias(model_name)
+    {
+        (alias.provider_name, Some(alias.model_id))
+    } else if let Some((provider, model)) = model_name.split_once('/') {
+        (provider.to_string(), Some(model.to_string()))
+    } else {
+        return Err(HttpError::bad_request(
+            "model must have provider prefix (provider/model) or match an alias",
+        ));
+    };
 
     // Permission check
     if let Some(ref m) = target_model
-        && !state.check_model_permission(user_key.user_id, 0, m) {
-            return Err(HttpError::forbidden("model not authorized for this user"));
-        }
+        && !state.check_model_permission(user_key.user_id, 0, m)
+    {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
 
     // Rate limit check
     if let Some(ref m) = target_model
-        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m) {
-            return Err(HttpError::too_many_requests(format!("{rejection:?}")));
-        }
+        && let Err(rejection) = state.check_rate_limit(user_key.user_id, m)
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
 
     let user_id = user_key.user_id;
     let user_key_id = user_key.id;
@@ -225,11 +237,10 @@ async fn handle_openai_ws(
         }) => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
             record_ws_upstream_log(&state, trace_id, &ws_meta).await;
-            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol
+                .as_str()
             {
-                "gemini" => Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(
-                    model.clone(),
-                )),
+                "gemini" => Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(model.clone())),
                 _ => {
                     tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
                     return Ok(());
@@ -240,12 +251,7 @@ async fn handle_openai_ws(
         }
         Err(e) => {
             tracing::info!(trace_id, provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
-            run_http_sse_fallback(
-                &ctx,
-                headers,
-                &mut downstream,
-            )
-            .await?;
+            run_http_sse_fallback(&ctx, headers, &mut downstream).await?;
         }
     }
     Ok(())
@@ -303,11 +309,10 @@ async fn handle_gemini_live_ws(
         } => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
             record_ws_upstream_log(&state, trace_id, &ws_meta).await;
-            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol
+                .as_str()
             {
-                "openai" => Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(
-                    model.clone(),
-                )),
+                "openai" => Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(model.clone())),
                 _ => {
                     tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
                     return Ok(());
@@ -443,25 +448,23 @@ async fn run_ws_bridge_with_protocol(
         let _ = ctx
             .state
             .storage_writes()
-            .enqueue(
-                gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
-                    gproxy_storage::DownstreamRequestWrite {
-                        trace_id: ctx.trace_id,
-                        at_unix_ms: now_ms,
-                        internal: false,
-                        user_id: Some(ctx.user_id),
-                        user_key_id: Some(ctx.user_key_id),
-                        request_method: "WEBSOCKET".to_string(),
-                        request_headers_json: String::new(),
-                        request_path: format!("ws://{}/{}", ctx.operation, ctx.protocol),
-                        request_query: None,
-                        request_body,
-                        response_status: Some(101),
-                        response_headers_json: String::new(),
-                        response_body,
-                    },
-                ),
-            )
+            .enqueue(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+                gproxy_storage::DownstreamRequestWrite {
+                    trace_id: ctx.trace_id,
+                    at_unix_ms: now_ms,
+                    internal: false,
+                    user_id: Some(ctx.user_id),
+                    user_key_id: Some(ctx.user_key_id),
+                    request_method: "WEBSOCKET".to_string(),
+                    request_headers_json: String::new(),
+                    request_path: format!("ws://{}/{}", ctx.operation, ctx.protocol),
+                    request_query: None,
+                    request_body,
+                    response_status: Some(101),
+                    response_headers_json: String::new(),
+                    response_body,
+                },
+            ))
             .await;
     }
 }
@@ -554,10 +557,7 @@ async fn run_http_sse_fallback(
                 }
                 _ => continue,
             };
-            active_stream = start_http_request(
-                ctx,
-                &headers, &text, downstream,
-            ).await?;
+            active_stream = start_http_request(ctx, &headers, &text, downstream).await?;
         }
     }
     Ok(())
@@ -629,8 +629,7 @@ async fn start_http_request(
 
             match result.body {
                 ExecuteBody::Full(body) => {
-                    let mut decoder =
-                        gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
+                    let mut decoder = gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
                     let mut chunks = Vec::new();
                     chunks.extend(split_sse_events(&decoder.push_chunk(&body)));
                     chunks.extend(split_sse_events(&decoder.finish()));
@@ -648,8 +647,7 @@ async fn start_http_request(
                     Ok(None)
                 }
                 ExecuteBody::Stream(stream) => {
-                    let decoder =
-                        gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
+                    let decoder = gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
                     Ok(Some((stream, decoder)))
                 }
             }
@@ -687,23 +685,21 @@ async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstre
         serde_json::to_string(&meta.request_headers).unwrap_or_else(|_| "[]".to_string());
     let _ = state
         .storage_writes()
-        .enqueue(
-            gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
-                gproxy_storage::UpstreamRequestWrite {
-                    downstream_trace_id: Some(trace_id),
-                    at_unix_ms: now_ms,
-                    internal: false,
-                    provider_id: None,
-                    credential_id: Some(meta.credential_index as i64),
-                    request_method: "WEBSOCKET".to_string(),
-                    request_headers_json: headers_json,
-                    request_url: Some(meta.url.clone()),
-                    request_body: None,
-                    response_status: Some(meta.response_status as i32),
-                    response_headers_json: "[]".to_string(),
-                    response_body: None,
-                },
-            ),
-        )
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
+            gproxy_storage::UpstreamRequestWrite {
+                downstream_trace_id: Some(trace_id),
+                at_unix_ms: now_ms,
+                internal: false,
+                provider_id: None,
+                credential_id: Some(meta.credential_index as i64),
+                request_method: "WEBSOCKET".to_string(),
+                request_headers_json: headers_json,
+                request_url: Some(meta.url.clone()),
+                request_body: None,
+                response_status: Some(meta.response_status as i32),
+                response_headers_json: "[]".to_string(),
+                response_body: None,
+            },
+        ))
         .await;
 }

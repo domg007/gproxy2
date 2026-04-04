@@ -23,9 +23,7 @@ async fn resolve_provider_name(state: &AppState, provider_id: i64) -> Result<Str
 }
 
 /// Build a provider_id -> name map for a set of provider IDs.
-async fn resolve_provider_names(
-    state: &AppState,
-) -> Result<HashMap<i64, String>, HttpError> {
+async fn resolve_provider_names(state: &AppState) -> Result<HashMap<i64, String>, HttpError> {
     let storage = state.storage();
     let providers = storage
         .list_providers(&gproxy_storage::ProviderQuery::default())

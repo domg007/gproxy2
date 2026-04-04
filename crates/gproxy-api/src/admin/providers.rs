@@ -9,10 +9,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 /// Look up a provider's DB id by name.
-async fn resolve_provider_id_by_name(
-    state: &AppState,
-    name: &str,
-) -> Result<i64, HttpError> {
+async fn resolve_provider_id_by_name(state: &AppState, name: &str) -> Result<i64, HttpError> {
     let rows = state
         .storage()
         .list_providers(&ProviderQuery {

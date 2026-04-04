@@ -179,13 +179,13 @@ impl OpenAiToGeminiBridge {
 
 impl WsProtocolBridge for OpenAiToGeminiBridge {
     fn convert_client_message(&mut self, msg: &str) -> Result<Vec<String>, UpstreamError> {
-        use gproxy_sdk::protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketClientMessage;
-        use gproxy_sdk::protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest;
         use gproxy_sdk::protocol::gemini::live::types::GeminiBidiGenerateContentClientMessage;
+        use gproxy_sdk::protocol::gemini::stream_generate_content::request::GeminiStreamGenerateContentRequest;
+        use gproxy_sdk::protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketClientMessage;
 
         // Parse OpenAI WS client message
-        let client_msg: OpenAiCreateResponseWebSocketClientMessage =
-            serde_json::from_str(msg).map_err(|e| {
+        let client_msg: OpenAiCreateResponseWebSocketClientMessage = serde_json::from_str(msg)
+            .map_err(|e| {
                 UpstreamError::Channel(format!("failed to parse OpenAI WS client message: {e}"))
             })?;
 
@@ -224,13 +224,15 @@ impl WsProtocolBridge for OpenAiToGeminiBridge {
         &mut self,
         msg: &str,
     ) -> Result<(Vec<String>, Option<Usage>), UpstreamError> {
-        use gproxy_sdk::protocol::gemini::live::types::{GeminiBidiGenerateContentServerMessage, GeminiBidiGenerateContentServerMessageType};
+        use gproxy_sdk::protocol::gemini::live::types::{
+            GeminiBidiGenerateContentServerMessage, GeminiBidiGenerateContentServerMessageType,
+        };
         use gproxy_sdk::protocol::transform::gemini::websocket::context::GeminiWebsocketTransformContext;
         use gproxy_sdk::protocol::transform::gemini::websocket::to_http::response::server_message_to_chunk;
 
         // Parse Gemini Live server message
-        let server_msg: GeminiBidiGenerateContentServerMessage =
-            serde_json::from_str(msg).map_err(|e| {
+        let server_msg: GeminiBidiGenerateContentServerMessage = serde_json::from_str(msg)
+            .map_err(|e| {
                 UpstreamError::Channel(format!("failed to parse Gemini Live message: {e}"))
             })?;
 
@@ -312,16 +314,14 @@ impl WsProtocolBridge for GeminiToOpenAiBridge {
         use gproxy_sdk::protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketClientMessage;
 
         // Parse Gemini Live client message
-        let client_msg: GeminiBidiGenerateContentClientMessage =
-            serde_json::from_str(msg).map_err(|e| {
+        let client_msg: GeminiBidiGenerateContentClientMessage = serde_json::from_str(msg)
+            .map_err(|e| {
                 UpstreamError::Channel(format!("failed to parse Gemini Live client message: {e}"))
             })?;
 
         // Gemini Live msg → Gemini HTTP stream request (takes single message as slice)
-        let gemini_request =
-            GeminiStreamGenerateContentRequest::try_from(&[client_msg] as &[_]).map_err(|e| {
-                UpstreamError::Channel(format!("Gemini Live → HTTP request: {e}"))
-            })?;
+        let gemini_request = GeminiStreamGenerateContentRequest::try_from(&[client_msg] as &[_])
+            .map_err(|e| UpstreamError::Channel(format!("Gemini Live → HTTP request: {e}")))?;
 
         // Gemini HTTP request → OpenAI Response request (owned)
         let openai_request = OpenAiCreateResponseRequest::try_from(gemini_request)
@@ -349,9 +349,8 @@ impl WsProtocolBridge for GeminiToOpenAiBridge {
         use gproxy_sdk::protocol::openai::create_response::stream::ResponseStreamEvent;
 
         // Parse OpenAI WS server message — try as stream event first
-        let event: ResponseStreamEvent = serde_json::from_str(msg).map_err(|e| {
-            UpstreamError::Channel(format!("failed to parse OpenAI WS event: {e}"))
-        })?;
+        let event: ResponseStreamEvent = serde_json::from_str(msg)
+            .map_err(|e| UpstreamError::Channel(format!("failed to parse OpenAI WS event: {e}")))?;
 
         // Extract usage from OpenAI event
         let usage = extract_openai_ws_usage(msg.as_bytes());
@@ -362,13 +361,14 @@ impl WsProtocolBridge for GeminiToOpenAiBridge {
 
         // Convert OpenAI event → Gemini HTTP chunks
         let mut gemini_chunks = Vec::new();
-        self.stream_converter.on_stream_event(event, &mut gemini_chunks);
+        self.stream_converter
+            .on_stream_event(event, &mut gemini_chunks);
 
         // Convert Gemini HTTP chunks → Gemini Live server messages (reusing existing converter)
+        use gproxy_sdk::protocol::gemini::live::response::GeminiLiveMessageResponse;
         use gproxy_sdk::protocol::transform::gemini::websocket::from_http::response::{
             candidate_to_server_message, usage_generate_to_live,
         };
-        use gproxy_sdk::protocol::gemini::live::response::GeminiLiveMessageResponse;
 
         let mut out = Vec::new();
         for chunk in gemini_chunks {

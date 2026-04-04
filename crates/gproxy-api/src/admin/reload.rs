@@ -152,10 +152,8 @@ pub async fn reload(
         .await?;
     let alias_count = aliases.len();
     // Build provider_id -> name map from the providers already loaded above
-    let provider_name_map: std::collections::HashMap<i64, String> = providers
-        .iter()
-        .map(|p| (p.id, p.name.clone()))
-        .collect();
+    let provider_name_map: std::collections::HashMap<i64, String> =
+        providers.iter().map(|p| (p.id, p.name.clone())).collect();
     let alias_map = aliases
         .into_iter()
         .filter(|a| a.enabled)

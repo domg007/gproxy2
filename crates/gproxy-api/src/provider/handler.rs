@@ -177,10 +177,7 @@ pub async fn proxy(
                 None,
             )
             .await;
-            Body::from_stream(stream_with_usage_tracking(
-                usage_ctx.clone(),
-                stream,
-            ))
+            Body::from_stream(stream_with_usage_tracking(usage_ctx.clone(), stream))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
     };
@@ -343,10 +340,7 @@ pub async fn proxy_unscoped(
                 None,
             )
             .await;
-            Body::from_stream(stream_with_usage_tracking(
-                usage_ctx.clone(),
-                stream,
-            ))
+            Body::from_stream(stream_with_usage_tracking(usage_ctx.clone(), stream))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
     };
@@ -1135,24 +1129,30 @@ async fn record_downstream_log(
         .as_millis() as i64;
     let _ = state
         .storage_writes()
-        .enqueue(
-            gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
-                gproxy_storage::DownstreamRequestWrite {
-                    trace_id,
-                    at_unix_ms: now_ms,
-                    internal: false,
-                    user_id: Some(user_id),
-                    user_key_id: Some(user_key_id),
-                    request_method: method.to_string(),
-                    request_headers_json: req_headers_json.to_string(),
-                    request_path: path.to_string(),
-                    request_query: query.map(String::from),
-                    request_body: if include_body { req_body.cloned() } else { None },
-                    response_status: resp_status,
-                    response_headers_json: resp_headers_json.to_string(),
-                    response_body: if include_body { resp_body.cloned() } else { None },
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+            gproxy_storage::DownstreamRequestWrite {
+                trace_id,
+                at_unix_ms: now_ms,
+                internal: false,
+                user_id: Some(user_id),
+                user_key_id: Some(user_key_id),
+                request_method: method.to_string(),
+                request_headers_json: req_headers_json.to_string(),
+                request_path: path.to_string(),
+                request_query: query.map(String::from),
+                request_body: if include_body {
+                    req_body.cloned()
+                } else {
+                    None
                 },
-            ),
-        )
+                response_status: resp_status,
+                response_headers_json: resp_headers_json.to_string(),
+                response_body: if include_body {
+                    resp_body.cloned()
+                } else {
+                    None
+                },
+            },
+        ))
         .await;
 }
