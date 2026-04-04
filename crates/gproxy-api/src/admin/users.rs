@@ -1,5 +1,6 @@
 use crate::auth::authorize_admin;
 use crate::error::{AckResponse, HttpError};
+use crate::login::hash_password;
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -60,9 +61,10 @@ pub async fn query_users(
 pub async fn upsert_user(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(payload): Json<gproxy_storage::UserWrite>,
+    Json(mut payload): Json<gproxy_storage::UserWrite>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    payload.password = hash_password(&payload.password);
     state.upsert_user_in_memory(gproxy_server::MemoryUser {
         id: payload.id,
         name: payload.name.clone(),
@@ -190,7 +192,8 @@ pub async fn batch_upsert_users(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let sender = state.storage_writes();
-    for item in items {
+    for mut item in items {
+        item.password = hash_password(&item.password);
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(item))
             .await

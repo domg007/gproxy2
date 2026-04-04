@@ -3,11 +3,20 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use gproxy_server::AppState;
 use gproxy_storage::Scope;
 
 use crate::error::HttpError;
+
+/// Hash a password with SHA-256 and return the hex-encoded digest.
+pub fn hash_password(password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    let result = hasher.finalize();
+    result.iter().map(|b| format!("{b:02x}")).collect()
+}
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -37,7 +46,7 @@ pub async fn login(
         .first()
         .ok_or_else(|| HttpError::unauthorized("invalid username or password"))?;
 
-    if user.password != payload.password {
+    if user.password != hash_password(&payload.password) {
         return Err(HttpError::unauthorized("invalid username or password"));
     }
 
