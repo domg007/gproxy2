@@ -15,6 +15,7 @@ pub mod rate_limits;
 pub mod reload;
 pub mod requests;
 pub mod settings;
+pub mod update;
 pub mod usages;
 pub mod users;
 
@@ -178,4 +179,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Config export/import
         .route("/config/export-toml", post(config_toml::export_toml))
         .route("/config/import-toml", post(config_toml::import_toml))
+        // Self-update
+        .route("/update/check", post(update::check_update))
+        .route("/update", post(update::perform_update))
 }
