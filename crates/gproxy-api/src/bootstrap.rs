@@ -128,6 +128,19 @@ pub async fn reload_from_db(
         })
         .collect();
     apply_persisted_credential_statuses(state, &credential_positions).await?;
+    let provider_credentials: HashMap<String, Vec<i64>> = providers
+        .iter()
+        .filter(|p| p.enabled)
+        .map(|provider| {
+            let ids = all_credentials
+                .iter()
+                .filter(|c| c.provider_id == provider.id && c.enabled)
+                .map(|c| c.id)
+                .collect();
+            (provider.name.clone(), ids)
+        })
+        .collect();
+    state.replace_provider_credentials(provider_credentials);
 
     // Provider name → id map for permission checks
     let provider_name_map: HashMap<String, i64> =

@@ -63,12 +63,14 @@ async fn sync_provider_runtime(
     {
         store.remove_provider(old_name);
         state.remove_provider_name_from_memory(old_name);
+        state.remove_provider_credentials_from_memory(old_name);
     }
 
     state.upsert_provider_name_in_memory(payload.name.clone(), payload.id);
 
     if !payload.enabled {
         store.remove_provider(&payload.name);
+        state.remove_provider_credentials_from_memory(&payload.name);
         return Ok(());
     }
 
@@ -108,6 +110,13 @@ async fn sync_provider_runtime(
                 .map(|cred| cred.credential)
                 .collect::<Vec<_>>()
         });
+    let credential_ids = if runtime_credentials.is_some() {
+        state
+            .provider_credential_ids_for(previous_runtime_name.as_deref().unwrap_or(&payload.name))
+            .unwrap_or_else(|| credentials.iter().map(|cred| cred.id).collect())
+    } else {
+        credentials.iter().map(|cred| cred.id).collect()
+    };
 
     let provider_config = ProviderConfig {
         name: payload.name.clone(),
@@ -123,6 +132,7 @@ async fn sync_provider_runtime(
     store
         .add_provider_json(provider_config)
         .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.replace_provider_credential_ids_in_memory(payload.name.clone(), credential_ids);
 
     let credential_positions: HashMap<i64, (String, usize)> = credentials
         .iter()
@@ -227,6 +237,7 @@ pub async fn delete_provider(
     let provider_id = resolve_provider_id_by_name(&state, &payload.name).await?;
     state.engine().store().remove_provider(&payload.name);
     state.remove_provider_name_from_memory(&payload.name);
+    state.remove_provider_credentials_from_memory(&payload.name);
     state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
@@ -265,6 +276,7 @@ pub async fn batch_delete_providers(
         let provider_id = resolve_provider_id_by_name(&state, name).await?;
         state.engine().store().remove_provider(name);
         state.remove_provider_name_from_memory(name);
+        state.remove_provider_credentials_from_memory(name);
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
             .await

@@ -110,16 +110,18 @@ pub async fn upsert_credential(
     Json(payload): Json<UpsertCredentialPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
+    let id = generate_credential_id();
     // Add to SDK engine memory
     state
         .engine()
         .store()
         .add_credential(&payload.provider_name, payload.credential.clone())
         .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.append_provider_credential_id_in_memory(&payload.provider_name, id);
     // Persist to DB
-    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
     let write = gproxy_storage::CredentialWrite {
-        id: generate_credential_id(),
+        id,
         provider_id: provider.id,
         name: None,
         kind: provider.channel.clone(),
@@ -152,6 +154,7 @@ pub async fn delete_credential(
         .store()
         .remove_credential(&payload.provider_name, payload.index)
         .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.remove_provider_credential_index_in_memory(&payload.provider_name, payload.index);
     // Persist deletion to DB
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
     let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
@@ -173,13 +176,15 @@ pub async fn batch_upsert_credentials(
     let store = engine.store();
     let sender = state.storage_writes();
     for item in &items {
+        let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
+        let id = generate_credential_id();
         store
             .add_credential(&item.provider_name, item.credential.clone())
             .map_err(|e| HttpError::internal(e.to_string()))?;
+        state.append_provider_credential_id_in_memory(&item.provider_name, id);
         // Persist to DB
-        let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
         let write = gproxy_storage::CredentialWrite {
-            id: generate_credential_id(),
+            id,
             provider_id: provider.id,
             name: None,
             kind: provider.channel.clone(),
@@ -211,6 +216,7 @@ pub async fn batch_delete_credentials(
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
         let cred_id = resolve_credential_db_id(&state, provider.id, item.index).await?;
         let _ = store.remove_credential(&item.provider_name, item.index);
+        state.remove_provider_credential_index_in_memory(&item.provider_name, item.index);
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
             .await
