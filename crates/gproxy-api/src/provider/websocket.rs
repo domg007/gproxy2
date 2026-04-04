@@ -186,6 +186,7 @@ async fn handle_openai_ws(
     headers: HeaderMap,
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let trace_id = super::handler::generate_trace_id();
     // Try upstream WebSocket via SDK
     let ctx = WsBridgeContext {
         state: &state,
@@ -194,6 +195,7 @@ async fn handle_openai_ws(
         model: model.as_deref(),
         operation: "openai_response_websocket",
         protocol: "openai",
+        trace_id,
     };
 
     match state
@@ -239,6 +241,7 @@ async fn handle_openai_ws(
                 model,
                 user_id,
                 user_key_id,
+                trace_id,
                 headers,
                 &mut downstream,
             )
@@ -261,6 +264,7 @@ async fn handle_gemini_live_ws(
     path: String,
     mut downstream: WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let trace_id = super::handler::generate_trace_id();
     let ctx = WsBridgeContext {
         state: &state,
         user_id,
@@ -268,6 +272,7 @@ async fn handle_gemini_live_ws(
         model: model.as_deref(),
         operation: "gemini_live",
         protocol: "gemini",
+        trace_id,
     };
 
     let result = state
@@ -322,6 +327,7 @@ struct WsBridgeContext<'a> {
     model: Option<&'a str>,
     operation: &'a str,
     protocol: &'a str,
+    trace_id: i64,
 }
 
 async fn run_ws_bridge_with_protocol(
@@ -400,6 +406,7 @@ async fn run_ws_bridge_with_protocol(
             ctx.operation,
             ctx.protocol,
             &usage,
+            Some(ctx.trace_id),
         )
         .await;
     }
@@ -415,6 +422,7 @@ async fn run_http_sse_fallback(
     model: Option<String>,
     user_id: i64,
     user_key_id: i64,
+    trace_id: i64,
     headers: HeaderMap,
     downstream: &mut WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -443,7 +451,7 @@ async fn run_http_sse_fallback(
                     // Drop current stream, start new request
                     drop(active_stream.take());
                     active_stream = start_http_request(
-                        &state, &provider_name, &model, user_id, user_key_id,
+                        &state, &provider_name, &model, user_id, user_key_id, trace_id,
                         &headers, &text, downstream,
                     ).await?;
                 }
@@ -498,7 +506,7 @@ async fn run_http_sse_fallback(
                 _ => continue,
             };
             active_stream = start_http_request(
-                &state, &provider_name, &model, user_id, user_key_id,
+                &state, &provider_name, &model, user_id, user_key_id, trace_id,
                 &headers, &text, downstream,
             ).await?;
         }
@@ -515,6 +523,7 @@ async fn start_http_request(
     model: &Option<String>,
     user_id: i64,
     user_key_id: i64,
+    trace_id: i64,
     headers: &HeaderMap,
     text: &str,
     downstream: &mut WebSocket,
@@ -570,6 +579,7 @@ async fn start_http_request(
                     &operation,
                     &protocol,
                     usage,
+                    Some(trace_id),
                 )
                 .await;
             }

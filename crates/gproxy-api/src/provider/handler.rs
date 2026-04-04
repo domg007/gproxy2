@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, Usage};
+use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, UpstreamRequestMeta, Usage};
 use gproxy_server::AppState;
 use gproxy_server::middleware::classify::Classification;
 use gproxy_server::middleware::kinds::{OperationFamily, ProtocolKind};
@@ -23,7 +23,13 @@ pub async fn proxy(
     Path(provider_name): Path<String>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let start = std::time::Instant::now();
+    let trace_id = generate_trace_id();
+    let req_method = request.method().to_string();
+    let req_path = request.uri().path().to_string();
+    let req_query = request.uri().query().map(String::from);
     let headers = request.headers().clone();
+    let req_headers_json = headers_to_json(&headers);
     let user_key = authenticate_user(&headers, &state)?;
 
     // Extract classification from middleware extensions
@@ -74,6 +80,7 @@ pub async fn proxy(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
+    let req_body = body.to_vec();
 
     let result = state
         .engine()
@@ -81,7 +88,7 @@ pub async fn proxy(
             provider: effective_provider,
             operation: operation.clone(),
             protocol: protocol.clone(),
-            body: body.to_vec(),
+            body: req_body.clone(),
             headers,
             model: effective_model.clone(),
         })
@@ -102,13 +109,73 @@ pub async fn proxy(
             &operation,
             &protocol,
             usage,
+            Some(trace_id),
         )
         .await;
     }
 
+    // Record upstream log
+    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+
+    let resp_status = result.status;
+    let resp_headers_json = headers_to_json(&result.headers);
+
     let response_body = match result.body {
-        ExecuteBody::Full(body) => Body::from(body),
+        ExecuteBody::Full(ref resp_body) => {
+            // Record downstream log (full response available)
+            let latency_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                trace_id,
+                method = %req_method,
+                path = %req_path,
+                status = resp_status,
+                latency_ms,
+                "downstream"
+            );
+            record_downstream_log(
+                &state,
+                trace_id,
+                user_key.user_id,
+                user_key.id,
+                &req_method,
+                &req_path,
+                req_query.as_deref(),
+                &req_headers_json,
+                Some(&req_body),
+                Some(resp_status as i32),
+                &resp_headers_json,
+                Some(resp_body),
+            )
+            .await;
+            Body::from(resp_body.clone())
+        }
         ExecuteBody::Stream(stream) if classification.operation.is_stream() => {
+            // For streaming: log downstream immediately (response body not captured)
+            let latency_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                trace_id,
+                method = %req_method,
+                path = %req_path,
+                status = resp_status,
+                latency_ms,
+                stream = true,
+                "downstream"
+            );
+            record_downstream_log(
+                &state,
+                trace_id,
+                user_key.user_id,
+                user_key.id,
+                &req_method,
+                &req_path,
+                req_query.as_deref(),
+                &req_headers_json,
+                Some(&req_body),
+                Some(resp_status as i32),
+                &resp_headers_json,
+                None,
+            )
+            .await;
             Body::from_stream(stream_with_usage_tracking(
                 state.clone(),
                 user_key.user_id,
@@ -117,6 +184,7 @@ pub async fn proxy(
                 operation.clone(),
                 protocol.clone(),
                 stream,
+                Some(trace_id),
             ))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
@@ -136,7 +204,13 @@ pub async fn proxy_unscoped(
     State(state): State<Arc<AppState>>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let start = std::time::Instant::now();
+    let trace_id = generate_trace_id();
+    let req_method = request.method().to_string();
+    let req_path = request.uri().path().to_string();
+    let req_query = request.uri().query().map(String::from);
     let headers = request.headers().clone();
+    let req_headers_json = headers_to_json(&headers);
     let user_key = authenticate_user(&headers, &state)?;
 
     let model = request
@@ -157,6 +231,7 @@ pub async fn proxy_unscoped(
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
         .await
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
+    let req_body = body.to_vec();
 
     // Resolve provider: alias → prefix → error
     let (target_provider, target_model) = if let Some(alias) = state.resolve_model_alias(model_name)
@@ -179,15 +254,72 @@ pub async fn proxy_unscoped(
             provider: target_provider,
             operation: operation.clone(),
             protocol: protocol.clone(),
-            body: body.to_vec(),
+            body: req_body.clone(),
             headers,
             model: Some(target_model.clone()),
         })
         .await?;
 
+    // Record upstream log
+    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+
+    let resp_status = result.status;
+    let resp_headers_json = headers_to_json(&result.headers);
+
     let response_body = match result.body {
-        ExecuteBody::Full(body) => Body::from(body),
+        ExecuteBody::Full(ref resp_body) => {
+            let latency_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                trace_id,
+                method = %req_method,
+                path = %req_path,
+                status = resp_status,
+                latency_ms,
+                "downstream"
+            );
+            record_downstream_log(
+                &state,
+                trace_id,
+                user_key.user_id,
+                user_key.id,
+                &req_method,
+                &req_path,
+                req_query.as_deref(),
+                &req_headers_json,
+                Some(&req_body),
+                Some(resp_status as i32),
+                &resp_headers_json,
+                Some(resp_body),
+            )
+            .await;
+            Body::from(resp_body.clone())
+        }
         ExecuteBody::Stream(stream) if classification.operation.is_stream() => {
+            let latency_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                trace_id,
+                method = %req_method,
+                path = %req_path,
+                status = resp_status,
+                latency_ms,
+                stream = true,
+                "downstream"
+            );
+            record_downstream_log(
+                &state,
+                trace_id,
+                user_key.user_id,
+                user_key.id,
+                &req_method,
+                &req_path,
+                req_query.as_deref(),
+                &req_headers_json,
+                Some(&req_body),
+                Some(resp_status as i32),
+                &resp_headers_json,
+                None,
+            )
+            .await;
             Body::from_stream(stream_with_usage_tracking(
                 state.clone(),
                 user_key.user_id,
@@ -196,6 +328,7 @@ pub async fn proxy_unscoped(
                 operation,
                 protocol,
                 stream,
+                Some(trace_id),
             ))
         }
         ExecuteBody::Stream(stream) => Body::from_stream(stream),
@@ -289,6 +422,7 @@ pub(crate) async fn record_usage(
     operation: &str,
     protocol: &str,
     usage: &Usage,
+    downstream_trace_id: Option<i64>,
 ) {
     let model_info = model.and_then(|m| state.find_model(m));
     let cost = model_info
@@ -306,7 +440,7 @@ pub(crate) async fn record_usage(
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
-                downstream_trace_id: None,
+                downstream_trace_id,
                 at_unix_ms: now_ms,
                 provider_id: None,
                 credential_id: None,
@@ -334,6 +468,7 @@ fn stream_with_usage_tracking(
     operation: String,
     protocol: String,
     mut stream: gproxy_sdk::provider::engine::ExecuteBodyStream,
+    downstream_trace_id: Option<i64>,
 ) -> impl futures_util::Stream<
     Item = Result<bytes::Bytes, gproxy_sdk::provider::response::UpstreamError>,
 > + Send {
@@ -344,6 +479,7 @@ fn stream_with_usage_tracking(
         model.clone(),
         operation.clone(),
         protocol.clone(),
+        downstream_trace_id,
     );
 
     try_stream! {
@@ -362,7 +498,7 @@ fn stream_with_usage_tracking(
         }
 
         if let Some(usage) = recorder.finish_completed() {
-            record_stream_usage(state, user_id, user_key_id, model, operation, protocol, usage).await;
+            record_stream_usage(state, user_id, user_key_id, model, operation, protocol, usage, downstream_trace_id).await;
         }
     }
 }
@@ -375,6 +511,7 @@ struct StreamUsageRecorderContext {
     model: Option<String>,
     operation: String,
     protocol: String,
+    downstream_trace_id: Option<i64>,
 }
 
 #[derive(Default)]
@@ -398,6 +535,7 @@ impl StreamUsageRecorder {
         model: Option<String>,
         operation: String,
         protocol: String,
+        downstream_trace_id: Option<i64>,
     ) -> Self {
         Self {
             ctx: StreamUsageRecorderContext {
@@ -407,6 +545,7 @@ impl StreamUsageRecorder {
                 model,
                 operation,
                 protocol,
+                downstream_trace_id,
             },
             state: Arc::new(Mutex::new(StreamUsageRecorderState::default())),
         }
@@ -493,6 +632,7 @@ impl Drop for StreamUsageRecorder {
                     ctx.operation,
                     ctx.protocol,
                     usage,
+                    ctx.downstream_trace_id,
                 )
                 .await;
             });
@@ -508,6 +648,7 @@ async fn record_stream_usage(
     operation: String,
     protocol: String,
     usage: Usage,
+    downstream_trace_id: Option<i64>,
 ) {
     let model_info = model.as_deref().and_then(|m| state.find_model(m));
     let cost = model_info
@@ -525,7 +666,7 @@ async fn record_stream_usage(
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
-                downstream_trace_id: None,
+                downstream_trace_id,
                 at_unix_ms: now_ms,
                 provider_id: None,
                 credential_id: None,
@@ -832,4 +973,99 @@ fn extract_partial_output_text(protocol: &str, json_chunk: &[u8]) -> Option<Stri
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Logging helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) fn generate_trace_id() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as i64
+}
+
+fn headers_to_json(headers: &http::HeaderMap) -> String {
+    let map: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+        .collect();
+    serde_json::to_string(&map).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Record upstream request/response log to DB.
+async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&UpstreamRequestMeta>) {
+    let Some(meta) = meta else {
+        return;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let _ = state
+        .storage_writes()
+        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
+            gproxy_storage::UpstreamRequestWrite {
+                downstream_trace_id: Some(trace_id),
+                at_unix_ms: now_ms,
+                internal: false,
+                provider_id: None,
+                credential_id: None,
+                request_method: meta.method.clone(),
+                request_headers_json: serde_json::to_string(&meta.request_headers)
+                    .unwrap_or_else(|_| "[]".to_string()),
+                request_url: Some(meta.url.clone()),
+                request_body: meta.request_body.clone(),
+                response_status: meta.response_status.map(|s| s as i32),
+                response_headers_json: serde_json::to_string(&meta.response_headers)
+                    .unwrap_or_else(|_| "[]".to_string()),
+                response_body: None,
+            },
+        ))
+        .await;
+}
+
+/// Record downstream request/response log to DB.
+#[allow(clippy::too_many_arguments)]
+async fn record_downstream_log(
+    state: &AppState,
+    trace_id: i64,
+    user_id: i64,
+    user_key_id: i64,
+    method: &str,
+    path: &str,
+    query: Option<&str>,
+    req_headers_json: &str,
+    req_body: Option<&Vec<u8>>,
+    resp_status: Option<i32>,
+    resp_headers_json: &str,
+    resp_body: Option<&Vec<u8>>,
+) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let _ = state
+        .storage_writes()
+        .enqueue(
+            gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+                gproxy_storage::DownstreamRequestWrite {
+                    trace_id,
+                    at_unix_ms: now_ms,
+                    internal: false,
+                    user_id: Some(user_id),
+                    user_key_id: Some(user_key_id),
+                    request_method: method.to_string(),
+                    request_headers_json: req_headers_json.to_string(),
+                    request_path: path.to_string(),
+                    request_query: query.map(String::from),
+                    request_body: req_body.cloned(),
+                    response_status: resp_status,
+                    response_headers_json: resp_headers_json.to_string(),
+                    response_body: resp_body.cloned(),
+                },
+            ),
+        )
+        .await;
 }
