@@ -15,7 +15,6 @@ use crate::error::{AckResponse, HttpError};
 pub struct GlobalSettingsResponse {
     pub host: String,
     pub port: u16,
-    pub admin_key: String,
     pub proxy: Option<String>,
     pub spoof_emulation: String,
     pub update_source: String,
@@ -37,7 +36,6 @@ pub async fn get_global_settings(
     Ok(Json(GlobalSettingsResponse {
         host: config.host.clone(),
         port: config.port,
-        admin_key: config.admin_key.clone(),
         proxy: config.proxy.clone(),
         spoof_emulation: config.spoof_emulation.clone(),
         update_source: config.update_source.clone(),
