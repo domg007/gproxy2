@@ -9,6 +9,8 @@ use gproxy_server::middleware::classify::classify_middleware;
 use gproxy_server::middleware::model_alias::model_alias_middleware;
 use gproxy_server::middleware::request_model::request_model_middleware;
 
+use gproxy_server::middleware::sanitize::sanitize_middleware;
+
 pub mod handler;
 pub mod oauth;
 pub mod websocket;
@@ -88,7 +90,8 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Unscoped Gemini v1beta routes (model in path carries provider prefix)
         .route("/v1beta/models", get(handler::proxy_unscoped))
         .route("/v1beta/{*target}", post(handler::proxy_unscoped))
-        // Middleware: classify → request_model → model_alias (outermost layer runs first)
+        // Middleware: classify → request_model → model_alias → sanitize → handler
+        .layer(from_fn(sanitize_middleware))
         .layer(from_fn_with_state(state, model_alias_middleware))
         .layer(from_fn(request_model_middleware))
         .layer(from_fn(classify_middleware))
