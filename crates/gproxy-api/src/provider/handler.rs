@@ -996,9 +996,14 @@ fn headers_to_json(headers: &http::HeaderMap) -> String {
 
 /// Record upstream request/response log to DB.
 async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&UpstreamRequestMeta>) {
+    let config = state.config();
+    if !config.enable_upstream_log {
+        return;
+    }
     let Some(meta) = meta else {
         return;
     };
+    let include_body = config.enable_upstream_log_body;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -1016,7 +1021,11 @@ async fn record_upstream_log(state: &AppState, trace_id: i64, meta: Option<&Upst
                 request_headers_json: serde_json::to_string(&meta.request_headers)
                     .unwrap_or_else(|_| "[]".to_string()),
                 request_url: Some(meta.url.clone()),
-                request_body: meta.request_body.clone(),
+                request_body: if include_body {
+                    meta.request_body.clone()
+                } else {
+                    None
+                },
                 response_status: meta.response_status.map(|s| s as i32),
                 response_headers_json: serde_json::to_string(&meta.response_headers)
                     .unwrap_or_else(|_| "[]".to_string()),
@@ -1042,6 +1051,11 @@ async fn record_downstream_log(
     resp_headers_json: &str,
     resp_body: Option<&Vec<u8>>,
 ) {
+    let config = state.config();
+    if !config.enable_downstream_log {
+        return;
+    }
+    let include_body = config.enable_downstream_log_body;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -1060,10 +1074,10 @@ async fn record_downstream_log(
                     request_headers_json: req_headers_json.to_string(),
                     request_path: path.to_string(),
                     request_query: query.map(String::from),
-                    request_body: req_body.cloned(),
+                    request_body: if include_body { req_body.cloned() } else { None },
                     response_status: resp_status,
                     response_headers_json: resp_headers_json.to_string(),
-                    response_body: resp_body.cloned(),
+                    response_body: if include_body { resp_body.cloned() } else { None },
                 },
             ),
         )

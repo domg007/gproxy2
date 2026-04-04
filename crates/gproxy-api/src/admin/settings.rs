@@ -22,6 +22,8 @@ pub struct GlobalSettingsResponse {
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
     pub enable_upstream_log_body: bool,
+    pub enable_downstream_log: bool,
+    pub enable_downstream_log_body: bool,
     pub dsn: String,
     pub data_dir: String,
 }
@@ -42,6 +44,8 @@ pub async fn get_global_settings(
         enable_usage: config.enable_usage,
         enable_upstream_log: config.enable_upstream_log,
         enable_upstream_log_body: config.enable_upstream_log_body,
+        enable_downstream_log: config.enable_downstream_log,
+        enable_downstream_log_body: config.enable_downstream_log_body,
         dsn: config.dsn.clone(),
         data_dir: config.data_dir.clone(),
     }))
@@ -64,6 +68,8 @@ pub async fn upsert_global_settings(
         enable_usage: payload.enable_usage,
         enable_upstream_log: payload.enable_upstream_log,
         enable_upstream_log_body: payload.enable_upstream_log_body,
+        enable_downstream_log: payload.enable_downstream_log,
+        enable_downstream_log_body: payload.enable_downstream_log_body,
         dsn: payload.dsn.clone(),
         data_dir: payload.data_dir.clone(),
     });

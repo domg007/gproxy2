@@ -55,6 +55,10 @@ pub struct GlobalSettingsToml {
     pub enable_upstream_log: bool,
     #[serde(default)]
     pub enable_upstream_log_body: bool,
+    #[serde(default = "default_true")]
+    pub enable_downstream_log: bool,
+    #[serde(default)]
+    pub enable_downstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
@@ -182,6 +186,8 @@ pub async fn export_toml(
         enable_usage: config.enable_usage,
         enable_upstream_log: config.enable_upstream_log,
         enable_upstream_log_body: config.enable_upstream_log_body,
+        enable_downstream_log: config.enable_downstream_log,
+        enable_downstream_log_body: config.enable_downstream_log_body,
         dsn: config.dsn.clone(),
         data_dir: config.data_dir.clone(),
     };
@@ -345,6 +351,8 @@ pub async fn import_toml(
             enable_usage: gs.enable_usage,
             enable_upstream_log: gs.enable_upstream_log,
             enable_upstream_log_body: gs.enable_upstream_log_body,
+            enable_downstream_log: gs.enable_downstream_log,
+            enable_downstream_log_body: gs.enable_downstream_log_body,
             dsn: gs.dsn.clone(),
             data_dir: gs.data_dir.clone(),
         });

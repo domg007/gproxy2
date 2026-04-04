@@ -343,7 +343,11 @@ async fn run_ws_bridge_with_protocol(
     bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
     ctx: &WsBridgeContext<'_>,
 ) {
-    // Collect WS messages for logging
+    // Collect WS messages for logging (only if downstream log + body enabled)
+    let collect_body = {
+        let cfg = ctx.state.config();
+        cfg.enable_downstream_log && cfg.enable_downstream_log_body
+    };
     let mut ds_messages: Vec<String> = Vec::new(); // client → server (request body)
     let mut us_messages: Vec<String> = Vec::new(); // server → client (response body)
 
@@ -352,7 +356,7 @@ async fn run_ws_bridge_with_protocol(
             ds_msg = downstream.recv() => {
                 match ds_msg {
                     Some(Ok(Message::Text(t))) => {
-                        ds_messages.push(t.to_string());
+                        if collect_body { ds_messages.push(t.to_string()); }
                         match bridge.convert_client_message(&t) {
                             Ok(msgs) => {
                                 for msg in msgs {
@@ -381,7 +385,7 @@ async fn run_ws_bridge_with_protocol(
                 match us_msg {
                     Some(Ok(WsMessage::Text(t))) => {
                         let text = t.to_string();
-                        us_messages.push(text.clone());
+                        if collect_body { us_messages.push(text.clone()); }
                         match bridge.convert_server_message(&text) {
                             Ok((msgs, _usage)) => {
                                 for msg in msgs {
@@ -425,35 +429,44 @@ async fn run_ws_bridge_with_protocol(
     }
 
     // Record downstream log for WS session (request = client messages, response = server messages)
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
-    let request_body = serde_json::to_vec(&ds_messages).ok();
-    let response_body = serde_json::to_vec(&us_messages).ok();
-    let _ = ctx
-        .state
-        .storage_writes()
-        .enqueue(
-            gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
-                gproxy_storage::DownstreamRequestWrite {
-                    trace_id: ctx.trace_id,
-                    at_unix_ms: now_ms,
-                    internal: false,
-                    user_id: Some(ctx.user_id),
-                    user_key_id: Some(ctx.user_key_id),
-                    request_method: "WEBSOCKET".to_string(),
-                    request_headers_json: String::new(),
-                    request_path: format!("ws://{}/{}", ctx.operation, ctx.protocol),
-                    request_query: None,
-                    request_body,
-                    response_status: Some(101),
-                    response_headers_json: String::new(),
-                    response_body,
-                },
-            ),
-        )
-        .await;
+    let config = ctx.state.config();
+    if config.enable_downstream_log {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let (request_body, response_body) = if config.enable_downstream_log_body {
+            (
+                serde_json::to_vec(&ds_messages).ok(),
+                serde_json::to_vec(&us_messages).ok(),
+            )
+        } else {
+            (None, None)
+        };
+        let _ = ctx
+            .state
+            .storage_writes()
+            .enqueue(
+                gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+                    gproxy_storage::DownstreamRequestWrite {
+                        trace_id: ctx.trace_id,
+                        at_unix_ms: now_ms,
+                        internal: false,
+                        user_id: Some(ctx.user_id),
+                        user_key_id: Some(ctx.user_key_id),
+                        request_method: "WEBSOCKET".to_string(),
+                        request_headers_json: String::new(),
+                        request_path: format!("ws://{}/{}", ctx.operation, ctx.protocol),
+                        request_query: None,
+                        request_body,
+                        response_status: Some(101),
+                        response_headers_json: String::new(),
+                        response_body,
+                    },
+                ),
+            )
+            .await;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +690,9 @@ async fn send_ws_error(socket: &mut WebSocket, message: &str) {
 use gproxy_sdk::protocol::stream::split_lines_owned as split_sse_events;
 
 async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstreamMeta) {
+    if !state.config().enable_upstream_log {
+        return;
+    }
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

@@ -23,6 +23,8 @@ pub struct GlobalSettingsWrite {
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
     pub enable_upstream_log_body: bool,
+    pub enable_downstream_log: bool,
+    pub enable_downstream_log_body: bool,
     pub dsn: String,
     pub data_dir: String,
 }

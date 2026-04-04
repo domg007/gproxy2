@@ -15,5 +15,7 @@ pub struct GlobalSettingsRow {
     pub enable_usage: bool,
     pub enable_upstream_log: bool,
     pub enable_upstream_log_body: bool,
+    pub enable_downstream_log: bool,
+    pub enable_downstream_log_body: bool,
     pub updated_at: OffsetDateTime,
 }

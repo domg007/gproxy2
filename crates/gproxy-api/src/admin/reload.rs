@@ -46,6 +46,8 @@ pub async fn reload(
             enable_usage: settings.enable_usage,
             enable_upstream_log: settings.enable_upstream_log,
             enable_upstream_log_body: settings.enable_upstream_log_body,
+            enable_downstream_log: settings.enable_downstream_log,
+            enable_downstream_log_body: settings.enable_downstream_log_body,
             dsn: settings.dsn,
             data_dir: settings.data_dir,
         };

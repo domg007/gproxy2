@@ -23,6 +23,12 @@ pub struct GlobalConfig {
     /// Whether upstream logs include request/response body.
     #[serde(default = "default_true")]
     pub enable_upstream_log_body: bool,
+    /// Whether to record downstream request/response metadata.
+    #[serde(default = "default_true")]
+    pub enable_downstream_log: bool,
+    /// Whether downstream logs include request/response body.
+    #[serde(default = "default_true")]
+    pub enable_downstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
@@ -40,6 +46,8 @@ impl Default for GlobalConfig {
             enable_usage: true,
             enable_upstream_log: true,
             enable_upstream_log_body: true,
+            enable_downstream_log: true,
+            enable_downstream_log_body: true,
             dsn: String::new(),
             data_dir: default_data_dir(),
         }
