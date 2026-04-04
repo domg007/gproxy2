@@ -1,4 +1,4 @@
-use sea_orm::{ColumnTrait, QueryFilter, Select};
+use sea_orm::{ColumnTrait, QueryFilter};
 use time::OffsetDateTime;
 
 /// Convert unix milliseconds to OffsetDateTime.
@@ -9,15 +9,17 @@ pub(crate) fn unix_ms_to_offset_datetime(ms: i64) -> OffsetDateTime {
 
 /// Apply descending cursor-based pagination.
 /// Filters: (at < cursor_at) OR (at == cursor_at AND trace_id < cursor_trace_id).
-pub(crate) fn apply_desc_cursor<E, AtCol, IdCol>(
-    mut select: Select<E>,
+///
+/// Works with both `Select<E>` and `SelectTwo<E, F>` (any type implementing `QueryFilter`).
+pub(crate) fn apply_desc_cursor<S, AtCol, IdCol>(
+    mut select: S,
     cursor_at_unix_ms: Option<i64>,
     cursor_trace_id: Option<i64>,
     at_column: AtCol,
     id_column: IdCol,
-) -> Select<E>
+) -> S
 where
-    E: sea_orm::EntityTrait,
+    S: QueryFilter,
     AtCol: ColumnTrait,
     IdCol: ColumnTrait,
 {

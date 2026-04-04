@@ -151,14 +151,23 @@ pub async fn reload(
         .list_model_aliases(&gproxy_storage::ModelAliasQuery::default())
         .await?;
     let alias_count = aliases.len();
+    // Build provider_id -> name map from the providers already loaded above
+    let provider_name_map: std::collections::HashMap<i64, String> = providers
+        .iter()
+        .map(|p| (p.id, p.name.clone()))
+        .collect();
     let alias_map = aliases
         .into_iter()
         .filter(|a| a.enabled)
         .map(|a| {
+            let provider_name = provider_name_map
+                .get(&a.provider_id)
+                .cloned()
+                .unwrap_or_else(|| a.provider_id.to_string());
             (
                 a.alias,
                 ModelAliasTarget {
-                    provider_name: a.provider_id.to_string(),
+                    provider_name,
                     model_id: a.model_id,
                 },
             )

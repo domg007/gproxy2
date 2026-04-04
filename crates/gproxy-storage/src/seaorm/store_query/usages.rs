@@ -10,6 +10,7 @@ use crate::seaorm::entities::*;
 impl SeaOrmStorage {
     pub async fn query_usages(&self, query: &UsageQuery) -> Result<Vec<UsageQueryRow>, DbErr> {
         let mut select = usages::Entity::find()
+            .find_also_related(providers::Entity)
             .order_by_desc(usages::Column::At)
             .order_by_desc(usages::Column::TraceId);
 
@@ -45,12 +46,12 @@ impl SeaOrmStorage {
         let rows = select.all(&self.db).await?;
         Ok(rows
             .into_iter()
-            .map(|r| UsageQueryRow {
+            .map(|(r, provider)| UsageQueryRow {
                 trace_id: r.trace_id,
                 downstream_trace_id: r.downstream_trace_id,
                 at: r.at,
                 provider_id: r.provider_id,
-                provider_channel: None, // Would need join; skip for now
+                provider_channel: provider.map(|p| p.channel),
                 credential_id: r.credential_id,
                 user_id: r.user_id,
                 user_key_id: r.user_key_id,

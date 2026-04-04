@@ -5,7 +5,34 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use gproxy_server::{AppState, MemoryModel, ModelAliasTarget};
 use gproxy_storage::Scope;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Resolve a single provider_id to its name via storage query.
+async fn resolve_provider_name(state: &AppState, provider_id: i64) -> Result<String, HttpError> {
+    let storage = state.storage();
+    let providers = storage
+        .list_providers(&gproxy_storage::ProviderQuery::default())
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    providers
+        .iter()
+        .find(|p| p.id == provider_id)
+        .map(|p| p.name.clone())
+        .ok_or_else(|| HttpError::internal(format!("provider_id {} not found", provider_id)))
+}
+
+/// Build a provider_id -> name map for a set of provider IDs.
+async fn resolve_provider_names(
+    state: &AppState,
+) -> Result<HashMap<i64, String>, HttpError> {
+    let storage = state.storage();
+    let providers = storage
+        .list_providers(&gproxy_storage::ProviderQuery::default())
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    Ok(providers.into_iter().map(|p| (p.id, p.name)).collect())
+}
 
 /// Response row for query_models (from in-memory data, no timestamps).
 #[derive(serde::Serialize)]
@@ -173,11 +200,14 @@ pub async fn upsert_model_alias(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state (use provider_id.to_string() as provider_name for now)
+    // Resolve provider_id → provider_name from storage
+    let provider_name = resolve_provider_name(&state, payload.provider_id).await?;
+
+    // Sync in-memory state
     state.upsert_model_alias_in_memory(
         payload.alias.clone(),
         ModelAliasTarget {
-            provider_name: payload.provider_id.to_string(),
+            provider_name,
             model_id: payload.model_id.clone(),
         },
     );
@@ -269,12 +299,20 @@ pub async fn batch_upsert_model_aliases(
     Json(items): Json<Vec<gproxy_storage::ModelAliasWrite>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+
+    // Build provider_id -> name map for all referenced providers
+    let provider_name_map = resolve_provider_names(&state).await?;
+
     let sender = state.storage_writes();
     for item in items {
+        let provider_name = provider_name_map
+            .get(&item.provider_id)
+            .cloned()
+            .unwrap_or_else(|| item.provider_id.to_string());
         state.upsert_model_alias_in_memory(
             item.alias.clone(),
             ModelAliasTarget {
-                provider_name: item.provider_id.to_string(),
+                provider_name,
                 model_id: item.model_id.clone(),
             },
         );
