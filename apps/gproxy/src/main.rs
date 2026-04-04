@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser, parser::ValueSource};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -50,6 +50,12 @@ struct Cli {
     database_secret_key: Option<String>,
 }
 
+fn is_explicit(matches: &clap::ArgMatches, id: &str) -> bool {
+    matches
+        .value_source(id)
+        .is_some_and(|source| source != ValueSource::DefaultValue)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Init tracing
@@ -60,7 +66,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // 2. Parse CLI
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches)?;
 
     // 3. Resolve DSN
     let dsn = cli.dsn.clone().unwrap_or_else(|| {
@@ -150,6 +157,35 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let mut config = state.config().as_ref().clone();
+    let mut persist_global_settings = false;
+
+    if is_explicit(&matches, "host") {
+        config.host = cli.host.clone();
+        persist_global_settings = true;
+    }
+    if is_explicit(&matches, "port") {
+        config.port = cli.port;
+        persist_global_settings = true;
+    }
+    if is_explicit(&matches, "proxy") {
+        config.proxy = cli.proxy.clone();
+        persist_global_settings = true;
+    }
+    if is_explicit(&matches, "spoof_emulation") {
+        config.spoof_emulation = cli.spoof_emulation.clone();
+        persist_global_settings = true;
+    }
+    if is_explicit(&matches, "data_dir") {
+        config.data_dir = cli.data_dir.clone();
+        config.dsn = dsn.clone();
+        persist_global_settings = true;
+    }
+    if is_explicit(&matches, "dsn") {
+        config.dsn = dsn.clone();
+        persist_global_settings = true;
+    }
+
     let startup_admin_key = if let Some(admin_key) = cli.admin_key.clone() {
         Some(admin_key)
     } else if !has_data && state.config().admin_key.is_empty() {
@@ -161,32 +197,32 @@ async fn main() -> anyhow::Result<()> {
     };
 
     if let Some(startup_admin_key) = startup_admin_key {
-        let mut config = state.config().as_ref().clone();
         config.admin_key = startup_admin_key.clone();
-        state.replace_config(config.clone());
+        persist_global_settings = true;
+    }
 
-        if !has_data {
-            state
-                .storage_writes()
-                .enqueue(StorageWriteEvent::UpsertGlobalSettings(
-                    gproxy_storage::GlobalSettingsWrite {
-                        host: config.host.clone(),
-                        port: config.port,
-                        proxy: config.proxy.clone(),
-                        spoof_emulation: config.spoof_emulation.clone(),
-                        update_source: config.update_source.clone(),
-                        admin_key: config.admin_key.clone(),
-                        enable_usage: config.enable_usage,
-                        enable_upstream_log: config.enable_upstream_log,
-                        enable_upstream_log_body: config.enable_upstream_log_body,
-                        enable_downstream_log: config.enable_downstream_log,
-                        enable_downstream_log_body: config.enable_downstream_log_body,
-                        dsn: config.dsn.clone(),
-                        data_dir: config.data_dir.clone(),
-                    },
-                ))
-                .await?;
-        }
+    if persist_global_settings {
+        state.replace_config(config.clone());
+        state
+            .storage_writes()
+            .enqueue(StorageWriteEvent::UpsertGlobalSettings(
+                gproxy_storage::GlobalSettingsWrite {
+                    host: config.host.clone(),
+                    port: config.port,
+                    proxy: config.proxy.clone(),
+                    spoof_emulation: config.spoof_emulation.clone(),
+                    update_source: config.update_source.clone(),
+                    admin_key: config.admin_key.clone(),
+                    enable_usage: config.enable_usage,
+                    enable_upstream_log: config.enable_upstream_log,
+                    enable_upstream_log_body: config.enable_upstream_log_body,
+                    enable_downstream_log: config.enable_downstream_log,
+                    enable_downstream_log_body: config.enable_downstream_log_body,
+                    dsn: config.dsn.clone(),
+                    data_dir: config.data_dir.clone(),
+                },
+            ))
+            .await?;
     }
 
     // 10. Build router and start server
