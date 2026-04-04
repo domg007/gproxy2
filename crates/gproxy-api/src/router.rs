@@ -13,7 +13,7 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .route("/login", post(crate::login::login))
         .nest("/admin", crate::admin::router())
         .nest("/user", crate::user::router())
-        .merge(crate::provider::router())
+        .merge(crate::provider::router(state.clone()))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

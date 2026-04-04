@@ -16,6 +16,11 @@ pub struct Classification {
     pub protocol: ProtocolKind,
 }
 
+/// Buffered request body bytes stored in extensions by classify_middleware.
+/// Allows downstream middleware to read the body without consuming it.
+#[derive(Debug, Clone)]
+pub struct BufferedBodyBytes(pub Bytes);
+
 /// Axum middleware: classify the request by operation and protocol,
 /// buffer the body, and store `Classification` in extensions.
 pub async fn classify_middleware(request: Request, next: Next) -> Response {
@@ -38,7 +43,8 @@ pub async fn classify_middleware(request: Request, next: Next) -> Response {
 
     match result {
         Ok(classification) => {
-            let mut request = Request::from_parts(parts, Body::from(body_bytes));
+            let mut request = Request::from_parts(parts, Body::from(body_bytes.clone()));
+            request.extensions_mut().insert(BufferedBodyBytes(body_bytes));
             request.extensions_mut().insert(classification);
             next.run(request).await
         }
