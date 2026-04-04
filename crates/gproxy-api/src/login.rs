@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
@@ -10,12 +12,35 @@ use gproxy_storage::Scope;
 
 use crate::error::HttpError;
 
-/// Hash a password with SHA-256 and return the hex-encoded digest.
+/// Hash a password with Argon2id and a random salt.
+/// Returns a PHC-format string containing algorithm, salt, and hash.
 pub fn hash_password(password: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    let result = hasher.finalize();
-    result.iter().map(|b| format!("{b:02x}")).collect()
+    let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .expect("argon2 hash")
+        .to_string()
+}
+
+/// Verify a password against a stored hash.
+/// Supports both Argon2 PHC strings and legacy SHA-256 hex digests.
+pub fn verify_password(password: &str, stored_hash: &str) -> bool {
+    if stored_hash.starts_with("$argon2") {
+        let Ok(parsed) = PasswordHash::new(stored_hash) else {
+            return false;
+        };
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok()
+    } else {
+        // Legacy SHA-256 fallback for pre-migration hashes
+        let mut hasher = Sha256::new();
+        hasher.update(password.as_bytes());
+        let result = hasher.finalize();
+        let hex: String = result.iter().map(|b| format!("{b:02x}")).collect();
+        hex == stored_hash
+    }
 }
 
 #[derive(Deserialize)]
@@ -46,7 +71,7 @@ pub async fn login(
         .first()
         .ok_or_else(|| HttpError::unauthorized("invalid username or password"))?;
 
-    if user.password != hash_password(&payload.password) {
+    if !verify_password(&payload.password, &user.password) {
         return Err(HttpError::unauthorized("invalid username or password"));
     }
 
