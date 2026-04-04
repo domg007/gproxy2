@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use gproxy_sdk::provider::engine::GproxyEngineBuilder;
 use gproxy_server::{AppStateBuilder, GlobalConfig};
-use gproxy_storage::{SeaOrmStorage, StorageWriteWorkerConfig};
+use gproxy_storage::{SeaOrmStorage, StorageWriteEvent, StorageWriteWorkerConfig};
 
 #[derive(Parser)]
 #[command(name = "gproxy", about = "High-performance LLM proxy server")]
@@ -86,17 +86,12 @@ async fn main() -> anyhow::Result<()> {
         StorageWriteWorkerConfig::default(),
     );
 
-    // 7. Build initial GlobalConfig from CLI
-    let admin_key = cli.admin_key.unwrap_or_else(|| {
-        let key = uuid::Uuid::now_v7().to_string();
-        tracing::info!(admin_key = %key, "generated admin key (save this!)");
-        key
-    });
+    let persisted_settings_exist = storage.get_global_settings().await?.is_some();
 
     let config = GlobalConfig {
         host: cli.host.clone(),
         port: cli.port,
-        admin_key,
+        admin_key: cli.admin_key.clone().unwrap_or_default(),
         proxy: cli.proxy.clone(),
         spoof_emulation: cli.spoof_emulation.clone(),
         update_source: "github".to_string(),
@@ -124,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // 9. Bootstrap: load from DB or seed from TOML / defaults
-    let has_data = storage.get_global_settings().await?.is_some();
+    let has_data = persisted_settings_exist;
 
     if has_data {
         tracing::info!("loading state from database");
@@ -152,6 +147,45 @@ async fn main() -> anyhow::Result<()> {
             gproxy_api::bootstrap::seed_defaults(&state)
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+    }
+
+    let startup_admin_key = if let Some(admin_key) = cli.admin_key.clone() {
+        Some(admin_key)
+    } else if !has_data && state.config().admin_key.is_empty() {
+        let key = uuid::Uuid::now_v7().to_string();
+        tracing::info!(admin_key = %key, "generated admin key (save this!)");
+        Some(key)
+    } else {
+        None
+    };
+
+    if let Some(startup_admin_key) = startup_admin_key {
+        let mut config = state.config().as_ref().clone();
+        config.admin_key = startup_admin_key.clone();
+        state.replace_config(config.clone());
+
+        if !has_data {
+            state
+                .storage_writes()
+                .enqueue(StorageWriteEvent::UpsertGlobalSettings(
+                    gproxy_storage::GlobalSettingsWrite {
+                        host: config.host.clone(),
+                        port: config.port,
+                        proxy: config.proxy.clone(),
+                        spoof_emulation: config.spoof_emulation.clone(),
+                        update_source: config.update_source.clone(),
+                        admin_key: config.admin_key.clone(),
+                        enable_usage: config.enable_usage,
+                        enable_upstream_log: config.enable_upstream_log,
+                        enable_upstream_log_body: config.enable_upstream_log_body,
+                        enable_downstream_log: config.enable_downstream_log,
+                        enable_downstream_log_body: config.enable_downstream_log_body,
+                        dsn: config.dsn.clone(),
+                        data_dir: config.data_dir.clone(),
+                    },
+                ))
+                .await?;
         }
     }
 
