@@ -31,7 +31,15 @@ fn extract_model_from_request(
     operation: OperationFamily,
     protocol: ProtocolKind,
 ) -> Option<String> {
-    if operation == OperationFamily::ModelList {
+    if matches!(
+        operation,
+        OperationFamily::ModelList
+            | OperationFamily::FileUpload
+            | OperationFamily::FileList
+            | OperationFamily::FileGet
+            | OperationFamily::FileContent
+            | OperationFamily::FileDelete
+    ) {
         return None;
     }
 
