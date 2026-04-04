@@ -374,7 +374,8 @@ pub fn transform_request(
         // create_image
         // =====================================================================
 
-        ("create_image", "openai", "generate_content", "gemini") => {
+        ("create_image", "openai", "generate_content", "gemini")
+        | ("create_image", "openai", "stream_generate_content", "gemini") => {
             transform_json::<
                 gproxy_protocol::openai::create_image::request::OpenAiCreateImageRequest,
                 gproxy_protocol::gemini::generate_content::request::GeminiGenerateContentRequest,
@@ -393,7 +394,8 @@ pub fn transform_request(
         // create_image_edit
         // =====================================================================
 
-        ("create_image_edit", "openai", "generate_content", "gemini") => {
+        ("create_image_edit", "openai", "generate_content", "gemini")
+        | ("create_image_edit", "openai", "stream_generate_content", "gemini") => {
             transform_json::<
                 gproxy_protocol::openai::create_image_edit::request::OpenAiCreateImageEditRequest,
                 gproxy_protocol::gemini::generate_content::request::GeminiGenerateContentRequest,
@@ -703,7 +705,8 @@ pub fn transform_response(
         // create_image responses
         // =====================================================================
 
-        ("generate_content", "gemini", "create_image", "openai") => {
+        ("generate_content", "gemini", "create_image", "openai")
+        | ("stream_generate_content", "gemini", "create_image", "openai") => {
             transform_json::<
                 gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse,
                 gproxy_protocol::openai::create_image::response::OpenAiCreateImageResponse,
@@ -722,7 +725,8 @@ pub fn transform_response(
         // create_image_edit responses
         // =====================================================================
 
-        ("generate_content", "gemini", "create_image_edit", "openai") => {
+        ("generate_content", "gemini", "create_image_edit", "openai")
+        | ("stream_generate_content", "gemini", "create_image_edit", "openai") => {
             transform_json::<
                 gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse,
                 gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse,
@@ -1334,6 +1338,73 @@ impl
     }
 }
 
+#[derive(Default)]
+struct GeminiToImageStreamConverter {
+    partial_count: u32,
+}
+
+impl
+    EventConverter<
+        gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+    > for GeminiToImageStreamConverter
+{
+    fn on_input(
+        &mut self,
+        input: gproxy_protocol::gemini::generate_content::response::ResponseBody,
+        out: &mut Vec<gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        use gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent;
+        use gproxy_protocol::transform::openai::create_image::gemini::utils::{
+            best_effort_openai_image_usage_from_gemini, gemini_inline_image_outputs_from_response,
+        };
+
+        let is_finished = input
+            .candidates
+            .as_ref()
+            .and_then(|cs| cs.first())
+            .and_then(|c| c.finish_reason.as_ref())
+            .is_some();
+
+        let images = gemini_inline_image_outputs_from_response(&input);
+        let usage_metadata = input.usage_metadata.as_ref();
+
+        for img in &images {
+            if is_finished {
+                out.push(ImageGenerationStreamEvent::Completed {
+                    b64_json: img.b64_json.clone(),
+                    background: gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
+                    created_at: 0,
+                    output_format: img.output_format.clone(),
+                    quality: gproxy_protocol::openai::create_image::types::OpenAiImageQuality::Auto,
+                    size: gproxy_protocol::openai::create_image::types::OpenAiImageSize::Auto,
+                    usage: best_effort_openai_image_usage_from_gemini(usage_metadata),
+                });
+            } else {
+                let index = self.partial_count;
+                self.partial_count += 1;
+                out.push(ImageGenerationStreamEvent::PartialImage {
+                    b64_json: img.b64_json.clone(),
+                    background: gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
+                    created_at: 0,
+                    output_format: img.output_format.clone(),
+                    partial_image_index: index,
+                    quality: gproxy_protocol::openai::create_image::types::OpenAiImageQuality::Auto,
+                    size: gproxy_protocol::openai::create_image::types::OpenAiImageSize::Auto,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        _out: &mut Vec<gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent>,
+    ) -> Result<(), UpstreamError> {
+        Ok(())
+    }
+}
+
 fn build_stream_transform<Input, Output, Converter>(
     src_protocol: &str,
     dst_protocol: &str,
@@ -1605,6 +1676,22 @@ pub fn create_stream_response_transformer(
                 src_protocol,
                 dst_protocol,
                 ResponseStreamToImageStreamConverter::default(),
+                normalizer,
+            )
+        }
+
+        ("stream_create_image", "openai", "stream_generate_content", "gemini")
+        | ("stream_create_image", "openai", "stream_generate_content", "gemini_ndjson")
+        | ("stream_create_image_edit", "openai", "stream_generate_content", "gemini")
+        | ("stream_create_image_edit", "openai", "stream_generate_content", "gemini_ndjson") => {
+            build_stream_transform::<
+                gproxy_protocol::gemini::generate_content::response::ResponseBody,
+                gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+                GeminiToImageStreamConverter,
+            >(
+                src_protocol,
+                dst_protocol,
+                GeminiToImageStreamConverter::default(),
                 normalizer,
             )
         }
