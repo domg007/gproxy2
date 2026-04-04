@@ -435,4 +435,105 @@ impl SeaOrmStorage {
             })
             .collect())
     }
+
+    // -----------------------------------------------------------------------
+    // Files
+    // -----------------------------------------------------------------------
+
+    pub async fn list_user_credential_files(
+        &self,
+        query: &UserCredentialFileQuery,
+    ) -> Result<Vec<UserCredentialFileQueryRow>, DbErr> {
+        let mut select = user_credential_files::Entity::find();
+        if let Scope::Eq(ref v) = query.user_id {
+            select = select.filter(user_credential_files::Column::UserId.eq(*v));
+        } else if let Scope::In(ref v) = query.user_id {
+            select = select.filter(user_credential_files::Column::UserId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.user_key_id {
+            select = select.filter(user_credential_files::Column::UserKeyId.eq(*v));
+        } else if let Scope::In(ref v) = query.user_key_id {
+            select = select.filter(user_credential_files::Column::UserKeyId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.provider_id {
+            select = select.filter(user_credential_files::Column::ProviderId.eq(*v));
+        } else if let Scope::In(ref v) = query.provider_id {
+            select = select.filter(user_credential_files::Column::ProviderId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.credential_id {
+            select = select.filter(user_credential_files::Column::CredentialId.eq(*v));
+        } else if let Scope::In(ref v) = query.credential_id {
+            select = select.filter(user_credential_files::Column::CredentialId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.file_id {
+            select = select.filter(user_credential_files::Column::FileId.eq(v.clone()));
+        } else if let Scope::In(ref v) = query.file_id {
+            select = select.filter(user_credential_files::Column::FileId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.active {
+            select = select.filter(user_credential_files::Column::Active.eq(*v));
+        }
+        if let Some(limit) = query.limit {
+            select = select.limit(limit);
+        }
+        if let Some(offset) = query.offset {
+            select = select.offset(offset);
+        }
+        let rows = select.all(&self.db).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UserCredentialFileQueryRow {
+                id: r.id,
+                user_id: r.user_id,
+                user_key_id: r.user_key_id,
+                provider_id: r.provider_id,
+                credential_id: r.credential_id,
+                file_id: r.file_id,
+                active: r.active,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                deleted_at: r.deleted_at,
+            })
+            .collect())
+    }
+
+    pub async fn list_claude_files(
+        &self,
+        query: &ClaudeFileQuery,
+    ) -> Result<Vec<ClaudeFileQueryRow>, DbErr> {
+        let mut select = claude_files::Entity::find();
+        if let Scope::Eq(ref v) = query.provider_id {
+            select = select.filter(claude_files::Column::ProviderId.eq(*v));
+        } else if let Scope::In(ref v) = query.provider_id {
+            select = select.filter(claude_files::Column::ProviderId.is_in(v.clone()));
+        }
+        if let Scope::Eq(ref v) = query.file_id {
+            select = select.filter(claude_files::Column::FileId.eq(v.clone()));
+        } else if let Scope::In(ref v) = query.file_id {
+            select = select.filter(claude_files::Column::FileId.is_in(v.clone()));
+        }
+        if let Some(limit) = query.limit {
+            select = select.limit(limit);
+        }
+        if let Some(offset) = query.offset {
+            select = select.offset(offset);
+        }
+        let rows = select.all(&self.db).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ClaudeFileQueryRow {
+                id: r.id,
+                provider_id: r.provider_id,
+                file_id: r.file_id,
+                file_created_at: r.file_created_at,
+                filename: r.filename,
+                mime_type: r.mime_type,
+                size_bytes: r.size_bytes,
+                downloadable: r.downloadable,
+                raw_json: r.raw_json,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    }
 }

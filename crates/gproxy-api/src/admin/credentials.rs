@@ -158,6 +158,7 @@ pub async fn delete_credential(
     // Persist deletion to DB
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
     let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
+    state.remove_user_files_for_credential(cred_id);
     state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
@@ -217,6 +218,7 @@ pub async fn batch_delete_credentials(
         let cred_id = resolve_credential_db_id(&state, provider.id, item.index).await?;
         let _ = store.remove_credential(&item.provider_name, item.index);
         state.remove_provider_credential_index_in_memory(&item.provider_name, item.index);
+        state.remove_user_files_for_credential(cred_id);
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
             .await

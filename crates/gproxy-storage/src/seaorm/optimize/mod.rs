@@ -67,6 +67,27 @@ fn common_indexes(backend: DatabaseBackend) -> Vec<(&'static str, &'static str, 
             format!("CREATE INDEX {if_not_exists}idx_user_keys_user_id ON user_keys (user_id)"),
         ),
         (
+            "user_credential_files",
+            "idx_user_credential_files_user_provider_active",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_user_credential_files_user_provider_active ON user_credential_files (user_id, provider_id, active)"
+            ),
+        ),
+        (
+            "user_credential_files",
+            "idx_user_credential_files_credential_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_user_credential_files_credential_id ON user_credential_files (credential_id)"
+            ),
+        ),
+        (
+            "claude_files",
+            "idx_claude_files_provider_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_claude_files_provider_id ON claude_files (provider_id)"
+            ),
+        ),
+        (
             "usages",
             "idx_usages_at_trace",
             format!(

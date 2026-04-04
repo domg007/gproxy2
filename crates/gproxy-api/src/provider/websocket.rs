@@ -774,6 +774,7 @@ async fn start_http_request(
             body: http_request_body,
             headers: headers.clone(),
             model: Some(effective_model.clone()),
+            forced_credential_index: None,
         })
         .await;
 

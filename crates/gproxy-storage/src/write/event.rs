@@ -181,6 +181,45 @@ pub struct UserQuotaWrite {
     pub cost_used: f64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UserCredentialFileKey {
+    pub user_id: i64,
+    pub provider_id: i64,
+    pub file_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCredentialFileWrite {
+    pub user_id: i64,
+    pub user_key_id: i64,
+    pub provider_id: i64,
+    pub credential_id: i64,
+    pub file_id: String,
+    pub active: bool,
+    pub created_at_unix_ms: i64,
+    pub updated_at_unix_ms: i64,
+    pub deleted_at_unix_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ClaudeFileKey {
+    pub provider_id: i64,
+    pub file_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeFileWrite {
+    pub provider_id: i64,
+    pub file_id: String,
+    pub file_created_at: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    pub downloadable: Option<bool>,
+    pub raw_json: String,
+    pub updated_at_unix_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageWriteEvent {
     UpsertGlobalSettings(GlobalSettingsWrite),
@@ -203,6 +242,8 @@ pub enum StorageWriteEvent {
     UpsertUserRateLimit(UserRateLimitWrite),
     DeleteUserRateLimit { id: i64 },
     UpsertUserQuota(UserQuotaWrite),
+    UpsertUserCredentialFile(UserCredentialFileWrite),
+    UpsertClaudeFile(ClaudeFileWrite),
     UpsertDownstreamRequest(DownstreamRequestWrite),
     UpsertUpstreamRequest(UpstreamRequestWrite),
     UpsertUsage(UsageWrite),
@@ -231,6 +272,8 @@ pub struct StorageWriteBatch {
     pub user_rate_limits_upsert: HashMap<i64, UserRateLimitWrite>,
     pub user_rate_limits_delete: HashSet<i64>,
     pub user_quotas_upsert: HashMap<i64, UserQuotaWrite>,
+    pub user_credential_files_upsert: HashMap<UserCredentialFileKey, UserCredentialFileWrite>,
+    pub claude_files_upsert: HashMap<ClaudeFileKey, ClaudeFileWrite>,
     pub downstream_requests_upsert: Vec<DownstreamRequestWrite>,
     pub upstream_requests_upsert: Vec<UpstreamRequestWrite>,
     pub usages_upsert: Vec<UsageWrite>,
@@ -326,6 +369,21 @@ impl StorageWriteBatch {
             }
             StorageWriteEvent::UpsertUserQuota(value) => {
                 self.user_quotas_upsert.insert(value.user_id, value);
+            }
+            StorageWriteEvent::UpsertUserCredentialFile(value) => {
+                let key = UserCredentialFileKey {
+                    user_id: value.user_id,
+                    provider_id: value.provider_id,
+                    file_id: value.file_id.clone(),
+                };
+                self.user_credential_files_upsert.insert(key, value);
+            }
+            StorageWriteEvent::UpsertClaudeFile(value) => {
+                let key = ClaudeFileKey {
+                    provider_id: value.provider_id,
+                    file_id: value.file_id.clone(),
+                };
+                self.claude_files_upsert.insert(key, value);
             }
             StorageWriteEvent::UpsertDownstreamRequest(value) => {
                 self.downstream_requests_upsert.push(value);

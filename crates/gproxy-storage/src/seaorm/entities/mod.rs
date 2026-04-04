@@ -1,3 +1,4 @@
+pub mod claude_files;
 pub mod credential_statuses;
 pub mod credentials;
 pub mod downstream_requests;
@@ -7,12 +8,14 @@ pub mod models;
 pub mod providers;
 pub mod upstream_requests;
 pub mod usages;
+pub mod user_credential_files;
 pub mod user_keys;
 pub mod user_model_permissions;
 pub mod user_rate_limits;
 pub mod user_token_usage;
 pub mod users;
 
+pub use claude_files::Entity as ClaudeFiles;
 pub use credential_statuses::Entity as CredentialStatuses;
 pub use credentials::Entity as Credentials;
 pub use downstream_requests::Entity as DownstreamRequests;
@@ -22,6 +25,7 @@ pub use models::Entity as Models;
 pub use providers::Entity as Providers;
 pub use upstream_requests::Entity as UpstreamRequests;
 pub use usages::Entity as Usages;
+pub use user_credential_files::Entity as UserCredentialFiles;
 pub use user_keys::Entity as UserKeys;
 pub use user_model_permissions::Entity as UserModelPermissions;
 pub use user_rate_limits::Entity as UserRateLimits;
@@ -29,6 +33,7 @@ pub use user_token_usage::Entity as UserQuotas;
 pub use users::Entity as Users;
 
 pub mod prelude {
+    pub use super::ClaudeFiles;
     pub use super::CredentialStatuses;
     pub use super::Credentials;
     pub use super::DownstreamRequests;
@@ -38,6 +43,7 @@ pub mod prelude {
     pub use super::Providers;
     pub use super::UpstreamRequests;
     pub use super::Usages;
+    pub use super::UserCredentialFiles;
     pub use super::UserKeys;
     pub use super::UserModelPermissions;
     pub use super::UserQuotas;

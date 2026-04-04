@@ -345,6 +345,101 @@ impl SeaOrmStorage {
                 .await?;
         }
 
+        // User credential files
+        for chunk in batch
+            .user_credential_files_upsert
+            .values()
+            .collect::<Vec<_>>()
+            .chunks(UPSERT_CHUNK_SIZE)
+        {
+            let models: Vec<user_credential_files::ActiveModel> = chunk
+                .iter()
+                .map(|f| {
+                    let created_at = unix_ms_to_datetime(f.created_at_unix_ms);
+                    let updated_at = unix_ms_to_datetime(f.updated_at_unix_ms);
+                    let deleted_at = f.deleted_at_unix_ms.map(unix_ms_to_datetime);
+                    user_credential_files::ActiveModel {
+                        id: NotSet,
+                        user_id: Set(f.user_id),
+                        user_key_id: Set(f.user_key_id),
+                        provider_id: Set(f.provider_id),
+                        credential_id: Set(f.credential_id),
+                        file_id: Set(f.file_id.clone()),
+                        active: Set(f.active),
+                        created_at: Set(created_at),
+                        updated_at: Set(updated_at),
+                        deleted_at: Set(deleted_at),
+                    }
+                })
+                .collect();
+            user_credential_files::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::columns([
+                        user_credential_files::Column::UserId,
+                        user_credential_files::Column::ProviderId,
+                        user_credential_files::Column::FileId,
+                    ])
+                    .update_columns([
+                        user_credential_files::Column::UserKeyId,
+                        user_credential_files::Column::CredentialId,
+                        user_credential_files::Column::Active,
+                        user_credential_files::Column::UpdatedAt,
+                        user_credential_files::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // Claude file metadata
+        for chunk in batch
+            .claude_files_upsert
+            .values()
+            .collect::<Vec<_>>()
+            .chunks(UPSERT_CHUNK_SIZE)
+        {
+            let models: Vec<claude_files::ActiveModel> = chunk
+                .iter()
+                .map(|f| {
+                    let raw_json = serde_json::from_str(&f.raw_json).unwrap_or_default();
+                    let now = unix_ms_to_datetime(f.updated_at_unix_ms);
+                    claude_files::ActiveModel {
+                        id: NotSet,
+                        provider_id: Set(f.provider_id),
+                        file_id: Set(f.file_id.clone()),
+                        file_created_at: Set(f.file_created_at.clone()),
+                        filename: Set(f.filename.clone()),
+                        mime_type: Set(f.mime_type.clone()),
+                        size_bytes: Set(f.size_bytes),
+                        downloadable: Set(f.downloadable),
+                        raw_json: Set(raw_json),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                    }
+                })
+                .collect();
+            claude_files::Entity::insert_many(models)
+                .on_conflict(
+                    OnConflict::columns([
+                        claude_files::Column::ProviderId,
+                        claude_files::Column::FileId,
+                    ])
+                    .update_columns([
+                        claude_files::Column::FileCreatedAt,
+                        claude_files::Column::Filename,
+                        claude_files::Column::MimeType,
+                        claude_files::Column::SizeBytes,
+                        claude_files::Column::Downloadable,
+                        claude_files::Column::RawJson,
+                        claude_files::Column::UpdatedAt,
+                    ])
+                    .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
         // Models
         for chunk in batch
             .models_upsert

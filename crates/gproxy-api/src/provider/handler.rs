@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use async_stream::try_stream;
 use axum::body::Body;
 use axum::extract::{Extension, Path, Request, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
@@ -60,16 +60,8 @@ pub async fn proxy(
         (provider_name.clone(), model.clone())
     };
 
-    // Check permission (whitelist)
-    if let Some(ref m) = effective_model
-        && !state.check_model_permission(user_key.user_id, &effective_provider, m)
-    {
-        return Err(HttpError::forbidden("model not authorized for this user"));
-    }
-
     // Map classification to SDK operation/protocol strings
     let operation = classification.operation;
-    let protocol = classification.protocol;
 
     // Collect body
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
@@ -82,8 +74,31 @@ pub async fn proxy(
         body.to_vec(),
     );
 
-    // Check rate limit after buffering so declared token budgets can be enforced.
+    let protocol = resolve_file_operation_protocol(
+        &state,
+        &effective_provider,
+        operation,
+        classification.protocol,
+    );
+    let file_plan = plan_file_operation(
+        &state,
+        user_key.user_id,
+        user_key.id,
+        &effective_provider,
+        operation,
+        &req_path,
+        req_query.as_deref(),
+    )?;
+
     if let Some(ref m) = effective_model
+        && !is_file_operation(operation)
+        && !state.check_model_permission(user_key.user_id, &effective_provider, m)
+    {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
+
+    if !is_file_operation(operation)
+        && let Some(ref m) = effective_model
         && let Err(rejection) = state.check_rate_limit_request(
             user_key.user_id,
             m,
@@ -92,6 +107,35 @@ pub async fn proxy(
     {
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
+
+    if let Some(FileOperationPlan::ShortCircuitJson(resp_body)) = &file_plan {
+        return Ok(
+            respond_with_local_json(
+                LocalJsonResponseContext {
+                    state: &state,
+                    start,
+                    trace_id,
+                    user_id: user_key.user_id,
+                    user_key_id: user_key.id,
+                    req_method: &req_method,
+                    req_path: &req_path,
+                    req_query: req_query.as_deref(),
+                    req_headers_json: &req_headers_json,
+                    req_body: Some(&req_body),
+                },
+                resp_body.clone(),
+            )
+            .await,
+        );
+    }
+
+    let forced_credential_index = file_plan
+        .as_ref()
+        .and_then(FileOperationPlan::forced_credential_index);
+    let deleted_file = file_plan
+        .as_ref()
+        .and_then(FileOperationPlan::deleted_file)
+        .cloned();
 
     let result = state
         .engine()
@@ -102,11 +146,30 @@ pub async fn proxy(
             body: req_body.clone(),
             headers,
             model: effective_model.clone(),
+            forced_credential_index,
         })
         .await?;
+    let result_status = result.status;
+    let result_credential_index = result.credential_index;
+    let upload_body = match &result.body {
+        ExecuteBody::Full(body) => Some(body.clone()),
+        ExecuteBody::Stream(_) => None,
+    };
 
     // File affinity: bind file_id to credential on upload, unbind on delete
     bind_file_affinity_if_applicable(&state, &classification, &result, &effective_provider);
+    persist_claude_file_side_effects(ClaudeFileSideEffectsContext {
+        state: &state,
+        user_id: user_key.user_id,
+        user_key_id: user_key.id,
+        provider_name: &effective_provider,
+        operation,
+        result_status,
+        result_credential_index,
+        upload_body,
+        deleted_file,
+    })
+    .await;
 
     // Build usage context (shared by record_usage and stream_with_usage_tracking)
     let usage_ctx = UsageRecordContext {
@@ -283,6 +346,7 @@ pub async fn proxy_unscoped(
             body: req_body.clone(),
             headers,
             model: Some(target_model.clone()),
+            forced_credential_index: None,
         })
         .await?;
 
@@ -422,7 +486,50 @@ pub async fn proxy_unscoped_files(
     );
 
     let operation = classification.operation;
-    let protocol = classification.protocol;
+    let protocol = resolve_file_operation_protocol(
+        &state,
+        &target_provider,
+        operation,
+        classification.protocol,
+    );
+    let file_plan = plan_file_operation(
+        &state,
+        user_key.user_id,
+        user_key.id,
+        &target_provider,
+        operation,
+        &req_path,
+        req_query.as_deref(),
+    )?;
+
+    if let Some(FileOperationPlan::ShortCircuitJson(resp_body)) = &file_plan {
+        return Ok(
+            respond_with_local_json(
+                LocalJsonResponseContext {
+                    state: &state,
+                    start,
+                    trace_id,
+                    user_id: user_key.user_id,
+                    user_key_id: user_key.id,
+                    req_method: &req_method,
+                    req_path: &req_path,
+                    req_query: req_query.as_deref(),
+                    req_headers_json: &req_headers_json,
+                    req_body: Some(&req_body),
+                },
+                resp_body.clone(),
+            )
+            .await,
+        );
+    }
+
+    let forced_credential_index = file_plan
+        .as_ref()
+        .and_then(FileOperationPlan::forced_credential_index);
+    let deleted_file = file_plan
+        .as_ref()
+        .and_then(FileOperationPlan::deleted_file)
+        .cloned();
 
     let result = state
         .engine()
@@ -433,11 +540,30 @@ pub async fn proxy_unscoped_files(
             body: req_body.clone(),
             headers,
             model: None,
+            forced_credential_index,
         })
         .await?;
+    let result_status = result.status;
+    let result_credential_index = result.credential_index;
+    let upload_body = match &result.body {
+        ExecuteBody::Full(body) => Some(body.clone()),
+        ExecuteBody::Stream(_) => None,
+    };
 
     // File affinity: bind file_id to credential on upload, unbind on delete
     bind_file_affinity_if_applicable(&state, &classification, &result, &target_provider);
+    persist_claude_file_side_effects(ClaudeFileSideEffectsContext {
+        state: &state,
+        user_id: user_key.user_id,
+        user_key_id: user_key.id,
+        provider_name: &target_provider,
+        operation,
+        result_status,
+        result_credential_index,
+        upload_body,
+        deleted_file,
+    })
+    .await;
 
     // Record usage via storage write channel
     if let Some(ref usage) = result.usage {
@@ -505,6 +631,463 @@ pub async fn proxy_unscoped_files(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+enum FileOperationPlan {
+    ShortCircuitJson(Vec<u8>),
+    Upstream {
+        forced_credential_index: Option<usize>,
+        deleted_file: Option<gproxy_server::MemoryUserCredentialFile>,
+    },
+}
+
+impl FileOperationPlan {
+    fn forced_credential_index(&self) -> Option<usize> {
+        match self {
+            Self::ShortCircuitJson(_) => None,
+            Self::Upstream {
+                forced_credential_index,
+                ..
+            } => *forced_credential_index,
+        }
+    }
+
+    fn deleted_file(&self) -> Option<&gproxy_server::MemoryUserCredentialFile> {
+        match self {
+            Self::ShortCircuitJson(_) => None,
+            Self::Upstream { deleted_file, .. } => deleted_file.as_ref(),
+        }
+    }
+}
+
+struct LocalJsonResponseContext<'a> {
+    state: &'a AppState,
+    start: std::time::Instant,
+    trace_id: i64,
+    user_id: i64,
+    user_key_id: i64,
+    req_method: &'a str,
+    req_path: &'a str,
+    req_query: Option<&'a str>,
+    req_headers_json: &'a str,
+    req_body: Option<&'a Vec<u8>>,
+}
+
+struct ClaudeFileSideEffectsContext<'a> {
+    state: &'a AppState,
+    user_id: i64,
+    user_key_id: i64,
+    provider_name: &'a str,
+    operation: OperationFamily,
+    result_status: u16,
+    result_credential_index: usize,
+    upload_body: Option<Vec<u8>>,
+    deleted_file: Option<gproxy_server::MemoryUserCredentialFile>,
+}
+
+struct ClaudeFileAccess {
+    record: gproxy_server::MemoryUserCredentialFile,
+    metadata: Option<gproxy_sdk::protocol::claude::types::FileMetadata>,
+    forced_credential_index: usize,
+}
+
+struct ClaudeFileListQuery {
+    after_id: Option<String>,
+    before_id: Option<String>,
+    limit: usize,
+}
+
+fn is_file_operation(operation: OperationFamily) -> bool {
+    matches!(
+        operation,
+        OperationFamily::FileUpload
+            | OperationFamily::FileList
+            | OperationFamily::FileGet
+            | OperationFamily::FileContent
+            | OperationFamily::FileDelete
+    )
+}
+
+fn is_claude_file_provider(state: &AppState, provider_name: &str) -> bool {
+    state
+        .provider_channel_for_name(provider_name)
+        .as_deref()
+        .is_some_and(|channel| matches!(channel, "anthropic" | "claudecode"))
+}
+
+fn resolve_file_operation_protocol(
+    state: &AppState,
+    provider_name: &str,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
+) -> ProtocolKind {
+    if is_file_operation(operation) && is_claude_file_provider(state, provider_name) {
+        ProtocolKind::Claude
+    } else {
+        protocol
+    }
+}
+
+fn parse_claude_file_list_query(query: Option<&str>) -> ClaudeFileListQuery {
+    let mut after_id = None;
+    let mut before_id = None;
+    let mut limit = 20usize;
+
+    if let Some(raw_query) = query {
+        for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
+            match key.as_ref() {
+                "after_id" if !value.is_empty() => after_id = Some(value.into_owned()),
+                "before_id" if !value.is_empty() => before_id = Some(value.into_owned()),
+                "limit" => {
+                    if let Ok(parsed) = value.parse::<usize>() {
+                        limit = parsed.clamp(1, 1000);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    ClaudeFileListQuery {
+        after_id,
+        before_id,
+        limit,
+    }
+}
+
+fn parse_claude_timestamp_ms(raw: &str) -> i64 {
+    time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
+        .map(|dt| dt.unix_timestamp_nanos() as i64 / 1_000_000)
+        .unwrap_or_default()
+}
+
+fn resolve_claude_file_access(
+    state: &AppState,
+    user_id: i64,
+    provider_name: &str,
+    file_id: &str,
+) -> Result<ClaudeFileAccess, HttpError> {
+    let record = state
+        .find_user_file(user_id, provider_name, file_id)
+        .ok_or_else(|| HttpError::not_found("file not found"))?;
+    let (resolved_provider_name, forced_credential_index) = state
+        .credential_position_for_id(record.credential_id)
+        .ok_or_else(|| HttpError::not_found("file not found"))?;
+    if resolved_provider_name != provider_name {
+        return Err(HttpError::not_found("file not found"));
+    }
+    let metadata = state
+        .find_claude_file(record.provider_id, &record.file_id)
+        .map(|file| file.metadata);
+    Ok(ClaudeFileAccess {
+        record,
+        metadata,
+        forced_credential_index,
+    })
+}
+
+fn build_claude_file_list_body(
+    state: &AppState,
+    user_id: i64,
+    provider_name: &str,
+    query: Option<&str>,
+) -> Vec<u8> {
+    let params = parse_claude_file_list_query(query);
+    let mut files: Vec<(
+        i64,
+        String,
+        gproxy_sdk::protocol::claude::types::FileMetadata,
+    )> = state
+        .list_user_files(user_id, provider_name)
+        .into_iter()
+        .filter_map(|record| {
+            state
+                .find_claude_file(record.provider_id, &record.file_id)
+                .map(|file| {
+                    (
+                        file.file_created_at_unix_ms,
+                        record.file_id.clone(),
+                        file.metadata,
+                    )
+                })
+        })
+        .collect();
+
+    files.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1)));
+
+    if let Some(after_id) = params.after_id.as_deref() {
+        if let Some(index) = files.iter().position(|(_, file_id, _)| file_id == after_id) {
+            files = files.into_iter().skip(index + 1).collect();
+        } else {
+            files.clear();
+        }
+    }
+    if let Some(before_id) = params.before_id.as_deref() {
+        if let Some(index) = files
+            .iter()
+            .position(|(_, file_id, _)| file_id == before_id)
+        {
+            files.truncate(index);
+        } else {
+            files.clear();
+        }
+    }
+
+    let has_more = files.len() > params.limit;
+    let page: Vec<gproxy_sdk::protocol::claude::types::FileMetadata> = files
+        .into_iter()
+        .take(params.limit)
+        .map(|(_, _, metadata)| metadata)
+        .collect();
+    let body = gproxy_sdk::protocol::claude::file_list::response::ResponseBody {
+        first_id: page.first().map(|metadata| metadata.id.clone()),
+        has_more: Some(has_more),
+        last_id: page.last().map(|metadata| metadata.id.clone()),
+        data: page,
+    };
+    serde_json::to_vec(&body).unwrap_or_else(|_| b"{\"data\":[]}".to_vec())
+}
+
+fn plan_file_operation(
+    state: &AppState,
+    user_id: i64,
+    _user_key_id: i64,
+    provider_name: &str,
+    operation: OperationFamily,
+    request_path: &str,
+    request_query: Option<&str>,
+) -> Result<Option<FileOperationPlan>, HttpError> {
+    if !is_file_operation(operation) {
+        return Ok(None);
+    }
+
+    match operation {
+        OperationFamily::FileUpload => {
+            if !state.check_provider_access(user_id, provider_name) {
+                return Err(HttpError::forbidden(
+                    "provider not authorized for this user",
+                ));
+            }
+            Ok(Some(FileOperationPlan::Upstream {
+                forced_credential_index: None,
+                deleted_file: None,
+            }))
+        }
+        OperationFamily::FileList => {
+            if !state.check_provider_access(user_id, provider_name) {
+                return Err(HttpError::forbidden(
+                    "provider not authorized for this user",
+                ));
+            }
+            if is_claude_file_provider(state, provider_name) {
+                Ok(Some(FileOperationPlan::ShortCircuitJson(
+                    build_claude_file_list_body(state, user_id, provider_name, request_query),
+                )))
+            } else {
+                Ok(Some(FileOperationPlan::Upstream {
+                    forced_credential_index: None,
+                    deleted_file: None,
+                }))
+            }
+        }
+        OperationFamily::FileGet => {
+            let normalized = normalize_routed_api_path(request_path);
+            let file_id = extract_file_id_from_request_path(&normalized)
+                .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;
+            let access = resolve_claude_file_access(state, user_id, provider_name, file_id)?;
+            if is_claude_file_provider(state, provider_name)
+                && let Some(metadata) = access.metadata
+            {
+                return Ok(Some(FileOperationPlan::ShortCircuitJson(
+                    serde_json::to_vec(&metadata)
+                        .unwrap_or_else(|_| b"{\"error\":\"encode file metadata\"}".to_vec()),
+                )));
+            }
+            Ok(Some(FileOperationPlan::Upstream {
+                forced_credential_index: Some(access.forced_credential_index),
+                deleted_file: None,
+            }))
+        }
+        OperationFamily::FileContent => {
+            let normalized = normalize_routed_api_path(request_path);
+            let file_id = extract_file_id_from_request_path(&normalized)
+                .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;
+            let access = resolve_claude_file_access(state, user_id, provider_name, file_id)?;
+            Ok(Some(FileOperationPlan::Upstream {
+                forced_credential_index: Some(access.forced_credential_index),
+                deleted_file: None,
+            }))
+        }
+        OperationFamily::FileDelete => {
+            let normalized = normalize_routed_api_path(request_path);
+            let file_id = extract_file_id_from_request_path(&normalized)
+                .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;
+            let access = resolve_claude_file_access(state, user_id, provider_name, file_id)?;
+            Ok(Some(FileOperationPlan::Upstream {
+                forced_credential_index: Some(access.forced_credential_index),
+                deleted_file: Some(access.record),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+async fn respond_with_local_json(ctx: LocalJsonResponseContext<'_>, resp_body: Vec<u8>) -> Response {
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(resp_body.clone()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    let latency_ms = ctx.start.elapsed().as_millis() as u64;
+    tracing::info!(
+        ctx.trace_id,
+        method = %ctx.req_method,
+        path = %ctx.req_path,
+        status = 200,
+        latency_ms,
+        local = true,
+        "downstream"
+    );
+    let resp_headers_json = headers_to_json(response.headers());
+    record_downstream_log(
+        ctx.state,
+        ctx.trace_id,
+        ctx.user_id,
+        ctx.user_key_id,
+        ctx.req_method,
+        ctx.req_path,
+        ctx.req_query,
+        ctx.req_headers_json,
+        ctx.req_body,
+        Some(200),
+        &resp_headers_json,
+        Some(&resp_body),
+    )
+    .await;
+    response
+}
+
+async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>) {
+    if !is_claude_file_provider(ctx.state, ctx.provider_name) {
+        return;
+    }
+
+    match ctx.operation {
+        OperationFamily::FileUpload => {
+            if !(200..=299).contains(&ctx.result_status) {
+                return;
+            }
+            let Some(body) = ctx.upload_body.as_deref() else {
+                return;
+            };
+            let Ok(metadata) =
+                serde_json::from_slice::<gproxy_sdk::protocol::claude::types::FileMetadata>(body)
+            else {
+                return;
+            };
+            let Some(provider_id) = ctx.state.provider_id_for_name(ctx.provider_name) else {
+                return;
+            };
+            let Some(credential_id) =
+                ctx.state
+                    .credential_id_for_index(ctx.provider_name, ctx.result_credential_index)
+            else {
+                return;
+            };
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            let file_record = gproxy_server::MemoryUserCredentialFile {
+                user_id: ctx.user_id,
+                user_key_id: ctx.user_key_id,
+                provider_id,
+                credential_id,
+                file_id: metadata.id.clone(),
+                active: true,
+                created_at_unix_ms: now_ms,
+            };
+            ctx.state.upsert_user_file_in_memory(file_record);
+            ctx.state
+                .upsert_claude_file_in_memory(gproxy_server::MemoryClaudeFile {
+                provider_id,
+                file_id: metadata.id.clone(),
+                file_created_at_unix_ms: parse_claude_timestamp_ms(&metadata.created_at),
+                metadata: metadata.clone(),
+            });
+            let _ = ctx
+                .state
+                .storage_writes()
+                .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
+                    gproxy_storage::UserCredentialFileWrite {
+                        user_id: ctx.user_id,
+                        user_key_id: ctx.user_key_id,
+                        provider_id,
+                        credential_id,
+                        file_id: metadata.id.clone(),
+                        active: true,
+                        created_at_unix_ms: now_ms,
+                        updated_at_unix_ms: now_ms,
+                        deleted_at_unix_ms: None,
+                    },
+                ))
+                .await;
+            let _ = ctx
+                .state
+                .storage_writes()
+                .enqueue(gproxy_storage::StorageWriteEvent::UpsertClaudeFile(
+                    gproxy_storage::ClaudeFileWrite {
+                        provider_id,
+                        file_id: metadata.id.clone(),
+                        file_created_at: metadata.created_at.clone(),
+                        filename: metadata.filename.clone(),
+                        mime_type: metadata.mime_type.clone(),
+                        size_bytes: metadata.size_bytes as i64,
+                        downloadable: metadata.downloadable,
+                        raw_json: serde_json::to_string(&metadata)
+                            .unwrap_or_else(|_| "{}".to_string()),
+                        updated_at_unix_ms: now_ms,
+                    },
+                ))
+                .await;
+        }
+        OperationFamily::FileDelete => {
+            if !(200..=299).contains(&ctx.result_status) {
+                return;
+            }
+            let Some(file) = ctx.deleted_file else {
+                return;
+            };
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            ctx.state
+                .deactivate_user_file_in_memory(file.user_id, file.provider_id, &file.file_id);
+            let _ = ctx
+                .state
+                .storage_writes()
+                .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
+                    gproxy_storage::UserCredentialFileWrite {
+                        user_id: file.user_id,
+                        user_key_id: file.user_key_id,
+                        provider_id: file.provider_id,
+                        credential_id: file.credential_id,
+                        file_id: file.file_id.clone(),
+                        active: false,
+                        created_at_unix_ms: file.created_at_unix_ms,
+                        updated_at_unix_ms: now_ms,
+                        deleted_at_unix_ms: Some(now_ms),
+                    },
+                ))
+                .await;
+        }
+        _ => {}
+    }
+}
 
 /// Shared context for usage recording, avoids passing 8+ args.
 #[derive(Clone)]

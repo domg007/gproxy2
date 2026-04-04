@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
 use gproxy_server::{
-    AppState, GlobalConfig, MemoryModel, MemoryUser, MemoryUserKey, ModelAliasTarget,
-    PermissionEntry, PriceTier, RateLimitRule,
+    AppState, GlobalConfig, MemoryClaudeFile, MemoryModel, MemoryUser, MemoryUserCredentialFile,
+    MemoryUserKey, ModelAliasTarget, PermissionEntry, PriceTier, RateLimitRule,
 };
 use gproxy_storage::StorageWriteEvent;
 
@@ -18,6 +18,8 @@ pub struct ReloadCounts {
     pub users: usize,
     pub keys: usize,
     pub models: usize,
+    pub user_files: usize,
+    pub claude_files: usize,
     pub aliases: usize,
     pub permissions: usize,
     pub rate_limits: usize,
@@ -146,6 +148,12 @@ pub async fn reload_from_db(
     let provider_name_map: HashMap<String, i64> =
         providers.iter().map(|p| (p.name.clone(), p.id)).collect();
     state.replace_provider_names(provider_name_map.clone());
+    let provider_channel_map: HashMap<String, String> = providers
+        .iter()
+        .filter(|p| p.enabled)
+        .map(|p| (p.name.clone(), p.channel.clone()))
+        .collect();
+    state.replace_provider_channels(provider_channel_map);
 
     // Users — atomic replace to remove stale entries
     let users = storage
@@ -270,11 +278,64 @@ pub async fn reload_from_db(
         .collect();
     state.replace_user_quotas(quota_map);
 
+    // File ownership
+    let user_files = storage
+        .list_user_credential_files(&gproxy_storage::UserCredentialFileQuery::default())
+        .await?;
+    let user_file_count = user_files.len();
+    state.replace_user_files(
+        user_files
+            .into_iter()
+            .map(|file| MemoryUserCredentialFile {
+                user_id: file.user_id,
+                user_key_id: file.user_key_id,
+                provider_id: file.provider_id,
+                credential_id: file.credential_id,
+                file_id: file.file_id,
+                active: file.active,
+                created_at_unix_ms: file.created_at.unix_timestamp_nanos() as i64 / 1_000_000,
+            })
+            .collect(),
+    );
+
+    // Claude file metadata
+    let claude_files = storage
+        .list_claude_files(&gproxy_storage::ClaudeFileQuery::default())
+        .await?;
+    let claude_file_count = claude_files.len();
+    let claude_file_map: HashMap<(i64, String), MemoryClaudeFile> = claude_files
+        .into_iter()
+        .filter_map(|file| {
+            let metadata = serde_json::from_value::<
+                gproxy_sdk::protocol::claude::types::FileMetadata,
+            >(file.raw_json)
+            .ok()?;
+            let file_created_at_unix_ms = time::OffsetDateTime::parse(
+                &file.file_created_at,
+                &time::format_description::well_known::Rfc3339,
+            )
+            .map(|dt| dt.unix_timestamp_nanos() as i64 / 1_000_000)
+            .unwrap_or_default();
+            Some((
+                (file.provider_id, file.file_id.clone()),
+                MemoryClaudeFile {
+                    provider_id: file.provider_id,
+                    file_id: file.file_id,
+                    file_created_at_unix_ms,
+                    metadata,
+                },
+            ))
+        })
+        .collect();
+    state.replace_claude_files(claude_file_map);
+
     Ok(ReloadCounts {
         providers: provider_count,
         users: user_count,
         keys: key_count,
         models: model_count,
+        user_files: user_file_count,
+        claude_files: claude_file_count,
         aliases: alias_count,
         permissions: perm_count,
         rate_limits: limit_count,

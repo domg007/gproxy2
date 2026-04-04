@@ -60,6 +60,7 @@ pub struct ExecuteRequest {
     pub body: Vec<u8>,
     pub headers: http::HeaderMap,
     pub model: Option<String>,
+    pub forced_credential_index: Option<usize>,
 }
 
 /// Result of an engine execution.
@@ -662,7 +663,9 @@ impl GproxyEngine {
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
         // Check file affinity: if the request references a file_id, force that credential
-        let forced_credential = find_file_credential(&self.store, &prepared.body);
+        let forced_credential = request
+            .forced_credential_index
+            .or_else(|| find_file_credential(&self.store, &request.provider, &prepared.body));
 
         let provider_result = provider
             .execute(
@@ -863,7 +866,9 @@ impl GproxyEngine {
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
-        let forced_credential = find_file_credential(&self.store, &prepared.body);
+        let forced_credential = request
+            .forced_credential_index
+            .or_else(|| find_file_credential(&self.store, &request.provider, &prepared.body));
 
         let provider_result = provider
             .execute_stream(
@@ -975,12 +980,18 @@ impl GproxyEngine {
 }
 
 /// Scan request body JSON for file_id references and look up file affinity.
-fn find_file_credential(store: &crate::store::ProviderStore, body: &[u8]) -> Option<usize> {
+fn find_file_credential(
+    store: &crate::store::ProviderStore,
+    provider_name: &str,
+    body: &[u8],
+) -> Option<usize> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     let mut file_ids = Vec::new();
     collect_file_ids(&json, &mut file_ids);
     for file_id in file_ids {
-        if let Some((_, cred_idx)) = store.get_file_credential(&file_id) {
+        if let Some((bound_provider_name, cred_idx)) = store.get_file_credential(&file_id)
+            && bound_provider_name == provider_name
+        {
             return Some(cred_idx);
         }
     }

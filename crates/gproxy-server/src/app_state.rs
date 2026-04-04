@@ -54,6 +54,25 @@ pub struct MemoryModel {
     pub price_tiers: Vec<PriceTier>,
 }
 
+#[derive(Debug, Clone)]
+pub struct MemoryUserCredentialFile {
+    pub user_id: i64,
+    pub user_key_id: i64,
+    pub provider_id: i64,
+    pub credential_id: i64,
+    pub file_id: String,
+    pub active: bool,
+    pub created_at_unix_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryClaudeFile {
+    pub provider_id: i64,
+    pub file_id: String,
+    pub file_created_at_unix_ms: i64,
+    pub metadata: gproxy_sdk::protocol::claude::types::FileMetadata,
+}
+
 /// Central application state shared across all request handlers.
 pub struct AppState {
     engine: ArcSwap<GproxyEngine>,
@@ -65,7 +84,10 @@ pub struct AppState {
     models: ArcSwap<Vec<MemoryModel>>,
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
     provider_names: ArcSwap<HashMap<String, i64>>,
+    provider_channels: ArcSwap<HashMap<String, String>>,
     provider_credentials: ArcSwap<HashMap<String, Vec<i64>>>,
+    user_files: ArcSwap<Vec<MemoryUserCredentialFile>>,
+    claude_files: ArcSwap<HashMap<(i64, String), MemoryClaudeFile>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
     user_quotas: DashMap<i64, (f64, f64)>,
@@ -162,6 +184,19 @@ impl AppState {
         })
     }
 
+    pub fn check_provider_access(&self, user_id: i64, provider_name: &str) -> bool {
+        let Some(provider_id) = self.provider_names.load().get(provider_name).copied() else {
+            return false;
+        };
+        let perms = self.user_permissions.load();
+        let Some(entries) = perms.get(&user_id) else {
+            return false;
+        };
+        entries
+            .iter()
+            .any(|e| e.provider_id.is_none() || e.provider_id == Some(provider_id))
+    }
+
     pub fn check_rate_limit(&self, user_id: i64, model: &str) -> Result<(), RateLimitRejection> {
         self.check_rate_limit_request(user_id, model, None)
     }
@@ -208,6 +243,10 @@ impl AppState {
         self.provider_names.load().get(provider_name).copied()
     }
 
+    pub fn provider_channel_for_name(&self, provider_name: &str) -> Option<String> {
+        self.provider_channels.load().get(provider_name).cloned()
+    }
+
     pub fn credential_id_for_index(&self, provider_name: &str, index: usize) -> Option<i64> {
         self.provider_credentials
             .load()
@@ -218,6 +257,61 @@ impl AppState {
 
     pub fn provider_credential_ids_for(&self, provider_name: &str) -> Option<Vec<i64>> {
         self.provider_credentials.load().get(provider_name).cloned()
+    }
+
+    pub fn credential_position_for_id(&self, credential_id: i64) -> Option<(String, usize)> {
+        let provider_credentials = self.provider_credentials.load();
+        provider_credentials
+            .iter()
+            .find_map(|(provider_name, ids)| {
+                ids.iter()
+                    .position(|id| *id == credential_id)
+                    .map(|index| (provider_name.clone(), index))
+            })
+    }
+
+    pub fn find_user_file(
+        &self,
+        user_id: i64,
+        provider_name: &str,
+        file_id: &str,
+    ) -> Option<MemoryUserCredentialFile> {
+        let provider_id = self.provider_id_for_name(provider_name)?;
+        self.user_files
+            .load()
+            .iter()
+            .find(|record| {
+                record.active
+                    && record.user_id == user_id
+                    && record.provider_id == provider_id
+                    && record.file_id == file_id
+            })
+            .cloned()
+    }
+
+    pub fn list_user_files(
+        &self,
+        user_id: i64,
+        provider_name: &str,
+    ) -> Vec<MemoryUserCredentialFile> {
+        let Some(provider_id) = self.provider_id_for_name(provider_name) else {
+            return Vec::new();
+        };
+        self.user_files
+            .load()
+            .iter()
+            .filter(|record| {
+                record.active && record.user_id == user_id && record.provider_id == provider_id
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub fn find_claude_file(&self, provider_id: i64, file_id: &str) -> Option<MemoryClaudeFile> {
+        self.claude_files
+            .load()
+            .get(&(provider_id, file_id.to_string()))
+            .cloned()
     }
 
     // -----------------------------------------------------------------------
@@ -253,6 +347,7 @@ impl AppState {
         let mut keys = (*self.keys.load_full()).clone();
         keys.retain(|_, k| k.user_id != user_id);
         self.keys.store(Arc::new(keys));
+        self.remove_user_files_for_user(user_id);
     }
 
     pub fn upsert_key_in_memory(&self, key: MemoryUserKey) {
@@ -290,16 +385,32 @@ impl AppState {
         self.provider_names.store(Arc::new(names));
     }
 
+    pub fn replace_provider_channels(&self, channels: HashMap<String, String>) {
+        self.provider_channels.store(Arc::new(channels));
+    }
+
     pub fn upsert_provider_name_in_memory(&self, name: String, provider_id: i64) {
         let mut names = (*self.provider_names.load_full()).clone();
         names.insert(name, provider_id);
         self.provider_names.store(Arc::new(names));
     }
 
+    pub fn upsert_provider_channel_in_memory(&self, name: String, channel: String) {
+        let mut channels = (*self.provider_channels.load_full()).clone();
+        channels.insert(name, channel);
+        self.provider_channels.store(Arc::new(channels));
+    }
+
     pub fn remove_provider_name_from_memory(&self, name: &str) {
         let mut names = (*self.provider_names.load_full()).clone();
         names.remove(name);
         self.provider_names.store(Arc::new(names));
+    }
+
+    pub fn remove_provider_channel_from_memory(&self, name: &str) {
+        let mut channels = (*self.provider_channels.load_full()).clone();
+        channels.remove(name);
+        self.provider_channels.store(Arc::new(channels));
     }
 
     pub fn replace_provider_credentials(&self, map: HashMap<String, Vec<i64>>) {
@@ -335,6 +446,67 @@ impl AppState {
         let mut map = (*self.provider_credentials.load_full()).clone();
         map.remove(name);
         self.provider_credentials.store(Arc::new(map));
+    }
+
+    pub fn replace_user_files(&self, files: Vec<MemoryUserCredentialFile>) {
+        self.user_files.store(Arc::new(files));
+    }
+
+    pub fn upsert_user_file_in_memory(&self, file: MemoryUserCredentialFile) {
+        let mut files = (*self.user_files.load_full()).clone();
+        if let Some(existing) = files.iter_mut().find(|existing| {
+            existing.user_id == file.user_id
+                && existing.provider_id == file.provider_id
+                && existing.file_id == file.file_id
+        }) {
+            *existing = file;
+        } else {
+            files.push(file);
+        }
+        self.user_files.store(Arc::new(files));
+    }
+
+    pub fn deactivate_user_file_in_memory(&self, user_id: i64, provider_id: i64, file_id: &str) {
+        let mut files = (*self.user_files.load_full()).clone();
+        if let Some(existing) = files.iter_mut().find(|existing| {
+            existing.user_id == user_id
+                && existing.provider_id == provider_id
+                && existing.file_id == file_id
+        }) {
+            existing.active = false;
+        }
+        self.user_files.store(Arc::new(files));
+    }
+
+    pub fn remove_user_files_for_user(&self, user_id: i64) {
+        let mut files = (*self.user_files.load_full()).clone();
+        files.retain(|file| file.user_id != user_id);
+        self.user_files.store(Arc::new(files));
+    }
+
+    pub fn remove_user_files_for_provider(&self, provider_id: i64) {
+        let mut files = (*self.user_files.load_full()).clone();
+        files.retain(|file| file.provider_id != provider_id);
+        self.user_files.store(Arc::new(files));
+        let mut claude_files = (*self.claude_files.load_full()).clone();
+        claude_files.retain(|(current_provider_id, _), _| *current_provider_id != provider_id);
+        self.claude_files.store(Arc::new(claude_files));
+    }
+
+    pub fn remove_user_files_for_credential(&self, credential_id: i64) {
+        let mut files = (*self.user_files.load_full()).clone();
+        files.retain(|file| file.credential_id != credential_id);
+        self.user_files.store(Arc::new(files));
+    }
+
+    pub fn replace_claude_files(&self, files: HashMap<(i64, String), MemoryClaudeFile>) {
+        self.claude_files.store(Arc::new(files));
+    }
+
+    pub fn upsert_claude_file_in_memory(&self, file: MemoryClaudeFile) {
+        let mut files = (*self.claude_files.load_full()).clone();
+        files.insert((file.provider_id, file.file_id.clone()), file);
+        self.claude_files.store(Arc::new(files));
     }
 
     pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
@@ -542,7 +714,10 @@ impl AppStateBuilder {
             models: ArcSwap::from_pointee(Vec::new()),
             model_aliases: ArcSwap::from_pointee(HashMap::new()),
             provider_names: ArcSwap::from_pointee(HashMap::new()),
+            provider_channels: ArcSwap::from_pointee(HashMap::new()),
             provider_credentials: ArcSwap::from_pointee(HashMap::new()),
+            user_files: ArcSwap::from_pointee(Vec::new()),
+            claude_files: ArcSwap::from_pointee(HashMap::new()),
             user_permissions: ArcSwap::from_pointee(HashMap::new()),
             user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
             user_quotas: DashMap::new(),

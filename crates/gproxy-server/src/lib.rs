@@ -3,7 +3,9 @@ pub mod config;
 pub mod middleware;
 pub mod principal;
 
-pub use app_state::{AppState, AppStateBuilder, MemoryModel, PriceTier};
+pub use app_state::{
+    AppState, AppStateBuilder, MemoryClaudeFile, MemoryModel, MemoryUserCredentialFile, PriceTier,
+};
 pub use config::GlobalConfig;
 pub use middleware::classify::Classification;
 pub use middleware::kinds::{OperationFamily, ProtocolKind};

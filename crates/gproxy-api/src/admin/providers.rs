@@ -63,13 +63,16 @@ async fn sync_provider_runtime(
     {
         store.remove_provider(old_name);
         state.remove_provider_name_from_memory(old_name);
+        state.remove_provider_channel_from_memory(old_name);
         state.remove_provider_credentials_from_memory(old_name);
     }
 
     state.upsert_provider_name_in_memory(payload.name.clone(), payload.id);
+    state.upsert_provider_channel_in_memory(payload.name.clone(), payload.channel.clone());
 
     if !payload.enabled {
         store.remove_provider(&payload.name);
+        state.remove_provider_channel_from_memory(&payload.name);
         state.remove_provider_credentials_from_memory(&payload.name);
         return Ok(());
     }
@@ -237,7 +240,9 @@ pub async fn delete_provider(
     let provider_id = resolve_provider_id_by_name(&state, &payload.name).await?;
     state.engine().store().remove_provider(&payload.name);
     state.remove_provider_name_from_memory(&payload.name);
+    state.remove_provider_channel_from_memory(&payload.name);
     state.remove_provider_credentials_from_memory(&payload.name);
+    state.remove_user_files_for_provider(provider_id);
     state
         .storage_writes()
         .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
@@ -276,7 +281,9 @@ pub async fn batch_delete_providers(
         let provider_id = resolve_provider_id_by_name(&state, name).await?;
         state.engine().store().remove_provider(name);
         state.remove_provider_name_from_memory(name);
+        state.remove_provider_channel_from_memory(name);
         state.remove_provider_credentials_from_memory(name);
+        state.remove_user_files_for_provider(provider_id);
         sender
             .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
             .await
