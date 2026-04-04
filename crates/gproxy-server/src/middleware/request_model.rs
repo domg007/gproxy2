@@ -17,9 +17,9 @@ pub struct ExtractedModel(pub Option<String>);
 pub async fn request_model_middleware(request: Request, next: Next) -> Response {
     let classification = request.extensions().get::<Classification>().cloned();
     let body_bytes = request.extensions().get::<BufferedBodyBytes>().cloned();
-    let model = classification
-        .as_ref()
-        .and_then(|c| extract_model_from_request(&request, body_bytes.as_ref(), c.operation, c.protocol));
+    let model = classification.as_ref().and_then(|c| {
+        extract_model_from_request(&request, body_bytes.as_ref(), c.operation, c.protocol)
+    });
     let mut request = request;
     request.extensions_mut().insert(ExtractedModel(model));
     next.run(request).await
@@ -51,7 +51,10 @@ fn extract_model_from_request(
     }
 }
 
-fn extract_model_from_body(body_bytes: Option<&BufferedBodyBytes>, pointer: &str) -> Option<String> {
+fn extract_model_from_body(
+    body_bytes: Option<&BufferedBodyBytes>,
+    pointer: &str,
+) -> Option<String> {
     let bytes = &body_bytes?.0;
     if bytes.is_empty() {
         return None;

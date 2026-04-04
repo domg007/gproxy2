@@ -892,9 +892,9 @@ impl StreamChunkDecoder {
             ProtocolKind::Claude
             | ProtocolKind::OpenAiChatCompletion
             | ProtocolKind::OpenAiResponse
-            | ProtocolKind::Gemini => {
-                Ok(Self::Sse(gproxy_protocol::stream::SseToNdjsonRewriter::default()))
-            }
+            | ProtocolKind::Gemini => Ok(Self::Sse(
+                gproxy_protocol::stream::SseToNdjsonRewriter::default(),
+            )),
             ProtocolKind::GeminiNDJson => Ok(Self::Ndjson(Vec::new())),
             _ => Err(UpstreamError::Channel(format!(
                 "unsupported stream input protocol: {protocol}"
@@ -945,11 +945,11 @@ enum StreamChunkEncoder {
 impl StreamChunkEncoder {
     fn from_protocol(protocol: ProtocolKind) -> Result<Self, UpstreamError> {
         match protocol {
-            ProtocolKind::Claude | ProtocolKind::OpenAiResponse | ProtocolKind::Gemini => Ok(
-                Self::Sse {
+            ProtocolKind::Claude | ProtocolKind::OpenAiResponse | ProtocolKind::Gemini => {
+                Ok(Self::Sse {
                     append_done_marker: false,
-                },
-            ),
+                })
+            }
             ProtocolKind::OpenAiChatCompletion => Ok(Self::Sse {
                 append_done_marker: true,
             }),
@@ -1445,20 +1445,21 @@ pub fn create_stream_response_transformer(
     let key = (src_operation, src_protocol, dst_operation, dst_protocol);
 
     match key {
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Claude, OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-            build_stream_transform::<
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                IdentityConverter<
-                    gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                >,
-            >(
-                src_protocol,
-                dst_protocol,
-                IdentityConverter::default(),
-                normalizer,
-            )
-        }
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+        ) => build_stream_transform::<
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            IdentityConverter<gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent>,
+        >(
+            src_protocol,
+            dst_protocol,
+            IdentityConverter::default(),
+            normalizer,
+        ),
         (
             OperationFamily::StreamGenerateContent,
             ProtocolKind::OpenAiChatCompletion,
@@ -1493,9 +1494,24 @@ pub fn create_stream_response_transformer(
             IdentityConverter::default(),
             normalizer,
         ),
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
+        | (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+        )
+        | (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
         | (
             OperationFamily::StreamGenerateContent,
             ProtocolKind::GeminiNDJson,
@@ -1527,31 +1543,42 @@ pub fn create_stream_response_transformer(
             OpenAiChatToClaudeConverter::default(),
             normalizer,
         ),
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Claude, OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse) => {
-            build_stream_transform::<
-                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                OpenAiResponseToClaudeConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                OpenAiResponseToClaudeConverter::default(),
-                normalizer,
-            )
-        }
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Claude, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::Claude, OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-            build_stream_transform::<
-                gproxy_protocol::gemini::generate_content::response::ResponseBody,
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                GeminiToClaudeConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                GeminiToClaudeConverter::default(),
-                normalizer,
-            )
-        }
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            OpenAiResponseToClaudeConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            OpenAiResponseToClaudeConverter::default(),
+            normalizer,
+        ),
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
+        | (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+        ) => build_stream_transform::<
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            GeminiToClaudeConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            GeminiToClaudeConverter::default(),
+            normalizer,
+        ),
 
         (
             OperationFamily::StreamGenerateContent,
@@ -1590,19 +1617,27 @@ pub fn create_stream_response_transformer(
             normalizer,
         ),
 
-        (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse, OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-            build_stream_transform::<
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
-                ClaudeToOpenAiResponseConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                ClaudeToOpenAiResponseConverter::default(),
-                normalizer,
-            )
-        }
-        (OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+        ) => build_stream_transform::<
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            ClaudeToOpenAiResponseConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            ClaudeToOpenAiResponseConverter::default(),
+            normalizer,
+        ),
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
         | (
             OperationFamily::StreamGenerateContent,
             ProtocolKind::OpenAiResponse,
@@ -1619,19 +1654,27 @@ pub fn create_stream_response_transformer(
             normalizer,
         ),
 
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::Claude)
-        | (OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson, OperationFamily::StreamGenerateContent, ProtocolKind::Claude) => {
-            build_stream_transform::<
-                gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
-                gproxy_protocol::gemini::generate_content::response::ResponseBody,
-                ClaudeToGeminiConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                ClaudeToGeminiConverter::default(),
-                normalizer,
-            )
-        }
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+        )
+        | (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Claude,
+        ) => build_stream_transform::<
+            gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent,
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            ClaudeToGeminiConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            ClaudeToGeminiConverter::default(),
+            normalizer,
+        ),
         (
             OperationFamily::StreamGenerateContent,
             ProtocolKind::Gemini,
@@ -1653,7 +1696,12 @@ pub fn create_stream_response_transformer(
             OpenAiChatToGeminiConverter::default(),
             normalizer,
         ),
-        (OperationFamily::StreamGenerateContent, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse)
+        (
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+        )
         | (
             OperationFamily::StreamGenerateContent,
             ProtocolKind::GeminiNDJson,
@@ -1673,35 +1721,61 @@ pub fn create_stream_response_transformer(
         // =====================================================================
         // stream_create_image / stream_create_image_edit → openai_response
         // =====================================================================
-        (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse)
-        | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse) => {
-            build_stream_transform::<
-                gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
-                gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
-                ResponseStreamToImageStreamConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                ResponseStreamToImageStreamConverter::default(),
-                normalizer,
-            )
-        }
+        (
+            OperationFamily::StreamCreateImage,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+        )
+        | (
+            OperationFamily::StreamCreateImageEdit,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::OpenAiResponse,
+        ) => build_stream_transform::<
+            gproxy_protocol::openai::create_response::stream::ResponseStreamEvent,
+            gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+            ResponseStreamToImageStreamConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            ResponseStreamToImageStreamConverter::default(),
+            normalizer,
+        ),
 
-        (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamCreateImage, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson)
-        | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::Gemini)
-        | (OperationFamily::StreamCreateImageEdit, ProtocolKind::OpenAi, OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson) => {
-            build_stream_transform::<
-                gproxy_protocol::gemini::generate_content::response::ResponseBody,
-                gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
-                GeminiToImageStreamConverter,
-            >(
-                src_protocol,
-                dst_protocol,
-                GeminiToImageStreamConverter::default(),
-                normalizer,
-            )
-        }
+        (
+            OperationFamily::StreamCreateImage,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
+        | (
+            OperationFamily::StreamCreateImage,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+        )
+        | (
+            OperationFamily::StreamCreateImageEdit,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini,
+        )
+        | (
+            OperationFamily::StreamCreateImageEdit,
+            ProtocolKind::OpenAi,
+            OperationFamily::StreamGenerateContent,
+            ProtocolKind::GeminiNDJson,
+        ) => build_stream_transform::<
+            gproxy_protocol::gemini::generate_content::response::ResponseBody,
+            gproxy_protocol::openai::create_image::stream::ImageGenerationStreamEvent,
+            GeminiToImageStreamConverter,
+        >(
+            src_protocol,
+            dst_protocol,
+            GeminiToImageStreamConverter::default(),
+            normalizer,
+        ),
 
         _ => Err(UpstreamError::Channel(format!(
             "no stream response transform from upstream ({}, {}) to client ({}, {})",

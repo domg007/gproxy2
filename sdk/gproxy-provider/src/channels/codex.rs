@@ -12,12 +12,12 @@ use crate::channel::{
 };
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::oauth2_refresh;
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use tracing::Instrument;
 
 /// Codex CLI channel (OpenAI Responses API with OAuth).
@@ -489,9 +489,13 @@ impl Channel for CodexChannel {
         // Native Codex traffic uses the Responses API, but the proxy can still
         // transform other request protocols into openai_response.
         let mut t = DispatchTable::new();
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -503,11 +507,31 @@ impl Channel for CodexChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // Model list/get
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // === No count_tokens routes — uses CountStrategy::Local ===
 
             // Generate content (internally force stream, then aggregate back)
@@ -536,7 +560,10 @@ impl Channel for CodexChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // Generate content (stream)
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiResponse),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::OpenAiChatCompletion,
@@ -562,7 +589,10 @@ impl Channel for CodexChannel {
                 ProtocolKind::OpenAiResponse,
             ),
             // WebSocket
-            pass(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
+            pass(
+                OperationFamily::OpenAiResponseWebSocket,
+                ProtocolKind::OpenAi,
+            ),
             xform(
                 OperationFamily::GeminiLive,
                 ProtocolKind::Gemini,
@@ -596,7 +626,12 @@ impl Channel for CodexChannel {
             ),
             // Embeddings
             pass(OperationFamily::Embedding, ProtocolKind::OpenAi),
-            xform(OperationFamily::Embedding, ProtocolKind::Gemini, OperationFamily::Embedding, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::Embedding,
+                ProtocolKind::Gemini,
+                OperationFamily::Embedding,
+                ProtocolKind::OpenAi,
+            ),
             // Compact
             pass(OperationFamily::Compact, ProtocolKind::OpenAi),
         ];

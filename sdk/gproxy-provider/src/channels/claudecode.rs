@@ -12,13 +12,13 @@ use crate::channel::{
 };
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
 use crate::utils::claude_cache_control as cache_control;
 use crate::utils::oauth2_refresh;
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use tracing::Instrument;
 
 /// Claude Code channel (Anthropic Messages API with OAuth).
@@ -585,9 +585,13 @@ impl Channel for ClaudeCodeChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -598,14 +602,44 @@ impl Channel for ClaudeCodeChannel {
 
         let routes = vec![
             pass(OperationFamily::ModelList, ProtocolKind::Claude),
-            xform(OperationFamily::ModelList, ProtocolKind::OpenAi, OperationFamily::ModelList, ProtocolKind::Claude),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::Claude),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::Claude),
-            xform(OperationFamily::ModelGet, ProtocolKind::OpenAi, OperationFamily::ModelGet, ProtocolKind::Claude),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::Claude),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+            ),
             pass(OperationFamily::CountToken, ProtocolKind::Claude),
-            xform(OperationFamily::CountToken, ProtocolKind::OpenAi, OperationFamily::CountToken, ProtocolKind::Claude),
-            xform(OperationFamily::CountToken, ProtocolKind::Gemini, OperationFamily::CountToken, ProtocolKind::Claude),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::OpenAi,
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+            ),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::Gemini,
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+            ),
             pass(OperationFamily::GenerateContent, ProtocolKind::Claude),
             xform(
                 OperationFamily::GenerateContent,
@@ -619,7 +653,12 @@ impl Channel for ClaudeCodeChannel {
                 OperationFamily::GenerateContent,
                 ProtocolKind::Claude,
             ),
-            xform(OperationFamily::GenerateContent, ProtocolKind::Gemini, OperationFamily::GenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+            ),
             pass(OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
             xform(
                 OperationFamily::StreamGenerateContent,
@@ -645,14 +684,24 @@ impl Channel for ClaudeCodeChannel {
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::Claude,
             ),
-            xform(OperationFamily::GeminiLive, ProtocolKind::Gemini, OperationFamily::StreamGenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::GeminiLive,
+                ProtocolKind::Gemini,
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::Claude,
+            ),
             xform(
                 OperationFamily::OpenAiResponseWebSocket,
                 ProtocolKind::OpenAi,
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::Claude,
             ),
-            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::Claude),
+            xform(
+                OperationFamily::Compact,
+                ProtocolKind::OpenAi,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+            ),
             // Files API
             pass(OperationFamily::FileUpload, ProtocolKind::Claude),
             pass(OperationFamily::FileList, ProtocolKind::Claude),

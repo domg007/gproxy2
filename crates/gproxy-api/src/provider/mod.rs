@@ -83,12 +83,18 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .layer(from_fn_with_state(state.clone(), require_user_middleware));
 
     let proxy_ws_router = Router::new()
-        .route("/{provider}/v1/responses", get(websocket::openai_responses_ws))
+        .route(
+            "/{provider}/v1/responses",
+            get(websocket::openai_responses_ws),
+        )
         .route(
             "/{provider}/v1beta/models/{*target_live}",
             get(websocket::gemini_live),
         )
-        .route("/v1/responses", get(websocket::openai_responses_ws_unscoped))
+        .route(
+            "/v1/responses",
+            get(websocket::openai_responses_ws_unscoped),
+        )
         .layer(from_fn(sanitize_middleware))
         .layer(from_fn_with_state(state.clone(), require_user_middleware));
 

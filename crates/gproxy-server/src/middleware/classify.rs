@@ -44,7 +44,9 @@ pub async fn classify_middleware(request: Request, next: Next) -> Response {
     match result {
         Ok(classification) => {
             let mut request = Request::from_parts(parts, Body::from(body_bytes.clone()));
-            request.extensions_mut().insert(BufferedBodyBytes(body_bytes));
+            request
+                .extensions_mut()
+                .insert(BufferedBodyBytes(body_bytes));
             request.extensions_mut().insert(classification);
             next.run(request).await
         }

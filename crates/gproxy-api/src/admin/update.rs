@@ -34,7 +34,8 @@ const WEB_DOWNLOAD_BASE: &str = "https://dl.gproxy.leenhawk.com";
 
 /// Ed25519 public key for verifying update signatures (base64-encoded).
 /// If not set at build time, signature verification is skipped.
-const UPDATE_SIGNING_PUBLIC_KEY_B64: Option<&str> = option_env!("GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64");
+const UPDATE_SIGNING_PUBLIC_KEY_B64: Option<&str> =
+    option_env!("GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64");
 
 /// Platform asset name component, e.g. "linux-x86_64", "macos-aarch64".
 fn platform_asset_name() -> String {
@@ -368,8 +369,7 @@ fn verify_ed25519(pub_key_b64: &str, message: &[u8], signature: &[u8]) -> Result
 
 fn extract_binary_from_zip(zip_bytes: &[u8]) -> Result<Vec<u8>, String> {
     let cursor = std::io::Cursor::new(zip_bytes);
-    let mut archive =
-        zip::ZipArchive::new(cursor).map_err(|e| format!("invalid zip: {e}"))?;
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("invalid zip: {e}"))?;
 
     let binary_name = if cfg!(windows) {
         "gproxy.exe"
@@ -387,7 +387,9 @@ fn extract_binary_from_zip(zip_bytes: &[u8]) -> Result<Vec<u8>, String> {
         })
         .ok_or_else(|| format!("'{binary_name}' not found in zip"))?;
 
-    let mut file = archive.by_index(idx).map_err(|e| format!("zip read: {e}"))?;
+    let mut file = archive
+        .by_index(idx)
+        .map_err(|e| format!("zip read: {e}"))?;
     let mut buf = Vec::with_capacity(file.size() as usize);
     file.read_to_end(&mut buf)
         .map_err(|e| format!("extract: {e}"))?;
@@ -442,9 +444,7 @@ fn restart_process() -> ! {
 
     #[cfg(not(unix))]
     {
-        let _ = std::process::Command::new(&exe)
-            .args(&args[1..])
-            .spawn();
+        let _ = std::process::Command::new(&exe).args(&args[1..]).spawn();
         std::process::exit(0);
     }
 }

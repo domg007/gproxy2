@@ -267,7 +267,10 @@ where
                     let (_, health) = &mut credentials[idx];
                     health.record_success(model);
                     bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
-                    return Ok(RetryResult { output, credential_index: idx });
+                    return Ok(RetryResult {
+                        output,
+                        credential_index: idx,
+                    });
                 }
                 RetryAction::Classifiable(resp) => resp,
             };
@@ -287,7 +290,10 @@ where
                 ResponseClassification::Success => {
                     health.record_success(model);
                     bind_affinity(affinity_pool, affinity_hint, idx, matched_affinity_idx);
-                    return Ok(RetryResult { output: R::wrap_buffered(response), credential_index: idx });
+                    return Ok(RetryResult {
+                        output: R::wrap_buffered(response),
+                        credential_index: idx,
+                    });
                 }
                 ResponseClassification::AuthDead => {
                     tracing::warn!(
@@ -324,7 +330,10 @@ where
                                         idx,
                                         matched_affinity_idx,
                                     );
-                                    return Ok(RetryResult { output, credential_index: idx });
+                                    return Ok(RetryResult {
+                                        output,
+                                        credential_index: idx,
+                                    });
                                 }
                                 RetryAction::Classifiable(retry_response) => {
                                     let retry_class = channel.classify_response(
@@ -340,7 +349,10 @@ where
                                             idx,
                                             matched_affinity_idx,
                                         );
-                                        return Ok(RetryResult { output: R::wrap_buffered(retry_response), credential_index: idx });
+                                        return Ok(RetryResult {
+                                            output: R::wrap_buffered(retry_response),
+                                            credential_index: idx,
+                                        });
                                     }
                                     health.record_error(retry_response.status, model, None);
                                     tracing::warn!(
@@ -414,7 +426,10 @@ where
                     break;
                 }
                 ResponseClassification::PermanentError => {
-                    return Ok(RetryResult { output: R::wrap_buffered(response), credential_index: idx });
+                    return Ok(RetryResult {
+                        output: R::wrap_buffered(response),
+                        credential_index: idx,
+                    });
                 }
             }
         }

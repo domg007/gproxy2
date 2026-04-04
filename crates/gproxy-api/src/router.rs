@@ -11,10 +11,10 @@ use crate::cors::CorsLayer;
 
 /// Build the complete API router.
 pub fn api_router(state: Arc<AppState>) -> Router {
-    let admin_router = crate::admin::router()
-        .layer(from_fn_with_state(state.clone(), require_admin_middleware));
-    let user_router = crate::user::router()
-        .layer(from_fn_with_state(state.clone(), require_user_middleware));
+    let admin_router =
+        crate::admin::router().layer(from_fn_with_state(state.clone(), require_admin_middleware));
+    let user_router =
+        crate::user::router().layer(from_fn_with_state(state.clone(), require_user_middleware));
 
     Router::new()
         .route("/login", post(crate::login::login))

@@ -4,11 +4,11 @@ use crate::error::{AckResponse, HttpError};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use gproxy_sdk::provider::engine::ProviderConfig;
 use gproxy_server::AppState;
 use gproxy_storage::{CredentialQuery, ProviderQuery, ProviderQueryRow, Scope};
-use gproxy_sdk::provider::engine::ProviderConfig;
-use std::collections::HashMap;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Look up a provider's DB id by name.
@@ -27,7 +27,9 @@ async fn resolve_provider_id_by_name(state: &AppState, name: &str) -> Result<i64
         .ok_or_else(|| HttpError::not_found(format!("provider '{name}' not found in DB")))
 }
 
-async fn load_providers_by_id(state: &AppState) -> Result<HashMap<i64, ProviderQueryRow>, HttpError> {
+async fn load_providers_by_id(
+    state: &AppState,
+) -> Result<HashMap<i64, ProviderQueryRow>, HttpError> {
     let rows = state
         .storage()
         .list_providers(&ProviderQuery::default())
@@ -101,7 +103,8 @@ async fn sync_provider_runtime(
         .and_then(|provider_name| store.list_credentials(Some(provider_name)).ok())
         .filter(|creds| !creds.is_empty())
         .map(|creds| {
-            creds.into_iter()
+            creds
+                .into_iter()
                 .map(|cred| cred.credential)
                 .collect::<Vec<_>>()
         });

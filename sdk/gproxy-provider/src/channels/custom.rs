@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// Custom channel — a universal transparent proxy for any OpenAI/Claude/Gemini
 /// compatible API endpoint. Forwards requests as-is with configurable auth.
@@ -56,8 +56,9 @@ impl Channel for CustomChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
 
         // Universal passthrough — all protocols supported as-is
         let ops = [
@@ -90,7 +91,10 @@ impl Channel for CustomChannel {
 
         // WebSocket and Live
         t.set(
-            RouteKey::new(OperationFamily::OpenAiResponseWebSocket, ProtocolKind::OpenAi),
+            RouteKey::new(
+                OperationFamily::OpenAiResponseWebSocket,
+                ProtocolKind::OpenAi,
+            ),
             RouteImplementation::Passthrough,
         );
         t.set(

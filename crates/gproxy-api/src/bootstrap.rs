@@ -59,7 +59,9 @@ pub(crate) async fn apply_persisted_credential_statuses(
 /// Reload all in-memory state from the database.
 ///
 /// Used by both the initial bootstrap and the `POST /admin/reload` endpoint.
-pub async fn reload_from_db(state: &AppState) -> Result<ReloadCounts, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn reload_from_db(
+    state: &AppState,
+) -> Result<ReloadCounts, Box<dyn std::error::Error + Send + Sync>> {
     let storage = state.storage();
 
     // Global settings
@@ -237,15 +239,12 @@ pub async fn reload_from_db(state: &AppState) -> Result<ReloadCounts, Box<dyn st
     let limit_count = limits.len();
     let mut limit_map: HashMap<i64, Vec<RateLimitRule>> = HashMap::new();
     for l in limits {
-        limit_map
-            .entry(l.user_id)
-            .or_default()
-            .push(RateLimitRule {
-                model_pattern: l.model_pattern,
-                rpm: l.rpm,
-                rpd: l.rpd,
-                total_tokens: l.total_tokens,
-            });
+        limit_map.entry(l.user_id).or_default().push(RateLimitRule {
+            model_pattern: l.model_pattern,
+            rpm: l.rpm,
+            rpd: l.rpd,
+            total_tokens: l.total_tokens,
+        });
     }
     state.replace_user_rate_limits(limit_map);
 
@@ -490,8 +489,10 @@ pub async fn seed_from_toml(
 
     // 6. Permissions, rate limits, quotas → memory + DB
     let users_snapshot = state.users_snapshot();
-    let user_id_map: HashMap<String, i64> =
-        users_snapshot.iter().map(|u| (u.name.clone(), u.id)).collect();
+    let user_id_map: HashMap<String, i64> = users_snapshot
+        .iter()
+        .map(|u| (u.name.clone(), u.id))
+        .collect();
 
     let mut perm_map: HashMap<i64, Vec<PermissionEntry>> = HashMap::new();
     for (i, p) in config.permissions.iter().enumerate() {

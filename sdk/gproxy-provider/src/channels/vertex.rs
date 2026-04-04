@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::count_tokens::CountStrategy;
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 const DEFAULT_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -208,9 +208,13 @@ impl Channel for VertexChannel {
 
     fn dispatch_table(&self) -> DispatchTable {
         let mut t = DispatchTable::new();
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -222,18 +226,53 @@ impl Channel for VertexChannel {
         let routes = vec![
             // Model list/get
             pass(OperationFamily::ModelList, ProtocolKind::Gemini),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::Gemini),
-            xform(OperationFamily::ModelList, ProtocolKind::OpenAi, OperationFamily::ModelList, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::Gemini),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::Gemini),
-            xform(OperationFamily::ModelGet, ProtocolKind::OpenAi, OperationFamily::ModelGet, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+            ),
             // Count tokens
             pass(OperationFamily::CountToken, ProtocolKind::Gemini),
-            xform(OperationFamily::CountToken, ProtocolKind::Claude, OperationFamily::CountToken, ProtocolKind::Gemini),
-            xform(OperationFamily::CountToken, ProtocolKind::OpenAi, OperationFamily::CountToken, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::Claude,
+                OperationFamily::CountToken,
+                ProtocolKind::Gemini,
+            ),
+            xform(
+                OperationFamily::CountToken,
+                ProtocolKind::OpenAi,
+                OperationFamily::CountToken,
+                ProtocolKind::Gemini,
+            ),
             // Generate content (non-stream)
             pass(OperationFamily::GenerateContent, ProtocolKind::Gemini),
-            xform(OperationFamily::GenerateContent, ProtocolKind::Claude, OperationFamily::GenerateContent, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::GenerateContent,
+                ProtocolKind::Claude,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+            ),
             xform(
                 OperationFamily::GenerateContent,
                 ProtocolKind::OpenAiChatCompletion,
@@ -248,7 +287,10 @@ impl Channel for VertexChannel {
             ),
             // Generate content (stream)
             pass(OperationFamily::StreamGenerateContent, ProtocolKind::Gemini),
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::GeminiNDJson),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::GeminiNDJson,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::Claude,
@@ -277,14 +319,24 @@ impl Channel for VertexChannel {
                 ProtocolKind::Gemini,
             ),
             // Images
-            xform(OperationFamily::CreateImage, ProtocolKind::OpenAi, OperationFamily::CreateImage, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::CreateImage,
+                ProtocolKind::OpenAi,
+                OperationFamily::CreateImage,
+                ProtocolKind::Gemini,
+            ),
             xform(
                 OperationFamily::StreamCreateImage,
                 ProtocolKind::OpenAi,
                 OperationFamily::StreamCreateImage,
                 ProtocolKind::Gemini,
             ),
-            xform(OperationFamily::CreateImageEdit, ProtocolKind::OpenAi, OperationFamily::CreateImageEdit, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::CreateImageEdit,
+                ProtocolKind::OpenAi,
+                OperationFamily::CreateImageEdit,
+                ProtocolKind::Gemini,
+            ),
             xform(
                 OperationFamily::StreamCreateImageEdit,
                 ProtocolKind::OpenAi,
@@ -293,9 +345,19 @@ impl Channel for VertexChannel {
             ),
             // Embeddings
             pass(OperationFamily::Embedding, ProtocolKind::Gemini),
-            xform(OperationFamily::Embedding, ProtocolKind::OpenAi, OperationFamily::Embedding, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::Embedding,
+                ProtocolKind::OpenAi,
+                OperationFamily::Embedding,
+                ProtocolKind::Gemini,
+            ),
             // Compact -> generate
-            xform(OperationFamily::Compact, ProtocolKind::OpenAi, OperationFamily::GenerateContent, ProtocolKind::Gemini),
+            xform(
+                OperationFamily::Compact,
+                ProtocolKind::OpenAi,
+                OperationFamily::GenerateContent,
+                ProtocolKind::Gemini,
+            ),
         ];
 
         for (key, implementation) in routes {

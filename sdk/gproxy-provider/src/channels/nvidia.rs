@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelCredential, ChannelSettings};
 use crate::dispatch::{DispatchTable, RouteImplementation, RouteKey};
-use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use crate::health::ModelCooldownHealth;
 use crate::registry::ChannelRegistration;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
 /// NVIDIA NIM API channel.
 ///
@@ -57,10 +57,14 @@ impl Channel for NvidiaChannel {
         let mut t = DispatchTable::new();
 
         // Helper: passthrough = src and dst are same
-        let pass =
-            |op: OperationFamily, proto: ProtocolKind| (RouteKey::new(op, proto), RouteImplementation::Passthrough);
+        let pass = |op: OperationFamily, proto: ProtocolKind| {
+            (RouteKey::new(op, proto), RouteImplementation::Passthrough)
+        };
         // Helper: transform = src converts to different dst
-        let xform = |op: OperationFamily, proto: ProtocolKind, dst_op: OperationFamily, dst_proto: ProtocolKind| {
+        let xform = |op: OperationFamily,
+                     proto: ProtocolKind,
+                     dst_op: OperationFamily,
+                     dst_proto: ProtocolKind| {
             (
                 RouteKey::new(op, proto),
                 RouteImplementation::TransformTo {
@@ -72,17 +76,40 @@ impl Channel for NvidiaChannel {
         let routes: Vec<(RouteKey, RouteImplementation)> = vec![
             // === Model list/get ===
             pass(OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Claude, OperationFamily::ModelList, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelList, ProtocolKind::Gemini, OperationFamily::ModelList, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Claude,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelList,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelList,
+                ProtocolKind::OpenAi,
+            ),
             pass(OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Claude, OperationFamily::ModelGet, ProtocolKind::OpenAi),
-            xform(OperationFamily::ModelGet, ProtocolKind::Gemini, OperationFamily::ModelGet, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Claude,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
+            xform(
+                OperationFamily::ModelGet,
+                ProtocolKind::Gemini,
+                OperationFamily::ModelGet,
+                ProtocolKind::OpenAi,
+            ),
             // === Count tokens ===
             // No routes: NVIDIA has no count_tokens API.
             // Uses CountStrategy::Local (the trait default).
 
             // === Generate content (non-stream) ===
-            pass(OperationFamily::GenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::GenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::GenerateContent,
                 ProtocolKind::OpenAiResponse,
@@ -102,7 +129,10 @@ impl Channel for NvidiaChannel {
                 ProtocolKind::OpenAiChatCompletion,
             ),
             // === Generate content (stream) ===
-            pass(OperationFamily::StreamGenerateContent, ProtocolKind::OpenAiChatCompletion),
+            pass(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiChatCompletion,
+            ),
             xform(
                 OperationFamily::StreamGenerateContent,
                 ProtocolKind::OpenAiResponse,
@@ -143,7 +173,12 @@ impl Channel for NvidiaChannel {
             ),
             // === Embeddings ===
             pass(OperationFamily::Embedding, ProtocolKind::OpenAi),
-            xform(OperationFamily::Embedding, ProtocolKind::Gemini, OperationFamily::Embedding, ProtocolKind::OpenAi),
+            xform(
+                OperationFamily::Embedding,
+                ProtocolKind::Gemini,
+                OperationFamily::Embedding,
+                ProtocolKind::OpenAi,
+            ),
             // === Compact -> generate ===
             xform(
                 OperationFamily::Compact,

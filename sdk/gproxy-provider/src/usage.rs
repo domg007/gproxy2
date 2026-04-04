@@ -5,9 +5,9 @@ use crate::engine::Usage;
 /// Extract usage from a non-streaming response body based on the upstream protocol.
 pub fn extract_usage(protocol: ProtocolKind, body: &[u8]) -> Option<Usage> {
     match protocol {
-        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAiChatCompletion | ProtocolKind::OpenAi => {
-            extract_openai_usage(body)
-        }
+        ProtocolKind::OpenAiResponse
+        | ProtocolKind::OpenAiChatCompletion
+        | ProtocolKind::OpenAi => extract_openai_usage(body),
         ProtocolKind::Claude => extract_claude_usage(body),
         ProtocolKind::Gemini => extract_gemini_usage(body),
         _ => None,
