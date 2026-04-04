@@ -341,6 +341,103 @@ pub async fn proxy_unscoped(
     Ok(response)
 }
 
+/// Proxy handler for unscoped file operations: `/v1/files/...`
+///
+/// File endpoints have no model in the request. Provider is resolved from
+/// the `X-Provider` header.
+pub async fn proxy_unscoped_files(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, HttpError> {
+    let start = std::time::Instant::now();
+    let trace_id = generate_trace_id();
+    let req_method = request.method().to_string();
+    let req_path = request.uri().path().to_string();
+    let req_query = request.uri().query().map(String::from);
+    let headers = request.headers().clone();
+    let req_headers_json = headers_to_json(&headers);
+    let user_key = authenticate_user(&headers, &state)?;
+
+    // Resolve provider from X-Provider header
+    let target_provider = headers
+        .get("x-provider")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from)
+        .ok_or_else(|| {
+            HttpError::bad_request("X-Provider header required for unscoped file operations")
+        })?;
+
+    let classification = request
+        .extensions()
+        .get::<Classification>()
+        .cloned()
+        .ok_or_else(|| HttpError::bad_request("request not classified"))?;
+
+    let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
+        .await
+        .map_err(|_| HttpError::bad_request("failed to read request body"))?;
+    let req_body = body.to_vec();
+
+    let operation = operation_to_string(classification.operation);
+    let protocol = protocol_to_string(classification.protocol);
+
+    let result = state
+        .engine()
+        .execute(ExecuteRequest {
+            provider: target_provider,
+            operation: operation.clone(),
+            protocol: protocol.clone(),
+            body: req_body.clone(),
+            headers,
+            model: None,
+        })
+        .await?;
+
+    // Record upstream log
+    record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
+
+    let resp_status = result.status;
+    let resp_headers_json = headers_to_json(&result.headers);
+
+    let response_body = match result.body {
+        ExecuteBody::Full(ref resp_body) => {
+            let latency_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                trace_id,
+                method = %req_method,
+                path = %req_path,
+                status = resp_status,
+                latency_ms,
+                "downstream"
+            );
+            record_downstream_log(
+                &state,
+                trace_id,
+                user_key.user_id,
+                user_key.id,
+                &req_method,
+                &req_path,
+                req_query.as_deref(),
+                &req_headers_json,
+                Some(&req_body),
+                Some(resp_status as i32),
+                &resp_headers_json,
+                Some(resp_body),
+            )
+            .await;
+            Body::from(resp_body.clone())
+        }
+        ExecuteBody::Stream(stream) => Body::from_stream(stream),
+    };
+
+    let mut response = Response::builder()
+        .status(result.status)
+        .body(response_body)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    *response.headers_mut() = result.headers;
+    Ok(response)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
