@@ -4,9 +4,47 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use gproxy_server::AppState;
-use gproxy_storage::Scope;
+use gproxy_storage::{ProviderQuery, ProviderQueryRow, Scope};
 use serde::Serialize;
 use std::sync::Arc;
+
+/// Look up a provider row from the DB by name.
+async fn resolve_provider_by_name(
+    state: &AppState,
+    provider_name: &str,
+) -> Result<ProviderQueryRow, HttpError> {
+    let rows = state
+        .storage()
+        .list_providers(&ProviderQuery {
+            name: Scope::Eq(provider_name.to_string()),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| HttpError::not_found(format!("provider '{provider_name}' not found")))
+}
+
+/// Look up the DB id of a credential given its provider_id and positional index.
+async fn resolve_credential_db_id(
+    state: &AppState,
+    provider_id: i64,
+    index: usize,
+) -> Result<i64, HttpError> {
+    let creds = state
+        .storage()
+        .list_credentials(&gproxy_storage::CredentialQuery {
+            provider_id: Scope::Eq(provider_id),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    creds
+        .get(index)
+        .map(|c| c.id)
+        .ok_or_else(|| HttpError::not_found("credential index out of range"))
+}
 
 #[derive(serde::Deserialize, Default)]
 pub struct CredentialQueryParams {
@@ -68,11 +106,12 @@ pub async fn upsert_credential(
         .add_credential(&payload.provider_name, payload.credential.clone())
         .map_err(|e| HttpError::internal(e.to_string()))?;
     // Persist to DB
+    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
     let write = gproxy_storage::CredentialWrite {
-        id: 0,          // auto-assign
-        provider_id: 0, // TODO: resolve from provider name
+        id: 0, // auto-assign
+        provider_id: provider.id,
         name: None,
-        kind: String::new(),
+        kind: provider.channel.clone(),
         secret_json: payload.credential.to_string(),
         enabled: true,
     };
@@ -102,6 +141,14 @@ pub async fn delete_credential(
         .store()
         .remove_credential(&payload.provider_name, payload.index)
         .map_err(|e| HttpError::internal(e.to_string()))?;
+    // Persist deletion to DB
+    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
+    let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
+    state
+        .storage_writes()
+        .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -113,9 +160,24 @@ pub async fn batch_upsert_credentials(
     authorize_admin(&headers, &state)?;
     let engine = state.engine();
     let store = engine.store();
+    let sender = state.storage_writes();
     for item in &items {
         store
             .add_credential(&item.provider_name, item.credential.clone())
+            .map_err(|e| HttpError::internal(e.to_string()))?;
+        // Persist to DB
+        let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
+        let write = gproxy_storage::CredentialWrite {
+            id: 0,
+            provider_id: provider.id,
+            name: None,
+            kind: provider.channel.clone(),
+            secret_json: item.credential.to_string(),
+            enabled: true,
+        };
+        sender
+            .enqueue(gproxy_storage::StorageWriteEvent::UpsertCredential(write))
+            .await
             .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
@@ -129,11 +191,19 @@ pub async fn batch_delete_credentials(
     authorize_admin(&headers, &state)?;
     let engine = state.engine();
     let store = engine.store();
+    let sender = state.storage_writes();
     // Delete in reverse index order to avoid index shifting
     let mut sorted = items;
     sorted.sort_by(|a, b| b.index.cmp(&a.index));
     for item in &sorted {
+        // Resolve DB id before removing from memory (index is still valid)
+        let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
+        let cred_id = resolve_credential_db_id(&state, provider.id, item.index).await?;
         let _ = store.remove_credential(&item.provider_name, item.index);
+        sender
+            .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
+            .await
+            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
