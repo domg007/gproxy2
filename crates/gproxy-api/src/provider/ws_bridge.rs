@@ -346,6 +346,7 @@ impl WsProtocolBridge for GeminiToOpenAiBridge {
         &mut self,
         msg: &str,
     ) -> Result<(Vec<String>, Option<Usage>), UpstreamError> {
+        use gproxy_sdk::protocol::openai::create_response::stream::ResponseStreamEvent;
 
         // Parse OpenAI WS server message — try as stream event first
         let event: ResponseStreamEvent = serde_json::from_str(msg).map_err(|e| {

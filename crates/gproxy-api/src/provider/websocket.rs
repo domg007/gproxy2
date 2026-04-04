@@ -419,99 +419,39 @@ async fn run_http_sse_fallback(
     headers: HeaderMap,
     downstream: &mut WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Active stream from a previous request (if any)
+    let mut active_stream: Option<(
+        gproxy_sdk::provider::engine::ExecuteBodyStream,
+        gproxy_sdk::protocol::stream::SseToNdjsonRewriter,
+    )> = None;
+
     loop {
-        // Read a client WS message
-        let text = match downstream.recv().await {
-            Some(Ok(Message::Text(t))) => t.to_string(),
-            Some(Ok(Message::Binary(b))) => String::from_utf8_lossy(&b).into_owned(),
-            Some(Ok(Message::Close(_))) | None => break,
-            Some(Ok(Message::Ping(p))) => {
-                let _ = downstream.send(Message::Pong(p)).await;
-                continue;
-            }
-            _ => continue,
-        };
-
-        // Parse client message, extract body for HTTP
-        let client_msg: serde_json::Value = match serde_json::from_str(&text) {
-            Ok(v) => v,
-            Err(e) => {
-                send_ws_error(downstream, &format!("invalid JSON: {e}")).await;
-                continue;
-            }
-        };
-
-        let mut body = client_msg
-            .get("response")
-            .cloned()
-            .unwrap_or(client_msg.clone());
-        if let Some(m) = &model {
-            body.as_object_mut()
-                .map(|o| o.insert("model".to_string(), serde_json::json!(m)));
-        }
-        body.as_object_mut()
-            .map(|o| o.insert("stream".to_string(), serde_json::json!(true)));
-
-        let operation = "stream_generate_content".to_string();
-        let protocol = "openai_response".to_string();
-
-        // Execute via SDK engine
-        let result = state
-            .engine()
-            .execute(ExecuteRequest {
-                provider: provider_name.clone(),
-                operation: operation.clone(),
-                protocol: protocol.clone(),
-                body: serde_json::to_vec(&body).unwrap_or_default(),
-                headers: headers.clone(),
-                model: model.clone(),
-            })
-            .await;
-
-        match result {
-            Ok(result) => {
-                // Record usage from this request
-                if let Some(ref usage) = result.usage {
-                    super::handler::record_usage(
-                        &state,
-                        user_id,
-                        user_key_id,
-                        model.as_deref(),
-                        &operation,
-                        &protocol,
-                        usage,
-                    )
-                    .await;
-                }
-
-                let mut decoder = gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
-
-                match result.body {
-                    ExecuteBody::Full(body) => {
-                        let mut chunks = Vec::new();
-                        chunks.extend(split_sse_events(&decoder.push_chunk(&body)));
-                        chunks.extend(split_sse_events(&decoder.finish()));
-                        for chunk in chunks {
-                            if downstream
-                                .send(Message::Text(
-                                    String::from_utf8_lossy(&chunk).into_owned().into(),
-                                ))
-                                .await
-                                .is_err()
-                            {
-                                return Ok(());
-                            }
+        // If we have an active stream, select between downstream messages and upstream chunks
+        if let Some((ref mut stream, ref mut decoder)) = active_stream {
+            tokio::select! {
+                // New downstream message — abort current stream, process new request
+                ds_msg = downstream.recv() => {
+                    let text = match ds_msg {
+                        Some(Ok(Message::Text(t))) => t.to_string(),
+                        Some(Ok(Message::Binary(b))) => String::from_utf8_lossy(&b).into_owned(),
+                        Some(Ok(Message::Close(_))) | None => break,
+                        Some(Ok(Message::Ping(p))) => {
+                            let _ = downstream.send(Message::Pong(p)).await;
+                            continue;
                         }
-                    }
-                    ExecuteBody::Stream(mut stream) => {
-                        while let Some(chunk) = stream.next().await {
-                            let chunk = match chunk {
-                                Ok(chunk) => chunk,
-                                Err(e) => {
-                                    send_ws_error(downstream, &e.to_string()).await;
-                                    return Ok(());
-                                }
-                            };
+                        _ => continue,
+                    };
+                    // Drop current stream, start new request
+                    drop(active_stream.take());
+                    active_stream = start_http_request(
+                        &state, &provider_name, &model, user_id, user_key_id,
+                        &headers, &text, downstream,
+                    ).await?;
+                }
+                // Upstream chunk — forward to downstream
+                chunk = stream.next() => {
+                    match chunk {
+                        Some(Ok(chunk)) => {
                             for event in split_sse_events(&decoder.push_chunk(&chunk)) {
                                 if downstream
                                     .send(Message::Text(
@@ -524,27 +464,149 @@ async fn run_http_sse_fallback(
                                 }
                             }
                         }
-
-                        for event in split_sse_events(&decoder.finish()) {
-                            if downstream
-                                .send(Message::Text(
-                                    String::from_utf8_lossy(&event).into_owned().into(),
-                                ))
-                                .await
-                                .is_err()
-                            {
-                                return Ok(());
+                        Some(Err(e)) => {
+                            send_ws_error(downstream, &e.to_string()).await;
+                            active_stream = None;
+                        }
+                        None => {
+                            // Stream finished — flush remaining events
+                            for event in split_sse_events(&decoder.finish()) {
+                                if downstream
+                                    .send(Message::Text(
+                                        String::from_utf8_lossy(&event).into_owned().into(),
+                                    ))
+                                    .await
+                                    .is_err()
+                                {
+                                    return Ok(());
+                                }
                             }
+                            active_stream = None;
                         }
                     }
                 }
             }
-            Err(e) => {
-                send_ws_error(downstream, &e.to_string()).await;
-            }
+        } else {
+            // No active stream — wait for a downstream message
+            let text = match downstream.recv().await {
+                Some(Ok(Message::Text(t))) => t.to_string(),
+                Some(Ok(Message::Binary(b))) => String::from_utf8_lossy(&b).into_owned(),
+                Some(Ok(Message::Close(_))) | None => break,
+                Some(Ok(Message::Ping(p))) => {
+                    let _ = downstream.send(Message::Pong(p)).await;
+                    continue;
+                }
+                _ => continue,
+            };
+            active_stream = start_http_request(
+                &state, &provider_name, &model, user_id, user_key_id,
+                &headers, &text, downstream,
+            ).await?;
         }
     }
     Ok(())
+}
+
+/// Parse a downstream WS message, execute via engine, and return the active stream (if streaming).
+/// Full (non-streaming) responses are sent directly and return None.
+#[allow(clippy::too_many_arguments)]
+async fn start_http_request(
+    state: &AppState,
+    provider_name: &str,
+    model: &Option<String>,
+    user_id: i64,
+    user_key_id: i64,
+    headers: &HeaderMap,
+    text: &str,
+    downstream: &mut WebSocket,
+) -> Result<
+    Option<(
+        gproxy_sdk::provider::engine::ExecuteBodyStream,
+        gproxy_sdk::protocol::stream::SseToNdjsonRewriter,
+    )>,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let client_msg: serde_json::Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(e) => {
+            send_ws_error(downstream, &format!("invalid JSON: {e}")).await;
+            return Ok(None);
+        }
+    };
+
+    let mut body = client_msg
+        .get("response")
+        .cloned()
+        .unwrap_or(client_msg.clone());
+    if let Some(m) = model {
+        body.as_object_mut()
+            .map(|o| o.insert("model".to_string(), serde_json::json!(m)));
+    }
+    body.as_object_mut()
+        .map(|o| o.insert("stream".to_string(), serde_json::json!(true)));
+
+    let operation = "stream_generate_content".to_string();
+    let protocol = "openai_response".to_string();
+
+    let result = state
+        .engine()
+        .execute(ExecuteRequest {
+            provider: provider_name.to_string(),
+            operation: operation.clone(),
+            protocol: protocol.clone(),
+            body: serde_json::to_vec(&body).unwrap_or_default(),
+            headers: headers.clone(),
+            model: model.clone(),
+        })
+        .await;
+
+    match result {
+        Ok(result) => {
+            if let Some(ref usage) = result.usage {
+                super::handler::record_usage(
+                    state,
+                    user_id,
+                    user_key_id,
+                    model.as_deref(),
+                    &operation,
+                    &protocol,
+                    usage,
+                )
+                .await;
+            }
+
+            match result.body {
+                ExecuteBody::Full(body) => {
+                    let mut decoder =
+                        gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
+                    let mut chunks = Vec::new();
+                    chunks.extend(split_sse_events(&decoder.push_chunk(&body)));
+                    chunks.extend(split_sse_events(&decoder.finish()));
+                    for chunk in chunks {
+                        if downstream
+                            .send(Message::Text(
+                                String::from_utf8_lossy(&chunk).into_owned().into(),
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            return Ok(None);
+                        }
+                    }
+                    Ok(None)
+                }
+                ExecuteBody::Stream(stream) => {
+                    let decoder =
+                        gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default();
+                    Ok(Some((stream, decoder)))
+                }
+            }
+        }
+        Err(e) => {
+            send_ws_error(downstream, &e.to_string()).await;
+            Ok(None)
+        }
+    }
 }
 
 async fn send_ws_error(socket: &mut WebSocket, message: &str) {
