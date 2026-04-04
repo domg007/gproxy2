@@ -37,6 +37,14 @@ const MINUTE: Duration = Duration::from_secs(60);
 const DAY: Duration = Duration::from_secs(86400);
 
 /// Sliding-window rate limit counters. Not persisted — resets on restart.
+///
+/// This is acceptable for single-instance deployments where the service
+/// rarely restarts. RPM (60s window) recovers immediately; RPD (24h window)
+/// loses at most one day of counts on restart, which is a tolerable trade-off
+/// vs. the complexity of DB/Redis persistence.
+///
+/// If multi-instance or frequent-restart scenarios arise, consider persisting
+/// RPD counters to the database or a shared store (e.g. Redis).
 pub struct RateLimitCounters {
     minute: DashMap<(i64, String), WindowCounter>,
     day: DashMap<(i64, String), WindowCounter>,
