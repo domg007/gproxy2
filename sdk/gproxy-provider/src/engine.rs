@@ -438,14 +438,24 @@ impl GproxyEngine {
 
                 tracing::info!(credential = idx, "upstream websocket connected");
                 let upstream = UpstreamWebSocket { inner: ws };
+                let meta = WsUpstreamMeta {
+                    url: ws_url,
+                    request_headers: auth_headers
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                        .collect(),
+                    response_status: status,
+                    credential_index: idx,
+                };
 
                 return if src_protocol == dst_protocol {
-                    Ok(WsConnectionResult::Connected(upstream))
+                    Ok(WsConnectionResult::Connected(upstream, meta))
                 } else {
                     Ok(WsConnectionResult::NeedsProtocolBridge {
                         upstream,
                         src_protocol,
                         dst_protocol,
+                        meta,
                     })
                 };
             }
@@ -872,15 +882,29 @@ fn parse_emulation(name: &str) -> wreq_util::Emulation {
     }
 }
 
+/// Metadata about the upstream WebSocket connection for logging.
+#[derive(Debug, Clone)]
+pub struct WsUpstreamMeta {
+    /// The upstream WebSocket URL connected to.
+    pub url: String,
+    /// Request headers sent during the handshake.
+    pub request_headers: Vec<(String, String)>,
+    /// HTTP status code from the handshake response.
+    pub response_status: u16,
+    /// Index of the credential used.
+    pub credential_index: usize,
+}
+
 /// Result of a WebSocket connection attempt.
 pub enum WsConnectionResult {
     /// Direct passthrough — same protocol upstream and downstream.
-    Connected(UpstreamWebSocket),
+    Connected(UpstreamWebSocket, WsUpstreamMeta),
     /// Cross-protocol bridge needed — upstream uses a different WS protocol.
     NeedsProtocolBridge {
         upstream: UpstreamWebSocket,
         src_protocol: String,
         dst_protocol: String,
+        meta: WsUpstreamMeta,
     },
 }
 

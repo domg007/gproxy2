@@ -8,6 +8,7 @@ use futures_util::StreamExt;
 
 use gproxy_sdk::provider::engine::{
     ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage,
+    WsUpstreamMeta,
 };
 use gproxy_server::AppState;
 
@@ -209,17 +210,20 @@ async fn handle_openai_ws(
         )
         .await
     {
-        Ok(WsConnectionResult::Connected(mut upstream)) => {
-            tracing::info!(provider = %provider_name, "websocket bridge active (passthrough)");
+        Ok(WsConnectionResult::Connected(mut upstream, ws_meta)) => {
+            tracing::info!(trace_id, provider = %provider_name, "websocket bridge active (passthrough)");
+            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
             let mut bridge = super::ws_bridge::PassthroughBridge::new("openai");
             run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
         }
         Ok(WsConnectionResult::NeedsProtocolBridge {
             mut upstream,
             dst_protocol,
+            meta: ws_meta,
             ..
         }) => {
-            tracing::info!(provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
+            tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
+            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
             let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
             {
                 "gemini" => Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(
@@ -234,7 +238,7 @@ async fn handle_openai_ws(
                 .await;
         }
         Err(e) => {
-            tracing::info!(provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
+            tracing::info!(trace_id, provider = %provider_name, error = %e, "WS failed, HTTP SSE fallback");
             run_http_sse_fallback(
                 state,
                 provider_name,
@@ -288,17 +292,20 @@ async fn handle_gemini_live_ws(
         .map_err(|e| format!("gemini live connect failed: {e}"))?;
 
     match result {
-        WsConnectionResult::Connected(mut upstream) => {
-            tracing::info!(provider = %provider_name, "gemini live websocket bridge active (passthrough)");
+        WsConnectionResult::Connected(mut upstream, ws_meta) => {
+            tracing::info!(trace_id, provider = %provider_name, "gemini live websocket bridge active (passthrough)");
+            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
             let mut bridge = super::ws_bridge::PassthroughBridge::new("gemini");
             run_ws_bridge_with_protocol(&mut downstream, &mut upstream, &mut bridge, &ctx).await;
         }
         WsConnectionResult::NeedsProtocolBridge {
             mut upstream,
             dst_protocol,
+            meta: ws_meta,
             ..
         } => {
-            tracing::info!(provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
+            tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
+            record_ws_upstream_log(&state, trace_id, &ws_meta).await;
             let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol.as_str()
             {
                 "openai" => Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(
@@ -336,11 +343,16 @@ async fn run_ws_bridge_with_protocol(
     bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
     ctx: &WsBridgeContext<'_>,
 ) {
+    // Collect WS messages for logging
+    let mut ds_messages: Vec<String> = Vec::new(); // client → server (request body)
+    let mut us_messages: Vec<String> = Vec::new(); // server → client (response body)
+
     loop {
         tokio::select! {
             ds_msg = downstream.recv() => {
                 match ds_msg {
                     Some(Ok(Message::Text(t))) => {
+                        ds_messages.push(t.to_string());
                         match bridge.convert_client_message(&t) {
                             Ok(msgs) => {
                                 for msg in msgs {
@@ -369,6 +381,7 @@ async fn run_ws_bridge_with_protocol(
                 match us_msg {
                     Some(Ok(WsMessage::Text(t))) => {
                         let text = t.to_string();
+                        us_messages.push(text.clone());
                         match bridge.convert_server_message(&text) {
                             Ok((msgs, _usage)) => {
                                 for msg in msgs {
@@ -410,6 +423,37 @@ async fn run_ws_bridge_with_protocol(
         )
         .await;
     }
+
+    // Record downstream log for WS session (request = client messages, response = server messages)
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let request_body = serde_json::to_vec(&ds_messages).ok();
+    let response_body = serde_json::to_vec(&us_messages).ok();
+    let _ = ctx
+        .state
+        .storage_writes()
+        .enqueue(
+            gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+                gproxy_storage::DownstreamRequestWrite {
+                    trace_id: ctx.trace_id,
+                    at_unix_ms: now_ms,
+                    internal: false,
+                    user_id: Some(ctx.user_id),
+                    user_key_id: Some(ctx.user_key_id),
+                    request_method: "WEBSOCKET".to_string(),
+                    request_headers_json: String::new(),
+                    request_path: format!("ws://{}/{}", ctx.operation, ctx.protocol),
+                    request_query: None,
+                    request_body,
+                    response_status: Some(101),
+                    response_headers_json: String::new(),
+                    response_body,
+                },
+            ),
+        )
+        .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -631,3 +675,33 @@ async fn send_ws_error(socket: &mut WebSocket, message: &str) {
 }
 
 use gproxy_sdk::protocol::stream::split_lines_owned as split_sse_events;
+
+async fn record_ws_upstream_log(state: &AppState, trace_id: i64, meta: &WsUpstreamMeta) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let headers_json =
+        serde_json::to_string(&meta.request_headers).unwrap_or_else(|_| "[]".to_string());
+    let _ = state
+        .storage_writes()
+        .enqueue(
+            gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
+                gproxy_storage::UpstreamRequestWrite {
+                    downstream_trace_id: Some(trace_id),
+                    at_unix_ms: now_ms,
+                    internal: false,
+                    provider_id: None,
+                    credential_id: Some(meta.credential_index as i64),
+                    request_method: "WEBSOCKET".to_string(),
+                    request_headers_json: headers_json,
+                    request_url: Some(meta.url.clone()),
+                    request_body: None,
+                    response_status: Some(meta.response_status as i32),
+                    response_headers_json: "[]".to_string(),
+                    response_body: None,
+                },
+            ),
+        )
+        .await;
+}
