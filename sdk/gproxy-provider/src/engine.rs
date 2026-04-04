@@ -5,6 +5,7 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use futures_util::Stream;
 use futures_util::StreamExt;
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
@@ -14,22 +15,24 @@ use crate::response::UpstreamError;
 use crate::store::{CredentialUpdate, ProviderStore, ProviderStoreBuilder};
 
 fn is_stream_aggregation_route(
-    src_operation: &str,
-    dst_operation: &str,
-    src_protocol: &str,
-    dst_protocol: &str,
+    src_operation: OperationFamily,
+    dst_operation: OperationFamily,
+    src_protocol: ProtocolKind,
+    dst_protocol: ProtocolKind,
 ) -> bool {
-    src_operation == "generate_content"
-        && dst_operation == "stream_generate_content"
+    src_operation == OperationFamily::GenerateContent
+        && dst_operation == OperationFamily::StreamGenerateContent
         && src_protocol == dst_protocol
 }
 
-fn aggregate_stream_body(protocol: &str, body: &[u8]) -> Result<Vec<u8>, UpstreamError> {
+fn aggregate_stream_body(protocol: ProtocolKind, body: &[u8]) -> Result<Vec<u8>, UpstreamError> {
     let ndjson = match protocol {
-        "openai_response" | "openai_chat_completions" | "claude" => {
+        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAiChatCompletion | ProtocolKind::Claude => {
             gproxy_protocol::stream::sse_to_ndjson_stream(&String::from_utf8_lossy(body))
         }
-        "gemini" | "gemini_ndjson" => String::from_utf8_lossy(body).into_owned(),
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
+            String::from_utf8_lossy(body).into_owned()
+        }
         _ => {
             return Err(UpstreamError::Channel(format!(
                 "no stream aggregation for protocol: {protocol}"
@@ -50,8 +53,8 @@ fn aggregate_stream_body(protocol: &str, body: &[u8]) -> Result<Vec<u8>, Upstrea
 /// Execution request passed to the engine.
 pub struct ExecuteRequest {
     pub provider: String,
-    pub operation: String,
-    pub protocol: String,
+    pub operation: OperationFamily,
+    pub protocol: ProtocolKind,
     pub body: Vec<u8>,
     pub headers: http::HeaderMap,
     pub model: Option<String>,
@@ -333,8 +336,8 @@ impl GproxyEngine {
     pub async fn connect_upstream_ws(
         &self,
         provider_name: &str,
-        operation: &str,
-        protocol: &str,
+        operation: OperationFamily,
+        protocol: ProtocolKind,
         path: &str,
         model: Option<&str>,
     ) -> Result<WsConnectionResult, UpstreamError> {
@@ -350,7 +353,7 @@ impl GproxyEngine {
             let (ws_path, ws_model, src_protocol, dst_protocol) =
                 match provider.dispatch_table().resolve(&route_key) {
                     Some(crate::dispatch::RouteImplementation::Passthrough) => {
-                        (path.to_string(), model, protocol.to_string(), protocol.to_string())
+                        (path.to_string(), model, protocol, protocol)
                     }
                     Some(crate::dispatch::RouteImplementation::TransformTo { destination }) => {
                         // Check if destination is also a WS operation
@@ -358,7 +361,7 @@ impl GproxyEngine {
                         let dst_proto = &destination.protocol;
                         let (target_path, target_model) = ws_path_for_operation(dst_op, dst_proto, model);
                         match target_path {
-                            Some(p) => (p, target_model, protocol.to_string(), dst_proto.clone()),
+                            Some(p) => (p, target_model, protocol, *dst_proto),
                             None => {
                                 return Err(UpstreamError::Channel(
                                     "upstream does not support native WebSocket for this operation; use HTTP fallback".into(),
@@ -528,7 +531,7 @@ impl GproxyEngine {
             protocol = %request.protocol,
             model = request.model.as_deref().unwrap_or(""),
         );
-        if request.operation.starts_with("stream_") {
+        if request.operation.is_stream() {
             self.execute_stream_inner(request).instrument(span).await
         } else {
             self.execute_inner(request).instrument(span).await
@@ -544,7 +547,7 @@ impl GproxyEngine {
         let start = std::time::Instant::now();
 
         // Dispatch table lookup
-        let src_key = crate::dispatch::RouteKey::new(&request.operation, &request.protocol);
+        let src_key = crate::dispatch::RouteKey::new(request.operation, request.protocol);
         let route = provider
             .dispatch_table()
             .resolve(&src_key)
@@ -559,16 +562,16 @@ impl GproxyEngine {
 
         let (dst_op, dst_proto, needs_transform) = match &route {
             crate::dispatch::RouteImplementation::Passthrough => {
-                (request.operation.clone(), request.protocol.clone(), false)
+                (request.operation, request.protocol, false)
             }
             crate::dispatch::RouteImplementation::TransformTo { destination } => (
-                destination.operation.clone(),
-                destination.protocol.clone(),
+                destination.operation,
+                destination.protocol,
                 true,
             ),
             crate::dispatch::RouteImplementation::Local => {
                 let body = provider
-                    .handle_local(&request.operation, &request.protocol, &request.body)
+                    .handle_local(request.operation, request.protocol, &request.body)
                     .unwrap_or_else(|| {
                         Err(UpstreamError::Channel("local route not implemented".into()))
                     })?;
@@ -591,32 +594,32 @@ impl GproxyEngine {
         };
 
         let force_stream_aggregation =
-            is_stream_aggregation_route(&request.operation, &dst_op, &request.protocol, &dst_proto);
+            is_stream_aggregation_route(request.operation, dst_op, request.protocol, dst_proto);
 
         // Transform request if needed
         let body = if needs_transform {
             tracing::debug!(dst_op = %dst_op, dst_proto = %dst_proto, "transforming request");
             crate::transform_dispatch::transform_request(
-                &request.operation,
-                &request.protocol,
+                request.operation,
+                request.protocol,
                 if force_stream_aggregation {
-                    &request.operation
+                    request.operation
                 } else {
-                    &dst_op
+                    dst_op
                 },
-                &dst_proto,
+                dst_proto,
                 request.body,
             )?
         } else {
             request.body
         };
 
-        let method = operation_http_method(&dst_op);
+        let method = operation_http_method(dst_op);
         let mut body = body;
-        let path = build_operation_path(&dst_op, &mut body);
+        let path = build_operation_path(dst_op, &mut body);
 
         // Suffix processing: match protocol-level + channel-specific suffix groups
-        let proto_groups = crate::suffix::suffix_groups_for_protocol(&dst_proto);
+        let proto_groups = crate::suffix::suffix_groups_for_protocol(dst_proto);
         let channel_groups = provider.model_suffix_groups();
         let matched = request.model.as_ref().and_then(|model| {
             crate::suffix::match_suffix_groups_combined(model, proto_groups, channel_groups)
@@ -641,7 +644,7 @@ impl GproxyEngine {
             }
         }
         let prepared = provider.finalize_request(prepared)?;
-        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
+        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
         // Check file affinity: if the request references a file_id, force that credential
         let forced_credential = find_file_credential(&self.store, &prepared.body);
@@ -661,21 +664,17 @@ impl GproxyEngine {
 
         // 1. Normalize upstream response (channel-specific fixups)
         let normalized_body = provider.normalize_response(&prepared, response.body);
-        let response_transform_dst_op = if force_stream_aggregation {
-            request.operation.as_str()
-        } else {
-            dst_op.as_str()
-        };
+        let response_transform_dst_op = if force_stream_aggregation { request.operation } else { dst_op };
         let normalized_nonstream_body =
             if force_stream_aggregation && (200..=299).contains(&response.status) {
-                aggregate_stream_body(&dst_proto, &normalized_body)?
+                aggregate_stream_body(dst_proto, &normalized_body)?
             } else {
                 normalized_body
             };
 
         // 2. Extract usage from normalized upstream body (before protocol transform)
         let usage = if self.enable_usage {
-            crate::usage::extract_usage(&dst_proto, &normalized_nonstream_body)
+            crate::usage::extract_usage(dst_proto, &normalized_nonstream_body)
         } else {
             None
         };
@@ -690,10 +689,10 @@ impl GproxyEngine {
         let response_body = if needs_transform {
             tracing::debug!("transforming response");
             crate::transform_dispatch::transform_response(
-                &request.operation,
-                &request.protocol,
+                request.operation,
+                request.protocol,
                 response_transform_dst_op,
-                &dst_proto,
+                dst_proto,
                 normalized_nonstream_body,
             )?
         } else {
@@ -744,7 +743,7 @@ impl GproxyEngine {
 
         let start = std::time::Instant::now();
 
-        let src_key = crate::dispatch::RouteKey::new(&request.operation, &request.protocol);
+        let src_key = crate::dispatch::RouteKey::new(request.operation, request.protocol);
         let route = provider
             .dispatch_table()
             .resolve(&src_key)
@@ -759,16 +758,16 @@ impl GproxyEngine {
 
         let (dst_op, dst_proto, needs_transform) = match &route {
             crate::dispatch::RouteImplementation::Passthrough => {
-                (request.operation.clone(), request.protocol.clone(), false)
+                (request.operation, request.protocol, false)
             }
             crate::dispatch::RouteImplementation::TransformTo { destination } => (
-                destination.operation.clone(),
-                destination.protocol.clone(),
+                destination.operation,
+                destination.protocol,
                 true,
             ),
             crate::dispatch::RouteImplementation::Local => {
                 let body = provider
-                    .handle_local(&request.operation, &request.protocol, &request.body)
+                    .handle_local(request.operation, request.protocol, &request.body)
                     .unwrap_or_else(|| {
                         Err(UpstreamError::Channel("local route not implemented".into()))
                     })?;
@@ -792,22 +791,22 @@ impl GproxyEngine {
 
         let body = if needs_transform {
             crate::transform_dispatch::transform_request(
-                &request.operation,
-                &request.protocol,
-                &dst_op,
-                &dst_proto,
+                request.operation,
+                request.protocol,
+                dst_op,
+                dst_proto,
                 request.body,
             )?
         } else {
             request.body
         };
 
-        let method = operation_http_method(&dst_op);
+        let method = operation_http_method(dst_op);
         let mut body = body;
-        let path = build_operation_path(&dst_op, &mut body);
+        let path = build_operation_path(dst_op, &mut body);
 
         // Suffix processing: match protocol-level + channel-specific suffix groups
-        let proto_groups = crate::suffix::suffix_groups_for_protocol(&dst_proto);
+        let proto_groups = crate::suffix::suffix_groups_for_protocol(dst_proto);
         let channel_groups = provider.model_suffix_groups();
         let matched = request.model.as_ref().and_then(|model| {
             crate::suffix::match_suffix_groups_combined(model, proto_groups, channel_groups)
@@ -832,7 +831,7 @@ impl GproxyEngine {
             }
         }
         let prepared = provider.finalize_request(prepared)?;
-        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
+        let affinity_hint = crate::affinity::cache_affinity_hint_for_request(dst_proto, &prepared);
 
         let forced_credential = find_file_credential(&self.store, &prepared.body);
 
@@ -871,10 +870,10 @@ impl GproxyEngine {
 
         let body = if needs_transform {
             let transformer = crate::transform_dispatch::create_stream_response_transformer(
-                &request.operation,
-                &request.protocol,
-                &dst_op,
-                &dst_proto,
+                request.operation,
+                request.protocol,
+                dst_op,
+                dst_proto,
                 Some({
                     let store = self.store.clone();
                     let provider_name = request.provider.clone();
@@ -1014,8 +1013,8 @@ pub enum WsConnectionResult {
     /// Cross-protocol bridge needed — upstream uses a different WS protocol.
     NeedsProtocolBridge {
         upstream: UpstreamWebSocket,
-        src_protocol: String,
-        dst_protocol: String,
+        src_protocol: ProtocolKind,
+        dst_protocol: ProtocolKind,
         meta: WsUpstreamMeta,
     },
 }
@@ -1026,12 +1025,16 @@ pub enum WsConnectionResult {
 /// File and model endpoints require specific methods and real API paths.
 /// Returns `(method, path)` where `path` may still need dynamic segments
 /// (file_id, model_id, query params) appended by `build_operation_path`.
-fn operation_http_method(operation: &str) -> http::Method {
+fn operation_http_method(operation: OperationFamily) -> http::Method {
     match operation {
-        "file_list" | "file_content" | "file_get" | "model_list" | "model_get" => {
+        OperationFamily::FileList
+        | OperationFamily::FileContent
+        | OperationFamily::FileGet
+        | OperationFamily::ModelList
+        | OperationFamily::ModelGet => {
             http::Method::GET
         }
-        "file_delete" => http::Method::DELETE,
+        OperationFamily::FileDelete => http::Method::DELETE,
         _ => http::Method::POST,
     }
 }
@@ -1042,30 +1045,30 @@ fn operation_http_method(operation: &str) -> http::Method {
 /// For file operations the body carries a protocol-style JSON descriptor
 /// with `path` and `query` sub-objects.  We extract what we need and
 /// return the cleaned body (empty for GET/DELETE, original for POST).
-fn build_operation_path(operation: &str, body: &mut Vec<u8>) -> String {
+fn build_operation_path(operation: OperationFamily, body: &mut Vec<u8>) -> String {
     match operation {
-        "file_upload" => "/v1/files".to_string(),
-        "file_list" => {
+        OperationFamily::FileUpload => "/v1/files".to_string(),
+        OperationFamily::FileList => {
             let path = build_file_list_path(body);
             *body = Vec::new(); // GET has no body
             path
         }
-        "file_content" => {
+        OperationFamily::FileContent => {
             let file_id = extract_path_param(body, "file_id");
             *body = Vec::new();
             format!("/v1/files/{}/content", file_id)
         }
-        "file_get" => {
+        OperationFamily::FileGet => {
             let file_id = extract_path_param(body, "file_id");
             *body = Vec::new();
             format!("/v1/files/{}", file_id)
         }
-        "file_delete" => {
+        OperationFamily::FileDelete => {
             let file_id = extract_path_param(body, "file_id");
             *body = Vec::new();
             format!("/v1/files/{}", file_id)
         }
-        _ => format!("/{}", operation),
+        _ => format!("/{operation}"),
     }
 }
 
@@ -1108,10 +1111,14 @@ fn build_file_list_path(body: &[u8]) -> String {
 }
 
 /// Returns true when the operation is one of the Files API endpoints.
-pub fn is_file_operation(operation: &str) -> bool {
+pub fn is_file_operation(operation: OperationFamily) -> bool {
     matches!(
         operation,
-        "file_upload" | "file_list" | "file_content" | "file_get" | "file_delete"
+        OperationFamily::FileUpload
+            | OperationFamily::FileList
+            | OperationFamily::FileContent
+            | OperationFamily::FileGet
+            | OperationFamily::FileDelete
     )
 }
 
@@ -1123,13 +1130,13 @@ pub fn is_file_operation_path(path: &str) -> bool {
 /// Determine the WS path for a given destination operation.
 /// Returns `None` if the destination is not a WS-capable operation.
 fn ws_path_for_operation<'a>(
-    operation: &str,
-    _protocol: &str,
+    operation: &OperationFamily,
+    _protocol: &ProtocolKind,
     model: Option<&'a str>,
 ) -> (Option<String>, Option<&'a str>) {
     match operation {
-        "openai_response_websocket" => (Some("/v1/responses".to_string()), model),
-        "gemini_live" => {
+        OperationFamily::OpenAiResponseWebSocket => (Some("/v1/responses".to_string()), model),
+        OperationFamily::GeminiLive => {
             let model_name = model.unwrap_or("unknown");
             let path = format!("/v1beta/models/{model_name}:streamGenerateContent");
             (Some(path), None) // model is in the path, not query

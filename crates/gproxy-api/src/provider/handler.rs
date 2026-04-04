@@ -8,9 +8,8 @@ use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
 use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, ExecuteResult, UpstreamRequestMeta, Usage};
-use gproxy_server::AppState;
+use gproxy_server::{AppState, OperationFamily, ProtocolKind};
 use gproxy_server::middleware::classify::Classification;
-use gproxy_server::middleware::kinds::{OperationFamily, ProtocolKind};
 use gproxy_server::middleware::model_alias::ResolvedAlias;
 use gproxy_server::middleware::request_model::ExtractedModel;
 
@@ -74,8 +73,8 @@ pub async fn proxy(
     }
 
     // Map classification to SDK operation/protocol strings
-    let operation = operation_to_string(classification.operation);
-    let protocol = protocol_to_string(classification.protocol);
+    let operation = classification.operation;
+    let protocol = classification.protocol;
 
     // Collect body
     let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
@@ -87,8 +86,8 @@ pub async fn proxy(
         .engine()
         .execute(ExecuteRequest {
             provider: effective_provider.clone(),
-            operation: operation.clone(),
-            protocol: protocol.clone(),
+            operation,
+            protocol,
             body: req_body.clone(),
             headers,
             model: effective_model.clone(),
@@ -114,8 +113,8 @@ pub async fn proxy(
         user_id: user_key.user_id,
         user_key_id: user_key.id,
         model: effective_model.clone(),
-        operation: operation.clone(),
-        protocol: protocol.clone(),
+        operation,
+        protocol,
         downstream_trace_id: Some(trace_id),
     };
 
@@ -257,15 +256,15 @@ pub async fn proxy_unscoped(
         return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
 
-    let operation = operation_to_string(classification.operation);
-    let protocol = protocol_to_string(classification.protocol);
+    let operation = classification.operation;
+    let protocol = classification.protocol;
 
     let result = state
         .engine()
         .execute(ExecuteRequest {
             provider: target_provider,
-            operation: operation.clone(),
-            protocol: protocol.clone(),
+            operation,
+            protocol,
             body: req_body.clone(),
             headers,
             model: Some(target_model.clone()),
@@ -280,8 +279,8 @@ pub async fn proxy_unscoped(
         user_id: user_key.user_id,
         user_key_id: user_key.id,
         model: Some(target_model.clone()),
-        operation: operation.clone(),
-        protocol: protocol.clone(),
+        operation,
+        protocol,
         downstream_trace_id: Some(trace_id),
     };
 
@@ -401,15 +400,15 @@ pub async fn proxy_unscoped_files(
         .map_err(|_| HttpError::bad_request("failed to read request body"))?;
     let req_body = build_execute_body(classification.operation, &req_path, req_query.as_deref(), body.to_vec());
 
-    let operation = operation_to_string(classification.operation);
-    let protocol = protocol_to_string(classification.protocol);
+    let operation = classification.operation;
+    let protocol = classification.protocol;
 
     let result = state
         .engine()
         .execute(ExecuteRequest {
             provider: target_provider.clone(),
-            operation: operation.clone(),
-            protocol: protocol.clone(),
+            operation,
+            protocol,
             body: req_body.clone(),
             headers,
             model: None,
@@ -431,8 +430,8 @@ pub async fn proxy_unscoped_files(
             user_id: user_key.user_id,
             user_key_id: user_key.id,
             model: None,
-            operation: operation.clone(),
-            protocol: protocol.clone(),
+            operation,
+            protocol,
             downstream_trace_id: Some(trace_id),
         };
         record_usage(&usage_ctx, usage).await;
@@ -486,39 +485,6 @@ pub async fn proxy_unscoped_files(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn operation_to_string(op: OperationFamily) -> String {
-    match op {
-        OperationFamily::ModelList => "model_list".to_string(),
-        OperationFamily::ModelGet => "model_get".to_string(),
-        OperationFamily::GenerateContent => "generate_content".to_string(),
-        OperationFamily::StreamGenerateContent => "stream_generate_content".to_string(),
-        OperationFamily::CountToken => "count_tokens".to_string(),
-        OperationFamily::Compact => "compact".to_string(),
-        OperationFamily::Embedding => "embeddings".to_string(),
-        OperationFamily::CreateImage => "create_image".to_string(),
-        OperationFamily::StreamCreateImage => "stream_create_image".to_string(),
-        OperationFamily::CreateImageEdit => "create_image_edit".to_string(),
-        OperationFamily::StreamCreateImageEdit => "stream_create_image_edit".to_string(),
-        OperationFamily::OpenAiResponseWebSocket => "openai_response_websocket".to_string(),
-        OperationFamily::GeminiLive => "gemini_live".to_string(),
-        OperationFamily::FileUpload => "file_upload".to_string(),
-        OperationFamily::FileList => "file_list".to_string(),
-        OperationFamily::FileGet => "file_get".to_string(),
-        OperationFamily::FileContent => "file_content".to_string(),
-        OperationFamily::FileDelete => "file_delete".to_string(),
-    }
-}
-
-fn protocol_to_string(proto: ProtocolKind) -> String {
-    match proto {
-        ProtocolKind::OpenAi => "openai_response".to_string(),
-        ProtocolKind::OpenAiChatCompletion => "openai_chat_completions".to_string(),
-        ProtocolKind::Claude => "claude".to_string(),
-        ProtocolKind::Gemini => "gemini".to_string(),
-        ProtocolKind::GeminiNDJson => "gemini_ndjson".to_string(),
-    }
-}
 
 fn compute_cost(usage: &Usage, model: &gproxy_server::MemoryModel) -> f64 {
     let mut cost = 0.0;
@@ -574,8 +540,8 @@ pub(crate) struct UsageRecordContext {
     pub user_id: i64,
     pub user_key_id: i64,
     pub model: Option<String>,
-    pub operation: String,
-    pub protocol: String,
+    pub operation: OperationFamily,
+    pub protocol: ProtocolKind,
     pub downstream_trace_id: Option<i64>,
 }
 
@@ -615,8 +581,8 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
                 credential_id: None,
                 user_id: Some(ctx.user_id),
                 user_key_id: Some(ctx.user_key_id),
-                operation: ctx.operation.clone(),
-                protocol: ctx.protocol.clone(),
+                operation: ctx.operation.to_string(),
+                protocol: ctx.protocol.to_string(),
                 model: ctx.model.clone(),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
@@ -638,7 +604,7 @@ fn stream_with_usage_tracking(
     let recorder = StreamUsageRecorder::new(ctx.clone());
 
     try_stream! {
-        let mut decoder = UsageChunkDecoder::new(&ctx.protocol);
+        let mut decoder = UsageChunkDecoder::new(ctx.protocol);
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -689,15 +655,15 @@ impl StreamUsageRecorder {
         }
 
         if let Some(usage) =
-            gproxy_sdk::provider::usage::extract_stream_usage(&self.ctx.protocol, json_chunk)
+            gproxy_sdk::provider::usage::extract_stream_usage(self.ctx.protocol, json_chunk)
         {
             merge_usage(&mut state.partial_usage, &usage);
             state.last_usage = Some(usage);
-        } else if let Some(usage) = extract_partial_stream_usage(&self.ctx.protocol, json_chunk) {
+        } else if let Some(usage) = extract_partial_stream_usage(self.ctx.protocol, json_chunk) {
             merge_usage(&mut state.partial_usage, &usage);
         }
 
-        if let Some(text) = extract_partial_output_text(&self.ctx.protocol, json_chunk) {
+        if let Some(text) = extract_partial_output_text(self.ctx.protocol, json_chunk) {
             state.partial_output.push_str(&text);
         }
     }
@@ -793,8 +759,8 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
                 credential_id: None,
                 user_id: Some(ctx.user_id),
                 user_key_id: Some(ctx.user_key_id),
-                operation: ctx.operation.clone(),
-                protocol: ctx.protocol.clone(),
+                operation: ctx.operation.to_string(),
+                protocol: ctx.protocol.to_string(),
                 model: ctx.model.clone(),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
@@ -810,17 +776,19 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
 enum UsageChunkDecoder {
     Sse(gproxy_sdk::protocol::stream::SseToNdjsonRewriter),
     Ndjson(Vec<u8>),
-    Disabled,
 }
 
 impl UsageChunkDecoder {
-    fn new(protocol: &str) -> Self {
+    fn new(protocol: ProtocolKind) -> Self {
         match protocol {
-            "claude" | "openai" | "openai_response" | "openai_chat_completions" | "gemini" => {
+            ProtocolKind::Claude
+            | ProtocolKind::OpenAi
+            | ProtocolKind::OpenAiResponse
+            | ProtocolKind::OpenAiChatCompletion
+            | ProtocolKind::Gemini => {
                 Self::Sse(gproxy_sdk::protocol::stream::SseToNdjsonRewriter::default())
             }
-            "gemini_ndjson" => Self::Ndjson(Vec::new()),
-            _ => Self::Disabled,
+            ProtocolKind::GeminiNDJson => Self::Ndjson(Vec::new()),
         }
     }
 
@@ -832,7 +800,6 @@ impl UsageChunkDecoder {
                 pending.extend_from_slice(chunk);
                 drain_usage_lines(pending, &mut out);
             }
-            Self::Disabled => {}
         }
         out
     }
@@ -852,7 +819,6 @@ impl UsageChunkDecoder {
                     }
                 }
             }
-            Self::Disabled => {}
         }
         out
     }
@@ -892,9 +858,9 @@ fn merge_usage(dst: &mut Usage, src: &Usage) {
     }
 }
 
-fn extract_partial_stream_usage(protocol: &str, json_chunk: &[u8]) -> Option<Usage> {
+fn extract_partial_stream_usage(protocol: ProtocolKind, json_chunk: &[u8]) -> Option<Usage> {
     match protocol {
-        "claude" => {
+        ProtocolKind::Claude => {
             use gproxy_sdk::protocol::claude::create_message::stream::ClaudeStreamEvent;
 
             let event: ClaudeStreamEvent = serde_json::from_slice(json_chunk).ok()?;
@@ -914,7 +880,7 @@ fn extract_partial_stream_usage(protocol: &str, json_chunk: &[u8]) -> Option<Usa
                 _ => None,
             }
         }
-        "openai_response" => {
+        ProtocolKind::OpenAiResponse => {
             use gproxy_sdk::protocol::openai::create_response::stream::ResponseStreamEvent;
 
             let event: ResponseStreamEvent = serde_json::from_slice(json_chunk).ok()?;
@@ -938,7 +904,7 @@ fn extract_partial_stream_usage(protocol: &str, json_chunk: &[u8]) -> Option<Usa
                 cache_creation_input_tokens_1h: None,
             })
         }
-        "openai" => {
+        ProtocolKind::OpenAi => {
             use gproxy_sdk::protocol::openai::create_image::stream::ImageGenerationStreamEvent;
 
             let event: ImageGenerationStreamEvent = serde_json::from_slice(json_chunk).ok()?;
@@ -958,9 +924,9 @@ fn extract_partial_stream_usage(protocol: &str, json_chunk: &[u8]) -> Option<Usa
     }
 }
 
-fn extract_partial_output_text(protocol: &str, json_chunk: &[u8]) -> Option<String> {
+fn extract_partial_output_text(protocol: ProtocolKind, json_chunk: &[u8]) -> Option<String> {
     match protocol {
-        "claude" => {
+        ProtocolKind::Claude => {
             use gproxy_sdk::protocol::claude::create_message::stream::{
                 BetaRawContentBlockDelta, ClaudeStreamEvent,
             };
@@ -978,7 +944,7 @@ fn extract_partial_output_text(protocol: &str, json_chunk: &[u8]) -> Option<Stri
                 _ => None,
             }
         }
-        "openai_chat_completions" => {
+        ProtocolKind::OpenAiChatCompletion => {
             use gproxy_sdk::protocol::openai::create_chat_completions::stream::ChatCompletionChunk;
 
             let chunk: ChatCompletionChunk = serde_json::from_slice(json_chunk).ok()?;
@@ -1031,7 +997,7 @@ fn extract_partial_output_text(protocol: &str, json_chunk: &[u8]) -> Option<Stri
             }
             (!parts.is_empty()).then_some(parts.join("\n"))
         }
-        "openai_response" => {
+        ProtocolKind::OpenAiResponse => {
             use gproxy_sdk::protocol::openai::create_response::stream::ResponseStreamEvent;
 
             let event: ResponseStreamEvent = serde_json::from_slice(json_chunk).ok()?;
@@ -1050,7 +1016,7 @@ fn extract_partial_output_text(protocol: &str, json_chunk: &[u8]) -> Option<Stri
                 _ => None,
             }
         }
-        "gemini" | "gemini_ndjson" => {
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
             use gproxy_sdk::protocol::gemini::generate_content::response::ResponseBody;
 
             let chunk: ResponseBody = serde_json::from_slice(json_chunk).ok()?;

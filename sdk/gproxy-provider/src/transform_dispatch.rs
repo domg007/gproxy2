@@ -1,28 +1,68 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::response::UpstreamError;
+
+fn operation_label(operation: OperationFamily) -> &'static str {
+    match operation {
+        OperationFamily::ModelList => "model_list",
+        OperationFamily::ModelGet => "model_get",
+        OperationFamily::CountToken => "count_tokens",
+        OperationFamily::Compact => "compact",
+        OperationFamily::GenerateContent => "generate_content",
+        OperationFamily::StreamGenerateContent => "stream_generate_content",
+        OperationFamily::CreateImage => "create_image",
+        OperationFamily::StreamCreateImage => "stream_create_image",
+        OperationFamily::CreateImageEdit => "create_image_edit",
+        OperationFamily::StreamCreateImageEdit => "stream_create_image_edit",
+        OperationFamily::OpenAiResponseWebSocket => "openai_response_websocket",
+        OperationFamily::GeminiLive => "gemini_live",
+        OperationFamily::Embedding => "embeddings",
+        OperationFamily::FileUpload => "file_upload",
+        OperationFamily::FileList => "file_list",
+        OperationFamily::FileGet => "file_get",
+        OperationFamily::FileContent => "file_content",
+        OperationFamily::FileDelete => "file_delete",
+    }
+}
+
+fn protocol_label(protocol: ProtocolKind) -> &'static str {
+    match protocol {
+        ProtocolKind::OpenAi => "openai",
+        ProtocolKind::Claude => "claude",
+        ProtocolKind::Gemini => "gemini",
+        ProtocolKind::OpenAiChatCompletion => "openai_chat_completions",
+        ProtocolKind::GeminiNDJson => "gemini_ndjson",
+        ProtocolKind::OpenAiResponse => "openai_response",
+    }
+}
 
 /// Transform a request body from one (operation, protocol) to another.
 ///
 /// This dispatches to the appropriate `TryFrom` implementation in `gproxy_protocol::transform`.
 pub fn transform_request(
-    src_operation: &str,
-    src_protocol: &str,
-    dst_operation: &str,
-    dst_protocol: &str,
+    src_operation: OperationFamily,
+    src_protocol: ProtocolKind,
+    dst_operation: OperationFamily,
+    dst_protocol: ProtocolKind,
     body: Vec<u8>,
 ) -> Result<Vec<u8>, UpstreamError> {
     tracing::debug!(
-        src_operation,
-        src_protocol,
-        dst_operation,
-        dst_protocol,
+        src_operation = %src_operation,
+        src_protocol = %src_protocol,
+        dst_operation = %dst_operation,
+        dst_protocol = %dst_protocol,
         "transforming request"
     );
-    let key = (src_operation, src_protocol, dst_operation, dst_protocol);
+    let key = (
+        operation_label(src_operation),
+        protocol_label(src_protocol),
+        operation_label(dst_operation),
+        protocol_label(dst_protocol),
+    );
 
     match key {
         // =====================================================================
@@ -441,22 +481,27 @@ pub fn transform_request(
 /// client's protocol. The key is looked up as (dst_op, dst_proto, src_op, src_proto)
 /// because we're converting FROM the upstream format TO the client format.
 pub fn transform_response(
-    src_operation: &str,
-    src_protocol: &str,
-    dst_operation: &str,
-    dst_protocol: &str,
+    src_operation: OperationFamily,
+    src_protocol: ProtocolKind,
+    dst_operation: OperationFamily,
+    dst_protocol: ProtocolKind,
     body: Vec<u8>,
 ) -> Result<Vec<u8>, UpstreamError> {
     tracing::debug!(
-        src_operation,
-        src_protocol,
-        dst_operation,
-        dst_protocol,
+        src_operation = %src_operation,
+        src_protocol = %src_protocol,
+        dst_operation = %dst_operation,
+        dst_protocol = %dst_protocol,
         "transforming response"
     );
     // Response direction: upstream responded in (dst_op, dst_proto),
     // client expects (src_op, src_proto).
-    let key = (dst_operation, dst_protocol, src_operation, src_protocol);
+    let key = (
+        operation_label(dst_operation),
+        protocol_label(dst_protocol),
+        operation_label(src_operation),
+        protocol_label(src_protocol),
+    );
 
     match key {
         // =====================================================================
@@ -1430,13 +1475,20 @@ where
 }
 
 pub fn create_stream_response_transformer(
-    src_operation: &str,
-    src_protocol: &str,
-    dst_operation: &str,
-    dst_protocol: &str,
+    src_operation: OperationFamily,
+    src_protocol: ProtocolKind,
+    dst_operation: OperationFamily,
+    dst_protocol: ProtocolKind,
     normalizer: Option<StreamChunkNormalizer>,
 ) -> Result<StreamResponseTransformer, UpstreamError> {
-    let key = (src_operation, src_protocol, dst_operation, dst_protocol);
+    let src_protocol = protocol_label(src_protocol);
+    let dst_protocol = protocol_label(dst_protocol);
+    let key = (
+        operation_label(src_operation),
+        src_protocol,
+        operation_label(dst_operation),
+        dst_protocol,
+    );
 
     match key {
         ("stream_generate_content", "claude", "stream_generate_content", "claude") => {
@@ -1794,9 +1846,12 @@ pub fn nonstream_to_stream(
 }
 
 /// Convert stream events (NDJSON lines) to a non-streaming response (same protocol).
-pub fn stream_to_nonstream(protocol: &str, chunks: &[&[u8]]) -> Result<Vec<u8>, UpstreamError> {
+pub fn stream_to_nonstream(
+    protocol: ProtocolKind,
+    chunks: &[&[u8]],
+) -> Result<Vec<u8>, UpstreamError> {
     match protocol {
-        "claude" => {
+        ProtocolKind::Claude => {
             use gproxy_protocol::claude::create_message::response::ClaudeCreateMessageResponse;
             use gproxy_protocol::claude::create_message::stream::ClaudeStreamEvent;
 
@@ -1812,7 +1867,7 @@ pub fn stream_to_nonstream(protocol: &str, chunks: &[&[u8]]) -> Result<Vec<u8>, 
             serde_json::to_vec(&response)
                 .map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
         }
-        "openai_chat_completions" => {
+        ProtocolKind::OpenAiChatCompletion => {
             use gproxy_protocol::openai::create_chat_completions::response::OpenAiChatCompletionsResponse;
             use gproxy_protocol::openai::create_chat_completions::stream::ChatCompletionChunk;
 
@@ -1828,7 +1883,7 @@ pub fn stream_to_nonstream(protocol: &str, chunks: &[&[u8]]) -> Result<Vec<u8>, 
             serde_json::to_vec(&response)
                 .map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
         }
-        "openai_response" => {
+        ProtocolKind::OpenAiResponse => {
             use gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse;
             use gproxy_protocol::openai::create_response::stream::ResponseStreamEvent;
 
@@ -1844,7 +1899,7 @@ pub fn stream_to_nonstream(protocol: &str, chunks: &[&[u8]]) -> Result<Vec<u8>, 
             serde_json::to_vec(&response)
                 .map_err(|e| UpstreamError::Channel(format!("serialize: {e}")))
         }
-        "gemini" => {
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
             use gproxy_protocol::gemini::generate_content::response::ResponseBody;
             use gproxy_protocol::gemini::generate_content::types::GeminiCandidate;
             use std::collections::BTreeMap;

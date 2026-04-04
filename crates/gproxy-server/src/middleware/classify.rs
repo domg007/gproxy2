@@ -121,7 +121,7 @@ fn classify_route(
     if path == "/responses" {
         return Ok(Classification {
             operation: stream_or_non_stream(body),
-            protocol: ProtocolKind::OpenAi,
+            protocol: ProtocolKind::OpenAiResponse,
         });
     }
     if path == "/chat/completions" {

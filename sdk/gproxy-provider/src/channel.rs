@@ -5,6 +5,8 @@ use std::pin::Pin;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
+
 use crate::dispatch::DispatchTable;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
@@ -80,8 +82,8 @@ pub trait Channel: Send + Sync + 'static {
     /// Handle a local route (no upstream call). Returns None if not supported.
     fn handle_local(
         &self,
-        _operation: &str,
-        _protocol: &str,
+        _operation: OperationFamily,
+        _protocol: ProtocolKind,
         _body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>> {
         None

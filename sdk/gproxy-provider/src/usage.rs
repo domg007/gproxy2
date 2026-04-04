@@ -1,23 +1,29 @@
+use gproxy_protocol::kinds::ProtocolKind;
+
 use crate::engine::Usage;
 
 /// Extract usage from a non-streaming response body based on the upstream protocol.
-pub fn extract_usage(protocol: &str, body: &[u8]) -> Option<Usage> {
+pub fn extract_usage(protocol: ProtocolKind, body: &[u8]) -> Option<Usage> {
     match protocol {
-        "openai_response" | "openai_chat_completions" | "openai" => extract_openai_usage(body),
-        "claude" => extract_claude_usage(body),
-        "gemini" => extract_gemini_usage(body),
+        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAiChatCompletion | ProtocolKind::OpenAi => {
+            extract_openai_usage(body)
+        }
+        ProtocolKind::Claude => extract_claude_usage(body),
+        ProtocolKind::Gemini => extract_gemini_usage(body),
         _ => None,
     }
 }
 
 /// Extract usage from a single streaming event/chunk.
 /// Call this on each chunk; the last non-None result is the final usage.
-pub fn extract_stream_usage(protocol: &str, chunk: &[u8]) -> Option<Usage> {
+pub fn extract_stream_usage(protocol: ProtocolKind, chunk: &[u8]) -> Option<Usage> {
     match protocol {
-        "openai_chat_completions" => extract_openai_chunk_usage(chunk),
-        "openai_response" | "openai" => extract_openai_response_event_usage(chunk),
-        "claude" => extract_claude_event_usage(chunk),
-        "gemini" => extract_gemini_usage(chunk),
+        ProtocolKind::OpenAiChatCompletion => extract_openai_chunk_usage(chunk),
+        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAi => {
+            extract_openai_response_event_usage(chunk)
+        }
+        ProtocolKind::Claude => extract_claude_event_usage(chunk),
+        ProtocolKind::Gemini => extract_gemini_usage(chunk),
         _ => None,
     }
 }

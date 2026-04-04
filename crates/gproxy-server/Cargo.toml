@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 gproxy-sdk = { workspace = true }
+gproxy-protocol = { workspace = true }
 gproxy-storage = { workspace = true }
 arc-swap = { workspace = true }
 axum = { workspace = true }

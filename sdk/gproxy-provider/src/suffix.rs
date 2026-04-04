@@ -1,3 +1,5 @@
+use gproxy_protocol::kinds::ProtocolKind;
+
 use crate::request::PreparedRequest;
 
 /// A single suffix modifier within a group.
@@ -27,13 +29,12 @@ pub struct MatchedSuffixes {
 }
 
 /// Get the protocol-level suffix groups for a given destination protocol.
-pub fn suffix_groups_for_protocol(dst_proto: &str) -> &'static [SuffixGroup] {
+pub fn suffix_groups_for_protocol(dst_proto: ProtocolKind) -> &'static [SuffixGroup] {
     match dst_proto {
-        "claude" => CLAUDE_SUFFIX_GROUPS,
-        "openai_response" | "openai" => OPENAI_RESPONSE_SUFFIX_GROUPS,
-        "openai_chat_completions" => OPENAI_CHAT_COMPLETIONS_SUFFIX_GROUPS,
-        "gemini" | "gemini_ndjson" => GEMINI_SUFFIX_GROUPS,
-        _ => &[],
+        ProtocolKind::Claude => CLAUDE_SUFFIX_GROUPS,
+        ProtocolKind::OpenAiResponse | ProtocolKind::OpenAi => OPENAI_RESPONSE_SUFFIX_GROUPS,
+        ProtocolKind::OpenAiChatCompletion => OPENAI_CHAT_COMPLETIONS_SUFFIX_GROUPS,
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => GEMINI_SUFFIX_GROUPS,
     }
 }
 

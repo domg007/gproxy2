@@ -1933,6 +1933,7 @@ dependencies = [
  "dashmap",
  "ed25519-dalek",
  "futures-util",
+ "gproxy-protocol",
  "gproxy-sdk",
  "gproxy-storage",
  "http",

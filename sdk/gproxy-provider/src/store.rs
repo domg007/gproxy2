@@ -11,6 +11,8 @@ use arc_swap::ArcSwap;
 use serde::Serialize;
 use serde_json::Value;
 
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
+
 use crate::affinity::{CacheAffinityHint, CacheAffinityPool, DEFAULT_CACHE_AFFINITY_MAX_KEYS};
 use crate::channel::{
     Channel, ChannelCredential, ChannelSettings, OAuthCredentialResult, OAuthFlow,
@@ -85,8 +87,8 @@ pub(crate) trait ProviderRuntime: Send + Sync {
 
     fn handle_local(
         &self,
-        operation: &str,
-        protocol: &str,
+        operation: OperationFamily,
+        protocol: ProtocolKind,
         body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>>;
 
@@ -305,8 +307,8 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
 
     fn handle_local(
         &self,
-        operation: &str,
-        protocol: &str,
+        operation: OperationFamily,
+        protocol: ProtocolKind,
         body: &[u8],
     ) -> Option<Result<Vec<u8>, UpstreamError>> {
         self.channel.handle_local(operation, protocol, body)

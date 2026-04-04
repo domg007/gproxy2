@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
+use gproxy_protocol::kinds::ProtocolKind;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -133,7 +134,7 @@ impl CacheAffinityPool {
 }
 
 pub fn cache_affinity_hint_for_request(
-    protocol: &str,
+    protocol: ProtocolKind,
     request: &PreparedRequest,
 ) -> Option<CacheAffinityHint> {
     match request.path.as_str() {
@@ -143,16 +144,16 @@ pub fn cache_affinity_hint_for_request(
 
     let body_json = serde_json::from_slice::<Value>(&request.body).ok()?;
     match protocol {
-        "openai_response" => cache_affinity_hint_for_openai_responses(
+        ProtocolKind::OpenAiResponse => cache_affinity_hint_for_openai_responses(
             request.model.as_deref().unwrap_or("unknown"),
             body_json,
         ),
-        "openai_chat_completions" => cache_affinity_hint_for_openai_chat(
+        ProtocolKind::OpenAiChatCompletion => cache_affinity_hint_for_openai_chat(
             request.model.as_deref().unwrap_or("unknown"),
             body_json,
         ),
-        "claude" => cache_affinity_hint_for_claude_effective_body(body_json),
-        "gemini" | "gemini_ndjson" => {
+        ProtocolKind::Claude => cache_affinity_hint_for_claude_effective_body(body_json),
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
             cache_affinity_hint_for_gemini(request.model.as_deref().unwrap_or("unknown"), body_json)
         }
         _ => None,

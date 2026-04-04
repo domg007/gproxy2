@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
+
 /// Maps (operation, protocol) pairs to routing strategies.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DispatchTable {
@@ -11,8 +13,8 @@ pub struct DispatchTable {
 /// A (operation, protocol) pair identifying a route.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct RouteKey {
-    pub operation: String,
-    pub protocol: String,
+    pub operation: OperationFamily,
+    pub protocol: ProtocolKind,
 }
 
 /// How to handle a particular (operation, protocol) pair.
@@ -55,10 +57,62 @@ impl DispatchTable {
 }
 
 impl RouteKey {
-    pub fn new(operation: impl Into<String>, protocol: impl Into<String>) -> Self {
+    pub fn new<O, P>(operation: O, protocol: P) -> Self
+    where
+        O: IntoRouteOperation,
+        P: IntoRouteProtocol,
+    {
         Self {
-            operation: operation.into(),
-            protocol: protocol.into(),
+            operation: operation.into_operation(),
+            protocol: protocol.into_protocol(),
         }
+    }
+}
+
+pub trait IntoRouteOperation {
+    fn into_operation(self) -> OperationFamily;
+}
+
+impl IntoRouteOperation for OperationFamily {
+    fn into_operation(self) -> OperationFamily {
+        self
+    }
+}
+
+impl IntoRouteOperation for &str {
+    fn into_operation(self) -> OperationFamily {
+        OperationFamily::try_from(self)
+            .unwrap_or_else(|_| panic!("unknown operation family: {self}"))
+    }
+}
+
+impl IntoRouteOperation for String {
+    fn into_operation(self) -> OperationFamily {
+        OperationFamily::try_from(self.as_str())
+            .unwrap_or_else(|_| panic!("unknown operation family: {self}"))
+    }
+}
+
+pub trait IntoRouteProtocol {
+    fn into_protocol(self) -> ProtocolKind;
+}
+
+impl IntoRouteProtocol for ProtocolKind {
+    fn into_protocol(self) -> ProtocolKind {
+        self
+    }
+}
+
+impl IntoRouteProtocol for &str {
+    fn into_protocol(self) -> ProtocolKind {
+        ProtocolKind::try_from(self)
+            .unwrap_or_else(|_| panic!("unknown protocol kind: {self}"))
+    }
+}
+
+impl IntoRouteProtocol for String {
+    fn into_protocol(self) -> ProtocolKind {
+        ProtocolKind::try_from(self.as_str())
+            .unwrap_or_else(|_| panic!("unknown protocol kind: {self}"))
     }
 }

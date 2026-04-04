@@ -9,7 +9,7 @@ use futures_util::StreamExt;
 use gproxy_sdk::provider::engine::{
     ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage, WsUpstreamMeta,
 };
-use gproxy_server::AppState;
+use gproxy_server::{AppState, OperationFamily, ProtocolKind};
 
 use crate::auth::AuthenticatedUser;
 use crate::error::HttpError;
@@ -210,8 +210,8 @@ async fn handle_openai_ws(
         user_id,
         user_key_id,
         model: model.clone(),
-        operation: "openai_response_websocket".to_string(),
-        protocol: "openai".to_string(),
+        operation: OperationFamily::OpenAiResponseWebSocket,
+        protocol: ProtocolKind::OpenAi,
         trace_id,
     };
 
@@ -219,8 +219,8 @@ async fn handle_openai_ws(
         .engine()
         .connect_upstream_ws(
             &provider_name,
-            "openai_response_websocket",
-            "openai",
+            OperationFamily::OpenAiResponseWebSocket,
+            ProtocolKind::OpenAi,
             "/v1/responses",
             model.as_deref(),
         )
@@ -240,10 +240,10 @@ async fn handle_openai_ws(
         }) => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "websocket bridge active (cross-protocol)");
             record_ws_upstream_log(&state, trace_id, &ws_meta).await;
-            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol
-                .as_str()
-            {
-                "gemini" => Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(model.clone())),
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol {
+                ProtocolKind::Gemini => {
+                    Box::new(super::ws_bridge::OpenAiToGeminiBridge::new(model.clone()))
+                }
                 _ => {
                     tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
                     return Ok(());
@@ -280,8 +280,8 @@ async fn handle_gemini_live_ws(
         user_id,
         user_key_id,
         model: model.clone(),
-        operation: "gemini_live".to_string(),
-        protocol: "gemini".to_string(),
+        operation: OperationFamily::GeminiLive,
+        protocol: ProtocolKind::Gemini,
         trace_id,
     };
 
@@ -289,8 +289,8 @@ async fn handle_gemini_live_ws(
         .engine()
         .connect_upstream_ws(
             &provider_name,
-            "gemini_live",
-            "gemini",
+            OperationFamily::GeminiLive,
+            ProtocolKind::Gemini,
             &path,
             model.as_deref(),
         )
@@ -312,10 +312,10 @@ async fn handle_gemini_live_ws(
         } => {
             tracing::info!(trace_id, provider = %provider_name, dst = %dst_protocol, "gemini live websocket bridge active (cross-protocol)");
             record_ws_upstream_log(&state, trace_id, &ws_meta).await;
-            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol
-                .as_str()
-            {
-                "openai" => Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(model.clone())),
+            let mut bridge: Box<dyn super::ws_bridge::WsProtocolBridge> = match dst_protocol {
+                ProtocolKind::OpenAi | ProtocolKind::OpenAiResponse => {
+                    Box::new(super::ws_bridge::GeminiToOpenAiBridge::new(model.clone()))
+                }
                 _ => {
                     tracing::warn!(dst = %dst_protocol, "unsupported cross-protocol WS bridge");
                     return Ok(());
@@ -338,8 +338,8 @@ struct WsBridgeContext {
     user_id: i64,
     user_key_id: i64,
     model: Option<String>,
-    operation: String,
-    protocol: String,
+    operation: OperationFamily,
+    protocol: ProtocolKind,
     trace_id: i64,
 }
 
@@ -426,8 +426,8 @@ async fn run_ws_bridge_with_protocol(
             user_id: ctx.user_id,
             user_key_id: ctx.user_key_id,
             model: ctx.model.clone(),
-            operation: ctx.operation.clone(),
-            protocol: ctx.protocol.clone(),
+            operation: ctx.operation,
+            protocol: ctx.protocol,
             downstream_trace_id: Some(ctx.trace_id),
         };
         super::handler::record_usage(&usage_ctx, &usage).await;
@@ -599,16 +599,16 @@ async fn start_http_request(
     body.as_object_mut()
         .map(|o| o.insert("stream".to_string(), serde_json::json!(true)));
 
-    let operation = "stream_generate_content".to_string();
-    let protocol = "openai_response".to_string();
+    let operation = OperationFamily::StreamGenerateContent;
+    let protocol = ProtocolKind::OpenAiResponse;
 
     let result = ctx
         .state
         .engine()
         .execute(ExecuteRequest {
             provider: ctx.provider_name.clone(),
-            operation: operation.clone(),
-            protocol: protocol.clone(),
+            operation,
+            protocol,
             body: serde_json::to_vec(&body).unwrap_or_default(),
             headers: headers.clone(),
             model: ctx.model.clone(),
@@ -623,8 +623,8 @@ async fn start_http_request(
                     user_id: ctx.user_id,
                     user_key_id: ctx.user_key_id,
                     model: ctx.model.clone(),
-                    operation: operation.clone(),
-                    protocol: protocol.clone(),
+                    operation,
+                    protocol,
                     downstream_trace_id: Some(ctx.trace_id),
                 };
                 super::handler::record_usage(&usage_ctx, usage).await;
