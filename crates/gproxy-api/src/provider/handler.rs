@@ -58,9 +58,9 @@ pub async fn proxy(
         (provider_name.clone(), model.clone())
     };
 
-    // Check permission (whitelist) — provider_id 0 means check all-provider rules
+    // Check permission (whitelist)
     if let Some(ref m) = effective_model
-        && !state.check_model_permission(user_key.user_id, 0, m)
+        && !state.check_model_permission(user_key.user_id, &effective_provider, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
@@ -237,8 +237,8 @@ pub async fn proxy_unscoped(
         ));
     };
 
-    // Check permission (whitelist) — provider_id 0 means check all-provider rules
-    if !state.check_model_permission(user_key.user_id, 0, &target_model) {
+    // Check permission (whitelist)
+    if !state.check_model_permission(user_key.user_id, &target_provider, &target_model) {
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
 

@@ -33,7 +33,7 @@ pub async fn openai_responses_ws(
 
     // Permission check
     if let Some(ref m) = model
-        && !state.check_model_permission(user_key.user_id, 0, m)
+        && !state.check_model_permission(user_key.user_id, &provider_name, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
@@ -84,7 +84,7 @@ pub async fn gemini_live(
 
     // Permission check
     if let Some(ref m) = model
-        && !state.check_model_permission(user_key.user_id, 0, m)
+        && !state.check_model_permission(user_key.user_id, &provider_name, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
     }
@@ -150,7 +150,7 @@ pub async fn openai_responses_ws_unscoped(
 
     // Permission check
     if let Some(ref m) = target_model
-        && !state.check_model_permission(user_key.user_id, 0, m)
+        && !state.check_model_permission(user_key.user_id, &target_provider, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
     }

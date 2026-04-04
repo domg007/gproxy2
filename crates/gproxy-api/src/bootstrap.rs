@@ -82,6 +82,11 @@ pub async fn reload_from_db(state: &AppState) -> Result<ReloadCounts, Box<dyn st
     }
     state.replace_engine(builder.build());
 
+    // Provider name → id map for permission checks
+    let provider_name_map: HashMap<String, i64> =
+        providers.iter().map(|p| (p.name.clone(), p.id)).collect();
+    state.replace_provider_names(provider_name_map.clone());
+
     // Users — atomic replace to remove stale entries
     let users = storage
         .list_users(&gproxy_storage::UserQuery::default())
@@ -322,6 +327,7 @@ pub async fn seed_from_toml(
         .enumerate()
         .map(|(i, p)| (p.name.clone(), i as i64 + 1))
         .collect();
+    state.replace_provider_names(provider_name_to_id.clone());
 
     // 3. Users → memory + DB
     for (i, u) in config.users.iter().enumerate() {

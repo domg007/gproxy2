@@ -64,6 +64,7 @@ pub struct AppState {
     keys: ArcSwap<HashMap<String, MemoryUserKey>>,
     models: ArcSwap<Vec<MemoryModel>>,
     model_aliases: ArcSwap<HashMap<String, ModelAliasTarget>>,
+    provider_names: ArcSwap<HashMap<String, i64>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
     user_quotas: DashMap<i64, (f64, f64)>,
@@ -143,7 +144,13 @@ impl AppState {
         self.model_aliases.load().get(alias).cloned()
     }
 
-    pub fn check_model_permission(&self, user_id: i64, provider_id: i64, model: &str) -> bool {
+    pub fn check_model_permission(&self, user_id: i64, provider_name: &str, model: &str) -> bool {
+        let provider_id = self
+            .provider_names
+            .load()
+            .get(provider_name)
+            .copied()
+            .unwrap_or(0);
         let perms = self.user_permissions.load();
         let Some(entries) = perms.get(&user_id) else {
             return false;
@@ -255,6 +262,10 @@ impl AppState {
 
     pub fn replace_model_aliases(&self, aliases: HashMap<String, ModelAliasTarget>) {
         self.model_aliases.store(Arc::new(aliases));
+    }
+
+    pub fn replace_provider_names(&self, names: HashMap<String, i64>) {
+        self.provider_names.store(Arc::new(names));
     }
 
     pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
@@ -461,6 +472,7 @@ impl AppStateBuilder {
             keys: ArcSwap::from_pointee(key_map),
             models: ArcSwap::from_pointee(Vec::new()),
             model_aliases: ArcSwap::from_pointee(HashMap::new()),
+            provider_names: ArcSwap::from_pointee(HashMap::new()),
             user_permissions: ArcSwap::from_pointee(HashMap::new()),
             user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
             user_quotas: DashMap::new(),
