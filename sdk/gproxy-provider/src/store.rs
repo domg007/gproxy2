@@ -364,13 +364,19 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         Box::pin(async move {
             let (credentials_snapshot, revision, mut creds, max_retries) =
                 self.prepare_retry_state();
+            let settings = self.settings.load_full();
+            let effective_hint = if settings.enable_cache_affinity() {
+                affinity_hint
+            } else {
+                None
+            };
             let result = retry_with_credentials(
                 RetryContext {
                     channel: &self.channel,
                     credentials: &mut creds,
-                    settings: &self.settings.load_full(),
+                    settings: &settings,
                     request: &request,
-                    affinity_hint: affinity_hint.as_ref(),
+                    affinity_hint: effective_hint.as_ref(),
                     affinity_pool: &self.affinity_pool,
                     round_robin_cursor: &self.round_robin_cursor,
                     max_retries,
@@ -403,13 +409,19 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         Box::pin(async move {
             let (credentials_snapshot, revision, mut creds, max_retries) =
                 self.prepare_retry_state();
+            let settings = self.settings.load_full();
+            let effective_hint = if settings.enable_cache_affinity() {
+                affinity_hint
+            } else {
+                None
+            };
             let result = retry_with_credentials_stream(
                 RetryContext {
                     channel: &self.channel,
                     credentials: &mut creds,
-                    settings: &self.settings.load_full(),
+                    settings: &settings,
                     request: &request,
-                    affinity_hint: affinity_hint.as_ref(),
+                    affinity_hint: effective_hint.as_ref(),
                     affinity_pool: &self.affinity_pool,
                     round_robin_cursor: &self.round_robin_cursor,
                     max_retries,

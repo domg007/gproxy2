@@ -184,7 +184,11 @@ where
         return Err(UpstreamError::NoEligibleCredentials);
     }
 
-    let mut remaining = build_remaining_candidates(&eligible, round_robin_cursor);
+    let mut remaining = build_remaining_candidates(
+        &eligible,
+        round_robin_cursor,
+        affinity_hint.is_some(),
+    );
     let mut last_error = None;
 
     while !remaining.is_empty() {
@@ -438,15 +442,29 @@ fn clear_affinity(
     }
 }
 
-fn build_remaining_candidates(eligible: &[usize], round_robin_cursor: &AtomicUsize) -> Vec<usize> {
+fn build_remaining_candidates(
+    eligible: &[usize],
+    round_robin_cursor: &AtomicUsize,
+    use_random: bool,
+) -> Vec<usize> {
     if eligible.is_empty() {
         return Vec::new();
     }
 
-    let start = round_robin_cursor.fetch_add(1, Ordering::Relaxed) % eligible.len();
-    (0..eligible.len())
-        .map(|offset| eligible[(start + offset) % eligible.len()])
-        .collect()
+    if use_random {
+        // Random order: cache affinity will steer to the right credential,
+        // and random base order prevents sequential bias that undermines affinity.
+        use rand::seq::SliceRandom;
+        let mut candidates: Vec<usize> = eligible.to_vec();
+        candidates.shuffle(&mut rand::rng());
+        candidates
+    } else {
+        // Round-robin: deterministic rotation across credentials.
+        let start = round_robin_cursor.fetch_add(1, Ordering::Relaxed) % eligible.len();
+        (0..eligible.len())
+            .map(|offset| eligible[(start + offset) % eligible.len()])
+            .collect()
+    }
 }
 
 fn pick_candidate_index(

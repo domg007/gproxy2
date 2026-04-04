@@ -168,6 +168,14 @@ pub trait ChannelSettings:
     fn max_retries_on_429(&self) -> u32 {
         3
     }
+    /// Enable cache affinity for this channel.
+    /// When true, credentials are selected randomly and then pinned via the
+    /// affinity pool so that requests with similar prompts reuse the same
+    /// credential (maximising upstream prompt-cache hits).
+    /// When false (default), credentials are selected by round-robin.
+    fn enable_cache_affinity(&self) -> bool {
+        false
+    }
 }
 
 /// Channel credential (API key, OAuth token, etc.).
