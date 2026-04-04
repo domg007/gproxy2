@@ -92,6 +92,17 @@ pub struct UpsertCredentialPayload {
     pub credential: serde_json::Value,
 }
 
+/// Generate a unique ID for new credentials using timestamp + random bits.
+fn generate_credential_id() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let random: u16 = rand::random();
+    ts * 1000 + (random % 1000) as i64
+}
+
 /// Add or update a credential in SDK engine memory + persist to DB.
 pub async fn upsert_credential(
     State(state): State<Arc<AppState>>,
@@ -108,7 +119,7 @@ pub async fn upsert_credential(
     // Persist to DB
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
     let write = gproxy_storage::CredentialWrite {
-        id: 0, // auto-assign
+        id: generate_credential_id(),
         provider_id: provider.id,
         name: None,
         kind: provider.channel.clone(),
@@ -168,7 +179,7 @@ pub async fn batch_upsert_credentials(
         // Persist to DB
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
         let write = gproxy_storage::CredentialWrite {
-            id: 0,
+            id: generate_credential_id(),
             provider_id: provider.id,
             name: None,
             kind: provider.channel.clone(),

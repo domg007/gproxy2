@@ -104,7 +104,10 @@ impl SeaOrmStorage {
         if let Some(offset) = query.offset {
             select = select.offset(offset);
         }
-        let rows = select.all(&self.db).await?;
+        let rows = select
+            .order_by_asc(credentials::Column::Id)
+            .all(&self.db)
+            .await?;
         Ok(rows
             .into_iter()
             .map(|r| {
