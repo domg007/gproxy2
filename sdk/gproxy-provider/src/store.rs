@@ -89,12 +89,12 @@ pub(crate) trait ProviderRuntime: Send + Sync {
 
     fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8>;
 
-    /// Build a WS-ready (url, headers) pair using the channel's auth logic.
+    /// Build WS-ready (url, headers) pairs for each credential.
     fn prepare_ws_auth(
         &self,
         path: &str,
         model: Option<&str>,
-    ) -> Result<(String, http::HeaderMap), UpstreamError>;
+    ) -> Result<Vec<(String, http::HeaderMap)>, UpstreamError>;
 
     fn execute<'a>(
         &'a self,
@@ -318,14 +318,15 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         &self,
         path: &str,
         model: Option<&str>,
-    ) -> Result<(String, http::HeaderMap), UpstreamError> {
+    ) -> Result<Vec<(String, http::HeaderMap)>, UpstreamError> {
         let settings = self.settings.load();
         let credentials = self.credentials.load();
-        let credential = credentials.first().ok_or_else(|| {
-            UpstreamError::Channel("no credentials available for WebSocket auth".into())
-        })?;
+        if credentials.is_empty() {
+            return Err(UpstreamError::Channel(
+                "no credentials available for WebSocket auth".into(),
+            ));
+        }
 
-        // Build a dummy request to extract auth from the channel's prepare_request
         let dummy = PreparedRequest {
             method: http::Method::GET,
             path: path.to_string(),
@@ -334,10 +335,14 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
             headers: http::HeaderMap::new(),
         };
 
-        let http_req = self.channel.prepare_request(credential, &settings, &dummy)?;
-        let url = http_req.uri().to_string();
-        let headers = http_req.headers().clone();
-        Ok((url, headers))
+        let mut results = Vec::with_capacity(credentials.len());
+        for credential in credentials.iter() {
+            let http_req = self.channel.prepare_request(credential, &settings, &dummy)?;
+            let url = http_req.uri().to_string();
+            let headers = http_req.headers().clone();
+            results.push((url, headers));
+        }
+        Ok(results)
     }
 
     fn execute<'a>(

@@ -372,63 +372,85 @@ impl GproxyEngine {
                     }
                 };
 
-            // Use channel-aware auth via prepare_ws_auth
-            let (auth_url, auth_headers) = provider.prepare_ws_auth(&ws_path, ws_model)?;
+            // Get auth candidates for all credentials
+            let auth_candidates = provider.prepare_ws_auth(&ws_path, ws_model)?;
 
-            // Convert URL scheme to wss/ws
-            let ws_url = auth_url
-                .replace("https://", "wss://")
-                .replace("http://", "ws://");
+            let mut last_error = None;
+            for (idx, (auth_url, auth_headers)) in auth_candidates.into_iter().enumerate() {
+                // Convert URL scheme to wss/ws
+                let ws_url = auth_url
+                    .replace("https://", "wss://")
+                    .replace("http://", "ws://");
 
-            // Append model query param if not already in the URL
-            let ws_url = if let Some(m) = ws_model
-                && !ws_url.contains("model=")
-            {
-                let sep = if ws_url.contains('?') { "&" } else { "?" };
-                format!("{ws_url}{sep}model={m}")
-            } else {
-                ws_url
-            };
+                // Append model query param if not already in the URL
+                let ws_url = if let Some(m) = ws_model
+                    && !ws_url.contains("model=")
+                {
+                    let sep = if ws_url.contains('?') { "&" } else { "?" };
+                    format!("{ws_url}{sep}model={m}")
+                } else {
+                    ws_url
+                };
 
-            tracing::info!(url = %ws_url, "connecting upstream websocket");
+                tracing::info!(url = %ws_url, credential = idx, "connecting upstream websocket");
 
-            // Build WS request with channel-specific auth headers
-            let mut ws_builder = wreq::websocket(&ws_url);
-            for (name, value) in auth_headers.iter() {
-                if name != http::header::CONTENT_TYPE {
-                    ws_builder = ws_builder.header(name.as_str(), value.to_str().unwrap_or(""));
+                // Build WS request with channel-specific auth headers
+                let mut ws_builder = wreq::websocket(&ws_url);
+                for (name, value) in auth_headers.iter() {
+                    if name != http::header::CONTENT_TYPE {
+                        ws_builder =
+                            ws_builder.header(name.as_str(), value.to_str().unwrap_or(""));
+                    }
                 }
+
+                let response = match ws_builder.send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!(credential = idx, error = %e, "ws handshake failed, trying next credential");
+                        last_error = Some(UpstreamError::Http(format!("ws handshake failed: {e}")));
+                        continue;
+                    }
+                };
+
+                let status = response.status().as_u16();
+                if status == 426 {
+                    return Err(UpstreamError::Channel(
+                        "upstream requires HTTP (426 Upgrade Required)".into(),
+                    ));
+                }
+                if status == 401 || status == 403 {
+                    tracing::warn!(credential = idx, status, "ws auth rejected, trying next credential");
+                    last_error = Some(UpstreamError::Channel(format!(
+                        "ws auth rejected (HTTP {status})"
+                    )));
+                    continue;
+                }
+
+                let ws = match response.into_websocket().await {
+                    Ok(ws) => ws,
+                    Err(e) => {
+                        tracing::warn!(credential = idx, error = %e, "ws upgrade failed, trying next credential");
+                        last_error =
+                            Some(UpstreamError::Http(format!("ws upgrade failed: {e}")));
+                        continue;
+                    }
+                };
+
+                tracing::info!(credential = idx, "upstream websocket connected");
+                let upstream = UpstreamWebSocket { inner: ws };
+
+                return if src_protocol == dst_protocol {
+                    Ok(WsConnectionResult::Connected(upstream))
+                } else {
+                    Ok(WsConnectionResult::NeedsProtocolBridge {
+                        upstream,
+                        src_protocol,
+                        dst_protocol,
+                    })
+                };
             }
 
-            let response = ws_builder
-                .send()
-                .await
-                .map_err(|e| UpstreamError::Http(format!("ws handshake failed: {e}")))?;
-
-            let status = response.status().as_u16();
-            if status == 426 {
-                return Err(UpstreamError::Channel(
-                    "upstream requires HTTP (426 Upgrade Required)".into(),
-                ));
-            }
-
-            let ws = response
-                .into_websocket()
-                .await
-                .map_err(|e| UpstreamError::Http(format!("ws upgrade failed: {e}")))?;
-
-            tracing::info!("upstream websocket connected");
-            let upstream = UpstreamWebSocket { inner: ws };
-
-            if src_protocol == dst_protocol {
-                Ok(WsConnectionResult::Connected(upstream))
-            } else {
-                Ok(WsConnectionResult::NeedsProtocolBridge {
-                    upstream,
-                    src_protocol,
-                    dst_protocol,
-                })
-            }
+            Err(last_error.unwrap_or(UpstreamError::AllCredentialsExhausted))
         }
         .instrument(span)
         .await
