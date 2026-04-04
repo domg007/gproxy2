@@ -29,6 +29,8 @@ pub struct UserKeyQueryRow {
     pub id: i64,
     pub user_id: i64,
     pub api_key: String,
+    pub label: Option<String>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,5 +38,6 @@ pub struct UserKeyMemoryRow {
     pub id: i64,
     pub user_id: i64,
     pub api_key: String,
+    pub label: Option<String>,
     pub enabled: bool,
 }

@@ -109,6 +109,15 @@ pub struct ModelAliasToml {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UserKeyToml {
+    pub api_key: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UserToml {
     pub name: String,
     /// Plaintext password or an Argon2 PHC hash.
@@ -117,7 +126,7 @@ pub struct UserToml {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
-    pub keys: Vec<String>,
+    pub keys: Vec<UserKeyToml>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -240,16 +249,24 @@ pub async fn export_toml(
     let users: Vec<UserToml> = users_snapshot
         .iter()
         .map(|u| {
-            let user_keys: Vec<String> = keys_snapshot
+            let mut user_keys: Vec<_> = keys_snapshot
                 .values()
-                .filter(|k| k.user_id == u.id && k.enabled)
-                .map(|k| k.api_key.clone())
+                .filter(|k| k.user_id == u.id)
+                .cloned()
                 .collect();
+            user_keys.sort_by_key(|k| k.id);
             UserToml {
                 name: u.name.clone(),
                 password: u.password_hash.clone(),
                 enabled: u.enabled,
-                keys: user_keys,
+                keys: user_keys
+                    .into_iter()
+                    .map(|k| UserKeyToml {
+                        api_key: k.api_key,
+                        label: k.label,
+                        enabled: k.enabled,
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -324,7 +341,7 @@ pub async fn export_toml(
 
 #[cfg(test)]
 mod tests {
-    use super::UserToml;
+    use super::{UserKeyToml, UserToml};
 
     #[test]
     fn user_toml_round_trips_argon2_hashes() {
@@ -333,7 +350,11 @@ mod tests {
             name: "alice".to_string(),
             password: hash.clone(),
             enabled: true,
-            keys: vec!["sk-api01-demo".to_string()],
+            keys: vec![UserKeyToml {
+                api_key: "sk-api01-demo".to_string(),
+                label: Some("default".to_string()),
+                enabled: false,
+            }],
         };
 
         let toml = toml::to_string(&user).expect("serialize user toml");
@@ -343,5 +364,9 @@ mod tests {
             crate::login::normalize_password_for_storage(&parsed.password),
             hash
         );
+        assert_eq!(parsed.keys.len(), 1);
+        assert_eq!(parsed.keys[0].api_key, "sk-api01-demo");
+        assert_eq!(parsed.keys[0].label.as_deref(), Some("default"));
+        assert!(!parsed.keys[0].enabled);
     }
 }

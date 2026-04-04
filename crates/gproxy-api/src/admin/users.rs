@@ -21,6 +21,7 @@ pub struct MemoryUserKeyRow {
     pub id: i64,
     pub user_id: i64,
     pub api_key: String,
+    pub label: Option<String>,
     pub enabled: bool,
 }
 
@@ -122,6 +123,7 @@ pub async fn query_user_keys(
             id: k.id,
             user_id: k.user_id,
             api_key: k.api_key.clone(),
+            label: k.label.clone(),
             enabled: k.enabled,
         })
         .collect();
@@ -157,6 +159,7 @@ pub async fn generate_user_key(
         id,
         user_id: payload.user_id,
         api_key: api_key.clone(),
+        label: payload.label.clone(),
         enabled: true,
     });
     Ok(Json(GenerateUserKeyResponse {
@@ -280,6 +283,7 @@ pub async fn batch_upsert_user_keys(
             id,
             user_id: payload.user_id,
             api_key: api_key.clone(),
+            label: payload.label.clone(),
             enabled: true,
         });
         keys.push(GeneratedKey { id, api_key });
@@ -292,6 +296,7 @@ pub async fn batch_upsert_user_keys(
 pub fn generate_unique_api_key_for(state: &AppState) -> String {
     use rand::RngExt;
     let admin_key = state.config().admin_key.clone();
+    let keys = state.keys_snapshot();
     let mut rng = rand::rng();
     loop {
         let n: u64 = rng.random_range(0..1u64 << 48);
@@ -299,7 +304,7 @@ pub fn generate_unique_api_key_for(state: &AppState) -> String {
         if key == admin_key {
             continue;
         }
-        if state.authenticate_api_key(&key).is_some() {
+        if keys.contains_key(&key) {
             continue;
         }
         return key;

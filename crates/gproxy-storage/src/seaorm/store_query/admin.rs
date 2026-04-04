@@ -228,6 +228,8 @@ impl SeaOrmStorage {
                     id: r.id,
                     user_id: r.user_id,
                     api_key,
+                    label: r.label,
+                    enabled: r.enabled,
                 }
             })
             .collect())
@@ -243,6 +245,7 @@ impl SeaOrmStorage {
                     id: r.id,
                     user_id: r.user_id,
                     api_key,
+                    label: r.label,
                     enabled: r.enabled,
                 }
             })

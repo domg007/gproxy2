@@ -12,6 +12,7 @@ use crate::error::HttpError;
 #[derive(Serialize)]
 pub struct UserKeyRow {
     pub api_key: String,
+    pub label: Option<String>,
     pub enabled: bool,
 }
 
@@ -26,6 +27,7 @@ pub async fn query_keys(
         .into_iter()
         .map(|k| UserKeyRow {
             api_key: k.api_key,
+            label: k.label,
             enabled: k.enabled,
         })
         .collect();
@@ -60,6 +62,7 @@ pub async fn generate_key(
         id,
         user_id: user_key.user_id,
         api_key: api_key.clone(),
+        label: payload.label.clone(),
         enabled: true,
     });
     Ok(Json(GenerateKeyResponse { ok: true, api_key }))

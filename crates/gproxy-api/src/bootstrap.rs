@@ -229,6 +229,7 @@ pub async fn reload_from_db(
             id: k.id,
             user_id: k.user_id,
             api_key: k.api_key.clone(),
+            label: k.label.clone(),
             enabled: k.enabled,
         })
         .collect();
@@ -513,8 +514,9 @@ pub async fn seed_from_toml(
             state.upsert_key_in_memory(MemoryUserKey {
                 id: key_id,
                 user_id,
-                api_key: key.clone(),
-                enabled: true,
+                api_key: key.api_key.clone(),
+                label: key.label.clone(),
+                enabled: key.enabled,
             });
             state
                 .storage_writes()
@@ -522,9 +524,9 @@ pub async fn seed_from_toml(
                     gproxy_storage::UserKeyWrite {
                         id: key_id,
                         user_id,
-                        api_key: key.clone(),
-                        label: None,
-                        enabled: true,
+                        api_key: key.api_key.clone(),
+                        label: key.label.clone(),
+                        enabled: key.enabled,
                     },
                 ))
                 .await?;
@@ -726,10 +728,7 @@ mod tests {
             Some("claudecode")
         );
 
-        assert_eq!(
-            state.provider_credentials.get("first"),
-            Some(&vec![1000])
-        );
+        assert_eq!(state.provider_credentials.get("first"), Some(&vec![1000]));
         assert_eq!(
             state.provider_credentials.get("second"),
             Some(&vec![2000, 2001])
