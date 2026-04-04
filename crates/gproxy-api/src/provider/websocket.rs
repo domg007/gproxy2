@@ -324,7 +324,6 @@ struct WsBridgeContext<'a> {
     protocol: &'a str,
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_ws_bridge_with_protocol(
     downstream: &mut WebSocket,
     upstream: &mut UpstreamWebSocket,
