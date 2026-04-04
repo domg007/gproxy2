@@ -680,6 +680,15 @@ impl Channel for CodexChannel {
         CountStrategy::Local
     }
 
+    fn ws_extra_headers(&self) -> http::HeaderMap {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "OpenAI-Beta",
+            http::HeaderValue::from_static("responses_websockets=2026-02-06"),
+        );
+        headers
+    }
+
     fn prepare_quota_request(
         &self,
         credential: &Self::Credential,

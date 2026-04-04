@@ -336,10 +336,12 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         };
 
         let mut results = Vec::with_capacity(credentials.len());
+        let ws_extra = self.channel.ws_extra_headers();
         for credential in credentials.iter() {
             let http_req = self.channel.prepare_request(credential, &settings, &dummy)?;
             let url = http_req.uri().to_string();
-            let headers = http_req.headers().clone();
+            let mut headers = http_req.headers().clone();
+            headers.extend(ws_extra.clone());
             results.push((url, headers));
         }
         Ok(results)

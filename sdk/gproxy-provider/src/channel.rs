@@ -94,6 +94,13 @@ pub trait Channel: Send + Sync + 'static {
         false
     }
 
+    /// Extra headers to add to WebSocket handshake requests.
+    /// Override for channels that require beta headers for WS (e.g. Codex).
+    /// Default: empty.
+    fn ws_extra_headers(&self) -> http::HeaderMap {
+        http::HeaderMap::new()
+    }
+
     /// Attempt to refresh a credential after an auth failure (401/403).
     /// Called when upstream returns AuthDead. Returns `true` if the credential
     /// was updated and the request should be retried once more.
