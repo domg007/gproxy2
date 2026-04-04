@@ -1373,7 +1373,8 @@ impl
             if is_finished {
                 out.push(ImageGenerationStreamEvent::Completed {
                     b64_json: img.b64_json.clone(),
-                    background: gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
+                    background:
+                        gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
                     created_at: 0,
                     output_format: img.output_format.clone(),
                     quality: gproxy_protocol::openai::create_image::types::OpenAiImageQuality::Auto,
@@ -1385,7 +1386,8 @@ impl
                 self.partial_count += 1;
                 out.push(ImageGenerationStreamEvent::PartialImage {
                     b64_json: img.b64_json.clone(),
-                    background: gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
+                    background:
+                        gproxy_protocol::openai::create_image::types::OpenAiImageBackground::Auto,
                     created_at: 0,
                     output_format: img.output_format.clone(),
                     partial_image_index: index,
@@ -1665,7 +1667,6 @@ pub fn create_stream_response_transformer(
         // =====================================================================
         // stream_create_image / stream_create_image_edit → openai_response
         // =====================================================================
-
         ("stream_create_image", "openai", "stream_generate_content", "openai_response")
         | ("stream_create_image_edit", "openai", "stream_generate_content", "openai_response") => {
             build_stream_transform::<

@@ -613,13 +613,31 @@ impl GproxyEngine {
         let mut body = body;
         let path = build_operation_path(&dst_op, &mut body);
 
-        let prepared = PreparedRequest {
+        // Suffix processing: match protocol-level + channel-specific suffix groups
+        let proto_groups = crate::suffix::suffix_groups_for_protocol(&dst_proto);
+        let channel_groups = provider.model_suffix_groups();
+        let matched = request.model.as_ref().and_then(|model| {
+            crate::suffix::match_suffix_groups_combined(model, proto_groups, channel_groups)
+        });
+        let (model, suffix_str) = if let Some(ref m) = matched {
+            crate::suffix::strip_model_suffix_in_body(&mut body, &m.base_model);
+            (Some(m.base_model.clone()), Some(m.combined_suffix.clone()))
+        } else {
+            (request.model.clone(), None)
+        };
+
+        let mut prepared = PreparedRequest {
             method,
             path,
-            model: request.model.clone(),
+            model,
             body,
             headers: request.headers,
         };
+        if let Some(ref m) = matched {
+            for apply_fn in &m.apply_fns {
+                apply_fn(&mut prepared);
+            }
+        }
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
@@ -654,6 +672,12 @@ impl GproxyEngine {
         } else {
             None
         };
+
+        // 2.5. Suffix response rewriting: append suffix to model field
+        let mut normalized_nonstream_body = normalized_nonstream_body;
+        if let Some(ref suffix) = suffix_str {
+            crate::suffix::rewrite_model_suffix_in_body(&mut normalized_nonstream_body, suffix);
+        }
 
         // 3. Transform response if needed (cross-protocol)
         let response_body = if needs_transform {
@@ -773,13 +797,31 @@ impl GproxyEngine {
         let mut body = body;
         let path = build_operation_path(&dst_op, &mut body);
 
-        let prepared = PreparedRequest {
+        // Suffix processing: match protocol-level + channel-specific suffix groups
+        let proto_groups = crate::suffix::suffix_groups_for_protocol(&dst_proto);
+        let channel_groups = provider.model_suffix_groups();
+        let matched = request.model.as_ref().and_then(|model| {
+            crate::suffix::match_suffix_groups_combined(model, proto_groups, channel_groups)
+        });
+        let (model, suffix_str) = if let Some(ref m) = matched {
+            crate::suffix::strip_model_suffix_in_body(&mut body, &m.base_model);
+            (Some(m.base_model.clone()), Some(m.combined_suffix.clone()))
+        } else {
+            (request.model.clone(), None)
+        };
+
+        let mut prepared = PreparedRequest {
             method,
             path,
-            model: request.model.clone(),
+            model,
             body,
             headers: request.headers,
         };
+        if let Some(ref m) = matched {
+            for apply_fn in &m.apply_fns {
+                apply_fn(&mut prepared);
+            }
+        }
         let prepared = provider.finalize_request(prepared)?;
         let affinity_hint = crate::affinity::cache_affinity_hint_for_request(&dst_proto, &prepared);
 
@@ -834,19 +876,39 @@ impl GproxyEngine {
             )?;
 
             let mut upstream = response.body;
+            let suffix_to_rewrite = suffix_str.clone();
             let stream = try_stream! {
                 let mut transformer = transformer;
                 while let Some(chunk) = upstream.next().await {
                     let chunk = chunk?;
-                    let out = transformer.push_chunk(&chunk)?;
+                    let mut out = transformer.push_chunk(&chunk)?;
+                    if let Some(ref suffix) = suffix_to_rewrite {
+                        crate::suffix::rewrite_model_suffix_in_body(&mut out, suffix);
+                    }
                     if !out.is_empty() {
                         yield Bytes::from(out);
                     }
                 }
 
-                let tail = transformer.finish()?;
+                let mut tail = transformer.finish()?;
+                if let Some(ref suffix) = suffix_to_rewrite {
+                    crate::suffix::rewrite_model_suffix_in_body(&mut tail, suffix);
+                }
                 if !tail.is_empty() {
                     yield Bytes::from(tail);
+                }
+            };
+            ExecuteBody::Stream(Box::pin(stream))
+        } else if let Some(ref suffix) = suffix_str {
+            // Passthrough with suffix rewriting
+            let suffix = suffix.clone();
+            let mut upstream = response.body;
+            let stream = try_stream! {
+                while let Some(chunk) = upstream.next().await {
+                    let chunk = chunk?;
+                    let mut buf = chunk.to_vec();
+                    crate::suffix::rewrite_model_suffix_in_body(&mut buf, &suffix);
+                    yield Bytes::from(buf);
                 }
             };
             ExecuteBody::Stream(Box::pin(stream))

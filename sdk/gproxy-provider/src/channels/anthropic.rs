@@ -215,6 +215,10 @@ impl Channel for AnthropicChannel {
         Ok(request)
     }
 
+    fn model_suffix_groups(&self) -> &'static [crate::suffix::SuffixGroup] {
+        crate::suffix::CLAUDE_EXTRA_SUFFIX_GROUPS
+    }
+
     fn classify_response(
         &self,
         status: u16,

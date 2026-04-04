@@ -9,6 +9,7 @@ use crate::dispatch::DispatchTable;
 use crate::health::CredentialHealth;
 use crate::request::PreparedRequest;
 use crate::response::{ResponseClassification, UpstreamError};
+use crate::suffix::SuffixGroup;
 
 /// Boxed future type for async OAuth methods.
 type OAuthFuture<'a, T> =
@@ -99,6 +100,15 @@ pub trait Channel: Send + Sync + 'static {
     /// Default: empty.
     fn ws_extra_headers(&self) -> http::HeaderMap {
         http::HeaderMap::new()
+    }
+
+    /// Extra channel-specific suffix groups beyond the protocol-level ones.
+    ///
+    /// Protocol-level suffixes (thinking, speed, effort) are automatically
+    /// applied based on the destination protocol. Override this only for
+    /// channel-specific suffixes (e.g. Claude's `-1m`, `-200k`).
+    fn model_suffix_groups(&self) -> &'static [SuffixGroup] {
+        &[]
     }
 
     /// Attempt to refresh a credential after an auth failure (401/403).

@@ -90,6 +90,8 @@ pub(crate) trait ProviderRuntime: Send + Sync {
 
     fn normalize_response(&self, request: &PreparedRequest, body: Vec<u8>) -> Vec<u8>;
 
+    fn model_suffix_groups(&self) -> &'static [crate::suffix::SuffixGroup];
+
     /// Build WS-ready (url, headers) pairs for each credential.
     fn prepare_ws_auth(
         &self,
@@ -243,9 +245,7 @@ impl<C: Channel> ProviderInstance<C> {
         })
     }
 
-    fn prepare_retry_state(
-        &self,
-    ) -> RetryState<C::Credential, C::Health> {
+    fn prepare_retry_state(&self) -> RetryState<C::Credential, C::Health> {
         let settings = self.settings.load_full();
         let credentials_snapshot = self.credentials.load_full();
         let revision = self
@@ -315,6 +315,10 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         self.channel.normalize_response(request, body)
     }
 
+    fn model_suffix_groups(&self) -> &'static [crate::suffix::SuffixGroup] {
+        self.channel.model_suffix_groups()
+    }
+
     fn prepare_ws_auth(
         &self,
         path: &str,
@@ -339,7 +343,9 @@ impl<C: Channel> ProviderRuntime for ProviderInstance<C> {
         let mut results = Vec::with_capacity(credentials.len());
         let ws_extra = self.channel.ws_extra_headers();
         for credential in credentials.iter() {
-            let http_req = self.channel.prepare_request(credential, &settings, &dummy)?;
+            let http_req = self
+                .channel
+                .prepare_request(credential, &settings, &dummy)?;
             let url = http_req.uri().to_string();
             let mut headers = http_req.headers().clone();
             headers.extend(ws_extra.clone());

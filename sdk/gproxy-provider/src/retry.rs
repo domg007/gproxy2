@@ -285,15 +285,16 @@ where
                         .unwrap_or(false);
 
                     if refreshed {
-                        let retry_request =
-                            match channel.prepare_request(credential, settings, request) {
-                                Ok(req) => req,
-                                Err(e) => {
-                                    tracing::warn!(credential = idx, error = %e, "failed to prepare request after refresh");
-                                    last_error = Some(e);
-                                    break;
-                                }
-                            };
+                        let retry_request = match channel
+                            .prepare_request(credential, settings, request)
+                        {
+                            Ok(req) => req,
+                            Err(e) => {
+                                tracing::warn!(credential = idx, error = %e, "failed to prepare request after refresh");
+                                last_error = Some(e);
+                                break;
+                            }
+                        };
 
                         match send(active_client, retry_request).await {
                             Ok(raw_retry) => match raw_retry.into_retry_action() {
