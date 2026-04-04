@@ -43,6 +43,11 @@ struct Cli {
     /// TLS fingerprint emulation
     #[arg(long, env = "GPROXY_SPOOF", default_value = "chrome_136")]
     spoof_emulation: String,
+
+    /// Database encryption secret key (XChaCha20Poly1305).
+    /// When set, credentials, passwords, and API keys are encrypted at rest.
+    #[arg(long, env = "DATABASE_SECRET_KEY")]
+    database_secret_key: Option<String>,
 }
 
 #[tokio::main]
@@ -68,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Connect database + sync schema
     tracing::info!(dsn = %dsn, "connecting to database");
-    let storage = SeaOrmStorage::connect(&dsn, None).await?;
+    let storage = SeaOrmStorage::connect(&dsn, cli.database_secret_key.as_deref()).await?;
     storage.sync().await?;
     let storage = Arc::new(storage);
     tracing::info!("database schema synced");
