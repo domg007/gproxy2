@@ -7,10 +7,8 @@ use axum::http::{HeaderValue, StatusCode, header::CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 
-use gproxy_sdk::provider::engine::{
-    ExecuteBody, ExecuteRequest, UpstreamRequestMeta, Usage,
-};
-use gproxy_server::middleware::classify::Classification;
+use gproxy_sdk::provider::engine::{ExecuteBody, ExecuteRequest, UpstreamRequestMeta, Usage};
+use gproxy_server::middleware::classify::{BufferedBodyBytes, Classification};
 use gproxy_server::middleware::model_alias::ResolvedAlias;
 use gproxy_server::middleware::request_model::ExtractedModel;
 use gproxy_server::{AppState, OperationFamily, ProtocolKind};
@@ -63,15 +61,11 @@ pub async fn proxy(
     // Map classification to SDK operation/protocol strings
     let operation = classification.operation;
 
-    // Collect body
-    let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
-        .await
-        .map_err(|_| HttpError::bad_request("failed to read request body"))?;
     let req_body = build_execute_body(
         classification.operation,
         &req_path,
         req_query.as_deref(),
-        body.to_vec(),
+        buffered_request_body(&request)?,
     );
 
     let protocol = resolve_file_operation_protocol(
@@ -302,14 +296,11 @@ pub async fn proxy_unscoped(
         .cloned()
         .ok_or_else(|| HttpError::bad_request("request not classified"))?;
 
-    let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
-        .await
-        .map_err(|_| HttpError::bad_request("failed to read request body"))?;
     let req_body = build_execute_body(
         classification.operation,
         &req_path,
         req_query.as_deref(),
-        body.to_vec(),
+        buffered_request_body(&request)?,
     );
 
     // Resolve provider: alias → prefix → error
@@ -480,14 +471,11 @@ pub async fn proxy_unscoped_files(
         .cloned()
         .ok_or_else(|| HttpError::bad_request("request not classified"))?;
 
-    let body = axum::body::to_bytes(request.into_body(), 50 * 1024 * 1024)
-        .await
-        .map_err(|_| HttpError::bad_request("failed to read request body"))?;
     let req_body = build_execute_body(
         classification.operation,
         &req_path,
         req_query.as_deref(),
-        body.to_vec(),
+        buffered_request_body(&request)?,
     );
 
     let operation = classification.operation;
@@ -1675,6 +1663,14 @@ fn headers_to_json(headers: &http::HeaderMap) -> String {
         .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
         .collect();
     serde_json::to_string(&map).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn buffered_request_body(request: &Request) -> Result<Vec<u8>, HttpError> {
+    request
+        .extensions()
+        .get::<BufferedBodyBytes>()
+        .map(|body| body.0.to_vec())
+        .ok_or_else(|| HttpError::internal("buffered request body missing"))
 }
 
 fn build_execute_body(

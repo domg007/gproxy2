@@ -1840,6 +1840,7 @@ dependencies = [
  "tokio",
  "toml",
  "tower",
+ "tower-http",
  "tracing",
  "url",
  "uuid",

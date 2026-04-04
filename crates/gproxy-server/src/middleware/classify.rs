@@ -26,7 +26,7 @@ pub struct BufferedBodyBytes(pub Bytes);
 pub async fn classify_middleware(request: Request, next: Next) -> Response {
     let (parts, body) = request.into_parts();
 
-    // Buffer body
+    // Buffer body once so downstream middleware and handlers can reuse it.
     let body_bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(_) => {
