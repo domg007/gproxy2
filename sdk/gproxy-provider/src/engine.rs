@@ -1140,12 +1140,11 @@ fn build_operation_path(
             ProtocolKind::OpenAi => "/v1/images/generations".to_string(),
             _ => return unsupported_path(operation, protocol),
         },
-        OperationFamily::CreateImageEdit | OperationFamily::StreamCreateImageEdit => {
-            match protocol {
-                ProtocolKind::OpenAi => "/v1/images/edits".to_string(),
-                _ => return unsupported_path(operation, protocol),
-            }
-        }
+        OperationFamily::CreateImageEdit | OperationFamily::StreamCreateImageEdit => match protocol
+        {
+            ProtocolKind::OpenAi => "/v1/images/edits".to_string(),
+            _ => return unsupported_path(operation, protocol),
+        },
         OperationFamily::OpenAiResponseWebSocket => "/v1/responses".to_string(),
         OperationFamily::GeminiLive => {
             build_gemini_model_action_path(model, "streamGenerateContent", Some("alt=sse"))?
@@ -1176,7 +1175,9 @@ fn build_model_list_path(protocol: ProtocolKind, body: &[u8]) -> String {
         ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
             build_query_path("/v1beta/models", body, &["pageSize", "pageToken"])
         }
-        ProtocolKind::Claude => build_query_path("/v1/models", body, &["after_id", "before_id", "limit"]),
+        ProtocolKind::Claude => {
+            build_query_path("/v1/models", body, &["after_id", "before_id", "limit"])
+        }
         ProtocolKind::OpenAi => "/v1/models".to_string(),
         _ => "/v1/models".to_string(),
     }
@@ -1188,7 +1189,9 @@ fn build_model_get_path(
 ) -> Result<String, UpstreamError> {
     let model = require_model_segment(model)?;
     Ok(match protocol {
-        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => format!("/v1beta/{}", gemini_model_resource(model)),
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
+            format!("/v1beta/{}", gemini_model_resource(model))
+        }
         ProtocolKind::OpenAi | ProtocolKind::Claude => format!("/v1/models/{model}"),
         _ => {
             return Err(UpstreamError::Channel(format!(
@@ -1238,7 +1241,9 @@ fn build_query_path(base: &str, body: &[u8], allowed_keys: &[&str]) -> String {
 
     let mut params = Vec::new();
     for key in allowed_keys {
-        let Some(value) = query.get(*key) else { continue };
+        let Some(value) = query.get(*key) else {
+            continue;
+        };
         let encoded = match value {
             serde_json::Value::String(text) => {
                 url::form_urlencoded::byte_serialize(text.as_bytes()).collect::<String>()

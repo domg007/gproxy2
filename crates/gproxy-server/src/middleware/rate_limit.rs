@@ -104,12 +104,7 @@ impl RateLimitCounters {
         Ok(())
     }
 
-    pub fn add_tokens(
-        &self,
-        _user_id: i64,
-        _model: &str,
-        _total_tokens: i64,
-    ) {
+    pub fn add_tokens(&self, _user_id: i64, _model: &str, _total_tokens: i64) {
         // Reserved for future cumulative token windows. Per-request token caps are
         // enforced before dispatch using the declared token budget in the request.
     }

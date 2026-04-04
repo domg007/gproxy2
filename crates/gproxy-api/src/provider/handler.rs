@@ -1155,7 +1155,10 @@ fn normalize_unscoped_request_body(
             ("/generate_content_request/model", true),
             ("/generateContentRequest/model", true),
         ],
-        (OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
+        (
+            OperationFamily::GenerateContent | OperationFamily::StreamGenerateContent,
+            ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
+        )
         | (OperationFamily::Embedding, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
         | (OperationFamily::ModelGet, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson)
         | (OperationFamily::ModelList, ProtocolKind::Gemini | ProtocolKind::GeminiNDJson) => &[],
@@ -1195,8 +1198,8 @@ fn extract_requested_total_tokens(
     match (operation, protocol) {
         (
             OperationFamily::GenerateContent
-                | OperationFamily::StreamGenerateContent
-                | OperationFamily::Compact,
+            | OperationFamily::StreamGenerateContent
+            | OperationFamily::Compact,
             ProtocolKind::Claude,
         ) => json.get("max_tokens").and_then(|value| value.as_i64()),
         (
@@ -1208,8 +1211,8 @@ fn extract_requested_total_tokens(
             .or_else(|| json.get("max_tokens").and_then(|value| value.as_i64())),
         (
             OperationFamily::GenerateContent
-                | OperationFamily::StreamGenerateContent
-                | OperationFamily::Compact,
+            | OperationFamily::StreamGenerateContent
+            | OperationFamily::Compact,
             ProtocolKind::OpenAiResponse,
         )
         | (OperationFamily::CountToken, ProtocolKind::OpenAi) => json
@@ -1217,8 +1220,8 @@ fn extract_requested_total_tokens(
             .and_then(|value| value.as_i64()),
         (
             OperationFamily::GenerateContent
-                | OperationFamily::StreamGenerateContent
-                | OperationFamily::CountToken,
+            | OperationFamily::StreamGenerateContent
+            | OperationFamily::CountToken,
             ProtocolKind::Gemini | ProtocolKind::GeminiNDJson,
         ) => json
             .pointer("/generationConfig/maxOutputTokens")
@@ -1253,7 +1256,10 @@ fn build_model_request_body(
                 for (key, value) in url::form_urlencoded::parse(raw_query.as_bytes()) {
                     match key.as_ref() {
                         "after_id" | "before_id" | "pageToken" => {
-                            query.insert(key.into_owned(), serde_json::Value::String(value.into_owned()));
+                            query.insert(
+                                key.into_owned(),
+                                serde_json::Value::String(value.into_owned()),
+                            );
                         }
                         "limit" | "pageSize" => {
                             if let Ok(number) = value.parse::<u64>() {
@@ -1348,10 +1354,11 @@ fn normalize_routed_api_path(path: &str) -> String {
 
 fn extract_file_id_from_request_path(path: &str) -> Option<&str> {
     let tail = path.strip_prefix("/files/")?;
-    if let Some(file_id) = tail.strip_suffix("/content") {
-        if !file_id.is_empty() && !file_id.contains('/') {
-            return Some(file_id);
-        }
+    if let Some(file_id) = tail.strip_suffix("/content")
+        && !file_id.is_empty()
+        && !file_id.contains('/')
+    {
+        return Some(file_id);
     }
     if !tail.is_empty() && !tail.contains('/') {
         return Some(tail);
