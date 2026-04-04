@@ -567,11 +567,11 @@ impl Channel for CodexChannel {
                 "stream_generate_content",
                 "openai_response",
             ),
-            // Images
-            pass("create_image", "openai"),
-            pass("stream_create_image", "openai"),
-            pass("create_image_edit", "openai"),
-            pass("stream_create_image_edit", "openai"),
+            // Images — route through Responses API
+            xform("create_image", "openai", "stream_generate_content", "openai_response"),
+            xform("stream_create_image", "openai", "stream_generate_content", "openai_response"),
+            xform("create_image_edit", "openai", "stream_generate_content", "openai_response"),
+            xform("stream_create_image_edit", "openai", "stream_generate_content", "openai_response"),
             // Embeddings
             pass("embeddings", "openai"),
             xform("embeddings", "gemini", "embeddings", "openai"),

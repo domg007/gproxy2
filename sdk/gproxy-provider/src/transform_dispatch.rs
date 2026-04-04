@@ -381,6 +381,13 @@ pub fn transform_request(
             >(&body)
         }
 
+        ("create_image", "openai", "stream_generate_content", "openai_response") => {
+            transform_json::<
+                gproxy_protocol::openai::create_image::request::OpenAiCreateImageRequest,
+                gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
+            >(&body)
+        }
+
         // =====================================================================
         // create_image_edit
         // =====================================================================
@@ -389,6 +396,13 @@ pub fn transform_request(
             transform_json::<
                 gproxy_protocol::openai::create_image_edit::request::OpenAiCreateImageEditRequest,
                 gproxy_protocol::gemini::generate_content::request::GeminiGenerateContentRequest,
+            >(&body)
+        }
+
+        ("create_image_edit", "openai", "stream_generate_content", "openai_response") => {
+            transform_json::<
+                gproxy_protocol::openai::create_image_edit::request::OpenAiCreateImageEditRequest,
+                gproxy_protocol::openai::create_response::request::OpenAiCreateResponseRequest,
             >(&body)
         }
 
@@ -694,6 +708,13 @@ pub fn transform_response(
             >(&body)
         }
 
+        ("stream_generate_content", "openai_response", "create_image", "openai") => {
+            transform_json::<
+                gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse,
+                gproxy_protocol::openai::create_image::response::OpenAiCreateImageResponse,
+            >(&body)
+        }
+
         // =====================================================================
         // create_image_edit responses
         // =====================================================================
@@ -701,6 +722,13 @@ pub fn transform_response(
         ("generate_content", "gemini", "create_image_edit", "openai") => {
             transform_json::<
                 gproxy_protocol::gemini::generate_content::response::GeminiGenerateContentResponse,
+                gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse,
+            >(&body)
+        }
+
+        ("stream_generate_content", "openai_response", "create_image_edit", "openai") => {
+            transform_json::<
+                gproxy_protocol::openai::create_response::response::OpenAiCreateResponseResponse,
                 gproxy_protocol::openai::create_image_edit::response::OpenAiCreateImageEditResponse,
             >(&body)
         }
