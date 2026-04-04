@@ -18,16 +18,16 @@ pub struct GlobalConfig {
     #[serde(default = "default_true")]
     pub enable_usage: bool,
     /// Whether to record upstream request/response metadata.
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_upstream_log: bool,
     /// Whether upstream logs include request/response body.
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_upstream_log_body: bool,
     /// Whether to record downstream request/response metadata.
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_downstream_log: bool,
     /// Whether downstream logs include request/response body.
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_downstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
@@ -44,10 +44,10 @@ impl Default for GlobalConfig {
             spoof_emulation: default_spoof_emulation(),
             update_source: default_update_source(),
             enable_usage: true,
-            enable_upstream_log: true,
-            enable_upstream_log_body: true,
-            enable_downstream_log: true,
-            enable_downstream_log_body: true,
+            enable_upstream_log: false,
+            enable_upstream_log_body: false,
+            enable_downstream_log: false,
+            enable_downstream_log_body: false,
             dsn: String::new(),
             data_dir: default_data_dir(),
         }
@@ -68,6 +68,9 @@ fn default_update_source() -> String {
 }
 fn default_true() -> bool {
     true
+}
+fn default_false() -> bool {
+    false
 }
 fn default_data_dir() -> String {
     "./data".to_string()

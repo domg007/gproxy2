@@ -51,13 +51,13 @@ pub struct GlobalSettingsToml {
     pub update_source: String,
     #[serde(default = "default_true")]
     pub enable_usage: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_upstream_log: bool,
-    #[serde(default)]
+    #[serde(default = "default_false")]
     pub enable_upstream_log_body: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub enable_downstream_log: bool,
-    #[serde(default)]
+    #[serde(default = "default_false")]
     pub enable_downstream_log_body: bool,
     pub dsn: String,
     #[serde(default = "default_data_dir")]
@@ -72,6 +72,9 @@ fn default_update_source() -> String {
 }
 fn default_true() -> bool {
     true
+}
+fn default_false() -> bool {
+    false
 }
 fn default_data_dir() -> String {
     "./data".to_string()
