@@ -79,19 +79,19 @@ fn classify_route(
         if path == "/files" {
             return Ok(Classification {
                 operation: OperationFamily::FileList,
-                protocol: ProtocolKind::OpenAi,
+                protocol: classify_models_protocol(headers, query),
             });
         }
         if is_file_content_path(path) {
             return Ok(Classification {
                 operation: OperationFamily::FileContent,
-                protocol: ProtocolKind::OpenAi,
+                protocol: classify_models_protocol(headers, query),
             });
         }
         if is_file_get_path(path) {
             return Ok(Classification {
                 operation: OperationFamily::FileGet,
-                protocol: ProtocolKind::OpenAi,
+                protocol: classify_models_protocol(headers, query),
             });
         }
         return Err("unsupported GET path");
@@ -101,7 +101,7 @@ fn classify_route(
         if let Some(_file_id) = extract_file_id_from_normalized(path) {
             return Ok(Classification {
                 operation: OperationFamily::FileDelete,
-                protocol: ProtocolKind::OpenAi,
+                protocol: classify_models_protocol(headers, query),
             });
         }
         return Err("unsupported DELETE path");
@@ -114,7 +114,7 @@ fn classify_route(
     if path == "/files" {
         return Ok(Classification {
             operation: OperationFamily::FileUpload,
-            protocol: ProtocolKind::OpenAi,
+            protocol: classify_models_protocol(headers, query),
         });
     }
 
