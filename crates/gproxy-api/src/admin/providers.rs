@@ -51,9 +51,8 @@ pub async fn query_providers(
     Json(query): Json<ProviderQueryParams>,
 ) -> Result<Json<Vec<ProviderRow>>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let snapshots = state
-        .engine()
-        .store()
+    let store = state.engine().store().clone();
+    let snapshots = store
         .list_providers()
         .map_err(|e| HttpError::internal(e.to_string()))?;
     let rows: Vec<ProviderRow> = snapshots
@@ -66,12 +65,18 @@ pub async fn query_providers(
             Scope::Eq(v) => s.channel == *v,
             _ => true,
         })
-        .map(|s| ProviderRow {
-            name: s.name,
-            channel: s.channel,
-            settings_json: s.settings,
-            dispatch_json: serde_json::Value::Null,
-            credential_count: s.credential_count,
+        .map(|s| {
+            let dispatch_json = store
+                .get_dispatch_table(&s.name)
+                .and_then(|dt| serde_json::to_value(&dt).ok())
+                .unwrap_or(serde_json::Value::Null);
+            ProviderRow {
+                name: s.name,
+                channel: s.channel,
+                settings_json: s.settings,
+                dispatch_json,
+                credential_count: s.credential_count,
+            }
         })
         .collect();
     Ok(Json(rows))

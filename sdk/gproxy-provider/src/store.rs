@@ -938,6 +938,13 @@ impl ProviderStore {
         }))
     }
 
+    /// Get the dispatch table for a named provider.
+    pub fn get_dispatch_table(&self, name: &str) -> Option<DispatchTable> {
+        let providers = self.providers.load();
+        let provider = providers.get(name)?;
+        Some(provider.dispatch_table().clone())
+    }
+
     pub(crate) fn get_runtime(&self, name: &str) -> Option<Arc<dyn ProviderRuntime>> {
         self.providers.load().get(name).cloned()
     }

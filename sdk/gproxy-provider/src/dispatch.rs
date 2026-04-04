@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 
+use serde::Serialize;
+
 /// Maps (operation, protocol) pairs to routing strategies.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct DispatchTable {
     routes: HashMap<RouteKey, RouteImplementation>,
 }
 
 /// A (operation, protocol) pair identifying a route.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct RouteKey {
     pub operation: String,
     pub protocol: String,
 }
 
 /// How to handle a particular (operation, protocol) pair.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum RouteImplementation {
     /// Forward request as-is to upstream (same protocol).
     Passthrough,
