@@ -240,6 +240,16 @@ pub async fn proxy_unscoped(
         ));
     };
 
+    // Check permission (whitelist) — provider_id 0 means check all-provider rules
+    if !state.check_model_permission(user_key.user_id, 0, &target_model) {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
+
+    // Check rate limit
+    if let Err(rejection) = state.check_rate_limit(user_key.user_id, &target_model) {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
+
     let operation = operation_to_string(classification.operation);
     let protocol = protocol_to_string(classification.protocol);
 
@@ -255,6 +265,9 @@ pub async fn proxy_unscoped(
         })
         .await?;
 
+    // Record request for rate limiting
+    state.record_request(user_key.user_id, &target_model);
+
     let usage_ctx = UsageRecordContext {
         state: state.clone(),
         user_id: user_key.user_id,
@@ -264,6 +277,11 @@ pub async fn proxy_unscoped(
         protocol: protocol.clone(),
         downstream_trace_id: Some(trace_id),
     };
+
+    // Record usage via storage write channel
+    if let Some(ref usage) = result.usage {
+        record_usage(&usage_ctx, usage).await;
+    }
 
     // Record upstream log
     record_upstream_log(&state, trace_id, result.meta.as_ref()).await;
@@ -392,6 +410,20 @@ pub async fn proxy_unscoped_files(
             model: None,
         })
         .await?;
+
+    // Record usage via storage write channel
+    if let Some(ref usage) = result.usage {
+        let usage_ctx = UsageRecordContext {
+            state: state.clone(),
+            user_id: user_key.user_id,
+            user_key_id: user_key.id,
+            model: None,
+            operation: operation.clone(),
+            protocol: protocol.clone(),
+            downstream_trace_id: Some(trace_id),
+        };
+        record_usage(&usage_ctx, usage).await;
+    }
 
     // Record upstream log
     record_upstream_log(&state, trace_id, result.meta.as_ref()).await;

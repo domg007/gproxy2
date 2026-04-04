@@ -45,8 +45,9 @@ pub async fn oauth_callback(
     State(state): State<Arc<AppState>>,
     Path(provider_name): Path<String>,
     RawQuery(query): RawQuery,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Response, HttpError> {
+    let _user_key = authenticate_user(&headers, &state)?;
     let params = parse_query_string(query.as_deref());
 
     let result = state.engine().oauth_finish(&provider_name, params).await?;
