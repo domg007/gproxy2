@@ -22,6 +22,7 @@ antigravity = ["gproxy-provider/antigravity"]
 nvidia = ["gproxy-provider/nvidia"]
 deepseek = ["gproxy-provider/deepseek"]
 groq = ["gproxy-provider/groq"]
+openrouter = ["gproxy-provider/openrouter"]
 custom = ["gproxy-provider/custom"]
 
 [dependencies]
