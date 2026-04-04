@@ -6,6 +6,8 @@ use axum::http::HeaderMap;
 use axum::response::Response;
 use futures_util::StreamExt;
 
+use gproxy_sdk::protocol::openai::create_response::request::OpenAiCreateResponseRequest;
+use gproxy_sdk::protocol::openai::create_response::websocket::types::OpenAiCreateResponseWebSocketClientMessage;
 use gproxy_sdk::provider::engine::{
     ExecuteBody, ExecuteRequest, UpstreamWebSocket, WsConnectionResult, WsMessage, WsUpstreamMeta,
 };
@@ -20,6 +22,136 @@ pub struct WsQueryParams {
     pub model: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct OpenAiWsModelSession {
+    current_model: Option<String>,
+}
+
+impl OpenAiWsModelSession {
+    fn new(initial_model: Option<String>) -> Self {
+        Self {
+            current_model: initial_model,
+        }
+    }
+
+    fn active_model(&self) -> Option<String> {
+        self.current_model.clone()
+    }
+}
+
+struct AuthorizedOpenAiWsFrame {
+    outbound_text: String,
+    http_request_body: Vec<u8>,
+    effective_model: String,
+}
+
+fn canonicalize_openai_ws_model(
+    state: &AppState,
+    provider_name: &str,
+    model: &str,
+) -> Result<String, HttpError> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err(HttpError::bad_request("model must not be empty"));
+    }
+
+    if let Some(alias) = state.resolve_model_alias(model) {
+        if alias.provider_name != provider_name {
+            return Err(HttpError::bad_request(
+                "websocket model alias resolves to a different provider",
+            ));
+        }
+        return Ok(alias.model_id);
+    }
+
+    if let Some((prefixed_provider, model_id)) = model.split_once('/') {
+        if prefixed_provider != provider_name {
+            return Err(HttpError::bad_request(
+                "websocket model provider prefix does not match route provider",
+            ));
+        }
+        let model_id = model_id.trim();
+        if model_id.is_empty() {
+            return Err(HttpError::bad_request("model must not be empty"));
+        }
+        return Ok(model_id.to_string());
+    }
+
+    Ok(model.to_string())
+}
+
+fn authorize_openai_ws_client_frame(
+    state: &AppState,
+    user_id: i64,
+    provider_name: &str,
+    session: &mut OpenAiWsModelSession,
+    raw_text: &str,
+) -> Result<AuthorizedOpenAiWsFrame, HttpError> {
+    let mut ws_message: OpenAiCreateResponseWebSocketClientMessage = serde_json::from_str(raw_text)
+        .map_err(|e| HttpError::bad_request(format!("invalid OpenAI websocket frame: {e}")))?;
+
+    let (effective_model, consume_request_budget) = match &mut ws_message {
+        OpenAiCreateResponseWebSocketClientMessage::ResponseCreate(payload) => {
+            let effective_model = match payload.request.model.as_deref() {
+                Some(model) => canonicalize_openai_ws_model(state, provider_name, model)?,
+                None => session.active_model().ok_or_else(|| {
+                    HttpError::bad_request(
+                        "missing model: provide ?model=... or include model in response.create",
+                    )
+                })?,
+            };
+
+            payload.request.model = Some(effective_model.clone());
+            (effective_model, true)
+        }
+        OpenAiCreateResponseWebSocketClientMessage::ResponseAppend(_) => (
+            session.active_model().ok_or_else(|| {
+                HttpError::bad_request(
+                    "missing active model: send response.create with a model first or connect with ?model=...",
+                )
+            })?,
+            false,
+        ),
+    };
+
+    if !state.check_model_permission(user_id, provider_name, &effective_model) {
+        return Err(HttpError::forbidden("model not authorized for this user"));
+    }
+
+    let mut http_request = OpenAiCreateResponseRequest::try_from(&ws_message)
+        .map_err(|e| HttpError::bad_request(format!("invalid OpenAI websocket frame: {e}")))?;
+    http_request.body.model = Some(effective_model.clone());
+    http_request.body.stream = Some(true);
+
+    let http_request_body = serde_json::to_vec(&http_request.body)
+        .map_err(|_| HttpError::bad_request("failed to encode OpenAI websocket request"))?;
+
+    if consume_request_budget
+        && let Err(rejection) = state.check_rate_limit_request(
+            user_id,
+            &effective_model,
+            super::handler::extract_requested_total_tokens(
+                OperationFamily::StreamGenerateContent,
+                ProtocolKind::OpenAiResponse,
+                &http_request_body,
+            ),
+        )
+    {
+        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
+    }
+
+    session.current_model = Some(effective_model.clone());
+
+    let outbound_text = serde_json::to_string(&ws_message)
+        .map_err(|_| HttpError::bad_request("failed to encode OpenAI websocket frame"))?;
+
+    Ok(AuthorizedOpenAiWsFrame {
+        outbound_text,
+        http_request_body,
+        effective_model,
+    })
+}
+
 /// OpenAI Responses WebSocket: `GET /{provider}/v1/responses`
 pub async fn openai_responses_ws(
     State(state): State<Arc<AppState>>,
@@ -30,20 +162,17 @@ pub async fn openai_responses_ws(
     ws: WebSocketUpgrade,
 ) -> Result<Response, HttpError> {
     let user_key = authenticated.0;
-    let model = params.model.clone();
+    let model = params
+        .model
+        .as_deref()
+        .map(|model| canonicalize_openai_ws_model(&state, &provider_name, model))
+        .transpose()?;
 
     // Permission check
     if let Some(ref m) = model
         && !state.check_model_permission(user_key.user_id, &provider_name, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
-    }
-
-    // Rate limit check
-    if let Some(ref m) = model
-        && let Err(rejection) = state.check_rate_limit_request(user_key.user_id, m, None)
-    {
-        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
 
     let user_id = user_key.user_id;
@@ -149,13 +278,6 @@ pub async fn openai_responses_ws_unscoped(
         && !state.check_model_permission(user_key.user_id, &target_provider, m)
     {
         return Err(HttpError::forbidden("model not authorized for this user"));
-    }
-
-    // Rate limit check
-    if let Some(ref m) = target_model
-        && let Err(rejection) = state.check_rate_limit_request(user_key.user_id, m, None)
-    {
-        return Err(HttpError::too_many_requests(format!("{rejection:?}")));
     }
 
     let user_id = user_key.user_id;
@@ -358,6 +480,9 @@ async fn run_ws_bridge_with_protocol(
     bridge: &mut dyn super::ws_bridge::WsProtocolBridge,
     ctx: &WsBridgeContext,
 ) {
+    let mut openai_session = matches!(ctx.operation, OperationFamily::OpenAiResponseWebSocket)
+        .then(|| OpenAiWsModelSession::new(ctx.model.clone()));
+
     // Collect WS messages for logging (only if downstream log + body enabled)
     let collect_body = {
         let cfg = ctx.state.config();
@@ -371,8 +496,25 @@ async fn run_ws_bridge_with_protocol(
             ds_msg = downstream.recv() => {
                 match ds_msg {
                     Some(Ok(Message::Text(t))) => {
-                        if collect_body { ds_messages.push(t.to_string()); }
-                        match bridge.convert_client_message(&t) {
+                        let mut outbound_text = t.to_string();
+                        if let Some(session) = openai_session.as_mut() {
+                            match authorize_openai_ws_client_frame(
+                                &ctx.state,
+                                ctx.user_id,
+                                &ctx.provider_name,
+                                session,
+                                &outbound_text,
+                            ) {
+                                Ok(frame) => outbound_text = frame.outbound_text,
+                                Err(err) => {
+                                    send_ws_error(downstream, &err.message).await;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if collect_body { ds_messages.push(outbound_text.clone()); }
+                        match bridge.convert_client_message(&outbound_text) {
                             Ok(msgs) => {
                                 for msg in msgs {
                                     if upstream.send(WsMessage::text(msg)).await.is_err() {
@@ -430,6 +572,10 @@ async fn run_ws_bridge_with_protocol(
 
     // Record accumulated usage from the WS session
     if let Some(usage) = bridge.final_usage() {
+        let model = openai_session
+            .as_ref()
+            .and_then(|session| session.active_model())
+            .or_else(|| ctx.model.clone());
         let usage_ctx = super::handler::UsageRecordContext {
             state: ctx.state.clone(),
             user_id: ctx.user_id,
@@ -437,7 +583,7 @@ async fn run_ws_bridge_with_protocol(
             provider_name: ctx.provider_name.clone(),
             credential_index: ctx.credential_index,
             precomputed_cost: None,
-            model: ctx.model.clone(),
+            model,
             billing_context: None,
             operation: ctx.operation,
             protocol: ctx.protocol,
@@ -494,6 +640,8 @@ async fn run_http_sse_fallback(
     headers: HeaderMap,
     downstream: &mut WebSocket,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut model_session = OpenAiWsModelSession::new(ctx.model.clone());
+
     // Active stream from a previous request (if any)
     let mut active_stream: Option<(
         gproxy_sdk::provider::engine::ExecuteBodyStream,
@@ -518,10 +666,9 @@ async fn run_http_sse_fallback(
                     };
                     // Drop current stream, start new request
                     drop(active_stream.take());
-                    active_stream = start_http_request(
-                        ctx,
-                        &headers, &text, downstream,
-                    ).await?;
+                    active_stream =
+                        start_http_request(ctx, &headers, &text, downstream, &mut model_session)
+                            .await?;
                 }
                 // Upstream chunk — forward to downstream
                 chunk = stream.next() => {
@@ -573,7 +720,8 @@ async fn run_http_sse_fallback(
                 }
                 _ => continue,
             };
-            active_stream = start_http_request(ctx, &headers, &text, downstream).await?;
+            active_stream =
+                start_http_request(ctx, &headers, &text, downstream, &mut model_session).await?;
         }
     }
     Ok(())
@@ -586,6 +734,7 @@ async fn start_http_request(
     headers: &HeaderMap,
     text: &str,
     downstream: &mut WebSocket,
+    model_session: &mut OpenAiWsModelSession,
 ) -> Result<
     Option<(
         gproxy_sdk::provider::engine::ExecuteBodyStream,
@@ -593,24 +742,24 @@ async fn start_http_request(
     )>,
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    let client_msg: serde_json::Value = match serde_json::from_str(text) {
-        Ok(v) => v,
-        Err(e) => {
-            send_ws_error(downstream, &format!("invalid JSON: {e}")).await;
+    let frame = match authorize_openai_ws_client_frame(
+        &ctx.state,
+        ctx.user_id,
+        &ctx.provider_name,
+        model_session,
+        text,
+    ) {
+        Ok(frame) => frame,
+        Err(err) => {
+            send_ws_error(downstream, &err.message).await;
             return Ok(None);
         }
     };
-
-    let mut body = client_msg
-        .get("response")
-        .cloned()
-        .unwrap_or(client_msg.clone());
-    if let Some(ref m) = ctx.model {
-        body.as_object_mut()
-            .map(|o| o.insert("model".to_string(), serde_json::json!(m)));
-    }
-    body.as_object_mut()
-        .map(|o| o.insert("stream".to_string(), serde_json::json!(true)));
+    let AuthorizedOpenAiWsFrame {
+        http_request_body,
+        effective_model,
+        ..
+    } = frame;
 
     let operation = OperationFamily::StreamGenerateContent;
     let protocol = ProtocolKind::OpenAiResponse;
@@ -622,9 +771,9 @@ async fn start_http_request(
             provider: ctx.provider_name.clone(),
             operation,
             protocol,
-            body: serde_json::to_vec(&body).unwrap_or_default(),
+            body: http_request_body,
             headers: headers.clone(),
-            model: ctx.model.clone(),
+            model: Some(effective_model.clone()),
         })
         .await;
 
@@ -638,7 +787,7 @@ async fn start_http_request(
                     provider_name: ctx.provider_name.clone(),
                     credential_index: Some(result.credential_index),
                     precomputed_cost: result.cost,
-                    model: ctx.model.clone(),
+                    model: Some(effective_model.clone()),
                     billing_context: result.billing_context.clone(),
                     operation,
                     protocol,

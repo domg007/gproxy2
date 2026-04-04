@@ -1189,7 +1189,7 @@ fn normalize_unscoped_request_body(
     serde_json::to_vec(&value).unwrap_or(body)
 }
 
-fn extract_requested_total_tokens(
+pub(crate) fn extract_requested_total_tokens(
     operation: OperationFamily,
     protocol: ProtocolKind,
     body: &[u8],
