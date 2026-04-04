@@ -5,6 +5,8 @@ use axum::routing::post;
 
 use gproxy_server::AppState;
 
+use crate::cors::CorsLayer;
+
 /// Build the complete API router.
 pub fn api_router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -12,5 +14,6 @@ pub fn api_router(state: Arc<AppState>) -> Router {
         .nest("/admin", crate::admin::router())
         .nest("/user", crate::user::router())
         .merge(crate::provider::router())
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }
