@@ -211,28 +211,28 @@ pub async fn perform_update(
         .map_err(|e| HttpError::internal(format!("download failed: {e}")))?;
 
     // Verify SHA256
-    let expected_sha = download_text(&sha_url).await.ok();
-    if let Some(ref sha) = expected_sha {
-        let actual_sha = hex_sha256(&zip_bytes);
-        let expected = sha.split_whitespace().next().unwrap_or("").trim();
-        if actual_sha != expected {
-            return Err(HttpError::internal(format!(
-                "SHA256 mismatch: expected {expected}, got {actual_sha}"
-            )));
-        }
-        tracing::info!("SHA256 verified");
+    let sha_content = download_text(&sha_url)
+        .await
+        .map_err(|e| HttpError::internal(format!("SHA256 checksum download failed: {e}")))?;
+    let actual_sha = hex_sha256(&zip_bytes);
+    let expected = sha_content.split_whitespace().next().unwrap_or("").trim();
+    if actual_sha != expected {
+        return Err(HttpError::internal(format!(
+            "SHA256 mismatch: expected {expected}, got {actual_sha}"
+        )));
     }
+    tracing::info!("SHA256 verified");
 
     // Verify Ed25519 signature
-    if let Some(pub_key_b64) = UPDATE_SIGNING_PUBLIC_KEY_B64
-        && let Some(ref sha_content) = expected_sha
-    {
+    if let Some(pub_key_b64) = UPDATE_SIGNING_PUBLIC_KEY_B64 {
         let sig_bytes = download_bytes(&sig_url)
             .await
             .map_err(|e| HttpError::internal(format!("signature download failed: {e}")))?;
         verify_ed25519(pub_key_b64, sha_content.as_bytes(), &sig_bytes)
             .map_err(|e| HttpError::internal(format!("signature verification failed: {e}")))?;
         tracing::info!("Ed25519 signature verified");
+    } else {
+        tracing::warn!("no signing public key compiled in, skipping signature verification");
     }
 
     // Extract binary from zip
