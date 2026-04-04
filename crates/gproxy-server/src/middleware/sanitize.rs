@@ -2,16 +2,59 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
 
-/// Auth headers to remove.
-const AUTH_HEADERS: &[&str] = &["authorization", "x-api-key", "x-goog-api-key"];
+/// Headers to strip before forwarding to upstream providers.
+const HEADER_DENYLIST: &[&str] = &[
+    // Auth credentials — must never leak to upstream
+    "authorization",
+    "x-api-key",
+    "x-goog-api-key",
+    // Hop-by-hop / proxy metadata
+    "host",
+    "via",
+    "content-length",
+    // Browser context — irrelevant and may fingerprint the client
+    "cookie",
+    "origin",
+    "referer",
+    "dnt",
+    "priority",
+    // Proxy forwarding headers
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    // Client identity — upstream provider should see its own defaults
+    "user-agent",
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "content-type",
+];
 
-/// Sensitive query parameters to remove.
+/// Sensitive query parameters to strip.
 const AUTH_QUERY_KEYS: &[&str] = &["key"];
 
-/// Axum middleware: strip auth headers and sensitive query params.
+fn is_browser_context_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("sec-fetch-") || lower.starts_with("sec-ch-ua")
+}
+
+/// Axum middleware: strip auth headers, browser context headers, and
+/// sensitive query params before forwarding to the upstream provider.
 pub async fn sanitize_middleware(mut request: Request, next: Next) -> Response {
-    for name in AUTH_HEADERS {
-        request.headers_mut().remove(*name);
+    let to_remove: Vec<_> = request
+        .headers()
+        .keys()
+        .filter(|name| {
+            let s = name.as_str();
+            HEADER_DENYLIST
+                .iter()
+                .any(|denied| s.eq_ignore_ascii_case(denied))
+                || is_browser_context_header(s)
+        })
+        .cloned()
+        .collect();
+    for name in to_remove {
+        request.headers_mut().remove(&name);
     }
     strip_auth_query_params(&mut request);
     next.run(request).await
