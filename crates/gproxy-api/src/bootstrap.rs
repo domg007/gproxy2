@@ -864,6 +864,34 @@ pub async fn seed_from_toml(
     Ok(())
 }
 
+/// Seed the database with minimal defaults (global_settings only).
+pub async fn seed_defaults(
+    state: &AppState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let cfg = state.config().clone();
+    state
+        .storage()
+        .apply_write_event(StorageWriteEvent::UpsertGlobalSettings(
+            gproxy_storage::GlobalSettingsWrite {
+                host: cfg.host.clone(),
+                port: cfg.port,
+                admin_key: cfg.admin_key.clone(),
+                proxy: cfg.proxy.clone(),
+                spoof_emulation: cfg.spoof_emulation.clone(),
+                update_source: cfg.update_source.clone(),
+                enable_usage: cfg.enable_usage,
+                enable_upstream_log: cfg.enable_upstream_log,
+                enable_upstream_log_body: cfg.enable_upstream_log_body,
+                enable_downstream_log: cfg.enable_downstream_log,
+                enable_downstream_log_body: cfg.enable_downstream_log_body,
+                dsn: cfg.dsn.clone(),
+                data_dir: cfg.data_dir.clone(),
+            },
+        ))
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -944,32 +972,4 @@ mod tests {
         );
         assert!(!state.credential_positions.contains_key(&1001));
     }
-}
-
-/// Seed the database with minimal defaults (global_settings only).
-pub async fn seed_defaults(
-    state: &AppState,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let cfg = state.config().clone();
-    state
-        .storage()
-        .apply_write_event(StorageWriteEvent::UpsertGlobalSettings(
-            gproxy_storage::GlobalSettingsWrite {
-                host: cfg.host.clone(),
-                port: cfg.port,
-                admin_key: cfg.admin_key.clone(),
-                proxy: cfg.proxy.clone(),
-                spoof_emulation: cfg.spoof_emulation.clone(),
-                update_source: cfg.update_source.clone(),
-                enable_usage: cfg.enable_usage,
-                enable_upstream_log: cfg.enable_upstream_log,
-                enable_upstream_log_body: cfg.enable_upstream_log_body,
-                enable_downstream_log: cfg.enable_downstream_log,
-                enable_downstream_log_body: cfg.enable_downstream_log_body,
-                dsn: cfg.dsn.clone(),
-                data_dir: cfg.data_dir.clone(),
-            },
-        ))
-        .await?;
-    Ok(())
 }

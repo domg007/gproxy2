@@ -295,7 +295,7 @@ pub async fn batch_upsert_providers(
     let existing = load_providers_by_id(&state).await?;
     for item in &items {
         ensure_provider_channel_immutable(existing.get(&item.id), item)?;
-        validate_provider_payload(&item)?;
+        validate_provider_payload(item)?;
     }
     for item in items {
         let previous_name = existing.get(&item.id).map(|row| row.name.as_str());

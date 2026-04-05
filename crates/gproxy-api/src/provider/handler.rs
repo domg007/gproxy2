@@ -936,10 +936,10 @@ async fn build_openai_unscoped_model_list_body(
     if success_count == 0 && !models.is_empty() {
         success_count = 1;
     }
-    if success_count == 0 {
-        if let Some(err) = last_error {
-            return Err(err);
-        }
+    if success_count == 0
+        && let Some(err) = last_error
+    {
+        return Err(err);
     }
 
     let mut data: Vec<_> = models.into_values().collect();
@@ -1015,10 +1015,10 @@ async fn build_claude_unscoped_model_list_body(
     if success_count == 0 && !models.is_empty() {
         success_count = 1;
     }
-    if success_count == 0 {
-        if let Some(err) = last_error {
-            return Err(err);
-        }
+    if success_count == 0
+        && let Some(err) = last_error
+    {
+        return Err(err);
     }
 
     let mut data: Vec<_> = models.into_values().collect();
@@ -1115,10 +1115,10 @@ async fn build_gemini_unscoped_model_list_body(
     if success_count == 0 && !models.is_empty() {
         success_count = 1;
     }
-    if success_count == 0 {
-        if let Some(err) = last_error {
-            return Err(err);
-        }
+    if success_count == 0
+        && let Some(err) = last_error
+    {
+        return Err(err);
     }
 
     let mut data: Vec<_> = models.into_values().collect();
