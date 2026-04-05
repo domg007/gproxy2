@@ -42,6 +42,60 @@ fn synthetic_credential_id(provider_id: i64, index: usize) -> i64 {
     provider_id * 1000 + index as i64
 }
 
+fn collect_valid_toml_provider_credentials(
+    provider_name: &str,
+    channel: &str,
+    provider_id: i64,
+    credentials: &[serde_json::Value],
+) -> Vec<(i64, serde_json::Value)> {
+    credentials
+        .iter()
+        .enumerate()
+        .filter_map(|(credential_index, credential)| {
+            let credential_id = synthetic_credential_id(provider_id, credential_index);
+            match gproxy_sdk::provider::engine::validate_credential_json(channel, credential) {
+                Ok(()) => Some((credential_id, credential.clone())),
+                Err(err) => {
+                    tracing::warn!(
+                        provider = provider_name,
+                        credential_id,
+                        error = %err,
+                        "skipping invalid provider credential during seed"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn collect_valid_db_provider_credentials(
+    provider_name: &str,
+    channel: &str,
+    credentials: &[gproxy_storage::CredentialQueryRow],
+) -> Vec<(i64, serde_json::Value)> {
+    credentials
+        .iter()
+        .filter_map(|credential| {
+            match gproxy_sdk::provider::engine::validate_credential_json(
+                channel,
+                &credential.secret_json,
+            ) {
+                Ok(()) => Some((credential.id, credential.secret_json.clone())),
+                Err(err) => {
+                    tracing::warn!(
+                        provider = provider_name,
+                        credential_id = credential.id,
+                        error = %err,
+                        "skipping invalid provider credential during runtime load"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 fn build_seed_provider_runtime_state(providers: &[ProviderToml]) -> SeedProviderRuntimeState {
     let mut provider_configs = Vec::new();
     let mut provider_name_to_id = HashMap::new();
@@ -52,19 +106,26 @@ fn build_seed_provider_runtime_state(providers: &[ProviderToml]) -> SeedProvider
     for (provider_index, provider) in providers.iter().enumerate() {
         let provider_id = synthetic_provider_id(provider_index);
         provider_name_to_id.insert(provider.name.clone(), provider_id);
+        let valid_credentials = collect_valid_toml_provider_credentials(
+            &provider.name,
+            &provider.channel,
+            provider_id,
+            &provider.credentials,
+        );
         provider_configs.push(ProviderConfig {
             name: provider.name.clone(),
             channel: provider.channel.clone(),
             settings_json: provider.settings.clone(),
-            credentials: provider.credentials.clone(),
+            credentials: valid_credentials
+                .iter()
+                .map(|(_, credential)| credential.clone())
+                .collect(),
         });
         provider_channel_map.insert(provider.name.clone(), provider.channel.clone());
 
-        let credential_ids: Vec<i64> = provider
-            .credentials
+        let credential_ids: Vec<i64> = valid_credentials
             .iter()
-            .enumerate()
-            .map(|(credential_index, _)| synthetic_credential_id(provider_id, credential_index))
+            .map(|(credential_id, _)| *credential_id)
             .collect();
         for (credential_index, credential_id) in credential_ids.iter().copied().enumerate() {
             credential_positions.insert(credential_id, (provider.name.clone(), credential_index));
@@ -153,12 +214,31 @@ pub async fn reload_from_db(
         config.proxy.as_deref(),
         Some(config.spoof_emulation.as_str()),
     );
+    let valid_credentials_by_provider: HashMap<i64, Vec<(i64, serde_json::Value)>> = providers
+        .iter()
+        .map(|provider| {
+            let credentials: Vec<_> = all_credentials
+                .iter()
+                .filter(|credential| credential.provider_id == provider.id && credential.enabled)
+                .cloned()
+                .collect();
+            (
+                provider.id,
+                collect_valid_db_provider_credentials(
+                    &provider.name,
+                    &provider.channel,
+                    &credentials,
+                ),
+            )
+        })
+        .collect();
     let mut provider_count = 0;
     for provider in &providers {
-        let creds: Vec<serde_json::Value> = all_credentials
-            .iter()
-            .filter(|c| c.provider_id == provider.id && c.enabled)
-            .map(|c| c.secret_json.clone())
+        let creds: Vec<serde_json::Value> = valid_credentials_by_provider
+            .get(&provider.id)
+            .into_iter()
+            .flatten()
+            .map(|(_, credential)| credential.clone())
             .collect();
         builder = builder.add_provider_json(ProviderConfig {
             name: provider.name.clone(),
@@ -173,21 +253,28 @@ pub async fn reload_from_db(
     let credential_positions: HashMap<i64, (String, usize)> = providers
         .iter()
         .flat_map(|provider| {
-            all_credentials
-                .iter()
-                .filter(move |c| c.provider_id == provider.id && c.enabled)
-                .enumerate()
-                .map(move |(index, cred)| (cred.id, (provider.name.clone(), index)))
+            valid_credentials_by_provider
+                .get(&provider.id)
+                .into_iter()
+                .flat_map(move |credentials| {
+                    credentials
+                        .iter()
+                        .enumerate()
+                        .map(move |(index, (credential_id, _))| {
+                            (*credential_id, (provider.name.clone(), index))
+                        })
+                })
         })
         .collect();
     apply_persisted_credential_statuses(state, &credential_positions).await?;
     let provider_credentials: HashMap<String, Vec<i64>> = providers
         .iter()
         .map(|provider| {
-            let ids = all_credentials
-                .iter()
-                .filter(|c| c.provider_id == provider.id && c.enabled)
-                .map(|c| c.id)
+            let ids = valid_credentials_by_provider
+                .get(&provider.id)
+                .into_iter()
+                .flatten()
+                .map(|(credential_id, _)| *credential_id)
                 .collect();
             (provider.name.clone(), ids)
         })
@@ -487,17 +574,22 @@ pub async fn seed_from_toml(
             ))
             .await?;
         // Persist credentials
-        for (j, cred) in p.credentials.iter().enumerate() {
+        for (credential_id, credential) in collect_valid_toml_provider_credentials(
+            &p.name,
+            &p.channel,
+            provider_id,
+            &p.credentials,
+        ) {
             state
                 .storage()
                 .apply_write_event(StorageWriteEvent::UpsertCredential(
                     gproxy_storage::CredentialWrite {
-                        id: synthetic_credential_id(provider_id, j),
+                        id: credential_id,
                         provider_id,
                         name: None,
                         kind: p.channel.clone(),
                         enabled: true,
-                        secret_json: serde_json::to_string(cred).unwrap_or_default(),
+                        secret_json: serde_json::to_string(&credential).unwrap_or_default(),
                     },
                 ))
                 .await?;
@@ -728,7 +820,10 @@ mod tests {
                 name: "second".to_string(),
                 channel: "claudecode".to_string(),
                 settings: json!({"region": "eu"}),
-                credentials: vec![json!({"api_key": "key-2"}), json!({"api_key": "key-3"})],
+                credentials: vec![
+                    json!({"access_token": "key-2"}),
+                    json!({"access_token": "key-3"}),
+                ],
             },
         ]);
 
@@ -765,6 +860,25 @@ mod tests {
             state.credential_positions.get(&2001),
             Some(&("second".to_string(), 1))
         );
+    }
+
+    #[test]
+    fn seed_provider_runtime_skips_invalid_credentials_in_mapping() {
+        let state = build_seed_provider_runtime_state(&[ProviderToml {
+            name: "openai".to_string(),
+            channel: "openai".to_string(),
+            settings: json!({}),
+            credentials: vec![json!({"api_key": "sk-good"}), json!({"token": "bad"})],
+        }]);
+
+        assert_eq!(state.provider_configs.len(), 1);
+        assert_eq!(state.provider_configs[0].credentials.len(), 1);
+        assert_eq!(state.provider_credentials.get("openai"), Some(&vec![1000]));
+        assert_eq!(
+            state.credential_positions.get(&1000),
+            Some(&("openai".to_string(), 0))
+        );
+        assert!(!state.credential_positions.contains_key(&1001));
     }
 }
 

@@ -1,5 +1,7 @@
 use crate::auth::authorize_admin;
-use crate::bootstrap::apply_persisted_credential_statuses;
+use crate::bootstrap::{
+    apply_persisted_credential_statuses, collect_valid_db_provider_credentials,
+};
 use crate::error::{AckResponse, HttpError};
 use axum::Json;
 use axum::extract::State;
@@ -95,6 +97,8 @@ async fn sync_provider_runtime(
         })
         .await
         .map_err(|e| HttpError::internal(e.to_string()))?;
+    let valid_db_credentials =
+        collect_valid_db_provider_credentials(&payload.name, &payload.channel, &credentials);
     let runtime_credentials = previous_runtime_name
         .as_deref()
         .or(Some(payload.name.as_str()))
@@ -109,9 +113,17 @@ async fn sync_provider_runtime(
     let credential_ids = if runtime_credentials.is_some() {
         state
             .provider_credential_ids_for(previous_runtime_name.as_deref().unwrap_or(&payload.name))
-            .unwrap_or_else(|| credentials.iter().map(|cred| cred.id).collect())
+            .unwrap_or_else(|| {
+                valid_db_credentials
+                    .iter()
+                    .map(|(credential_id, _)| *credential_id)
+                    .collect()
+            })
     } else {
-        credentials.iter().map(|cred| cred.id).collect()
+        valid_db_credentials
+            .iter()
+            .map(|(credential_id, _)| *credential_id)
+            .collect()
     };
 
     let provider_config = ProviderConfig {
@@ -119,9 +131,9 @@ async fn sync_provider_runtime(
         channel: payload.channel.clone(),
         settings_json: serde_json::from_str(&payload.settings_json).unwrap_or_default(),
         credentials: runtime_credentials.unwrap_or_else(|| {
-            credentials
+            valid_db_credentials
                 .iter()
-                .map(|cred| cred.secret_json.clone())
+                .map(|(_, credential)| credential.clone())
                 .collect()
         }),
     };
@@ -130,10 +142,10 @@ async fn sync_provider_runtime(
         .map_err(|e| HttpError::internal(e.to_string()))?;
     state.replace_provider_credential_ids_in_memory(payload.name.clone(), credential_ids);
 
-    let credential_positions: HashMap<i64, (String, usize)> = credentials
+    let credential_positions: HashMap<i64, (String, usize)> = valid_db_credentials
         .iter()
         .enumerate()
-        .map(|(index, cred)| (cred.id, (payload.name.clone(), index)))
+        .map(|(index, (credential_id, _))| (*credential_id, (payload.name.clone(), index)))
         .collect();
     apply_persisted_credential_statuses(state, &credential_positions)
         .await
@@ -154,6 +166,21 @@ fn validate_provider_payload(payload: &gproxy_storage::ProviderWrite) -> Result<
         })
         .map(|_| ())
         .map_err(|e| HttpError::bad_request(e.to_string()))
+}
+
+fn ensure_provider_channel_immutable(
+    existing: Option<&ProviderQueryRow>,
+    payload: &gproxy_storage::ProviderWrite,
+) -> Result<(), HttpError> {
+    if let Some(existing) = existing
+        && existing.channel != payload.channel
+    {
+        return Err(HttpError::bad_request(format!(
+            "changing provider '{}' channel from '{}' to '{}' is not allowed",
+            existing.name, existing.channel, payload.channel
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -219,11 +246,10 @@ pub async fn upsert_provider(
     Json(payload): Json<gproxy_storage::ProviderWrite>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let existing = load_providers_by_id(&state).await?;
+    ensure_provider_channel_immutable(existing.get(&payload.id), &payload)?;
     validate_provider_payload(&payload)?;
-    let previous_name = load_providers_by_id(&state)
-        .await?
-        .get(&payload.id)
-        .map(|row| row.name.clone());
+    let previous_name = existing.get(&payload.id).map(|row| row.name.clone());
     state
         .storage()
         .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertProvider(
@@ -266,8 +292,11 @@ pub async fn batch_upsert_providers(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let existing = load_providers_by_id(&state).await?;
-    for item in items {
+    for item in &items {
+        ensure_provider_channel_immutable(existing.get(&item.id), item)?;
         validate_provider_payload(&item)?;
+    }
+    for item in items {
         let previous_name = existing.get(&item.id).map(|row| row.name.as_str());
         state
             .storage()
@@ -301,4 +330,56 @@ pub async fn batch_delete_providers(
         state.remove_user_files_for_provider(provider_id);
     }
     Ok(Json(AckResponse { ok: true, id: None }))
+}
+
+#[cfg(test)]
+mod tests {
+    use time::OffsetDateTime;
+
+    use super::ensure_provider_channel_immutable;
+
+    #[test]
+    fn provider_channel_is_immutable_once_created() {
+        let existing = gproxy_storage::ProviderQueryRow {
+            id: 1,
+            name: "demo".to_string(),
+            channel: "openai".to_string(),
+            settings_json: serde_json::json!({}),
+            dispatch_json: serde_json::json!({}),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        let payload = gproxy_storage::ProviderWrite {
+            id: 1,
+            name: "demo".to_string(),
+            channel: "anthropic".to_string(),
+            settings_json: "{}".to_string(),
+            dispatch_json: "{}".to_string(),
+        };
+
+        let err = ensure_provider_channel_immutable(Some(&existing), &payload).unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn provider_channel_validation_allows_same_channel() {
+        let existing = gproxy_storage::ProviderQueryRow {
+            id: 1,
+            name: "demo".to_string(),
+            channel: "openai".to_string(),
+            settings_json: serde_json::json!({}),
+            dispatch_json: serde_json::json!({}),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        let payload = gproxy_storage::ProviderWrite {
+            id: 1,
+            name: "demo-renamed".to_string(),
+            channel: "openai".to_string(),
+            settings_json: "{}".to_string(),
+            dispatch_json: "{}".to_string(),
+        };
+
+        assert!(ensure_provider_channel_immutable(Some(&existing), &payload).is_ok());
+    }
 }

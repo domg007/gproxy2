@@ -7,6 +7,7 @@ use futures_util::Stream;
 use futures_util::StreamExt;
 use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::Instrument;
 
 use crate::health::ModelCooldownHealth;
@@ -126,6 +127,43 @@ pub struct ProviderConfig {
     pub channel: String,
     pub settings_json: serde_json::Value,
     pub credentials: Vec<serde_json::Value>,
+}
+
+/// Validate that a JSON credential matches the schema for a channel.
+pub fn validate_credential_json(channel: &str, credential: &Value) -> Result<(), UpstreamError> {
+    macro_rules! validate {
+        ($ty:ty) => {
+            serde_json::from_value::<$ty>(credential.clone())
+                .map(|_| ())
+                .map_err(|e| {
+                    UpstreamError::Channel(format!(
+                        "invalid credential for channel '{channel}': {e}"
+                    ))
+                })
+        };
+    }
+
+    use crate::channels::*;
+
+    match channel {
+        "openai" => validate!(openai::OpenAiCredential),
+        "anthropic" => validate!(anthropic::AnthropicCredential),
+        "claudecode" => validate!(claudecode::ClaudeCodeCredential),
+        "codex" => validate!(codex::CodexCredential),
+        "vertex" => validate!(vertex::VertexCredential),
+        "vertexexpress" => validate!(vertexexpress::VertexExpressCredential),
+        "aistudio" => validate!(aistudio::AiStudioCredential),
+        "geminicli" => validate!(geminicli::GeminiCliCredential),
+        "antigravity" => validate!(antigravity::AntigravityCredential),
+        "nvidia" => validate!(nvidia::NvidiaCredential),
+        "deepseek" => validate!(deepseek::DeepSeekCredential),
+        "groq" => validate!(groq::GroqCredential),
+        "openrouter" => validate!(openrouter::OpenRouterCredential),
+        "custom" => validate!(custom::CustomCredential),
+        _ => Err(UpstreamError::Channel(format!(
+            "unknown channel: {channel}"
+        ))),
+    }
 }
 
 pub struct GproxyEngineBuilder {
@@ -1333,3 +1371,23 @@ impl UpstreamWebSocket {
 
 /// Re-export wreq WS message type.
 pub use wreq::ws::message::Message as WsMessage;
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::validate_credential_json;
+
+    #[test]
+    fn validate_credential_json_accepts_valid_openai_credential() {
+        let credential = json!({ "api_key": "sk-test" });
+        assert!(validate_credential_json("openai", &credential).is_ok());
+    }
+
+    #[test]
+    fn validate_credential_json_rejects_invalid_openai_credential() {
+        let credential = json!({ "token": "sk-test" });
+        let err = validate_credential_json("openai", &credential).unwrap_err();
+        assert!(err.to_string().contains("invalid credential"));
+    }
+}

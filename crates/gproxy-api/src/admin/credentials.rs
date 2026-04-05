@@ -27,23 +27,14 @@ async fn resolve_provider_by_name(
 }
 
 /// Look up the DB id of a credential given its provider_id and positional index.
-async fn resolve_credential_db_id(
+fn resolve_credential_db_id(
     state: &AppState,
-    provider_id: i64,
+    provider_name: &str,
     index: usize,
 ) -> Result<i64, HttpError> {
-    let creds = state
-        .storage()
-        .list_credentials(&gproxy_storage::CredentialQuery {
-            provider_id: Scope::Eq(provider_id),
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
-    creds
-        .get(index)
-        .map(|c| c.id)
-        .ok_or_else(|| HttpError::not_found("credential index out of range"))
+    state
+        .credential_id_for_index(provider_name, index)
+        .ok_or_else(|| HttpError::not_found("provider or credential index not found"))
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -92,6 +83,20 @@ pub struct UpsertCredentialPayload {
     pub credential: serde_json::Value,
 }
 
+fn validate_credential_payload(
+    provider: &ProviderQueryRow,
+    credential: &serde_json::Value,
+) -> Result<(), HttpError> {
+    gproxy_sdk::provider::engine::validate_credential_json(&provider.channel, credential).map_err(
+        |err| {
+            HttpError::bad_request(format!(
+                "invalid credential for provider '{}': {err}",
+                provider.name
+            ))
+        },
+    )
+}
+
 async fn create_credential_and_sync_runtime(
     state: &AppState,
     provider: &ProviderQueryRow,
@@ -131,6 +136,7 @@ pub async fn upsert_credential(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
+    validate_credential_payload(&provider, &payload.credential)?;
     create_credential_and_sync_runtime(&state, &provider, payload.credential).await?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -149,7 +155,7 @@ pub async fn delete_credential(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
-    let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
+    let cred_id = resolve_credential_db_id(&state, &provider.name, payload.index)?;
     state
         .storage()
         .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
@@ -170,9 +176,14 @@ pub async fn batch_upsert_credentials(
     Json(items): Json<Vec<UpsertCredentialPayload>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    for item in &items {
+    let mut validated = Vec::with_capacity(items.len());
+    for item in items {
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
-        create_credential_and_sync_runtime(&state, &provider, item.credential.clone()).await?;
+        validate_credential_payload(&provider, &item.credential)?;
+        validated.push((provider, item.credential));
+    }
+    for (provider, credential) in validated {
+        create_credential_and_sync_runtime(&state, &provider, credential).await?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -190,7 +201,7 @@ pub async fn batch_delete_credentials(
     sorted.sort_by(|a, b| b.index.cmp(&a.index));
     for item in &sorted {
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
-        let cred_id = resolve_credential_db_id(&state, provider.id, item.index).await?;
+        let cred_id = resolve_credential_db_id(&state, &provider.name, item.index)?;
         state
             .storage()
             .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
@@ -239,7 +250,7 @@ pub async fn update_credential_status(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
-    let credential_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
+    let credential_id = resolve_credential_db_id(&state, &provider.name, payload.index)?;
     let engine = state.engine();
     let store = engine.store();
     if !matches!(payload.status.as_str(), "dead" | "healthy") {
