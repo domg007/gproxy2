@@ -28,6 +28,8 @@ pub struct GproxyToml {
     #[serde(default)]
     pub permissions: Vec<PermissionToml>,
     #[serde(default)]
+    pub file_permissions: Vec<FilePermissionToml>,
+    #[serde(default)]
     pub rate_limits: Vec<RateLimitToml>,
     #[serde(default)]
     pub quotas: Vec<QuotaToml>,
@@ -135,6 +137,12 @@ pub struct PermissionToml {
     #[serde(default)]
     pub provider_name: Option<String>,
     pub model_pattern: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilePermissionToml {
+    pub user_name: String,
+    pub provider_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -294,6 +302,22 @@ pub async fn export_toml(
         }
     }
 
+    // File permissions
+    let file_perms_snapshot = state.user_file_permissions_snapshot();
+    let mut file_permissions = Vec::new();
+    for (user_id, entries) in file_perms_snapshot.iter() {
+        let user_name = user_name_map.get(user_id).cloned().unwrap_or_default();
+        for entry in entries {
+            file_permissions.push(FilePermissionToml {
+                user_name: user_name.clone(),
+                provider_name: provider_id_to_name
+                    .get(&entry.provider_id)
+                    .cloned()
+                    .unwrap_or_else(|| entry.provider_id.to_string()),
+            });
+        }
+    }
+
     // Rate limits
     let limits_snapshot = state.user_rate_limits_snapshot();
     let mut rate_limits = Vec::new();
@@ -328,6 +352,7 @@ pub async fn export_toml(
         model_aliases,
         users,
         permissions,
+        file_permissions,
         rate_limits,
         quotas,
     };

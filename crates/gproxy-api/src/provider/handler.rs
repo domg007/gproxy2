@@ -1250,9 +1250,9 @@ fn plan_file_operation(
 
     match operation {
         OperationFamily::FileUpload => {
-            if !state.check_provider_access(user_id, provider_name) {
+            if !state.check_file_permission(user_id, provider_name) {
                 return Err(HttpError::forbidden(
-                    "provider not authorized for this user",
+                    "file API not authorized for this user",
                 ));
             }
             Ok(Some(FileOperationPlan::Upstream {
@@ -1261,9 +1261,9 @@ fn plan_file_operation(
             }))
         }
         OperationFamily::FileList => {
-            if !state.check_provider_access(user_id, provider_name) {
+            if !state.check_file_permission(user_id, provider_name) {
                 return Err(HttpError::forbidden(
-                    "provider not authorized for this user",
+                    "file API not authorized for this user",
                 ));
             }
             if is_claude_file_provider(state, provider_name) {
@@ -1278,6 +1278,11 @@ fn plan_file_operation(
             }
         }
         OperationFamily::FileGet => {
+            if !state.check_file_permission(user_id, provider_name) {
+                return Err(HttpError::forbidden(
+                    "file API not authorized for this user",
+                ));
+            }
             let normalized = normalize_routed_api_path(request_path);
             let file_id = extract_file_id_from_request_path(&normalized)
                 .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;
@@ -1296,6 +1301,11 @@ fn plan_file_operation(
             }))
         }
         OperationFamily::FileContent => {
+            if !state.check_file_permission(user_id, provider_name) {
+                return Err(HttpError::forbidden(
+                    "file API not authorized for this user",
+                ));
+            }
             let normalized = normalize_routed_api_path(request_path);
             let file_id = extract_file_id_from_request_path(&normalized)
                 .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;
@@ -1306,6 +1316,11 @@ fn plan_file_operation(
             }))
         }
         OperationFamily::FileDelete => {
+            if !state.check_file_permission(user_id, provider_name) {
+                return Err(HttpError::forbidden(
+                    "file API not authorized for this user",
+                ));
+            }
             let normalized = normalize_routed_api_path(request_path);
             let file_id = extract_file_id_from_request_path(&normalized)
                 .ok_or_else(|| HttpError::bad_request("missing file_id in request path"))?;

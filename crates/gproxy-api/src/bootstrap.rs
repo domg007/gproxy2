@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
 use gproxy_server::{
-    AppState, GlobalConfig, MemoryClaudeFile, MemoryModel, MemoryUser, MemoryUserCredentialFile,
-    MemoryUserKey, ModelAliasTarget, PermissionEntry, PriceTier, RateLimitRule,
+    AppState, FilePermissionEntry, GlobalConfig, MemoryClaudeFile, MemoryModel, MemoryUser,
+    MemoryUserCredentialFile, MemoryUserKey, ModelAliasTarget, PermissionEntry, PriceTier,
+    RateLimitRule,
 };
 use gproxy_storage::StorageWriteEvent;
 
@@ -22,6 +23,7 @@ pub struct ReloadCounts {
     pub claude_files: usize,
     pub aliases: usize,
     pub permissions: usize,
+    pub file_permissions: usize,
     pub rate_limits: usize,
     pub quotas: usize,
 }
@@ -392,6 +394,23 @@ pub async fn reload_from_db(
     }
     state.replace_user_permissions(perm_map);
 
+    // File permissions
+    let file_permissions = storage
+        .list_user_file_permissions(&gproxy_storage::UserFilePermissionQuery::default())
+        .await?;
+    let file_permission_count = file_permissions.len();
+    let mut file_permission_map: HashMap<i64, Vec<FilePermissionEntry>> = HashMap::new();
+    for permission in file_permissions {
+        file_permission_map
+            .entry(permission.user_id)
+            .or_default()
+            .push(FilePermissionEntry {
+                id: permission.id,
+                provider_id: permission.provider_id,
+            });
+    }
+    state.replace_user_file_permissions(file_permission_map);
+
     // Rate limits
     let limits = storage
         .list_user_rate_limits(&gproxy_storage::UserRateLimitQuery::default())
@@ -477,6 +496,7 @@ pub async fn reload_from_db(
         claude_files: claude_file_count,
         aliases: alias_count,
         permissions: perm_count,
+        file_permissions: file_permission_count,
         rate_limits: limit_count,
         quotas: quota_count,
     })
@@ -721,7 +741,7 @@ pub async fn seed_from_toml(
     }
     state.replace_model_aliases(alias_map);
 
-    // 6. Permissions, rate limits, quotas → memory + DB
+    // 6. Permissions, file permissions, rate limits, quotas → memory + DB
     let users_snapshot = state.users_snapshot();
     let user_id_map: HashMap<String, i64> = users_snapshot
         .iter()
@@ -761,6 +781,41 @@ pub async fn seed_from_toml(
         perm_map.entry(user_id).or_default().push(entry);
     }
     state.replace_user_permissions(perm_map);
+
+    let mut file_permission_writes: HashMap<(i64, i64), FilePermissionEntry> = HashMap::new();
+    for (i, permission) in config.file_permissions.iter().enumerate() {
+        let Some(&user_id) = user_id_map.get(&permission.user_name) else {
+            continue;
+        };
+        let Some(&provider_id) = provider_runtime
+            .provider_name_to_id
+            .get(&permission.provider_name)
+        else {
+            continue;
+        };
+        file_permission_writes.insert(
+            (user_id, provider_id),
+            FilePermissionEntry {
+                id: i as i64 + 1,
+                provider_id,
+            },
+        );
+    }
+    let mut file_permission_map: HashMap<i64, Vec<FilePermissionEntry>> = HashMap::new();
+    for ((user_id, provider_id), entry) in file_permission_writes {
+        state
+            .storage()
+            .apply_write_event(StorageWriteEvent::UpsertUserFilePermission(
+                gproxy_storage::UserFilePermissionWrite {
+                    id: entry.id,
+                    user_id,
+                    provider_id,
+                },
+            ))
+            .await?;
+        file_permission_map.entry(user_id).or_default().push(entry);
+    }
+    state.replace_user_file_permissions(file_permission_map);
 
     let mut limit_map: HashMap<i64, Vec<RateLimitRule>> = HashMap::new();
     for (i, r) in config.rate_limits.iter().enumerate() {

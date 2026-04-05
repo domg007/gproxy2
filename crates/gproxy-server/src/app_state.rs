@@ -9,7 +9,7 @@ use gproxy_storage::SeaOrmStorage;
 
 use crate::config::GlobalConfig;
 use crate::middleware::model_alias::ModelAliasTarget;
-use crate::middleware::permission::{self, PermissionEntry};
+use crate::middleware::permission::{self, FilePermissionEntry, PermissionEntry};
 use crate::middleware::rate_limit::{
     RateLimitCounters, RateLimitRejection, RateLimitRule, find_matching_rule,
 };
@@ -17,6 +17,7 @@ use crate::principal::{MemoryUser, MemoryUserKey};
 
 // Re-export middleware types
 pub use crate::middleware::model_alias::ModelAliasTarget as ModelAliasTargetExport;
+pub use crate::middleware::permission::FilePermissionEntry as FilePermissionEntryExport;
 pub use crate::middleware::permission::PermissionEntry as PermissionEntryExport;
 pub use crate::middleware::rate_limit::{
     RateLimitRejection as RateLimitRejectionExport, RateLimitRule as RateLimitRuleExport,
@@ -88,6 +89,7 @@ pub struct AppState {
     user_files: ArcSwap<Vec<MemoryUserCredentialFile>>,
     claude_files: ArcSwap<HashMap<(i64, String), MemoryClaudeFile>>,
     user_permissions: ArcSwap<HashMap<i64, Vec<PermissionEntry>>>,
+    user_file_permissions: ArcSwap<HashMap<i64, Vec<FilePermissionEntry>>>,
     user_rate_limits: ArcSwap<HashMap<i64, Vec<RateLimitRule>>>,
     user_quotas: DashMap<i64, (f64, f64)>,
     pub rate_counters: RateLimitCounters,
@@ -190,6 +192,17 @@ impl AppState {
         entries
             .iter()
             .any(|e| e.provider_id.is_none() || e.provider_id == Some(provider_id))
+    }
+
+    pub fn check_file_permission(&self, user_id: i64, provider_name: &str) -> bool {
+        let Some(provider_id) = self.provider_names.load().get(provider_name).copied() else {
+            return false;
+        };
+        let perms = self.user_file_permissions.load();
+        let Some(entries) = perms.get(&user_id) else {
+            return false;
+        };
+        entries.iter().any(|entry| entry.provider_id == provider_id)
     }
 
     pub fn check_rate_limit(&self, user_id: i64, model: &str) -> Result<(), RateLimitRejection> {
@@ -350,6 +363,7 @@ impl AppState {
         let mut keys = (*self.keys.load_full()).clone();
         keys.retain(|_, k| k.user_id != user_id);
         self.keys.store(Arc::new(keys));
+        self.remove_file_permissions_for_user(user_id);
         self.remove_user_files_for_user(user_id);
     }
 
@@ -535,6 +549,29 @@ impl AppState {
         self.user_permissions.store(Arc::new(normalized));
     }
 
+    pub fn replace_user_file_permissions(&self, perms: HashMap<i64, Vec<FilePermissionEntry>>) {
+        let normalized = perms
+            .into_iter()
+            .filter_map(|(user_id, entries)| {
+                let mut normalized_entries: Vec<FilePermissionEntry> = Vec::new();
+                for entry in entries {
+                    if let Some(existing) = normalized_entries
+                        .iter_mut()
+                        .find(|existing| existing.provider_id == entry.provider_id)
+                    {
+                        if entry.id < existing.id {
+                            *existing = entry;
+                        }
+                    } else {
+                        normalized_entries.push(entry);
+                    }
+                }
+                (!normalized_entries.is_empty()).then_some((user_id, normalized_entries))
+            })
+            .collect();
+        self.user_file_permissions.store(Arc::new(normalized));
+    }
+
     pub fn replace_user_rate_limits(&self, limits: HashMap<i64, Vec<RateLimitRule>>) {
         self.user_rate_limits.store(Arc::new(limits));
     }
@@ -624,6 +661,54 @@ impl AppState {
         }
         perms.retain(|_, entries| !entries.is_empty());
         self.user_permissions.store(Arc::new(perms));
+    }
+
+    // --- User file permissions ---
+
+    pub fn user_file_permissions_snapshot(&self) -> Arc<HashMap<i64, Vec<FilePermissionEntry>>> {
+        self.user_file_permissions.load_full()
+    }
+
+    pub fn upsert_file_permission_in_memory(&self, user_id: i64, entry: FilePermissionEntry) {
+        let mut perms = (*self.user_file_permissions.load_full()).clone();
+        for entries in perms.values_mut() {
+            entries.retain(|existing| existing.id != entry.id);
+        }
+        perms.retain(|_, entries| !entries.is_empty());
+        let entries = perms.entry(user_id).or_default();
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|existing| existing.provider_id == entry.provider_id)
+        {
+            *existing = entry;
+        } else {
+            entries.push(entry);
+        }
+        self.user_file_permissions.store(Arc::new(perms));
+    }
+
+    pub fn remove_file_permission_from_memory(&self, permission_id: i64) {
+        let mut perms = (*self.user_file_permissions.load_full()).clone();
+        for entries in perms.values_mut() {
+            entries.retain(|entry| entry.id != permission_id);
+        }
+        perms.retain(|_, entries| !entries.is_empty());
+        self.user_file_permissions.store(Arc::new(perms));
+    }
+
+    pub fn remove_file_permissions_for_user(&self, user_id: i64) {
+        let mut perms = (*self.user_file_permissions.load_full()).clone();
+        perms.remove(&user_id);
+        self.user_file_permissions.store(Arc::new(perms));
+    }
+
+    pub fn remove_file_permissions_for_provider(&self, provider_id: i64) {
+        let mut perms = (*self.user_file_permissions.load_full()).clone();
+        for entries in perms.values_mut() {
+            entries.retain(|entry| entry.provider_id != provider_id);
+        }
+        perms.retain(|_, entries| !entries.is_empty());
+        self.user_file_permissions.store(Arc::new(perms));
     }
 
     // --- User rate limits ---
@@ -730,6 +815,7 @@ impl AppStateBuilder {
             user_files: ArcSwap::from_pointee(Vec::new()),
             claude_files: ArcSwap::from_pointee(HashMap::new()),
             user_permissions: ArcSwap::from_pointee(HashMap::new()),
+            user_file_permissions: ArcSwap::from_pointee(HashMap::new()),
             user_rate_limits: ArcSwap::from_pointee(HashMap::new()),
             user_quotas: DashMap::new(),
             rate_counters: RateLimitCounters::new(),

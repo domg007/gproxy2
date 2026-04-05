@@ -33,7 +33,15 @@ const GITHUB_DOWNLOAD_BASE: &str = "https://github.com/LeenHawk/gproxy/releases/
 const WEB_DOWNLOAD_BASE: &str = "https://dl.gproxy.leenhawk.com";
 
 /// Ed25519 public key for verifying update signatures (base64-encoded).
-/// If not set at build time, signature verification is skipped.
+///
+/// Design note:
+/// Self-compiled builds may intentionally omit this key so operators can point a
+/// custom build at an official update source without rebuilding again just to
+/// embed the official signing key. In that mode, self-update falls back to
+/// checksum-only verification against the configured source.
+///
+/// Deployments that require signed updates must compile with
+/// `GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64` set.
 const UPDATE_SIGNING_PUBLIC_KEY_B64: Option<&str> =
     option_env!("GPROXY_UPDATE_SIGN_PUBLIC_KEY_B64");
 
@@ -233,6 +241,10 @@ pub async fn perform_update(
             .map_err(|e| HttpError::internal(format!("signature verification failed: {e}")))?;
         tracing::info!("Ed25519 signature verified");
     } else {
+        // Intentional fallback for self-compiled builds without an embedded
+        // signing key. This keeps the update path usable when switching to an
+        // official source later, but integrity then depends on the checksum
+        // file and trust in the configured update host.
         tracing::warn!("no signing public key compiled in, skipping signature verification");
     }
 

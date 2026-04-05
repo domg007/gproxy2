@@ -18,6 +18,14 @@ pub struct PermissionEntry {
     pub model_pattern: String,
 }
 
+/// A provider-scoped file API permission for a user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePermissionEntry {
+    /// Stable database identity for admin CRUD and cache synchronization.
+    pub id: i64,
+    pub provider_id: i64,
+}
+
 /// Axum middleware placeholder for permission checks.
 ///
 /// Permission enforcement is currently done inside the provider handler

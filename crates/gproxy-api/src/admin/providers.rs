@@ -281,6 +281,7 @@ pub async fn delete_provider(
     state.remove_provider_name_from_memory(&payload.name);
     state.remove_provider_channel_from_memory(&payload.name);
     state.remove_provider_credentials_from_memory(&payload.name);
+    state.remove_file_permissions_for_provider(provider_id);
     state.remove_user_files_for_provider(provider_id);
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -327,6 +328,7 @@ pub async fn batch_delete_providers(
         state.remove_provider_name_from_memory(name);
         state.remove_provider_channel_from_memory(name);
         state.remove_provider_credentials_from_memory(name);
+        state.remove_file_permissions_for_provider(provider_id);
         state.remove_user_files_for_provider(provider_id);
     }
     Ok(Json(AckResponse { ok: true, id: None }))

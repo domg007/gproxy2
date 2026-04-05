@@ -7,6 +7,7 @@ use gproxy_server::AppState;
 
 pub mod config_toml;
 pub mod credentials;
+pub mod file_permissions;
 pub mod health;
 pub mod models;
 pub mod permissions;
@@ -117,6 +118,27 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/user-permissions/batch-delete",
             post(permissions::batch_delete_permissions),
+        )
+        // File permissions
+        .route(
+            "/user-file-permissions/query",
+            post(file_permissions::query_file_permissions),
+        )
+        .route(
+            "/user-file-permissions/upsert",
+            post(file_permissions::upsert_file_permission),
+        )
+        .route(
+            "/user-file-permissions/delete",
+            post(file_permissions::delete_file_permission),
+        )
+        .route(
+            "/user-file-permissions/batch-upsert",
+            post(file_permissions::batch_upsert_file_permissions),
+        )
+        .route(
+            "/user-file-permissions/batch-delete",
+            post(file_permissions::batch_delete_file_permissions),
         )
         // Rate limits
         .route(

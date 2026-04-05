@@ -121,6 +121,13 @@ fn common_indexes(backend: DatabaseBackend) -> Vec<(&'static str, &'static str, 
             ),
         ),
         (
+            "user_file_permissions",
+            "idx_user_file_permissions_user_id",
+            format!(
+                "CREATE INDEX {if_not_exists}idx_user_file_permissions_user_id ON user_file_permissions (user_id)"
+            ),
+        ),
+        (
             "user_rate_limits",
             "idx_user_rate_limits_user_id",
             format!(

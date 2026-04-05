@@ -385,6 +385,39 @@ impl SeaOrmStorage {
     }
 
     // -----------------------------------------------------------------------
+    // User file permissions
+    // -----------------------------------------------------------------------
+
+    pub async fn list_user_file_permissions(
+        &self,
+        query: &UserFilePermissionQuery,
+    ) -> Result<Vec<UserFilePermissionQueryRow>, DbErr> {
+        let mut select = user_file_permissions::Entity::find();
+        if let Scope::Eq(ref v) = query.id {
+            select = select.filter(user_file_permissions::Column::Id.eq(*v));
+        }
+        if let Scope::Eq(ref v) = query.user_id {
+            select = select.filter(user_file_permissions::Column::UserId.eq(*v));
+        }
+        if let Scope::Eq(ref v) = query.provider_id {
+            select = select.filter(user_file_permissions::Column::ProviderId.eq(*v));
+        }
+        if let Some(limit) = query.limit {
+            select = select.limit(limit);
+        }
+        let rows = select.all(&self.db).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UserFilePermissionQueryRow {
+                id: r.id,
+                user_id: r.user_id,
+                provider_id: r.provider_id,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+
+    // -----------------------------------------------------------------------
     // User rate limits
     // -----------------------------------------------------------------------
 

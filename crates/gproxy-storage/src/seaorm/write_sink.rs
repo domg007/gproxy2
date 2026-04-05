@@ -76,6 +76,12 @@ impl SeaOrmStorage {
                 .exec(&txn)
                 .await?;
         }
+        if !batch.user_file_permissions_delete.is_empty() {
+            user_file_permissions::Entity::delete_many()
+                .filter(user_file_permissions::Column::Id.is_in(batch.user_file_permissions_delete))
+                .exec(&txn)
+                .await?;
+        }
         if !batch.user_rate_limits_delete.is_empty() {
             user_rate_limits::Entity::delete_many()
                 .filter(user_rate_limits::Column::Id.is_in(batch.user_rate_limits_delete))
@@ -579,6 +585,38 @@ impl SeaOrmStorage {
                             user_rate_limits::Column::Rpd,
                             user_rate_limits::Column::TotalTokens,
                             user_rate_limits::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+        }
+
+        // User file permissions
+        for chunk in batch
+            .user_file_permissions_upsert
+            .values()
+            .collect::<Vec<_>>()
+            .chunks(UPSERT_CHUNK_SIZE)
+        {
+            let items: Vec<user_file_permissions::ActiveModel> = chunk
+                .iter()
+                .map(|p| {
+                    let now = OffsetDateTime::now_utc();
+                    user_file_permissions::ActiveModel {
+                        id: Set(p.id),
+                        user_id: Set(p.user_id),
+                        provider_id: Set(p.provider_id),
+                        created_at: Set(now),
+                    }
+                })
+                .collect();
+            user_file_permissions::Entity::insert_many(items)
+                .on_conflict(
+                    OnConflict::column(user_file_permissions::Column::Id)
+                        .update_columns([
+                            user_file_permissions::Column::UserId,
+                            user_file_permissions::Column::ProviderId,
                         ])
                         .to_owned(),
                 )

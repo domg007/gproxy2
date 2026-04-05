@@ -164,6 +164,13 @@ pub struct UserModelPermissionWrite {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserFilePermissionWrite {
+    pub id: i64,
+    pub user_id: i64,
+    pub provider_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRateLimitWrite {
     pub id: i64,
     pub user_id: i64,
@@ -238,6 +245,8 @@ pub enum StorageWriteEvent {
     DeleteModelAlias { id: i64 },
     UpsertUserModelPermission(UserModelPermissionWrite),
     DeleteUserModelPermission { id: i64 },
+    UpsertUserFilePermission(UserFilePermissionWrite),
+    DeleteUserFilePermission { id: i64 },
     UpsertUserRateLimit(UserRateLimitWrite),
     DeleteUserRateLimit { id: i64 },
     UpsertUserQuota(UserQuotaWrite),
@@ -268,6 +277,8 @@ pub struct StorageWriteBatch {
     pub model_aliases_delete: HashSet<i64>,
     pub user_model_permissions_upsert: HashMap<i64, UserModelPermissionWrite>,
     pub user_model_permissions_delete: HashSet<i64>,
+    pub user_file_permissions_upsert: HashMap<i64, UserFilePermissionWrite>,
+    pub user_file_permissions_delete: HashSet<i64>,
     pub user_rate_limits_upsert: HashMap<i64, UserRateLimitWrite>,
     pub user_rate_limits_delete: HashSet<i64>,
     pub user_quotas_upsert: HashMap<i64, UserQuotaWrite>,
@@ -357,6 +368,14 @@ impl StorageWriteBatch {
             StorageWriteEvent::DeleteUserModelPermission { id } => {
                 self.user_model_permissions_upsert.remove(&id);
                 self.user_model_permissions_delete.insert(id);
+            }
+            StorageWriteEvent::UpsertUserFilePermission(value) => {
+                self.user_file_permissions_delete.remove(&value.id);
+                self.user_file_permissions_upsert.insert(value.id, value);
+            }
+            StorageWriteEvent::DeleteUserFilePermission { id } => {
+                self.user_file_permissions_upsert.remove(&id);
+                self.user_file_permissions_delete.insert(id);
             }
             StorageWriteEvent::UpsertUserRateLimit(value) => {
                 self.user_rate_limits_delete.remove(&value.id);
