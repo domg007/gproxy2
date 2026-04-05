@@ -10,6 +10,8 @@ use crate::app_state::AppState;
 /// A single permission entry for a user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionEntry {
+    /// Stable database identity for admin CRUD and cache synchronization.
+    pub id: i64,
     /// None = applies to all providers.
     pub provider_id: Option<i64>,
     /// `*` = all models, `claude-*` = prefix match, exact string = exact match.

@@ -513,7 +513,26 @@ impl AppState {
     }
 
     pub fn replace_user_permissions(&self, perms: HashMap<i64, Vec<PermissionEntry>>) {
-        self.user_permissions.store(Arc::new(perms));
+        let normalized = perms
+            .into_iter()
+            .filter_map(|(user_id, entries)| {
+                let mut normalized_entries: Vec<PermissionEntry> = Vec::new();
+                for entry in entries {
+                    if let Some(existing) = normalized_entries.iter_mut().find(|existing| {
+                        existing.provider_id == entry.provider_id
+                            && existing.model_pattern == entry.model_pattern
+                    }) {
+                        if entry.id < existing.id {
+                            *existing = entry;
+                        }
+                    } else {
+                        normalized_entries.push(entry);
+                    }
+                }
+                (!normalized_entries.is_empty()).then_some((user_id, normalized_entries))
+            })
+            .collect();
+        self.user_permissions.store(Arc::new(normalized));
     }
 
     pub fn replace_user_rate_limits(&self, limits: HashMap<i64, Vec<RateLimitRule>>) {
@@ -582,12 +601,15 @@ impl AppState {
 
     pub fn upsert_permission_in_memory(&self, user_id: i64, entry: PermissionEntry) {
         let mut perms = (*self.user_permissions.load_full()).clone();
+        for entries in perms.values_mut() {
+            entries.retain(|existing| existing.id != entry.id);
+        }
+        perms.retain(|_, entries| !entries.is_empty());
         let entries = perms.entry(user_id).or_default();
-        // Replace if same provider_id + model_pattern, else append
-        if let Some(existing) = entries
-            .iter_mut()
-            .find(|e| e.provider_id == entry.provider_id && e.model_pattern == entry.model_pattern)
-        {
+        if let Some(existing) = entries.iter_mut().find(|existing| {
+            existing.provider_id == entry.provider_id
+                && existing.model_pattern == entry.model_pattern
+        }) {
             *existing = entry;
         } else {
             entries.push(entry);
@@ -595,19 +617,12 @@ impl AppState {
         self.user_permissions.store(Arc::new(perms));
     }
 
-    pub fn remove_permission_from_memory(
-        &self,
-        user_id: i64,
-        provider_id: Option<i64>,
-        model_pattern: &str,
-    ) {
+    pub fn remove_permission_from_memory(&self, permission_id: i64) {
         let mut perms = (*self.user_permissions.load_full()).clone();
-        if let Some(entries) = perms.get_mut(&user_id) {
-            entries.retain(|e| !(e.provider_id == provider_id && e.model_pattern == model_pattern));
-            if entries.is_empty() {
-                perms.remove(&user_id);
-            }
+        for entries in perms.values_mut() {
+            entries.retain(|entry| entry.id != permission_id);
         }
+        perms.retain(|_, entries| !entries.is_empty());
         self.user_permissions.store(Arc::new(perms));
     }
 

@@ -385,6 +385,7 @@ pub async fn reload_from_db(
             .entry(p.user_id)
             .or_default()
             .push(PermissionEntry {
+                id: p.id,
                 provider_id: p.provider_id,
                 model_pattern: p.model_pattern,
             });
@@ -727,29 +728,37 @@ pub async fn seed_from_toml(
         .map(|u| (u.name.clone(), u.id))
         .collect();
 
-    let mut perm_map: HashMap<i64, Vec<PermissionEntry>> = HashMap::new();
+    let mut perm_writes: HashMap<(i64, Option<i64>, String), PermissionEntry> = HashMap::new();
     for (i, p) in config.permissions.iter().enumerate() {
         if let Some(&user_id) = user_id_map.get(&p.user_name) {
             let provider_id = p
                 .provider_name
                 .as_ref()
                 .and_then(|name| provider_runtime.provider_name_to_id.get(name).copied());
-            perm_map.entry(user_id).or_default().push(PermissionEntry {
-                provider_id,
-                model_pattern: p.model_pattern.clone(),
-            });
-            state
-                .storage()
-                .apply_write_event(StorageWriteEvent::UpsertUserModelPermission(
-                    gproxy_storage::UserModelPermissionWrite {
-                        id: i as i64 + 1,
-                        user_id,
-                        provider_id,
-                        model_pattern: p.model_pattern.clone(),
-                    },
-                ))
-                .await?;
+            perm_writes.insert(
+                (user_id, provider_id, p.model_pattern.clone()),
+                PermissionEntry {
+                    id: i as i64 + 1,
+                    provider_id,
+                    model_pattern: p.model_pattern.clone(),
+                },
+            );
         }
+    }
+    let mut perm_map: HashMap<i64, Vec<PermissionEntry>> = HashMap::new();
+    for ((user_id, provider_id, model_pattern), entry) in perm_writes {
+        state
+            .storage()
+            .apply_write_event(StorageWriteEvent::UpsertUserModelPermission(
+                gproxy_storage::UserModelPermissionWrite {
+                    id: entry.id,
+                    user_id,
+                    provider_id,
+                    model_pattern,
+                },
+            ))
+            .await?;
+        perm_map.entry(user_id).or_default().push(entry);
     }
     state.replace_user_permissions(perm_map);
 
