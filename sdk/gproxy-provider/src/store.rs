@@ -7,8 +7,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use serde::Serialize;
 use serde_json::Value;
+use tokio::sync::broadcast;
 
 use gproxy_protocol::kinds::{OperationFamily, ProtocolKind};
 
@@ -58,12 +60,67 @@ pub struct OAuthFinishResult {
     pub details: Value,
 }
 
+#[derive(Debug, Clone)]
+pub enum EngineEvent {
+    ProviderAdded {
+        name: String,
+    },
+    ProviderRemoved {
+        name: String,
+    },
+    ProviderUpdated {
+        name: String,
+    },
+    CredentialHealthChanged {
+        provider: String,
+        index: usize,
+        status: String,
+    },
+}
+
+pub trait ProviderRegistry {
+    fn get_provider(&self, name: &str) -> Result<Option<ProviderSnapshot>, UpstreamError>;
+    fn list_providers(&self) -> Result<Vec<ProviderSnapshot>, UpstreamError>;
+    fn get_credential(
+        &self,
+        provider_name: &str,
+        index: usize,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError>;
+    fn list_credentials(
+        &self,
+        provider_name: Option<&str>,
+    ) -> Result<Vec<CredentialSnapshot>, UpstreamError>;
+}
+
+pub trait ProviderMutator {
+    fn upsert_provider_json(
+        &self,
+        config: crate::engine::ProviderConfig,
+    ) -> Result<(), UpstreamError>;
+    fn remove_provider(&self, name: &str) -> bool;
+    fn upsert_credential_json(
+        &self,
+        provider_name: &str,
+        index: Option<usize>,
+        credential: Value,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError>;
+    fn remove_credential(
+        &self,
+        provider_name: &str,
+        index: usize,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError>;
+}
+
+pub trait EngineEventSource {
+    fn subscribe(&self) -> broadcast::Receiver<EngineEvent>;
+}
+
 /// Health status snapshot for a single credential.
 #[derive(Debug, Clone, Serialize)]
 pub struct CredentialHealthSnapshot {
     pub provider: String,
     pub index: usize,
-    /// `"healthy"`, `"cooldown"`, or `"dead"`.
+    /// `"healthy"` or `"unavailable"`.
     pub status: String,
     /// true if `is_available(None)` returns true.
     pub available: bool,
@@ -751,14 +808,21 @@ impl ProviderStoreBuilder {
     }
 
     pub fn build(self) -> ProviderStore {
+        let providers = DashMap::with_capacity(self.providers.len());
+        for (name, provider) in self.providers {
+            providers.insert(name, provider);
+        }
+        let (event_tx, _) = broadcast::channel(64);
         ProviderStore {
-            providers: ArcSwap::from(Arc::new(self.providers)),
+            providers,
+            event_tx,
         }
     }
 }
 
 pub struct ProviderStore {
-    providers: ArcSwap<HashMap<String, Arc<dyn ProviderRuntime>>>,
+    providers: DashMap<String, Arc<dyn ProviderRuntime>>,
+    event_tx: broadcast::Sender<EngineEvent>,
 }
 
 impl ProviderStore {
@@ -780,9 +844,8 @@ impl ProviderStore {
             settings,
             credentials,
         ));
-        let mut updated = (*self.providers.load_full()).clone();
-        updated.insert(name, provider);
-        self.providers.store(Arc::new(updated));
+        self.providers.insert(name.clone(), provider);
+        self.emit_event(EngineEvent::ProviderAdded { name });
     }
 
     /// Add or replace a provider from serialized JSON config.
@@ -834,40 +897,43 @@ impl ProviderStore {
     }
 
     pub fn remove_provider(&self, name: &str) -> bool {
-        let mut updated = (*self.providers.load_full()).clone();
-        let removed = updated.remove(name).is_some();
+        let removed = self.providers.remove(name).is_some();
         if removed {
-            self.providers.store(Arc::new(updated));
+            self.emit_event(EngineEvent::ProviderRemoved {
+                name: name.to_string(),
+            });
         }
         removed
     }
 
     pub fn list_providers(&self) -> Result<Vec<ProviderSnapshot>, UpstreamError> {
         self.providers
-            .load()
-            .values()
-            .map(|provider| provider.snapshot())
+            .iter()
+            .map(|entry| entry.value().snapshot())
             .collect()
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<EngineEvent> {
+        self.event_tx.subscribe()
     }
 
     /// Get health status for all credentials across all providers.
     pub fn list_health(&self, provider_name: Option<&str>) -> Vec<CredentialHealthSnapshot> {
-        let providers = self.providers.load();
         let mut out = Vec::new();
-        for (name, provider) in providers.iter() {
-            if provider_name.is_some_and(|filter| filter != name) {
+        for entry in self.providers.iter() {
+            if provider_name.is_some_and(|filter| filter != entry.key().as_str()) {
                 continue;
             }
-            out.extend(provider.health_snapshots());
+            out.extend(entry.value().health_snapshots());
         }
         out
     }
 
     /// Manually mark a credential as dead.
     pub fn mark_credential_dead(&self, provider_name: &str, index: usize) -> bool {
-        let providers = self.providers.load();
-        if let Some(provider) = providers.get(provider_name) {
+        if let Some(provider) = self.get_runtime(provider_name) {
             provider.mark_credential_dead(index);
+            self.emit_health_change(provider_name, index, &provider);
             true
         } else {
             false
@@ -876,9 +942,9 @@ impl ProviderStore {
 
     /// Manually reset a credential to healthy.
     pub fn mark_credential_healthy(&self, provider_name: &str, index: usize) -> bool {
-        let providers = self.providers.load();
-        if let Some(provider) = providers.get(provider_name) {
+        if let Some(provider) = self.get_runtime(provider_name) {
             provider.mark_credential_healthy(index);
+            self.emit_health_change(provider_name, index, &provider);
             true
         } else {
             false
@@ -886,7 +952,7 @@ impl ProviderStore {
     }
 
     pub fn get_provider(&self, name: &str) -> Result<Option<ProviderSnapshot>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(name).cloned() else {
+        let Some(provider) = self.get_runtime(name) else {
             return Ok(None);
         };
         provider.snapshot().map(Some)
@@ -896,13 +962,12 @@ impl ProviderStore {
         &self,
         provider_name: Option<&str>,
     ) -> Result<Vec<CredentialSnapshot>, UpstreamError> {
-        let providers = self.providers.load();
         let mut out = Vec::new();
-        for (name, provider) in providers.iter() {
-            if provider_name.is_some_and(|filter| filter != name) {
+        for entry in self.providers.iter() {
+            if provider_name.is_some_and(|filter| filter != entry.key().as_str()) {
                 continue;
             }
-            out.extend(provider.credential_snapshots()?);
+            out.extend(entry.value().credential_snapshots()?);
         }
         Ok(out)
     }
@@ -912,7 +977,7 @@ impl ProviderStore {
         provider_name: &str,
         index: usize,
     ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         provider.credential_snapshot(index)
@@ -923,10 +988,11 @@ impl ProviderStore {
         provider_name: &str,
         settings: Value,
     ) -> Result<bool, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(false);
         };
         provider.set_settings_json(settings)?;
+        self.emit_provider_updated(provider_name);
         Ok(true)
     }
 
@@ -935,10 +1001,13 @@ impl ProviderStore {
         provider_name: &str,
         credential: Value,
     ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         let result = provider.add_credential_json(credential).map(Some);
+        if result.as_ref().is_ok_and(Option::is_some) {
+            self.emit_provider_updated(provider_name);
+        }
         tracing::info!(provider = provider_name, "credential added");
         result
     }
@@ -949,10 +1018,13 @@ impl ProviderStore {
         index: usize,
         credential: Value,
     ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         let result = provider.update_credential_json(index, credential);
+        if result.as_ref().is_ok_and(Option::is_some) {
+            self.emit_provider_updated(provider_name);
+        }
         tracing::info!(provider = provider_name, index, "credential updated");
         result
     }
@@ -962,10 +1034,13 @@ impl ProviderStore {
         provider_name: &str,
         index: usize,
     ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         let result = provider.remove_credential_json(index);
+        if result.as_ref().is_ok_and(Option::is_some) {
+            self.emit_provider_updated(provider_name);
+        }
         tracing::info!(provider = provider_name, index, "credential removed");
         result
     }
@@ -974,10 +1049,14 @@ impl ProviderStore {
         &self,
         update: &CredentialUpdate,
     ) -> Result<bool, UpstreamError> {
-        let Some(provider) = self.providers.load().get(&update.provider).cloned() else {
+        let Some(provider) = self.get_runtime(&update.provider) else {
             return Ok(false);
         };
-        provider.apply_credential_update(update)
+        let applied = provider.apply_credential_update(update)?;
+        if applied {
+            self.emit_provider_updated(&update.provider);
+        }
+        Ok(applied)
     }
 
     pub fn apply_credential_updates(
@@ -994,15 +1073,20 @@ impl ProviderStore {
 
         let mut results = vec![false; updates.len()];
         for ((provider_name, _revision), entries) in grouped {
-            let Some(provider) = self.providers.load().get(&provider_name).cloned() else {
+            let Some(provider) = self.get_runtime(&provider_name) else {
                 continue;
             };
             let batch: Vec<CredentialUpdate> =
                 entries.iter().map(|(_, update)| update.clone()).collect();
             let batch_results = provider.apply_credential_updates(&batch)?;
+            let mut provider_updated = false;
             for ((original_index, _), applied) in entries.into_iter().zip(batch_results.into_iter())
             {
                 results[original_index] = applied;
+                provider_updated |= applied;
+            }
+            if provider_updated {
+                self.emit_provider_updated(&provider_name);
             }
         }
         Ok(results)
@@ -1015,7 +1099,7 @@ impl ProviderStore {
         params: HashMap<String, String>,
     ) -> Result<Option<OAuthFlow>, UpstreamError> {
         tracing::info!(provider = provider_name, "oauth flow started");
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         provider.oauth_start(client, &params).await
@@ -1027,7 +1111,7 @@ impl ProviderStore {
         client: &wreq::Client,
         params: HashMap<String, String>,
     ) -> Result<Option<OAuthFinishResult>, UpstreamError> {
-        let Some(provider) = self.providers.load().get(provider_name).cloned() else {
+        let Some(provider) = self.get_runtime(provider_name) else {
             return Ok(None);
         };
         let Some((credential_json, details)) = provider.oauth_finish(client, &params).await? else {
@@ -1045,9 +1129,9 @@ impl ProviderStore {
 
     /// Get the dispatch table for a named provider.
     pub fn get_dispatch_table(&self, name: &str) -> Option<DispatchTable> {
-        let providers = self.providers.load();
-        let provider = providers.get(name)?;
-        Some(provider.dispatch_table().clone())
+        self.providers
+            .get(name)
+            .map(|entry| entry.value().dispatch_table().clone())
     }
 
     pub fn estimate_billing(
@@ -1061,6 +1145,103 @@ impl ProviderStore {
     }
 
     pub(crate) fn get_runtime(&self, name: &str) -> Option<Arc<dyn ProviderRuntime>> {
-        self.providers.load().get(name).cloned()
+        self.providers
+            .get(name)
+            .map(|entry| Arc::clone(entry.value()))
+    }
+
+    fn emit_event(&self, event: EngineEvent) {
+        let _ = self.event_tx.send(event);
+    }
+
+    fn emit_provider_updated(&self, name: &str) {
+        self.emit_event(EngineEvent::ProviderUpdated {
+            name: name.to_string(),
+        });
+    }
+
+    fn emit_health_change(
+        &self,
+        provider_name: &str,
+        index: usize,
+        provider: &Arc<dyn ProviderRuntime>,
+    ) {
+        let Some(snapshot) = provider
+            .health_snapshots()
+            .into_iter()
+            .find(|snapshot| snapshot.index == index)
+        else {
+            return;
+        };
+
+        self.emit_event(EngineEvent::CredentialHealthChanged {
+            provider: provider_name.to_string(),
+            index,
+            status: snapshot.status,
+        });
+    }
+}
+
+impl ProviderRegistry for ProviderStore {
+    fn get_provider(&self, name: &str) -> Result<Option<ProviderSnapshot>, UpstreamError> {
+        ProviderStore::get_provider(self, name)
+    }
+
+    fn list_providers(&self) -> Result<Vec<ProviderSnapshot>, UpstreamError> {
+        ProviderStore::list_providers(self)
+    }
+
+    fn get_credential(
+        &self,
+        provider_name: &str,
+        index: usize,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
+        ProviderStore::get_credential(self, provider_name, index)
+    }
+
+    fn list_credentials(
+        &self,
+        provider_name: Option<&str>,
+    ) -> Result<Vec<CredentialSnapshot>, UpstreamError> {
+        ProviderStore::list_credentials(self, provider_name)
+    }
+}
+
+impl ProviderMutator for ProviderStore {
+    fn upsert_provider_json(
+        &self,
+        config: crate::engine::ProviderConfig,
+    ) -> Result<(), UpstreamError> {
+        ProviderStore::add_provider_json(self, config)
+    }
+
+    fn remove_provider(&self, name: &str) -> bool {
+        ProviderStore::remove_provider(self, name)
+    }
+
+    fn upsert_credential_json(
+        &self,
+        provider_name: &str,
+        index: Option<usize>,
+        credential: Value,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
+        match index {
+            Some(index) => ProviderStore::update_credential(self, provider_name, index, credential),
+            None => ProviderStore::add_credential(self, provider_name, credential),
+        }
+    }
+
+    fn remove_credential(
+        &self,
+        provider_name: &str,
+        index: usize,
+    ) -> Result<Option<CredentialSnapshot>, UpstreamError> {
+        ProviderStore::remove_credential(self, provider_name, index)
+    }
+}
+
+impl EngineEventSource for ProviderStore {
+    fn subscribe(&self) -> broadcast::Receiver<EngineEvent> {
+        ProviderStore::subscribe(self)
     }
 }

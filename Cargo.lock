@@ -1916,11 +1916,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gproxy-routing"
+version = "1.0.0"
+dependencies = [
+ "gproxy-protocol",
+ "http",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "gproxy-sdk"
 version = "1.0.0"
 dependencies = [
  "gproxy-protocol",
  "gproxy-provider",
+ "gproxy-routing",
 ]
 
 [[package]]
@@ -1936,6 +1950,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "gproxy-protocol",
+ "gproxy-routing",
  "gproxy-sdk",
  "gproxy-storage",
  "http",

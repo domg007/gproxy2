@@ -28,3 +28,4 @@ custom = ["gproxy-provider/custom"]
 [dependencies]
 gproxy-protocol = { workspace = true }
 gproxy-provider = { workspace = true }
+gproxy-routing = { workspace = true }

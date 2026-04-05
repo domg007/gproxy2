@@ -47,6 +47,7 @@ pub use response::{
     UpstreamStreamingResponse,
 };
 pub use store::{
-    CredentialHealthSnapshot, CredentialSnapshot, CredentialUpdate, OAuthFinishResult,
-    ProviderSnapshot, ProviderStore, ProviderStoreBuilder,
+    CredentialHealthSnapshot, CredentialSnapshot, CredentialUpdate, EngineEvent, EngineEventSource,
+    OAuthFinishResult, ProviderMutator, ProviderRegistry, ProviderSnapshot, ProviderStore,
+    ProviderStoreBuilder,
 };
