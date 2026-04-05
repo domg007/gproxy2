@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 
 use crate::seaorm::SeaOrmStorage;
 use crate::seaorm::entities::*;
+use crate::write::UsageWrite;
 
 impl SeaOrmStorage {
     pub async fn create_provider(
@@ -127,6 +128,73 @@ impl SeaOrmStorage {
             .await?
             .ok_or_else(|| DbErr::Custom("quota row missing after cost increment".to_string()))?;
         Ok((row.quota, row.cost_used))
+    }
+
+    pub async fn record_usage_and_quota_cost(
+        &self,
+        usage: UsageWrite,
+        cost: f64,
+    ) -> Result<Option<(f64, f64)>, DbErr> {
+        let txn = self.db.begin().await?;
+
+        let quota_state = if cost > 0.0 {
+            let now = OffsetDateTime::now_utc();
+            let model = user_token_usage::ActiveModel {
+                id: NotSet,
+                user_id: Set(usage.user_id.unwrap_or_default()),
+                quota: Set(0.0),
+                cost_used: Set(cost),
+                updated_at: Set(now),
+            };
+            user_token_usage::Entity::insert(model)
+                .on_conflict(
+                    OnConflict::column(user_token_usage::Column::UserId)
+                        .value(
+                            user_token_usage::Column::CostUsed,
+                            Expr::col(user_token_usage::Column::CostUsed).add(cost),
+                        )
+                        .value(user_token_usage::Column::UpdatedAt, Expr::value(now))
+                        .to_owned(),
+                )
+                .exec(&txn)
+                .await?;
+
+            let row = user_token_usage::Entity::find()
+                .filter(user_token_usage::Column::UserId.eq(usage.user_id.unwrap_or_default()))
+                .one(&txn)
+                .await?
+                .ok_or_else(|| {
+                    DbErr::Custom("quota row missing after cost increment".to_string())
+                })?;
+            Some((row.quota, row.cost_used))
+        } else {
+            None
+        };
+
+        usages::Entity::insert(usages::ActiveModel {
+            trace_id: NotSet,
+            downstream_trace_id: Set(usage.downstream_trace_id),
+            at: Set(unix_ms_to_datetime(usage.at_unix_ms)),
+            provider_id: Set(usage.provider_id),
+            credential_id: Set(usage.credential_id),
+            user_id: Set(usage.user_id),
+            user_key_id: Set(usage.user_key_id),
+            operation: Set(usage.operation),
+            protocol: Set(usage.protocol),
+            model: Set(usage.model),
+            input_tokens: Set(usage.input_tokens),
+            output_tokens: Set(usage.output_tokens),
+            cache_read_input_tokens: Set(usage.cache_read_input_tokens),
+            cache_creation_input_tokens: Set(usage.cache_creation_input_tokens),
+            cache_creation_input_tokens_5min: Set(usage.cache_creation_input_tokens_5min),
+            cache_creation_input_tokens_1h: Set(usage.cache_creation_input_tokens_1h),
+            created_at: Set(OffsetDateTime::now_utc()),
+        })
+        .exec(&txn)
+        .await?;
+
+        txn.commit().await?;
+        Ok(quota_state)
     }
 
     pub async fn create_model(
@@ -303,4 +371,9 @@ impl SeaOrmStorage {
             None => value.clone(),
         }
     }
+}
+
+fn unix_ms_to_datetime(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(ms as i128 * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }

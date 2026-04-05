@@ -1121,22 +1121,6 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
                 .map(|billing| billing.total_cost)
         })
         .unwrap_or(0.0);
-    if cost > 0.0 {
-        match ctx
-            .state
-            .storage()
-            .add_user_quota_cost(ctx.user_id, cost)
-            .await
-        {
-            Ok((quota, cost_used)) => {
-                ctx.state
-                    .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
-            }
-            Err(err) => {
-                tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to atomically add quota cost");
-            }
-        }
-    }
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1146,29 +1130,38 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
     let credential_id = ctx
         .credential_index
         .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
-    let _ = ctx
+    let usage_write = gproxy_storage::UsageWrite {
+        downstream_trace_id: ctx.downstream_trace_id,
+        at_unix_ms: now_ms,
+        provider_id,
+        credential_id,
+        user_id: Some(ctx.user_id),
+        user_key_id: Some(ctx.user_key_id),
+        operation: ctx.operation.to_string(),
+        protocol: ctx.protocol.to_string(),
+        model: ctx.model.clone(),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
+        cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
+    };
+    match ctx
         .state
         .storage()
-        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUsage(
-            gproxy_storage::UsageWrite {
-                downstream_trace_id: ctx.downstream_trace_id,
-                at_unix_ms: now_ms,
-                provider_id,
-                credential_id,
-                user_id: Some(ctx.user_id),
-                user_key_id: Some(ctx.user_key_id),
-                operation: ctx.operation.to_string(),
-                protocol: ctx.protocol.to_string(),
-                model: ctx.model.clone(),
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-                cache_read_input_tokens: usage.cache_read_input_tokens,
-                cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
-                cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
-            },
-        ))
-        .await;
+        .record_usage_and_quota_cost(usage_write, cost)
+        .await
+    {
+        Ok(Some((quota, cost_used))) => {
+            ctx.state
+                .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
+        }
+        Ok(None) => {}
+        Err(err) => {
+            tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to persist usage and quota atomically");
+        }
+    }
 }
 
 fn stream_with_usage_tracking(
@@ -1311,22 +1304,6 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
                 .map(|billing| billing.total_cost)
         })
         .unwrap_or(0.0);
-    if cost > 0.0 {
-        match ctx
-            .state
-            .storage()
-            .add_user_quota_cost(ctx.user_id, cost)
-            .await
-        {
-            Ok((quota, cost_used)) => {
-                ctx.state
-                    .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
-            }
-            Err(err) => {
-                tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to atomically add streamed quota cost");
-            }
-        }
-    }
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1336,29 +1313,38 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
     let credential_id = ctx
         .credential_index
         .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
-    let _ = ctx
+    let usage_write = gproxy_storage::UsageWrite {
+        downstream_trace_id: ctx.downstream_trace_id,
+        at_unix_ms: now_ms,
+        provider_id,
+        credential_id,
+        user_id: Some(ctx.user_id),
+        user_key_id: Some(ctx.user_key_id),
+        operation: ctx.operation.to_string(),
+        protocol: ctx.protocol.to_string(),
+        model: ctx.model.clone(),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
+        cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
+    };
+    match ctx
         .state
         .storage()
-        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUsage(
-            gproxy_storage::UsageWrite {
-                downstream_trace_id: ctx.downstream_trace_id,
-                at_unix_ms: now_ms,
-                provider_id,
-                credential_id,
-                user_id: Some(ctx.user_id),
-                user_key_id: Some(ctx.user_key_id),
-                operation: ctx.operation.to_string(),
-                protocol: ctx.protocol.to_string(),
-                model: ctx.model.clone(),
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-                cache_read_input_tokens: usage.cache_read_input_tokens,
-                cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                cache_creation_input_tokens_5min: usage.cache_creation_input_tokens_5min,
-                cache_creation_input_tokens_1h: usage.cache_creation_input_tokens_1h,
-            },
-        ))
-        .await;
+        .record_usage_and_quota_cost(usage_write, cost)
+        .await
+    {
+        Ok(Some((quota, cost_used))) => {
+            ctx.state
+                .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
+        }
+        Ok(None) => {}
+        Err(err) => {
+            tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to persist streamed usage and quota atomically");
+        }
+    }
 }
 
 enum UsageChunkDecoder {
