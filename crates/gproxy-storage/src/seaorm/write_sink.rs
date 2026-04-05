@@ -1,6 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use sea_orm::sea_query::OnConflict;
 use sea_orm::*;
 use time::OffsetDateTime;
@@ -10,19 +7,6 @@ use crate::seaorm::entities::*;
 use crate::write::*;
 
 const UPSERT_CHUNK_SIZE: usize = 256;
-
-impl StorageWriteSink for SeaOrmStorage {
-    fn write_batch<'a>(
-        &'a self,
-        batch: StorageWriteBatch,
-    ) -> Pin<Box<dyn Future<Output = Result<(), StorageWriteSinkError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.apply_batch(batch)
-                .await
-                .map_err(|e| StorageWriteSinkError::new(e.to_string()))
-        })
-    }
-}
 
 impl SeaOrmStorage {
     pub async fn apply_write_event(&self, event: StorageWriteEvent) -> Result<(), DbErr> {
