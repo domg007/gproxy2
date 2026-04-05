@@ -67,7 +67,13 @@ pub async fn upsert_permission(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
+    state
+        .storage()
+        .apply_write_event(
+            gproxy_storage::StorageWriteEvent::UpsertUserModelPermission(payload.clone()),
+        )
+        .await?;
+
     state.upsert_permission_in_memory(
         payload.user_id,
         PermissionEntry {
@@ -75,13 +81,6 @@ pub async fn upsert_permission(
             model_pattern: payload.model_pattern.clone(),
         },
     );
-
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserModelPermission(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -100,19 +99,18 @@ pub async fn delete_permission(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
+    state
+        .storage()
+        .apply_write_event(
+            gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: payload.id },
+        )
+        .await?;
+
     state.remove_permission_from_memory(
         payload.user_id,
         payload.provider_id,
         &payload.model_pattern,
     );
-
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -122,8 +120,13 @@ pub async fn batch_upsert_permissions(
     Json(items): Json<Vec<gproxy_storage::UserModelPermissionWrite>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for item in items {
+        state
+            .storage()
+            .apply_write_event(
+                gproxy_storage::StorageWriteEvent::UpsertUserModelPermission(item.clone()),
+            )
+            .await?;
         state.upsert_permission_in_memory(
             item.user_id,
             PermissionEntry {
@@ -131,10 +134,6 @@ pub async fn batch_upsert_permissions(
                 model_pattern: item.model_pattern.clone(),
             },
         );
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserModelPermission(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -145,13 +144,14 @@ pub async fn batch_delete_permissions(
     Json(payloads): Json<Vec<DeletePermissionPayload>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for p in payloads {
+        state
+            .storage()
+            .apply_write_event(
+                gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: p.id },
+            )
+            .await?;
         state.remove_permission_from_memory(p.user_id, p.provider_id, &p.model_pattern);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: p.id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

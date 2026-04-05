@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use gproxy_sdk::provider::engine::GproxyEngineBuilder;
 use gproxy_server::{AppStateBuilder, GlobalConfig};
-use gproxy_storage::{SeaOrmStorage, StorageWriteEvent, StorageWriteWorkerConfig};
+use gproxy_storage::{SeaOrmStorage, StorageWriteEvent};
 
 #[derive(Parser)]
 #[command(name = "gproxy", about = "High-performance LLM proxy server")]
@@ -70,10 +70,11 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::from_arg_matches(&matches)?;
 
     // 3. Resolve DSN
-    let dsn = cli.dsn.clone().unwrap_or_else(|| {
+    let mut dsn = cli.dsn.clone().unwrap_or_else(|| {
         let db_path = Path::new(&cli.data_dir).join("gproxy.db");
         format!("sqlite://{}?mode=rwc", db_path.display())
     });
+    let mut active_data_dir = cli.data_dir.clone();
 
     // 4. Ensure data directory exists
     std::fs::create_dir_all(&cli.data_dir)?;
@@ -82,18 +83,27 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(dsn = %dsn, "connecting to database");
     let storage = SeaOrmStorage::connect(&dsn, cli.database_secret_key.as_deref()).await?;
     storage.sync().await?;
-    let storage = Arc::new(storage);
+    let mut storage = Arc::new(storage);
     tracing::info!("database schema synced");
 
-    // 6. Storage write channel + worker
-    let (write_tx, write_rx) = gproxy_storage::storage_write_channel(1024);
-    let _write_worker = gproxy_storage::spawn_storage_write_worker(
-        storage.clone(),
-        write_rx,
-        StorageWriteWorkerConfig::default(),
-    );
-
-    let persisted_settings_exist = storage.get_global_settings().await?.is_some();
+    let mut persisted_settings_exist = storage.get_global_settings().await?.is_some();
+    if !is_explicit(&matches, "dsn")
+        && !is_explicit(&matches, "data_dir")
+        && let Some(settings) = storage.get_global_settings().await?
+        && !settings.dsn.is_empty()
+        && settings.dsn != dsn
+    {
+        if !settings.data_dir.is_empty() {
+            std::fs::create_dir_all(&settings.data_dir)?;
+        }
+        tracing::info!(from = %dsn, to = %settings.dsn, "reconnecting to configured database");
+        let reconnected = storage.reconnect(&settings.dsn).await?;
+        reconnected.sync().await?;
+        dsn = settings.dsn;
+        active_data_dir = settings.data_dir;
+        storage = Arc::new(reconnected);
+        persisted_settings_exist = storage.get_global_settings().await?.is_some();
+    }
 
     let config = GlobalConfig {
         host: cli.host.clone(),
@@ -108,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         enable_downstream_log: false,
         enable_downstream_log_body: false,
         dsn: dsn.clone(),
-        data_dir: cli.data_dir.clone(),
+        data_dir: active_data_dir.clone(),
     };
 
     // 8. Build empty engine + AppState
@@ -120,7 +130,6 @@ async fn main() -> anyhow::Result<()> {
         AppStateBuilder::new()
             .engine(engine)
             .storage(storage.clone())
-            .storage_writes(write_tx)
             .config(config)
             .build(),
     );
@@ -204,8 +213,8 @@ async fn main() -> anyhow::Result<()> {
     if persist_global_settings {
         state.replace_config(config.clone());
         state
-            .storage_writes()
-            .enqueue(StorageWriteEvent::UpsertGlobalSettings(
+            .storage()
+            .apply_write_event(StorageWriteEvent::UpsertGlobalSettings(
                 gproxy_storage::GlobalSettingsWrite {
                     host: config.host.clone(),
                     port: config.port,
@@ -227,7 +236,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 10. Build router and start server
     let app = gproxy_api::api_router(state);
-    let bind_addr = format!("{}:{}", cli.host, cli.port);
+    let bind_addr = format!("{}:{}", config.host, config.port);
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!(addr = %bind_addr, "gproxy listening");
 

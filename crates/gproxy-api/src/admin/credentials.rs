@@ -97,34 +97,30 @@ async fn create_credential_and_sync_runtime(
     provider: &ProviderQueryRow,
     credential: serde_json::Value,
 ) -> Result<i64, HttpError> {
-    let store = state.engine().store().clone();
-    let snapshot = store
-        .add_credential(&provider.name, credential.clone())
-        .map_err(|e| HttpError::internal(e.to_string()))?
-        .ok_or_else(|| HttpError::not_found(format!("provider '{}' not found", provider.name)))?;
-
     let credential_json = credential.to_string();
-    let id = match state
+    let id = state
         .storage()
         .create_credential(provider.id, None, &provider.channel, &credential_json, true)
-        .await
-    {
-        Ok(id) => id,
-        Err(err) => {
-            if let Err(remove_err) = store.remove_credential(&provider.name, snapshot.index) {
-                tracing::error!(
-                    provider = %provider.name,
-                    index = snapshot.index,
-                    error = %remove_err,
-                    "failed to roll back runtime credential after database insert error"
-                );
-            }
-            return Err(err.into());
-        }
-    };
+        .await?;
 
-    state.append_provider_credential_id_in_memory(&provider.name, id);
-    Ok(id)
+    let store = state.engine().store().clone();
+    if let Some(snapshot) = store
+        .add_credential(&provider.name, credential.clone())
+        .map_err(|e| HttpError::internal(e.to_string()))?
+    {
+        state.append_provider_credential_id_in_memory(&provider.name, id);
+        let _ = snapshot;
+        return Ok(id);
+    }
+
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteCredential { id })
+        .await?;
+    Err(HttpError::not_found(format!(
+        "provider '{}' not found",
+        provider.name
+    )))
 }
 
 /// Add or update a credential in SDK engine memory + persist to DB.
@@ -152,21 +148,19 @@ pub async fn delete_credential(
     Json(payload): Json<DeleteCredentialPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
+    let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
+        .await?;
     state
         .engine()
         .store()
         .remove_credential(&payload.provider_name, payload.index)
         .map_err(|e| HttpError::internal(e.to_string()))?;
     state.remove_provider_credential_index_in_memory(&payload.provider_name, payload.index);
-    // Persist deletion to DB
-    let provider = resolve_provider_by_name(&state, &payload.provider_name).await?;
-    let cred_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
     state.remove_user_files_for_credential(cred_id);
-    state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -191,21 +185,19 @@ pub async fn batch_delete_credentials(
     authorize_admin(&headers, &state)?;
     let engine = state.engine();
     let store = engine.store();
-    let sender = state.storage_writes();
     // Delete in reverse index order to avoid index shifting
     let mut sorted = items;
     sorted.sort_by(|a, b| b.index.cmp(&a.index));
     for item in &sorted {
-        // Resolve DB id before removing from memory (index is still valid)
         let provider = resolve_provider_by_name(&state, &item.provider_name).await?;
         let cred_id = resolve_credential_db_id(&state, provider.id, item.index).await?;
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
+            .await?;
         let _ = store.remove_credential(&item.provider_name, item.index);
         state.remove_provider_credential_index_in_memory(&item.provider_name, item.index);
         state.remove_user_files_for_credential(cred_id);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteCredential { id: cred_id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -250,14 +242,14 @@ pub async fn update_credential_status(
     let credential_id = resolve_credential_db_id(&state, provider.id, payload.index).await?;
     let engine = state.engine();
     let store = engine.store();
-    let ok = match payload.status.as_str() {
-        "dead" => store.mark_credential_dead(&payload.provider_name, payload.index),
-        "healthy" => store.mark_credential_healthy(&payload.provider_name, payload.index),
-        _ => {
-            return Err(HttpError::bad_request("status must be 'healthy' or 'dead'"));
-        }
-    };
-    if !ok {
+    if !matches!(payload.status.as_str(), "dead" | "healthy") {
+        return Err(HttpError::bad_request("status must be 'healthy' or 'dead'"));
+    }
+    if store
+        .get_credential(&payload.provider_name, payload.index)
+        .map_err(|e| HttpError::internal(e.to_string()))?
+        .is_none()
+    {
         return Err(HttpError::not_found(
             "provider or credential index not found",
         ));
@@ -266,20 +258,29 @@ pub async fn update_credential_status(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
+    let health_kind = payload.status.clone();
     state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertCredentialStatus(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertCredentialStatus(
             gproxy_storage::CredentialStatusWrite {
                 id: None,
                 credential_id,
                 channel: provider.channel,
-                health_kind: payload.status,
+                health_kind,
                 health_json: None,
                 checked_at_unix_ms: Some(now_ms),
                 last_error: None,
             },
         ))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+        .await?;
+    match payload.status.as_str() {
+        "dead" => {
+            store.mark_credential_dead(&payload.provider_name, payload.index);
+        }
+        "healthy" => {
+            store.mark_credential_healthy(&payload.provider_name, payload.index);
+        }
+        _ => unreachable!(),
+    }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

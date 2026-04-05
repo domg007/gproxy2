@@ -107,7 +107,13 @@ pub async fn upsert_model(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertModel(
+            payload.clone(),
+        ))
+        .await?;
+
     let price_tiers: Vec<PriceTier> = payload
         .price_tiers_json
         .as_deref()
@@ -122,13 +128,6 @@ pub async fn upsert_model(
         price_each_call: payload.price_each_call,
         price_tiers,
     });
-
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertModel(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -144,15 +143,12 @@ pub async fn delete_model(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
-    state.remove_model_from_memory(payload.id);
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModel { id: payload.id })
+        .await?;
 
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteModel { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.remove_model_from_memory(payload.id);
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -191,7 +187,13 @@ pub async fn upsert_model_alias(
     // Resolve provider_id → provider_name from storage
     let provider_name = resolve_provider_name(&state, payload.provider_id).await?;
 
-    // Sync in-memory state
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertModelAlias(
+            payload.clone(),
+        ))
+        .await?;
+
     state.upsert_model_alias_in_memory(
         payload.alias.clone(),
         ModelAliasTarget {
@@ -199,13 +201,6 @@ pub async fn upsert_model_alias(
             model_id: payload.model_id.clone(),
         },
     );
-
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertModelAlias(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -222,15 +217,12 @@ pub async fn delete_model_alias(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
-    state.remove_model_alias_from_memory(&payload.alias);
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: payload.id })
+        .await?;
 
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.remove_model_alias_from_memory(&payload.alias);
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -240,8 +232,11 @@ pub async fn batch_upsert_models(
     Json(items): Json<Vec<gproxy_storage::ModelWrite>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for item in items {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertModel(item.clone()))
+            .await?;
         let price_tiers: Vec<PriceTier> = item
             .price_tiers_json
             .as_deref()
@@ -256,10 +251,6 @@ pub async fn batch_upsert_models(
             price_each_call: item.price_each_call,
             price_tiers,
         });
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertModel(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -270,13 +261,12 @@ pub async fn batch_delete_models(
     Json(ids): Json<Vec<i64>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for id in ids {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModel { id })
+            .await?;
         state.remove_model_from_memory(id);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteModel { id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -291,8 +281,13 @@ pub async fn batch_upsert_model_aliases(
     // Build provider_id -> name map for all referenced providers
     let provider_name_map = resolve_provider_names(&state).await?;
 
-    let sender = state.storage_writes();
     for item in items {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertModelAlias(
+                item.clone(),
+            ))
+            .await?;
         let provider_name = provider_name_map
             .get(&item.provider_id)
             .cloned()
@@ -304,10 +299,6 @@ pub async fn batch_upsert_model_aliases(
                 model_id: item.model_id.clone(),
             },
         );
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertModelAlias(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -318,13 +309,12 @@ pub async fn batch_delete_model_aliases(
     Json(payloads): Json<Vec<DeleteModelAliasPayload>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for p in payloads {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: p.id })
+            .await?;
         state.remove_model_alias_from_memory(&p.alias);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: p.id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

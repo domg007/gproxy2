@@ -4,7 +4,7 @@ use crate::error::{AckResponse, HttpError};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use gproxy_sdk::provider::engine::ProviderConfig;
+use gproxy_sdk::provider::engine::{GproxyEngineBuilder, ProviderConfig};
 use gproxy_server::AppState;
 use gproxy_storage::{CredentialQuery, ProviderQuery, ProviderQueryRow, Scope};
 use serde::Serialize;
@@ -142,6 +142,20 @@ async fn sync_provider_runtime(
     Ok(())
 }
 
+fn validate_provider_payload(payload: &gproxy_storage::ProviderWrite) -> Result<(), HttpError> {
+    let settings_json = serde_json::from_str(&payload.settings_json)
+        .map_err(|e| HttpError::bad_request(format!("invalid provider settings_json: {e}")))?;
+    GproxyEngineBuilder::new()
+        .add_provider_json(ProviderConfig {
+            name: payload.name.clone(),
+            channel: payload.channel.clone(),
+            settings_json,
+            credentials: Vec::new(),
+        })
+        .map(|_| ())
+        .map_err(|e| HttpError::bad_request(e.to_string()))
+}
+
 #[derive(Serialize)]
 pub struct ProviderRow {
     pub name: String,
@@ -205,16 +219,18 @@ pub async fn upsert_provider(
     Json(payload): Json<gproxy_storage::ProviderWrite>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    validate_provider_payload(&payload)?;
     let previous_name = load_providers_by_id(&state)
         .await?
         .get(&payload.id)
         .map(|row| row.name.clone());
-    sync_provider_runtime(&state, &payload, previous_name.as_deref()).await?;
     state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertProvider(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertProvider(
+            payload.clone(),
+        ))
+        .await?;
+    sync_provider_runtime(&state, &payload, previous_name.as_deref()).await?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -231,16 +247,15 @@ pub async fn delete_provider(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let provider_id = resolve_provider_id_by_name(&state, &payload.name).await?;
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
+        .await?;
     state.engine().store().remove_provider(&payload.name);
     state.remove_provider_name_from_memory(&payload.name);
     state.remove_provider_channel_from_memory(&payload.name);
     state.remove_provider_credentials_from_memory(&payload.name);
     state.remove_user_files_for_provider(provider_id);
-    state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -251,14 +266,16 @@ pub async fn batch_upsert_providers(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     let existing = load_providers_by_id(&state).await?;
-    let sender = state.storage_writes();
     for item in items {
+        validate_provider_payload(&item)?;
         let previous_name = existing.get(&item.id).map(|row| row.name.as_str());
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertProvider(
+                item.clone(),
+            ))
+            .await?;
         sync_provider_runtime(&state, &item, previous_name).await?;
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertProvider(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -269,18 +286,19 @@ pub async fn batch_delete_providers(
     Json(names): Json<Vec<String>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for name in &names {
         let provider_id = resolve_provider_id_by_name(&state, name).await?;
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteProvider {
+                id: provider_id,
+            })
+            .await?;
         state.engine().store().remove_provider(name);
         state.remove_provider_name_from_memory(name);
         state.remove_provider_channel_from_memory(name);
         state.remove_provider_credentials_from_memory(name);
         state.remove_user_files_for_provider(provider_id);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteProvider { id: provider_id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

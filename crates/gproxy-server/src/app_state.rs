@@ -5,7 +5,7 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 use gproxy_sdk::provider::engine::GproxyEngine;
-use gproxy_storage::{SeaOrmStorage, StorageWriteSender};
+use gproxy_storage::SeaOrmStorage;
 
 use crate::config::GlobalConfig;
 use crate::middleware::model_alias::ModelAliasTarget;
@@ -77,7 +77,6 @@ pub struct MemoryClaudeFile {
 pub struct AppState {
     engine: ArcSwap<GproxyEngine>,
     storage: Arc<ArcSwap<SeaOrmStorage>>,
-    storage_writes: StorageWriteSender,
     config: ArcSwap<GlobalConfig>,
     users: ArcSwap<Vec<MemoryUser>>,
     keys: ArcSwap<HashMap<String, MemoryUserKey>>,
@@ -105,10 +104,6 @@ impl AppState {
 
     pub fn storage(&self) -> Arc<SeaOrmStorage> {
         self.storage.load_full()
-    }
-
-    pub fn storage_writes(&self) -> &StorageWriteSender {
-        &self.storage_writes
     }
 
     pub fn config(&self) -> Arc<GlobalConfig> {
@@ -239,6 +234,10 @@ impl AppState {
         *entry.value()
     }
 
+    pub fn upsert_user_quota_in_memory(&self, user_id: i64, quota: f64, cost_used: f64) {
+        self.user_quotas.insert(user_id, (quota, cost_used));
+    }
+
     pub fn provider_id_for_name(&self, provider_name: &str) -> Option<i64> {
         self.provider_names.load().get(provider_name).copied()
     }
@@ -320,6 +319,10 @@ impl AppState {
 
     pub fn replace_engine(&self, engine: GproxyEngine) {
         self.engine.store(Arc::new(engine));
+    }
+
+    pub fn replace_engine_arc(&self, engine: Arc<GproxyEngine>) {
+        self.engine.store(engine);
     }
 
     pub fn replace_storage(&self, storage: SeaOrmStorage) {
@@ -647,7 +650,6 @@ impl AppState {
 pub struct AppStateBuilder {
     engine: Option<GproxyEngine>,
     storage: Option<Arc<SeaOrmStorage>>,
-    storage_writes: Option<StorageWriteSender>,
     config: Option<GlobalConfig>,
     users: Vec<MemoryUser>,
     keys: Vec<MemoryUserKey>,
@@ -658,7 +660,6 @@ impl AppStateBuilder {
         Self {
             engine: None,
             storage: None,
-            storage_writes: None,
             config: None,
             users: Vec::new(),
             keys: Vec::new(),
@@ -672,11 +673,6 @@ impl AppStateBuilder {
 
     pub fn storage(mut self, storage: Arc<SeaOrmStorage>) -> Self {
         self.storage = Some(storage);
-        self
-    }
-
-    pub fn storage_writes(mut self, sender: StorageWriteSender) -> Self {
-        self.storage_writes = Some(sender);
         self
     }
 
@@ -696,6 +692,7 @@ impl AppStateBuilder {
     }
 
     pub fn build(self) -> AppState {
+        let config = self.config.unwrap_or_default();
         let key_map: HashMap<String, MemoryUserKey> = self
             .keys
             .into_iter()
@@ -707,8 +704,7 @@ impl AppStateBuilder {
             storage: Arc::new(ArcSwap::from_pointee(
                 (*self.storage.expect("SeaOrmStorage is required")).clone(),
             )),
-            storage_writes: self.storage_writes.expect("StorageWriteSender is required"),
-            config: ArcSwap::from_pointee(self.config.unwrap_or_default()),
+            config: ArcSwap::from_pointee(config.clone()),
             users: ArcSwap::from_pointee(self.users),
             keys: ArcSwap::from_pointee(key_map),
             models: ArcSwap::from_pointee(Vec::new()),

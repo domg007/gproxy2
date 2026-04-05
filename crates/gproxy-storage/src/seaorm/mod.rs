@@ -17,12 +17,20 @@ pub struct SeaOrmStorage {
 
 impl SeaOrmStorage {
     pub async fn connect(dsn: &str, database_secret_key: Option<&str>) -> Result<Self, DbErr> {
+        let cipher = DatabaseCipher::from_optional_secret(database_secret_key)
+            .map_err(|err| DbErr::Custom(format!("load DATABASE_SECRET_KEY: {err}")))?;
+        Self::connect_with_cipher(dsn, cipher).await
+    }
+
+    pub async fn reconnect(&self, dsn: &str) -> Result<Self, DbErr> {
+        Self::connect_with_cipher(dsn, self.cipher.clone()).await
+    }
+
+    async fn connect_with_cipher(dsn: &str, cipher: Option<DatabaseCipher>) -> Result<Self, DbErr> {
         let mut options = ConnectOptions::new(dsn.to_string());
         optimize::configure_connect_options(&mut options);
         let db = Database::connect(options).await?;
         optimize::apply_after_connect(&db).await?;
-        let cipher = DatabaseCipher::from_optional_secret(database_secret_key)
-            .map_err(|err| DbErr::Custom(format!("load DATABASE_SECRET_KEY: {err}")))?;
         Ok(Self { db, cipher })
     }
 

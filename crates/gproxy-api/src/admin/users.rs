@@ -66,17 +66,18 @@ pub async fn upsert_user(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     payload.password = normalize_password_for_storage(&payload.password);
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUser(
+            payload.clone(),
+        ))
+        .await?;
     state.upsert_user_in_memory(gproxy_server::MemoryUser {
         id: payload.id,
         name: payload.name.clone(),
         enabled: payload.enabled,
         password_hash: payload.password.clone(),
     });
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -91,12 +92,11 @@ pub async fn delete_user(
     Json(payload): Json<DeleteUserPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUser { id: payload.id })
+        .await?;
     state.remove_user_from_memory(payload.id);
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -180,12 +180,11 @@ pub async fn delete_user_key(
     Json(payload): Json<DeleteUserKeyPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: payload.id })
+        .await?;
     state.remove_key_from_memory(payload.id);
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -195,19 +194,18 @@ pub async fn batch_upsert_users(
     Json(items): Json<Vec<gproxy_storage::UserWrite>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for mut item in items {
         item.password = normalize_password_for_storage(&item.password);
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUser(item.clone()))
+            .await?;
         state.upsert_user_in_memory(gproxy_server::MemoryUser {
             id: item.id,
             name: item.name.clone(),
             enabled: item.enabled,
             password_hash: item.password.clone(),
         });
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUser(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -218,13 +216,12 @@ pub async fn batch_delete_users(
     Json(ids): Json<Vec<i64>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for id in &ids {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUser { id: *id })
+            .await?;
         state.remove_user_from_memory(*id);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUser { id: *id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -235,13 +232,12 @@ pub async fn batch_delete_user_keys(
     Json(ids): Json<Vec<i64>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for id in &ids {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: *id })
+            .await?;
         state.remove_key_from_memory(*id);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserKey { id: *id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

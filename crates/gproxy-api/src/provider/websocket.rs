@@ -609,8 +609,8 @@ async fn run_ws_bridge_with_protocol(
         };
         let _ = ctx
             .state
-            .storage_writes()
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
                 gproxy_storage::DownstreamRequestWrite {
                     trace_id: ctx.trace_id,
                     at_unix_ms: now_ms,
@@ -861,8 +861,8 @@ async fn record_ws_upstream_log(
     let provider_id = state.provider_id_for_name(provider_name);
     let credential_id = state.credential_id_for_index(provider_name, meta.credential_index);
     let _ = state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
             gproxy_storage::UpstreamRequestWrite {
                 downstream_trace_id: Some(trace_id),
                 at_unix_ms: now_ms,

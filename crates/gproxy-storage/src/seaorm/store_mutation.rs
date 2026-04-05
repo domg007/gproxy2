@@ -1,4 +1,4 @@
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::*;
 use time::OffsetDateTime;
 
@@ -97,6 +97,36 @@ impl SeaOrmStorage {
         };
         let result = user_keys::Entity::insert(model).exec(&self.db).await?;
         Ok(result.last_insert_id)
+    }
+
+    pub async fn add_user_quota_cost(&self, user_id: i64, cost: f64) -> Result<(f64, f64), DbErr> {
+        let now = OffsetDateTime::now_utc();
+        let model = user_token_usage::ActiveModel {
+            id: NotSet,
+            user_id: Set(user_id),
+            quota: Set(0.0),
+            cost_used: Set(cost),
+            updated_at: Set(now),
+        };
+        user_token_usage::Entity::insert(model)
+            .on_conflict(
+                OnConflict::column(user_token_usage::Column::UserId)
+                    .value(
+                        user_token_usage::Column::CostUsed,
+                        Expr::col(user_token_usage::Column::CostUsed).add(cost),
+                    )
+                    .value(user_token_usage::Column::UpdatedAt, Expr::value(now))
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+
+        let row = user_token_usage::Entity::find()
+            .filter(user_token_usage::Column::UserId.eq(user_id))
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| DbErr::Custom("quota row missing after cost increment".to_string()))?;
+        Ok((row.quota, row.cost_used))
     }
 
     pub async fn create_model(

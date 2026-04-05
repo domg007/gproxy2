@@ -61,7 +61,13 @@ pub async fn upsert_rate_limit(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUserRateLimit(
+            payload.clone(),
+        ))
+        .await?;
+
     state.upsert_rate_limit_in_memory(
         payload.user_id,
         RateLimitRule {
@@ -71,15 +77,6 @@ pub async fn upsert_rate_limit(
             total_tokens: payload.total_tokens,
         },
     );
-
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserRateLimit(
-            payload,
-        ))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -97,15 +94,14 @@ pub async fn delete_rate_limit(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    // Sync in-memory state
-    state.remove_rate_limit_from_memory(payload.user_id, &payload.model_pattern);
+    state
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit {
+            id: payload.id,
+        })
+        .await?;
 
-    // Enqueue DB write
-    let sender = state.storage_writes();
-    sender
-        .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id: payload.id })
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+    state.remove_rate_limit_from_memory(payload.user_id, &payload.model_pattern);
     Ok(Json(AckResponse { ok: true, id: None }))
 }
 
@@ -115,8 +111,13 @@ pub async fn batch_upsert_rate_limits(
     Json(items): Json<Vec<gproxy_storage::UserRateLimitWrite>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for item in items {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUserRateLimit(
+                item.clone(),
+            ))
+            .await?;
         state.upsert_rate_limit_in_memory(
             item.user_id,
             RateLimitRule {
@@ -126,10 +127,6 @@ pub async fn batch_upsert_rate_limits(
                 total_tokens: item.total_tokens,
             },
         );
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserRateLimit(item))
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }
@@ -140,13 +137,12 @@ pub async fn batch_delete_rate_limits(
     Json(payloads): Json<Vec<DeleteRateLimitPayload>>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
-    let sender = state.storage_writes();
     for p in payloads {
+        state
+            .storage()
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id: p.id })
+            .await?;
         state.remove_rate_limit_from_memory(p.user_id, &p.model_pattern);
-        sender
-            .enqueue(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id: p.id })
-            .await
-            .map_err(|e| HttpError::internal(e.to_string()))?;
     }
     Ok(Json(AckResponse { ok: true, id: None }))
 }

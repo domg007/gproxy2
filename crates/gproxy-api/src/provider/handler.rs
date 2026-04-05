@@ -1014,18 +1014,10 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
                 active: true,
                 created_at_unix_ms: now_ms,
             };
-            ctx.state.upsert_user_file_in_memory(file_record);
-            ctx.state
-                .upsert_claude_file_in_memory(gproxy_server::MemoryClaudeFile {
-                    provider_id,
-                    file_id: metadata.id.clone(),
-                    file_created_at_unix_ms: parse_claude_timestamp_ms(&metadata.created_at),
-                    metadata: metadata.clone(),
-                });
             let _ = ctx
                 .state
-                .storage_writes()
-                .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
+                .storage()
+                .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
                     gproxy_storage::UserCredentialFileWrite {
                         user_id: ctx.user_id,
                         user_key_id: ctx.user_key_id,
@@ -1041,8 +1033,8 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
                 .await;
             let _ = ctx
                 .state
-                .storage_writes()
-                .enqueue(gproxy_storage::StorageWriteEvent::UpsertClaudeFile(
+                .storage()
+                .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertClaudeFile(
                     gproxy_storage::ClaudeFileWrite {
                         provider_id,
                         file_id: metadata.id.clone(),
@@ -1057,6 +1049,14 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
                     },
                 ))
                 .await;
+            ctx.state.upsert_user_file_in_memory(file_record);
+            ctx.state
+                .upsert_claude_file_in_memory(gproxy_server::MemoryClaudeFile {
+                    provider_id,
+                    file_id: metadata.id.clone(),
+                    file_created_at_unix_ms: parse_claude_timestamp_ms(&metadata.created_at),
+                    metadata: metadata.clone(),
+                });
         }
         OperationFamily::FileDelete => {
             if !(200..=299).contains(&ctx.result_status) {
@@ -1069,12 +1069,10 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as i64;
-            ctx.state
-                .deactivate_user_file_in_memory(file.user_id, file.provider_id, &file.file_id);
             let _ = ctx
                 .state
-                .storage_writes()
-                .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
+                .storage()
+                .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUserCredentialFile(
                     gproxy_storage::UserCredentialFileWrite {
                         user_id: file.user_id,
                         user_key_id: file.user_key_id,
@@ -1088,6 +1086,8 @@ async fn persist_claude_file_side_effects(ctx: ClaudeFileSideEffectsContext<'_>)
                     },
                 ))
                 .await;
+            ctx.state
+                .deactivate_user_file_in_memory(file.user_id, file.provider_id, &file.file_id);
         }
         _ => {}
     }
@@ -1122,18 +1122,20 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
         })
         .unwrap_or(0.0);
     if cost > 0.0 {
-        let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
-        let _ = ctx
+        match ctx
             .state
-            .storage_writes()
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserQuota(
-                gproxy_storage::UserQuotaWrite {
-                    user_id: ctx.user_id,
-                    quota,
-                    cost_used,
-                },
-            ))
-            .await;
+            .storage()
+            .add_user_quota_cost(ctx.user_id, cost)
+            .await
+        {
+            Ok((quota, cost_used)) => {
+                ctx.state
+                    .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
+            }
+            Err(err) => {
+                tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to atomically add quota cost");
+            }
+        }
     }
 
     let now_ms = std::time::SystemTime::now()
@@ -1146,8 +1148,8 @@ pub(crate) async fn record_usage(ctx: &UsageRecordContext, usage: &Usage) {
         .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
     let _ = ctx
         .state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
                 downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
@@ -1310,18 +1312,20 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
         })
         .unwrap_or(0.0);
     if cost > 0.0 {
-        let (quota, cost_used) = ctx.state.add_cost_usage(ctx.user_id, cost);
-        let _ = ctx
+        match ctx
             .state
-            .storage_writes()
-            .enqueue(gproxy_storage::StorageWriteEvent::UpsertUserQuota(
-                gproxy_storage::UserQuotaWrite {
-                    user_id: ctx.user_id,
-                    quota,
-                    cost_used,
-                },
-            ))
-            .await;
+            .storage()
+            .add_user_quota_cost(ctx.user_id, cost)
+            .await
+        {
+            Ok((quota, cost_used)) => {
+                ctx.state
+                    .upsert_user_quota_in_memory(ctx.user_id, quota, cost_used);
+            }
+            Err(err) => {
+                tracing::error!(user_id = ctx.user_id, cost, error = %err, "failed to atomically add streamed quota cost");
+            }
+        }
     }
 
     let now_ms = std::time::SystemTime::now()
@@ -1334,8 +1338,8 @@ async fn record_stream_usage(ctx: &UsageRecordContext, usage: Usage) {
         .and_then(|index| ctx.state.credential_id_for_index(&ctx.provider_name, index));
     let _ = ctx
         .state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUsage(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUsage(
             gproxy_storage::UsageWrite {
                 downstream_trace_id: ctx.downstream_trace_id,
                 at_unix_ms: now_ms,
@@ -1939,8 +1943,8 @@ async fn record_upstream_log(
         .credential_index
         .and_then(|index| state.credential_id_for_index(provider_name, index));
     let _ = state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertUpstreamRequest(
             gproxy_storage::UpstreamRequestWrite {
                 downstream_trace_id: Some(trace_id),
                 at_unix_ms: now_ms,
@@ -1991,8 +1995,8 @@ async fn record_downstream_log(
         .unwrap_or_default()
         .as_millis() as i64;
     let _ = state
-        .storage_writes()
-        .enqueue(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
+        .storage()
+        .apply_write_event(gproxy_storage::StorageWriteEvent::UpsertDownstreamRequest(
             gproxy_storage::DownstreamRequestWrite {
                 trace_id,
                 at_unix_ms: now_ms,

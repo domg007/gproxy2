@@ -56,37 +56,67 @@ pub async fn upsert_global_settings(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
 
-    state.replace_config(gproxy_server::GlobalConfig {
-        host: payload.host.clone(),
-        port: payload.port,
-        admin_key: payload.admin_key.clone(),
-        proxy: payload.proxy.clone(),
-        spoof_emulation: payload.spoof_emulation.clone(),
-        update_source: payload.update_source.clone(),
-        enable_usage: payload.enable_usage,
-        enable_upstream_log: payload.enable_upstream_log,
-        enable_upstream_log_body: payload.enable_upstream_log_body,
-        enable_downstream_log: payload.enable_downstream_log,
-        enable_downstream_log_body: payload.enable_downstream_log_body,
-        dsn: payload.dsn.clone(),
-        data_dir: payload.data_dir.clone(),
-    });
+    let current = state.config();
+    let dsn_changed = payload.dsn != current.dsn;
 
-    // Rebuild engine if any engine-relevant settings changed
-    let new_engine = state.engine().with_settings(
-        payload.proxy.as_deref(),
-        Some(payload.spoof_emulation.as_str()),
-        payload.enable_usage,
-        payload.enable_upstream_log,
-        payload.enable_upstream_log_body,
-    );
-    state.replace_engine(new_engine);
+    if dsn_changed {
+        // Intentional design: changing DSN is a cutover to a different database,
+        // not an in-place migration of data from the previous one.
+        if !payload.data_dir.is_empty() {
+            std::fs::create_dir_all(&payload.data_dir)
+                .map_err(|e| HttpError::internal(format!("create data dir: {e}")))?;
+        }
 
-    state
-        .storage_writes()
-        .enqueue(StorageWriteEvent::UpsertGlobalSettings(payload))
-        .await
-        .map_err(|e| HttpError::internal(e.to_string()))?;
+        let previous_storage = state.storage();
+        let previous_config = state.config();
+        let previous_engine = state.engine();
+
+        let new_storage = previous_storage.reconnect(&payload.dsn).await?;
+        new_storage.sync().await?;
+        new_storage
+            .apply_write_event(StorageWriteEvent::UpsertGlobalSettings(payload))
+            .await?;
+
+        state.replace_storage(new_storage);
+        if let Err(err) = crate::bootstrap::reload_from_db(&state).await {
+            state.replace_storage((*previous_storage).clone());
+            state.replace_config((*previous_config).clone());
+            state.replace_engine_arc(previous_engine);
+            return Err(HttpError::internal(format!(
+                "reload after DSN change failed: {err}"
+            )));
+        }
+    } else {
+        state
+            .storage()
+            .apply_write_event(StorageWriteEvent::UpsertGlobalSettings(payload.clone()))
+            .await?;
+
+        state.replace_config(gproxy_server::GlobalConfig {
+            host: payload.host.clone(),
+            port: payload.port,
+            admin_key: payload.admin_key.clone(),
+            proxy: payload.proxy.clone(),
+            spoof_emulation: payload.spoof_emulation.clone(),
+            update_source: payload.update_source.clone(),
+            enable_usage: payload.enable_usage,
+            enable_upstream_log: payload.enable_upstream_log,
+            enable_upstream_log_body: payload.enable_upstream_log_body,
+            enable_downstream_log: payload.enable_downstream_log,
+            enable_downstream_log_body: payload.enable_downstream_log_body,
+            dsn: payload.dsn.clone(),
+            data_dir: payload.data_dir.clone(),
+        });
+
+        let new_engine = state.engine().with_settings(
+            payload.proxy.as_deref(),
+            Some(payload.spoof_emulation.as_str()),
+            payload.enable_usage,
+            payload.enable_upstream_log,
+            payload.enable_upstream_log_body,
+        );
+        state.replace_engine(new_engine);
+    }
 
     Ok(Json(AckResponse { ok: true, id: None }))
 }

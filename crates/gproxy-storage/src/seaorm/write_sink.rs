@@ -25,6 +25,16 @@ impl StorageWriteSink for SeaOrmStorage {
 }
 
 impl SeaOrmStorage {
+    pub async fn apply_write_event(&self, event: StorageWriteEvent) -> Result<(), DbErr> {
+        let mut batch = StorageWriteBatch::default();
+        batch.apply(event);
+        self.apply_write_batch(batch).await
+    }
+
+    pub async fn apply_write_batch(&self, batch: StorageWriteBatch) -> Result<(), DbErr> {
+        self.apply_batch(batch).await
+    }
+
     async fn apply_batch(&self, batch: StorageWriteBatch) -> Result<(), DbErr> {
         if batch.is_empty() {
             return Ok(());
