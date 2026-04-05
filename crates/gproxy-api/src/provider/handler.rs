@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_stream::try_stream;
@@ -281,6 +282,44 @@ pub async fn proxy_unscoped(
     let req_headers_json = headers_to_json(&headers);
     let user_key = authenticated.0;
 
+    let classification = request
+        .extensions()
+        .get::<Classification>()
+        .cloned()
+        .ok_or_else(|| HttpError::bad_request("request not classified"))?;
+
+    if classification.operation == OperationFamily::ModelList {
+        let req_body = build_execute_body(
+            classification.operation,
+            &req_path,
+            req_query.as_deref(),
+            buffered_request_body(&request)?,
+        );
+        return Ok(respond_with_local_json(
+            LocalJsonResponseContext {
+                state: &state,
+                start,
+                trace_id,
+                user_id: user_key.user_id,
+                user_key_id: user_key.id,
+                req_method: &req_method,
+                req_path: &req_path,
+                req_query: req_query.as_deref(),
+                req_headers_json: &req_headers_json,
+                req_body: Some(&req_body),
+            },
+            build_unscoped_model_list_body(
+                &state,
+                user_key.user_id,
+                resolve_unscoped_model_list_protocol(&req_path, classification.protocol),
+                &headers,
+                trace_id,
+            )
+            .await?,
+        )
+        .await);
+    }
+
     let model = request
         .extensions()
         .get::<ExtractedModel>()
@@ -289,12 +328,6 @@ pub async fn proxy_unscoped(
     let Some(model_name) = &model else {
         return Err(HttpError::bad_request("missing model in request"));
     };
-
-    let classification = request
-        .extensions()
-        .get::<Classification>()
-        .cloned()
-        .ok_or_else(|| HttpError::bad_request("request not classified"))?;
 
     let req_body = build_execute_body(
         classification.operation,
@@ -709,6 +742,10 @@ fn file_rate_limit_key(provider_name: &str, operation: OperationFamily) -> Strin
     format!("file/{provider_name}/{operation}")
 }
 
+struct AggregatedModelListEntry {
+    provider_name: String,
+}
+
 fn is_claude_file_provider(state: &AppState, provider_name: &str) -> bool {
     state
         .provider_channel_for_name(provider_name)
@@ -760,6 +797,355 @@ fn parse_claude_timestamp_ms(raw: &str) -> i64 {
     time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
         .map(|dt| dt.unix_timestamp_nanos() as i64 / 1_000_000)
         .unwrap_or_default()
+}
+
+fn resolve_unscoped_model_list_protocol(req_path: &str, classified: ProtocolKind) -> ProtocolKind {
+    if req_path.starts_with("/v1beta/") {
+        ProtocolKind::Gemini
+    } else {
+        classified
+    }
+}
+
+fn prefixed_model_id(provider_name: &str, model_id: &str) -> String {
+    format!("{provider_name}/{model_id}")
+}
+
+async fn collect_unscoped_authorized_models(
+    state: &AppState,
+    user_id: i64,
+) -> Result<Vec<AggregatedModelListEntry>, HttpError> {
+    let mut providers: Vec<AggregatedModelListEntry> = state
+        .storage()
+        .list_providers(&gproxy_storage::ProviderQuery::default())
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?
+        .into_iter()
+        .filter(|provider| state.check_provider_access(user_id, &provider.name))
+        .map(|provider| AggregatedModelListEntry {
+            provider_name: provider.name,
+        })
+        .collect();
+    providers.sort_by(|left, right| left.provider_name.cmp(&right.provider_name));
+    Ok(providers)
+}
+
+fn build_live_model_list_request_body(protocol: ProtocolKind) -> Vec<u8> {
+    match protocol {
+        ProtocolKind::Claude => serde_json::to_vec(&serde_json::json!({
+            "query": { "limit": 1000 }
+        }))
+        .unwrap_or_default(),
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
+            serde_json::to_vec(&serde_json::json!({
+                "query": { "pageSize": 1000 }
+            }))
+            .unwrap_or_default()
+        }
+        _ => Vec::new(),
+    }
+}
+
+async fn execute_live_model_list(
+    state: &AppState,
+    provider_name: &str,
+    protocol: ProtocolKind,
+    headers: &http::HeaderMap,
+) -> Result<gproxy_sdk::provider::engine::ExecuteResult, HttpError> {
+    state
+        .engine()
+        .execute(ExecuteRequest {
+            provider: provider_name.to_string(),
+            operation: OperationFamily::ModelList,
+            protocol,
+            body: build_live_model_list_request_body(protocol),
+            headers: headers.clone(),
+            model: None,
+            forced_credential_index: None,
+        })
+        .await
+        .map_err(Into::into)
+}
+
+fn raw_gemini_model_id(name: &str) -> &str {
+    name.strip_prefix("models/").unwrap_or(name)
+}
+
+async fn build_openai_unscoped_model_list_body(
+    state: &AppState,
+    user_id: i64,
+    headers: &http::HeaderMap,
+    trace_id: i64,
+) -> Result<Vec<u8>, HttpError> {
+    let providers = collect_unscoped_authorized_models(state, user_id).await?;
+    let mut models: HashMap<String, gproxy_sdk::protocol::openai::types::OpenAiModel> =
+        HashMap::new();
+    let mut success_count = 0usize;
+    let mut last_error = None;
+
+    for provider in providers {
+        match execute_live_model_list(
+            state,
+            &provider.provider_name,
+            ProtocolKind::OpenAi,
+            headers,
+        )
+        .await
+        {
+            Ok(result) => {
+                record_upstream_log(
+                    state,
+                    trace_id,
+                    &provider.provider_name,
+                    result.meta.as_ref(),
+                )
+                .await;
+                if !(200..=299).contains(&result.status) {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' model list failed with HTTP {}",
+                        provider.provider_name, result.status
+                    )));
+                    continue;
+                }
+                let ExecuteBody::Full(body) = result.body else {
+                    continue;
+                };
+                let Ok(response) = serde_json::from_slice::<
+                    gproxy_sdk::protocol::openai::types::OpenAiModelList,
+                >(&body) else {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' returned invalid OpenAI model list body",
+                        provider.provider_name
+                    )));
+                    continue;
+                };
+                success_count += 1;
+                for mut model in response.data {
+                    if !state.check_model_permission(user_id, &provider.provider_name, &model.id) {
+                        continue;
+                    }
+                    model.id = prefixed_model_id(&provider.provider_name, &model.id);
+                    model.owned_by = provider.provider_name.clone();
+                    models.insert(model.id.clone(), model);
+                }
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    if success_count == 0 && !models.is_empty() {
+        success_count = 1;
+    }
+    if success_count == 0 {
+        if let Some(err) = last_error {
+            return Err(err);
+        }
+    }
+
+    let mut data: Vec<_> = models.into_values().collect();
+    data.sort_by(|left, right| left.id.cmp(&right.id));
+    let body = gproxy_sdk::protocol::openai::types::OpenAiModelList {
+        data,
+        object: gproxy_sdk::protocol::openai::types::OpenAiListObject::List,
+    };
+    serde_json::to_vec(&body).map_err(|e| HttpError::internal(e.to_string()))
+}
+
+async fn build_claude_unscoped_model_list_body(
+    state: &AppState,
+    user_id: i64,
+    headers: &http::HeaderMap,
+    trace_id: i64,
+) -> Result<Vec<u8>, HttpError> {
+    let providers = collect_unscoped_authorized_models(state, user_id).await?;
+    let mut models: HashMap<String, gproxy_sdk::protocol::claude::types::BetaModelInfo> =
+        HashMap::new();
+    let mut success_count = 0usize;
+    let mut last_error = None;
+
+    for provider in providers {
+        match execute_live_model_list(
+            state,
+            &provider.provider_name,
+            ProtocolKind::Claude,
+            headers,
+        )
+        .await
+        {
+            Ok(result) => {
+                record_upstream_log(
+                    state,
+                    trace_id,
+                    &provider.provider_name,
+                    result.meta.as_ref(),
+                )
+                .await;
+                if !(200..=299).contains(&result.status) {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' model list failed with HTTP {}",
+                        provider.provider_name, result.status
+                    )));
+                    continue;
+                }
+                let ExecuteBody::Full(body) = result.body else {
+                    continue;
+                };
+                let Ok(response) = serde_json::from_slice::<
+                    gproxy_sdk::protocol::claude::model_list::response::ResponseBody,
+                >(&body) else {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' returned invalid Claude model list body",
+                        provider.provider_name
+                    )));
+                    continue;
+                };
+                success_count += 1;
+                for mut model in response.data {
+                    if !state.check_model_permission(user_id, &provider.provider_name, &model.id) {
+                        continue;
+                    }
+                    model.id = prefixed_model_id(&provider.provider_name, &model.id);
+                    models.insert(model.id.clone(), model);
+                }
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    if success_count == 0 && !models.is_empty() {
+        success_count = 1;
+    }
+    if success_count == 0 {
+        if let Some(err) = last_error {
+            return Err(err);
+        }
+    }
+
+    let mut data: Vec<_> = models.into_values().collect();
+    data.sort_by(|left, right| left.id.cmp(&right.id));
+    let body = gproxy_sdk::protocol::claude::model_list::response::ResponseBody {
+        first_id: data
+            .first()
+            .map(|model| model.id.clone())
+            .unwrap_or_default(),
+        has_more: false,
+        last_id: data
+            .last()
+            .map(|model| model.id.clone())
+            .unwrap_or_default(),
+        data,
+    };
+    serde_json::to_vec(&body).map_err(|e| HttpError::internal(e.to_string()))
+}
+
+async fn build_gemini_unscoped_model_list_body(
+    state: &AppState,
+    user_id: i64,
+    headers: &http::HeaderMap,
+    trace_id: i64,
+) -> Result<Vec<u8>, HttpError> {
+    let providers = collect_unscoped_authorized_models(state, user_id).await?;
+    let mut models: HashMap<String, gproxy_sdk::protocol::gemini::types::GeminiModelInfo> =
+        HashMap::new();
+    let mut success_count = 0usize;
+    let mut last_error = None;
+
+    for provider in providers {
+        match execute_live_model_list(
+            state,
+            &provider.provider_name,
+            ProtocolKind::Gemini,
+            headers,
+        )
+        .await
+        {
+            Ok(result) => {
+                record_upstream_log(
+                    state,
+                    trace_id,
+                    &provider.provider_name,
+                    result.meta.as_ref(),
+                )
+                .await;
+                if !(200..=299).contains(&result.status) {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' model list failed with HTTP {}",
+                        provider.provider_name, result.status
+                    )));
+                    continue;
+                }
+                let ExecuteBody::Full(body) = result.body else {
+                    continue;
+                };
+                let Ok(response) = serde_json::from_slice::<
+                    gproxy_sdk::protocol::gemini::model_list::response::ResponseBody,
+                >(&body) else {
+                    last_error = Some(HttpError::internal(format!(
+                        "provider '{}' returned invalid Gemini model list body",
+                        provider.provider_name
+                    )));
+                    continue;
+                };
+                success_count += 1;
+                for mut model in response.models {
+                    let raw_model_id = raw_gemini_model_id(&model.name).to_string();
+                    if !state.check_model_permission(
+                        user_id,
+                        &provider.provider_name,
+                        &raw_model_id,
+                    ) {
+                        continue;
+                    }
+                    let prefixed_id = prefixed_model_id(&provider.provider_name, &raw_model_id);
+                    model.name = format!("models/{prefixed_id}");
+                    model.base_model_id = model
+                        .base_model_id
+                        .take()
+                        .map(|base_model_id| {
+                            prefixed_model_id(&provider.provider_name, &base_model_id)
+                        })
+                        .or_else(|| Some(prefixed_id.clone()));
+                    models.insert(model.name.clone(), model);
+                }
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    if success_count == 0 && !models.is_empty() {
+        success_count = 1;
+    }
+    if success_count == 0 {
+        if let Some(err) = last_error {
+            return Err(err);
+        }
+    }
+
+    let mut data: Vec<_> = models.into_values().collect();
+    data.sort_by(|left, right| left.name.cmp(&right.name));
+    let body = gproxy_sdk::protocol::gemini::model_list::response::ResponseBody {
+        models: data,
+        next_page_token: None,
+    };
+    serde_json::to_vec(&body).map_err(|e| HttpError::internal(e.to_string()))
+}
+
+async fn build_unscoped_model_list_body(
+    state: &AppState,
+    user_id: i64,
+    protocol: ProtocolKind,
+    headers: &http::HeaderMap,
+    trace_id: i64,
+) -> Result<Vec<u8>, HttpError> {
+    match protocol {
+        ProtocolKind::Claude => {
+            build_claude_unscoped_model_list_body(state, user_id, headers, trace_id).await
+        }
+        ProtocolKind::Gemini | ProtocolKind::GeminiNDJson => {
+            build_gemini_unscoped_model_list_body(state, user_id, headers, trace_id).await
+        }
+        _ => build_openai_unscoped_model_list_body(state, user_id, headers, trace_id).await,
+    }
 }
 
 fn resolve_claude_file_access(
