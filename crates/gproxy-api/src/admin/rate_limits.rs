@@ -7,6 +7,25 @@ use gproxy_server::{AppState, RateLimitRule};
 use gproxy_storage::Scope;
 use std::sync::Arc;
 
+async fn resolve_rate_limit_id(
+    state: &AppState,
+    user_id: i64,
+    model_pattern: &str,
+) -> Result<i64, HttpError> {
+    let rows = state
+        .storage()
+        .list_user_rate_limits(&gproxy_storage::UserRateLimitQuery {
+            user_id: Scope::Eq(user_id),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    rows.into_iter()
+        .find(|row| row.model_pattern == model_pattern)
+        .map(|row| row.id)
+        .ok_or_else(|| HttpError::not_found("rate limit not found"))
+}
+
 /// Response row for rate limits from memory (no timestamps or row id).
 #[derive(serde::Serialize)]
 pub struct MemoryRateLimitRow {
@@ -82,7 +101,6 @@ pub async fn upsert_rate_limit(
 
 #[derive(serde::Deserialize)]
 pub struct DeleteRateLimitPayload {
-    pub id: i64,
     pub user_id: i64,
     pub model_pattern: String,
 }
@@ -93,12 +111,11 @@ pub async fn delete_rate_limit(
     Json(payload): Json<DeleteRateLimitPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let id = resolve_rate_limit_id(&state, payload.user_id, &payload.model_pattern).await?;
 
     state
         .storage()
-        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit {
-            id: payload.id,
-        })
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id })
         .await?;
 
     state.remove_rate_limit_from_memory(payload.user_id, &payload.model_pattern);
@@ -138,9 +155,10 @@ pub async fn batch_delete_rate_limits(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     for p in payloads {
+        let id = resolve_rate_limit_id(&state, p.user_id, &p.model_pattern).await?;
         state
             .storage()
-            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id: p.id })
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserRateLimit { id })
             .await?;
         state.remove_rate_limit_from_memory(p.user_id, &p.model_pattern);
     }

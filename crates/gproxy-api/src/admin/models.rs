@@ -32,6 +32,21 @@ async fn resolve_provider_names(state: &AppState) -> Result<HashMap<i64, String>
     Ok(providers.into_iter().map(|p| (p.id, p.name)).collect())
 }
 
+async fn resolve_model_alias_id(state: &AppState, alias: &str) -> Result<i64, HttpError> {
+    let rows = state
+        .storage()
+        .list_model_aliases(&gproxy_storage::ModelAliasQuery {
+            alias: Scope::Eq(alias.to_string()),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    rows.into_iter()
+        .next()
+        .map(|row| row.id)
+        .ok_or_else(|| HttpError::not_found("model alias not found"))
+}
+
 /// Response row for query_models (from in-memory data, no timestamps).
 #[derive(serde::Serialize)]
 pub struct MemoryModelRow {
@@ -206,7 +221,6 @@ pub async fn upsert_model_alias(
 
 #[derive(serde::Deserialize)]
 pub struct DeleteModelAliasPayload {
-    id: i64,
     alias: String,
 }
 
@@ -216,10 +230,11 @@ pub async fn delete_model_alias(
     Json(payload): Json<DeleteModelAliasPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let id = resolve_model_alias_id(&state, &payload.alias).await?;
 
     state
         .storage()
-        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: payload.id })
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id })
         .await?;
 
     state.remove_model_alias_from_memory(&payload.alias);
@@ -310,9 +325,10 @@ pub async fn batch_delete_model_aliases(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     for p in payloads {
+        let id = resolve_model_alias_id(&state, &p.alias).await?;
         state
             .storage()
-            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id: p.id })
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteModelAlias { id })
             .await?;
         state.remove_model_alias_from_memory(&p.alias);
     }

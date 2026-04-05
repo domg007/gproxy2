@@ -7,6 +7,26 @@ use gproxy_server::{AppState, PermissionEntry};
 use gproxy_storage::Scope;
 use std::sync::Arc;
 
+async fn resolve_permission_id(
+    state: &AppState,
+    user_id: i64,
+    provider_id: Option<i64>,
+    model_pattern: &str,
+) -> Result<i64, HttpError> {
+    let rows = state
+        .storage()
+        .list_user_model_permissions(&gproxy_storage::UserModelPermissionQuery {
+            user_id: Scope::Eq(user_id),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| HttpError::internal(e.to_string()))?;
+    rows.into_iter()
+        .find(|row| row.provider_id == provider_id && row.model_pattern == model_pattern)
+        .map(|row| row.id)
+        .ok_or_else(|| HttpError::not_found("permission not found"))
+}
+
 /// Response row for permissions from memory (no timestamps or row id).
 #[derive(serde::Serialize)]
 pub struct MemoryPermissionRow {
@@ -86,7 +106,6 @@ pub async fn upsert_permission(
 
 #[derive(serde::Deserialize)]
 pub struct DeletePermissionPayload {
-    pub id: i64,
     pub user_id: i64,
     pub provider_id: Option<i64>,
     pub model_pattern: String,
@@ -98,12 +117,17 @@ pub async fn delete_permission(
     Json(payload): Json<DeletePermissionPayload>,
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
+    let id = resolve_permission_id(
+        &state,
+        payload.user_id,
+        payload.provider_id,
+        &payload.model_pattern,
+    )
+    .await?;
 
     state
         .storage()
-        .apply_write_event(
-            gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: payload.id },
-        )
+        .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id })
         .await?;
 
     state.remove_permission_from_memory(
@@ -145,11 +169,10 @@ pub async fn batch_delete_permissions(
 ) -> Result<Json<AckResponse>, HttpError> {
     authorize_admin(&headers, &state)?;
     for p in payloads {
+        let id = resolve_permission_id(&state, p.user_id, p.provider_id, &p.model_pattern).await?;
         state
             .storage()
-            .apply_write_event(
-                gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id: p.id },
-            )
+            .apply_write_event(gproxy_storage::StorageWriteEvent::DeleteUserModelPermission { id })
             .await?;
         state.remove_permission_from_memory(p.user_id, p.provider_id, &p.model_pattern);
     }
