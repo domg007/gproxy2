@@ -2,7 +2,10 @@
 
 ## Goal
 
-Allow billing to fall back to a channel-local default pricing entry when a concrete model does not have an exact pricing match.
+Allow billing to fall back to a channel-local default pricing entry when:
+
+- a concrete model does not have an exact pricing match
+- or the exact model exists but does not provide the pricing field needed for the current billing path
 
 The fallback entry is the existing model-price row whose `model_id` is exactly `default`.
 
@@ -20,42 +23,118 @@ It does not introduce:
 
 ## Current Problem
 
-Billing currently requires an exact `model_id` match inside a channel's `model_pricing()` table.
+Billing currently treats model pricing as a row-level lookup.
 
-If a request uses a model that is valid for routing and execution but absent from that pricing table:
+That causes two failure modes:
+
+1. If a request uses a model that is valid for routing and execution but absent from the pricing table:
 
 - `estimate_billing(...)` returns `None`
 - downstream usage recording falls back to `cost = 0.0`
-- operators must duplicate pricing rows for many models even when one channel-wide default would be enough
+
+2. If an exact model row exists but has only partial pricing:
+
+- missing `price_each_call` does not fall back to `default`
+- missing mode-specific tier sets do not fall back to `default`
+- missing tool prices do not fall back to `default`
+
+That makes sparse exact rows unintentionally suppress the channel default and forces operators to duplicate pricing data across many model rows.
 
 This is separate from the admin-side `models.price_tiers_json` parsing issue. The live billing path uses SDK channel pricing tables, not the admin `models` table.
 
 ## Approved Design
 
-### 1. Exact Match First
+### 1. Resolve Exact Row and `default` Row Independently
 
-Billing lookup keeps its current first step:
+Billing keeps exact model lookup, but stops treating that as the only pricing source.
 
-1. search the current channel pricing table for an exact `model_id == context.model_id`
-2. if found, use that row without fallback
+For each billing request, resolve:
 
-This prevents a default row from overriding a deliberately configured per-model price.
+- `exact_model`: the row whose `model_id == context.model_id`
+- `default_model`: the row whose `model_id == "default"`
 
-### 2. Channel-Local `default` Fallback
+If neither exists, billing still returns `None`.
 
-If no exact model price is found, billing lookup performs one additional search in the same channel pricing table:
-
-- `model_id == "default"`
-
-If that row exists, it becomes the effective pricing row for the request.
-
-This fallback is channel-local because each provider runtime already owns its own `model_pricing()` slice through the concrete channel implementation.
+This remains channel-local because each provider runtime already owns its own `model_pricing()` slice through the concrete channel implementation.
 
 There is no global shared default across channels.
 
-### 3. Reuse Existing Price Structure
+### 2. Field-Level Fallback for Per-Call Pricing
 
-The `default` row uses the same schema as any other model price row and may define:
+Per-call pricing is selected by field-level precedence, not row-level precedence.
+
+Resolution order:
+
+- `BillingMode::Default`
+  - `exact_model.price_each_call`
+  - `default_model.price_each_call`
+- `BillingMode::Flex`
+  - `exact_model.flex_price_each_call`
+  - `exact_model.price_each_call`
+  - `default_model.flex_price_each_call`
+  - `default_model.price_each_call`
+- `BillingMode::Scale`
+  - `exact_model.scale_price_each_call`
+  - `exact_model.price_each_call`
+  - `default_model.scale_price_each_call`
+  - `default_model.price_each_call`
+- `BillingMode::Priority`
+  - `exact_model.priority_price_each_call`
+  - `exact_model.price_each_call`
+  - `default_model.priority_price_each_call`
+  - `default_model.price_each_call`
+
+This means an exact model row still wins when it provides the relevant field, but a missing field may fall through to `default`.
+
+### 3. Field-Level Fallback for Tier Sets
+
+Tier selection also uses field-level precedence.
+
+Resolution order:
+
+- `BillingMode::Default`
+  - `exact_model.price_tiers`
+  - `default_model.price_tiers`
+- `BillingMode::Flex`
+  - `exact_model.flex_price_tiers` if non-empty
+  - `exact_model.price_tiers` if non-empty
+  - `default_model.flex_price_tiers` if non-empty
+  - `default_model.price_tiers` if non-empty
+- `BillingMode::Scale`
+  - `exact_model.scale_price_tiers` if non-empty
+  - `exact_model.price_tiers` if non-empty
+  - `default_model.scale_price_tiers` if non-empty
+  - `default_model.price_tiers` if non-empty
+- `BillingMode::Priority`
+  - `exact_model.priority_price_tiers` if non-empty
+  - `exact_model.price_tiers` if non-empty
+  - `default_model.priority_price_tiers` if non-empty
+  - `default_model.price_tiers` if non-empty
+
+Once a non-empty tier set is selected, tier matching inside that set remains unchanged.
+
+### 4. Field-Level Fallback for Tool Pricing
+
+Tool pricing is resolved per tool key:
+
+- `exact_model.tool_call_prices[tool_key]`
+- otherwise `default_model.tool_call_prices[tool_key]`
+
+This allows sparse exact rows to override only the tools they care about while inheriting the rest from `default`.
+
+### 5. No `default` Means No Change
+
+If both the exact row and the `default` row fail to provide a given pricing field:
+
+- that field contributes nothing to cost
+- if no fields contribute anything, billing still returns `Some(BillingResult { total_cost: 0.0, ... })` when an exact or default row exists
+- billing returns `None` only when no exact row and no `default` row exist
+
+This preserves the current “no pricing row means no billing result” behavior while making sparse exact rows compose with channel defaults.
+
+### 6. Reuse Existing Price Structure
+
+The `default` row continues to use the same schema as any other model price row and may define:
 
 - `price_each_call`
 - `price_tiers`
@@ -73,46 +152,26 @@ This means:
 - image or other non-token requests can use per-call pricing
 - mixed pricing continues to work without new branching logic
 
-### 4. No Fallback on Exact Match
-
-Fallback happens only when the concrete model is missing from the pricing table.
-
-If the concrete model exists, billing uses it even if:
-
-- some fields are empty
-- only per-call pricing is set
-- only tier pricing is set
-
-This keeps behavior predictable and avoids silently masking partially configured model rows.
-
-### 5. No `default` Means No Change
-
-If neither the exact model nor the `default` row exists:
-
-- billing still returns `None`
-- usage recording still resolves to `cost = 0.0`
-
-This preserves current behavior for channels that do not define a default pricing entry.
-
 ## Component Design
 
 ### `sdk/gproxy-provider/src/billing.rs`
 
 Responsibilities:
 
-- select the effective pricing row for a billing request
-- calculate cost from the selected pricing row
+- resolve exact and default pricing rows for a billing request
+- resolve per-call price, tier set, and tool prices with field-level fallback
+- calculate cost from the resolved pricing fields
 
 Required changes:
 
-- extract model-price selection into a helper or equivalent local logic
-- change selection from:
-  - exact match only
-- to:
-  - exact match first
-  - otherwise `default`
+- replace row-level model selection with helpers that:
+  - resolve `exact_model`
+  - resolve `default_model`
+  - resolve effective per-call price for the current mode
+  - resolve effective tier set for the current mode
+  - resolve tool-call prices by key
 
-The cost calculation path after model selection should remain unchanged.
+The cost accumulation structure should remain the same after field resolution.
 
 ### `sdk/gproxy-provider/src/store.rs`
 
@@ -133,18 +192,20 @@ Responsibilities:
 
 Expected impact:
 
-- channels that add a `default` row gain fallback pricing
+- channels that add a `default` row gain field-level fallback pricing
 - channels without that row behave exactly as before
+- sparse exact rows can intentionally inherit missing fields from `default`
 
 ## Data Flow
 
 1. request completes with usage data
 2. provider runtime calls `estimate_billing(model_pricing, context, usage)`
-3. billing lookup searches for `context.model_id`
-4. if found, use that row
-5. otherwise search for `model_id == "default"`
-6. if found, compute cost from that row
-7. if not found, return `None`
+3. billing resolves `exact_model` and `default_model`
+4. billing resolves the effective per-call field for the current mode
+5. billing resolves the effective tier set for the current mode
+6. billing resolves each tool price from exact first, then default
+7. billing computes cost from the resolved fields
+8. if neither `exact_model` nor `default_model` exists, return `None`
 
 ## Error Handling
 
@@ -152,22 +213,24 @@ This design does not add new user-visible errors.
 
 Behavior remains:
 
-- exact model found: normal billing
+- exact model found with complete pricing: normal billing
+- exact model found with partial pricing: missing fields inherit from `default`
 - exact model missing but `default` exists: normal billing through fallback
 - exact model missing and `default` missing: no billing result
 
-The implementation should not log warnings on every fallback by default, because unknown-model billing fallback may be an intentional steady-state configuration.
+The implementation should not log warnings on every fallback by default, because both unknown-model fallback and sparse-row inheritance may be intentional steady-state configurations.
 
 ## Testing Strategy
 
 Add billing-focused tests covering:
 
-- exact model match uses the exact row, not `default`
+- exact model match uses the exact field, not `default`
 - missing model falls back to `default`
-- `default` with only `price_each_call` computes request cost correctly
-- `default` with token tiers computes usage cost correctly
+- exact model with missing `price_each_call` falls through to `default.price_each_call`
+- exact model with missing mode-specific `price_each_call` falls through through the documented precedence chain
+- exact model with empty tier set falls through to the next available tier set in the documented precedence chain
+- exact model tool prices override `default`, while missing tool prices inherit from `default`
 - missing exact model and missing `default` still returns `None`
-- mode-specific fallback still works when `default` defines flex/scale/priority prices
 
 ## Out of Scope
 
@@ -177,4 +240,3 @@ The following are intentionally not part of this change:
 - persisting channel default pricing in the database
 - exposing channel default pricing through admin APIs
 - automatic repair of malformed pricing rows
-- fallback from partially configured exact rows to `default`
