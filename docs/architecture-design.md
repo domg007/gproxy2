@@ -196,6 +196,22 @@ src/
 - 共享状态全部经 `CacheBackend`(redis)+ `PersistenceBackend`(db)。
 - 配置变更:写 persistence → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 → 其他实例 `subscribe` 收到后重载快照。
 
+### 7.4 上游传输抽象(`UpstreamClient`)
+
+上游 HTTP 发送抽象成 **`UpstreamClient` trait**(传输可换),这是让边缘可达的关键接缝:
+- **native 实现**:wreq(支持 TLS 指纹伪装 / emulation)。
+- **edge 实现(后续)**:平台 `fetch`(无 TLS 控制)。
+
+**每个 channel 声明所需传输能力**(如 `requires_tls_emulation`),且能力可细到**渠道的某种
+凭证模式 / 操作**,不必整渠道一刀切。某传输不满足时对应能力自动降级:
+- `chatgpt`:请求本身就需 TLS 伪装 → **仅传统常驻部署支持;serverless / 边缘标注为不支持**。
+- `claudecode`:cookie→oauth 的凭证引导需伪装;但**若用户自行完成 OAuth、直接提供 oauth
+  token**,则无需伪装 → 边缘可用(**仅 token 模式**;cookie 自动换取功能在边缘不可用)。
+- codex / 各 API-key 类:无伪装需求,边缘可用。
+
+具体每渠道(及其各凭证模式)的能力在实现时由各 channel 自行声明,架构按能力自动降级,
+不靠预先把清单列全。
+
 ## 8. 数据模型(逻辑记录)
 
 v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**不考虑 v1 迁移兼容**),
@@ -256,12 +272,13 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 大工程,按里程碑拆,每阶段独立可跑、可测:
 
 1. **骨架**:单 crate 脚手架 + AppState + 配置 + 存储抽象(先 memory)。
-2. **管线 + passthrough**:auth / classify / preprocess / route / balance / execute,先只做同协议 passthrough。
+2. **管线 + passthrough**:auth / classify / preprocess / route / balance / execute,先只做同协议 passthrough。**此阶段引入 `UpstreamClient` trait(native wreq 实现)+ 渠道传输能力标记**(§7.4 边缘接缝)。
 3. **协议转换移植**:trait + common 收敛,逐对迁移转换逻辑。
 4. **负载均衡**:两层池 + 熔断 / 凭证冷却。
 5. **多实例**:Redis 后端 + 配置 pub/sub 失效。
 6. **Console 重做**。
 7. **数据迁移**:v1 DB → v2 schema 的一次性迁移脚本。
+8. **边缘 / WASM 构建(后续,见 §13)**:`UpstreamClient` 的 fetch 实现 + 两个 backend 的 HTTP 实现(Upstash/Turso)+ wasm 构建 + 各平台 fetch 入口。`chatgpt` 渠道在此构建不可用。
 
 ## 11. 代码规范(实施期强制)
 
@@ -276,13 +293,32 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - v1 → v2 数据迁移的具体字段映射,待 v2 schema 定稿后单独成文。
 - 各 channel 的移植优先级排序(哪些 provider 先迁)。
 
-## 13. 非目标(已明确否决)
+## 13. 边缘 / WASM 支持(后续目标)
 
-- **WASM / 边缘运行时(Cloudflare Workers、WASI 等)**:已否决。wreq 的 TLS
-  指纹伪装(招牌能力)无法上 wasm,SeaORM / tokio 多线程 / 本地 FS 同样不行,
-  代价极大且会阉割核心功能。
-- **"可更换 HTTP 宿主"抽象层**:不做。**axum 直接使用**,不为可移植性付抽象税。
-  仅保持自然分层卫生——`pipeline / protocol / route / balance / backends`
-  不依赖 axum,只有 `http/` 模块用它。
-- 原生容器型 serverless(Cloud Run / Fargate / Fly / Lambda)本就跑原生二进制,
-  无需任何 wasm 改造;如未来要上 Lambda,再按需加薄适配器即可。
+目标平台:Cloudflare Workers、阿里云 ESA、腾讯 EdgeOne Pages、Vercel Edge、
+Netlify Edge —— 这五家都是 V8 isolate / WASM 运行时,统一走 **WinterCG Web Fetch**
+入口,核心编译一份 `wasm32`,每平台一层薄 glue。(Vercel/Netlify 另有原生
+Serverless Functions,那条等于 Lambda 适配器,全功能、非边缘。)
+
+**功能差异(按渠道能力自动降级,见 [§7.4](#74-上游传输抽象-upstreamclient))**:
+- `chatgpt`:**serverless / 边缘均不支持**(请求刚需 TLS 伪装),仅传统常驻部署可用。
+- `claudecode`:边缘可用,但**仅 token 模式**(需用户自行完成 OAuth 提供 token;
+  cookie→oauth 自动换取需伪装,边缘不可用)。
+- codex / 各 API-key 类:边缘全可用。
+
+**为边缘需要做的(大多是加实现,非重写)**:
+1. `UpstreamClient` 的 `fetch` 实现(§7.4 接缝已留)。
+2. `CacheBackend` / `PersistenceBackend` 的 HTTP 实现:Upstash Redis(HTTP)+
+   Turso/libSQL(HTTP),一份 wasm 五平台通吃,不绑各家私有 binding。
+3. wasm 构建 + 各平台 fetch 入口适配器(薄)。
+4. `Send` 边界:wasm 上用 `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]`,
+   域代码不受影响(成熟套路,低成本)。
+5. 后台任务(对账/清理)做成可被宿主调度的函数(native tokio / edge cron),
+   核心不写死常驻循环。
+
+**仍然不做的**:不搞通用"可换 HTTP 宿主"抽象层——native 用 axum、edge 用 fetch 入口,
+是**两个具体适配器**(cfg 分目标),不是一层抽象税。核心
+(`pipeline / protocol / route / balance / backends`)不依赖 axum。
+
+**节奏**:native 先交付;边缘作为后续阶段。v2 核心现在就埋好接缝(§7.4 的
+`UpstreamClient` trait + 渠道能力标记、后台任务不写死),使边缘是"加实现"而非"重写"。
