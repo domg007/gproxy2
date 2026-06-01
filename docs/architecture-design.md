@@ -209,9 +209,17 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `provider_models`:`provider_id` · `model_id` · `display_name?` · `pricing_json?` · `enabled`
 
 **B. 供应商 / 凭证**
-- `providers`:`name`(唯一)· `channel` · `label?` · `settings_json` · `routing_json`(路由表:`(operation,protocol)→passthrough/transform_to/local/unsupported`)· `rewrite_json?`(改写规则)· `credential_strategy` · `enabled`
+- `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url 及各 channel 标量开关)· `credential_strategy` · `enabled` —— **不再有任何 rules 的 JSON 列**,全部提成下列独立表
 - `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(加密)· `weight`(凭证池)· `enabled`
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
+
+**B2. 供应商级规则(全部独立表,结构化、可逐行编辑/审计;均含 `provider_id` · `sort_order` · `enabled`)**
+- `routing_rules`:`operation` · `protocol`(入站)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_protocol?` — 唯一约束 `(provider_id, operation, protocol)`
+- `rewrite_rules`(JSON 字段操作):`path`(点路径)· `action`(set/remove)· `value_json?`(set 时)· `filter_model_pattern?` · `filter_operations?` · `filter_protocols?`
+- `sanitize_rules`(正文正则替换):`pattern`(正则)· `replacement`
+- `cache_breakpoints`(Claude 缓存):`target` · `position` · `index` · `ttl` *(magic-string 触发器是内置常量,非配置)*
+- `beta_headers`:`token`(`anthropic-beta` 能力标志,如 `oauth-2025-04-20`)
+- `preludes`:`text`(注入首个 system 块的前导文本;v1 单条,v2 支持按 `sort_order` 多条)
 
 **C. 用户 / 鉴权 / 权限 / 限额**
 - `users`:`name`(唯一)· `password?`(hash)· `enabled` · `is_admin`
