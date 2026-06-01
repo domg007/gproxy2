@@ -146,55 +146,93 @@ src/
 
 ## 7. 分层存储 + 多实例
 
-存储层**只有两个抽象**(刻意避免 v1 那种按域细分的 backend trait 过度抽象):
+存储层**只有两个 trait 抽象**(刻意避免 v1 那种按域细分的 backend trait 过度抽象),
+每个抽象有两个实现,**部署时各选一个**:
+
+| 抽象 | 单实例(零外部依赖) | 多实例 |
+|---|---|---|
+| `CacheBackend` | `memory`(`DashMap`) | `redis` |
+| `PersistenceBackend` | `file`(本地磁盘) | `db`(SeaORM) |
+
+单机部署 = `memory` + `file`,**连数据库服务器都不需要**;多实例 = `redis` + `db`。
+`file` 与 `memory` 一样是单实例专属(本地状态无法跨实例共享)。
 
 ### 7.1 两个 backend
 
-**`CacheBackend`(trait)** —— 缓存层,两个实现:
-- **memory**(单实例,`DashMap`)
-- **redis**(多实例)
+**`CacheBackend`(trait)** —— 方法面:`get` / `set` / `delete` / `incr` /
+`publish` / `subscribe`。`publish`/`subscribe` 用于多实例配置失效广播(memory
+实现为 no-op),在多实例阶段落地。
 
-方法面:`get` / `set` / `delete` / `incr` / `publish` / `subscribe`。
-`publish` / `subscribe` 用于多实例的配置失效广播(memory 实现为 no-op,
-redis 实现走 pub/sub),在多实例阶段才落地。**Redis 可选**——不配置即用 memory。
+**`PersistenceBackend`(trait)** —— typed、按域分组的方法(`upsert_provider`、
+`get_route_by_name`、`find_key_by_digest`、`add_cost_used`、`append_usage`、
+`add_usage_rollup`、`query_usage`、`put_file` …)。**一个 trait**,不拆成细粒度
+子 trait;`db` 与 `file` 各实现一遍。
 
-**`Persistence`(具体 struct,非 trait)** —— 持久化层,封 SeaORM:
-- `connect(dsn)`:连接 + 跑迁移(sqlite/mysql/postgres 由 SeaORM 抹平)。
-- `conn() -> &DatabaseConnection`:把连接借给域代码跑查询。
-- `tx(closure)`:事务助手(Ok 提交 / Err 回滚)。
-- **不枚举任何实体的 CRUD**——各域的查询写在各域模块里,所以它永远不会膨胀成巨型仓储 trait。
+- **`db` 实现**用 SeaORM(sqlite/mysql/postgres)。**SeaORM 仅是该实现的内部细节**,
+  域代码只调 trait 方法,**永不直接碰 SeaORM**。
+- **`file` 实现**把数据序列化落本地磁盘(配置类小数据全量载入内存;日志/用量 append)。
+- 物理上 trait 定义与两个 impl 按文件拆开,每文件 < 500 行。
 
 ### 7.2 域逻辑坐在两个 backend 之上
 
 **没有任何域级 backend trait**(砍掉 v1 的 `RateLimitBackend` / `QuotaBackend` /
 `AffinityBackend`)。ratelimit / quota / affinity / config / session / log 都是
-**普通域代码**,持有 `&dyn CacheBackend` 和/或 `&Persistence`。**「分域策略」=
-这个域碰哪个 backend**:
+**普通域代码**,持有 `&dyn CacheBackend` 和/或 `&dyn PersistenceBackend`。
+**「分域策略」= 这个域碰哪个 backend**:
 
 | 数据域 | 碰哪个 backend | 说明 |
 |---|---|---|
-| 配置 / 供应商 / 路由 / 模型 | cache + persistence(写穿) | DB 真相源,缓存加速;改动写库→换本地 `ArcSwap` 快照→`publish` 通知其他实例失效重载 |
-| 配额(钱) | cache + persistence(**弱一致**) | cache 先扣(并发下可能轻微超扣,可接受);DB 经 usage 记录持久化;启动从 DB 水合 cache,定期对账修正。**不**给 cache 加原子上限原语 |
-| 限流窗口 | 只 cache | `incr` 瞬时计数,过期即弃,不落库 |
-| 凭证健康 / 熔断冷却 | 只 cache | 运行时状态,重启可重建 |
+| 配置 / 供应商 / 路由 / 模型 | cache + persistence(写穿) | persistence 真相源,缓存加速;改动写库→换本地 `ArcSwap` 快照→`publish` 通知其他实例失效重载 |
+| 配额(钱) | cache + persistence(**弱一致**) | cache 先扣(并发下可能轻微超扣,可接受);persistence 经 usage / `user_quotas` 持久化;启动从 persistence 水合 cache,定期对账修正。**不**给 cache 加原子上限原语 |
+| 限流窗口 | 只 cache | `incr` 瞬时计数,过期即弃,不持久化 |
+| 凭证健康 / 熔断冷却 | cache(运行时) + persistence(审计快照) | 热状态在 cache;`credential_statuses` 留持久快照供控制台审计 |
 | 用户登录态 / session | 只 cache | 不持久化 |
-| 请求日志 / 审计 / 用量明细 | 只 persistence | 直接落库(可经异步批量写),不进 cache |
+| 请求日志 / 用量明细 | 只 persistence | 直接落库(可异步批量写),不进 cache |
+| 用量看板统计 | 只 persistence(rollup) | 按 时/天/周/月 分桶计数;看板只读 rollup,**绝不实时聚合** |
 
 ### 7.3 多实例语义
 
-- 实例本身**无状态、可水平扩**。
-- 共享状态全部经 `CacheBackend`(redis)+ DB。
-- 配置变更:写 DB → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 → 其他实例 `subscribe` 收到后重载快照。
+- 实例本身**无状态、可水平扩**(仅在 `redis` + `db` 组合下)。
+- 共享状态全部经 `CacheBackend`(redis)+ `PersistenceBackend`(db)。
+- 配置变更:写 persistence → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 → 其他实例 `subscribe` 收到后重载快照。
 
-## 8. 数据模型(SeaORM 实体重设计)
+## 8. 数据模型(逻辑记录)
 
-v2 全新 schema(不背 v1 增量迁移)。负载均衡新增:
+v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**不考虑 v1 迁移兼容**),
+`file` 实现用本地文件实现同一份逻辑数据。下列即逻辑记录(`PK=id i64`、
+`created_at/updated_at` 默认有,不再重复)。
 
-- **`routes`**:逻辑模型名、第一层均衡策略枚举、归属(全局)。
-- **`route_members`**:`route_id → (provider_id, upstream_model_id, weight, tier, enabled)`。
-- **`aliases`**:`alias_name → route_name` 多对一映射(预处理层)。
-- 凭证池:沿用 `credentials` + `credential_statuses` 思路,补 `selection_strategy` 字段。
-- 其余实体(users / user_keys / permissions / providers / usages / requests 等)按 v1 语义重整命名,清理含糊列。
+**A. 路由 / 模型**
+- `routes`:`name`(唯一)· `strategy`(weighted/round_robin/failover/least_latency)· `enabled` · `description?`
+- `route_members`:`route_id` · `provider_id` · `upstream_model_id` · `weight` · `tier` · `enabled`
+- `aliases`:`alias`(唯一)· `route_id`(多对一)
+- `provider_models`:`provider_id` · `model_id` · `display_name?` · `pricing_json?` · `enabled`
+
+**B. 供应商 / 凭证**
+- `providers`:`name`(唯一)· `channel` · `label?` · `settings_json` · `routing_json`(路由表:`(operation,protocol)→passthrough/transform_to/local/unsupported`)· `rewrite_json?`(改写规则)· `credential_strategy` · `enabled`
+- `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(加密)· `weight`(凭证池)· `enabled`
+- `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
+
+**C. 用户 / 鉴权 / 权限 / 限额**
+- `users`:`name`(唯一)· `password?`(hash)· `enabled` · `is_admin`
+- `user_keys`:`user_id` · `api_key_ciphertext` · `api_key_digest`(唯一索引)· `label?` · `enabled`
+- `user_route_permissions`:`user_id` · `route_pattern`(glob,作用在 route 名上)
+- `user_rate_limits`:`user_id` · `route_pattern` · `rpm?` · `rpd?` · `total_tokens?`
+- `user_quotas`:`user_id`(唯一)· `quota_total` · `cost_used`(对账后持久值)
+- `user_file_permissions`:`user_id` · `provider_id`
+
+**D. 用量 / 日志(只持久化)**
+- `usages`(明细,append):`at` · `route_name?` · `provider_id?` · `credential_id?` · `user_id?` · `user_key_id?` · `operation` · `protocol` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
+- `usage_rollups`(看板源):`granularity`(hour/day/week/month)· `bucket_start` · 维度(`provider_id?` / `user_id?` / `route_name?` / `model?`)· 指标(`requests` / `input_tokens` / `output_tokens` / `cost`)。每请求 `add_usage_rollup` 累加
+- `downstream_requests` / `upstream_requests`:抓包日志(受 enable 开关),沿用 v1 结构(下行 path/query,上行 url/latency)
+
+**E. 设置**
+- Bootstrap(TOML/env,连库前就要):`dsn?` · `redis_url?` · `instance_name?` · `host?` · `port?`(`dsn` 缺省即 `file` 持久化模式)
+- `instance_settings`(按 `instance_name` 每实例一行,单实例一行/多实例多行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `update_channel?`
+
+**F. 文件**
+- `files`:`provider_id` · `file_id` · `filename` · `mime_type` · `size_bytes` · `downloadable?` · `raw_json`(元数据)
+- blob 内容随当前 `PersistenceBackend` 实现存储(`file` 落磁盘 / `db` 落库)
 
 ## 9. Console 技术栈
 
