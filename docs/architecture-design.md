@@ -146,29 +146,45 @@ src/
 
 ## 7. 分层存储 + 多实例
 
-核心抽象 `CacheBackend`(get / set / incr / expire / cas / pub-sub),两个实现:
+存储层**只有两个抽象**(刻意避免 v1 那种按域细分的 backend trait 过度抽象):
 
-- **memory**(单实例,dashmap)
+### 7.1 两个 backend
+
+**`CacheBackend`(trait)** —— 缓存层,两个实现:
+- **memory**(单实例,`DashMap`)
 - **redis**(多实例)
 
-启动时按配置选择,业务代码无感。**Redis 可选**——不配置即用 memory。
+方法面:`get` / `set` / `delete` / `incr` / `publish` / `subscribe`。
+`publish` / `subscribe` 用于多实例的配置失效广播(memory 实现为 no-op,
+redis 实现走 pub/sub),在多实例阶段才落地。**Redis 可选**——不配置即用 memory。
 
-### 7.1 各数据域策略
+**`Persistence`(具体 struct,非 trait)** —— 持久化层,封 SeaORM:
+- `connect(dsn)`:连接 + 跑迁移(sqlite/mysql/postgres 由 SeaORM 抹平)。
+- `conn() -> &DatabaseConnection`:把连接借给域代码跑查询。
+- `tx(closure)`:事务助手(Ok 提交 / Err 回滚)。
+- **不枚举任何实体的 CRUD**——各域的查询写在各域模块里,所以它永远不会膨胀成巨型仓储 trait。
 
-| 数据域 | 策略 | 说明 |
+### 7.2 域逻辑坐在两个 backend 之上
+
+**没有任何域级 backend trait**(砍掉 v1 的 `RateLimitBackend` / `QuotaBackend` /
+`AffinityBackend`)。ratelimit / quota / affinity / config / session / log 都是
+**普通域代码**,持有 `&dyn CacheBackend` 和/或 `&Persistence`。**「分域策略」=
+这个域碰哪个 backend**:
+
+| 数据域 | 碰哪个 backend | 说明 |
 |---|---|---|
-| 配置 / 供应商 / 路由 / 模型 | 写穿 | DB 真相源,缓存加速;改动经 Redis pub/sub 通知各实例失效重载 |
-| 配额(钱) | 写穿(强持久化) | 缓存扣减 + 异步落库,绝不丢账 |
-| 限流窗口 | 只缓存 | 瞬时计数,过期即弃,不落库 |
-| 凭证健康 / 熔断冷却 | 只缓存 | 运行时状态,重启可重建 |
-| 用户登录态 / session | 只缓存 | 不持久化 |
-| 请求日志 / 审计 / 用量明细 | 只持久化 | 直接落库,不进缓存 |
+| 配置 / 供应商 / 路由 / 模型 | cache + persistence(写穿) | DB 真相源,缓存加速;改动写库→换本地 `ArcSwap` 快照→`publish` 通知其他实例失效重载 |
+| 配额(钱) | cache + persistence(**弱一致**) | cache 先扣(并发下可能轻微超扣,可接受);DB 经 usage 记录持久化;启动从 DB 水合 cache,定期对账修正。**不**给 cache 加原子上限原语 |
+| 限流窗口 | 只 cache | `incr` 瞬时计数,过期即弃,不落库 |
+| 凭证健康 / 熔断冷却 | 只 cache | 运行时状态,重启可重建 |
+| 用户登录态 / session | 只 cache | 不持久化 |
+| 请求日志 / 审计 / 用量明细 | 只 persistence | 直接落库(可经异步批量写),不进 cache |
 
-### 7.2 多实例语义
+### 7.3 多实例语义
 
 - 实例本身**无状态、可水平扩**。
 - 共享状态全部经 `CacheBackend`(redis)+ DB。
-- 配置变更:写 DB → Redis pub/sub 广播失效 → 各实例重载配置快照(`ArcSwap`)。
+- 配置变更:写 DB → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 → 其他实例 `subscribe` 收到后重载快照。
 
 ## 8. 数据模型(SeaORM 实体重设计)
 
