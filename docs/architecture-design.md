@@ -275,3 +275,14 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 
 - v1 → v2 数据迁移的具体字段映射,待 v2 schema 定稿后单独成文。
 - 各 channel 的移植优先级排序(哪些 provider 先迁)。
+
+## 13. 非目标(已明确否决)
+
+- **WASM / 边缘运行时(Cloudflare Workers、WASI 等)**:已否决。wreq 的 TLS
+  指纹伪装(招牌能力)无法上 wasm,SeaORM / tokio 多线程 / 本地 FS 同样不行,
+  代价极大且会阉割核心功能。
+- **"可更换 HTTP 宿主"抽象层**:不做。**axum 直接使用**,不为可移植性付抽象税。
+  仅保持自然分层卫生——`pipeline / protocol / route / balance / backends`
+  不依赖 axum,只有 `http/` 模块用它。
+- 原生容器型 serverless(Cloud Run / Fargate / Fly / Lambda)本就跑原生二进制,
+  无需任何 wasm 改造;如未来要上 Lambda,再按需加薄适配器即可。
