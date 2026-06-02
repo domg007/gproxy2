@@ -4,4 +4,4 @@
 // pub mod app;      // Task 4
 pub mod config;
 // pub mod http;     // Task 5
-// pub mod store;    // Task 3
+pub mod store;
