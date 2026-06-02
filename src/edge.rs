@@ -54,7 +54,14 @@ async fn ws_request_to_http(
             let arr: js_sys::Array = entry.unchecked_into();
             let name = arr.get(0).as_string().unwrap_or_default();
             let val = arr.get(1).as_string().unwrap_or_default();
-            builder = builder.header(name, val);
+            // Skip entries with empty or unparseable names — a bad header must not
+            // poison the whole builder (builder.header("", …) marks it as errored).
+            if name.is_empty() {
+                continue;
+            }
+            if let Ok(hn) = http::header::HeaderName::try_from(name.as_str()) {
+                builder = builder.header(hn, val.as_str());
+            }
         }
     }
 

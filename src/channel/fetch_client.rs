@@ -50,8 +50,15 @@ impl UpstreamClient for FetchClient {
         let init = RequestInit::new();
         init.set_method(parts.method.as_str());
         init.set_headers_headers(&js_headers);
-        let body_arr = Uint8Array::from(body_bytes.as_ref());
-        init.set_body_opt_u8_array(Some(&body_arr));
+        // The Fetch standard throws TypeError if a body is set on GET/HEAD.
+        // Only set body when the method allows it and the body is non-empty.
+        if parts.method != http::Method::GET
+            && parts.method != http::Method::HEAD
+            && !body_bytes.is_empty()
+        {
+            let body_arr = Uint8Array::from(body_bytes.as_ref());
+            init.set_body_opt_u8_array(Some(&body_arr));
+        }
 
         // Build Request from the URI string.
         let uri_str = parts.uri.to_string();
@@ -86,6 +93,8 @@ impl UpstreamClient for FetchClient {
                     http::header::HeaderValue::try_from(val.as_str()),
                 ) {
                     http_headers.append(hn, hv);
+                } else {
+                    tracing::warn!("dropping unparseable response header: {name}");
                 }
             }
         }
