@@ -2,12 +2,10 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use clap::ValueEnum;
 
-/// Where to persist durable data.
+/// CLI input type only — used by `clap` for `--persistence`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lowercase")]
 pub enum PersistenceKind {
@@ -17,19 +15,60 @@ pub enum PersistenceKind {
     Db,
 }
 
+/// Validated cache configuration. Illegal states (e.g. Redis without URL)
+/// cannot be constructed.
+#[derive(Debug, Clone)]
+pub enum CacheConfig {
+    Memory,
+    Redis { url: String },
+}
+
+impl CacheConfig {
+    pub fn from_url(redis_url: Option<String>) -> Self {
+        match redis_url {
+            Some(url) => Self::Redis { url },
+            None => Self::Memory,
+        }
+    }
+}
+
+/// Validated persistence configuration. `Db` variant always carries a DSN.
+#[derive(Debug, Clone)]
+pub enum PersistenceConfig {
+    File { data_dir: PathBuf },
+    Db { dsn: String },
+}
+
+impl PersistenceConfig {
+    pub fn from_parts(
+        kind: PersistenceKind,
+        data_dir: PathBuf,
+        dsn: Option<String>,
+    ) -> anyhow::Result<Self> {
+        match kind {
+            PersistenceKind::File => Ok(Self::File { data_dir }),
+            PersistenceKind::Db => Ok(Self::Db {
+                dsn: dsn
+                    .ok_or_else(|| anyhow::anyhow!("db persistence requires --dsn / GPROXY_DSN"))?,
+            }),
+        }
+    }
+}
+
 /// Immutable runtime snapshot built from CLI args / environment variables.
-/// Wrapped in [`ArcSwap`] so it can be hot-reloaded without locking readers.
+///
+/// Wrapped in [`Arc`](std::sync::Arc) for cheap sharing across handlers.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     /// Bind host. IPv6 addresses must use bracket notation (e.g. `[::1]`)
-    /// because [`bind_addr`](Self::bind_addr) parses `host:port` as a [`SocketAddr`].
+    /// because [`bind_addr`](Self::bind_addr) parses `host:port` as a
+    /// [`SocketAddr`].
     pub host: String,
     pub port: u16,
-    pub persistence: PersistenceKind,
-    pub data_dir: PathBuf,
-    /// Database connection string — required when `persistence == Db`.
-    pub dsn: Option<String>,
-    pub instance_name: String,
+    pub cache: CacheConfig,
+    pub persistence: PersistenceConfig,
+    /// Logical identifier for this instance (diagnostics / multi-node).
+    pub id: String,
 }
 
 impl RuntimeConfig {
@@ -39,62 +78,61 @@ impl RuntimeConfig {
         addr.parse()
             .map_err(|e| anyhow::anyhow!("invalid bind address {addr}: {e}"))
     }
-
-    /// Validate semantic constraints across fields.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.persistence == PersistenceKind::Db && self.dsn.is_none() {
-            anyhow::bail!("db persistence requires --dsn / GPROXY_DSN");
-        }
-        Ok(())
-    }
-}
-
-/// Shared, hot-swappable config handle.
-pub type SharedConfig = Arc<ArcSwap<RuntimeConfig>>;
-
-/// Wrap a runtime config in a shared, swappable handle.
-pub fn shared(config: RuntimeConfig) -> SharedConfig {
-    Arc::new(ArcSwap::from_pointee(config))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn base_cfg() -> RuntimeConfig {
+    fn file_cfg() -> RuntimeConfig {
         RuntimeConfig {
             host: "127.0.0.1".to_string(),
             port: 8787,
-            persistence: PersistenceKind::File,
-            data_dir: PathBuf::from("./data"),
-            dsn: None,
-            instance_name: "default".to_string(),
+            cache: CacheConfig::Memory,
+            persistence: PersistenceConfig::File {
+                data_dir: PathBuf::from("./data"),
+            },
+            id: "default".to_string(),
         }
     }
 
     #[test]
     fn bind_addr_parses() {
-        let addr = base_cfg().bind_addr().unwrap();
+        let addr = file_cfg().bind_addr().unwrap();
         assert_eq!(addr.to_string(), "127.0.0.1:8787");
     }
 
     #[test]
-    fn validate_rejects_db_without_dsn() {
-        let cfg = RuntimeConfig {
-            persistence: PersistenceKind::Db,
-            ..base_cfg()
-        };
-        let err = cfg.validate().unwrap_err();
+    fn persistence_db_without_dsn_is_err() {
+        let err = PersistenceConfig::from_parts(PersistenceKind::Db, PathBuf::from("./data"), None)
+            .unwrap_err();
         assert!(err.to_string().contains("GPROXY_DSN"));
     }
 
     #[test]
-    fn validate_accepts_db_with_dsn() {
-        let cfg = RuntimeConfig {
-            persistence: PersistenceKind::Db,
-            dsn: Some("sqlite://test.db".to_string()),
-            ..base_cfg()
-        };
-        cfg.validate().unwrap();
+    fn persistence_db_with_dsn_is_ok() {
+        PersistenceConfig::from_parts(
+            PersistenceKind::Db,
+            PathBuf::from("./data"),
+            Some("sqlite://test.db".to_string()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn persistence_file_is_ok() {
+        PersistenceConfig::from_parts(PersistenceKind::File, PathBuf::from("./data"), None)
+            .unwrap();
+    }
+
+    #[test]
+    fn cache_from_url_none_is_memory() {
+        assert!(matches!(CacheConfig::from_url(None), CacheConfig::Memory));
+    }
+
+    #[test]
+    fn cache_from_url_some_is_redis() {
+        let cfg = CacheConfig::from_url(Some("redis://127.0.0.1".to_string()));
+        assert!(matches!(cfg, CacheConfig::Redis { .. }));
     }
 }

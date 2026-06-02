@@ -1,20 +1,27 @@
 //! Pluggable cache backend abstraction.
+//!
+//! Two implementations are provided:
+//! - [`MemoryCache`] — in-process, no external dependencies; single-instance
+//!   deployments.
+//! - [`RedisCache`] — Redis-backed; multi-instance / shared cache.
+//!
+//! Business code depends only on [`CacheBackend`]; the concrete impl is
+//! selected at startup based on `CacheConfig`.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 
 pub mod memory;
+pub mod redis;
 
 pub use memory::MemoryCache;
+pub use redis::RedisCache;
 
-/// A pluggable cache backend. Single-instance deployments use
-/// [`MemoryCache`]; multi-instance deployments will use a Redis-backed
-/// impl (later phase). Business code depends only on this trait.
+/// A pluggable cache backend.
 ///
-/// This is a best-effort cache layer. The in-memory impl is infallible.
-/// Whether write methods should return `Result` (to surface Redis I/O errors)
-/// will be decided when the Redis impl is added.
+/// There are two impls: [`MemoryCache`] (in-process) and
+/// [`RedisCache`] (Redis-backed). Business code calls only this trait.
 #[async_trait]
 pub trait CacheBackend: Send + Sync {
     /// Fetch raw bytes for `key`, or `None` if absent or expired.
