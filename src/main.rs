@@ -61,7 +61,11 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(FilePersistence::open(runtime_config.data_dir.clone()).await?)
         }
         PersistenceKind::Db => {
-            Arc::new(DbPersistence::connect(runtime_config.dsn.as_deref().unwrap()).await?)
+            let dsn = runtime_config
+                .dsn
+                .as_deref()
+                .expect("validate() guarantees dsn is Some when persistence == Db");
+            Arc::new(DbPersistence::connect(dsn).await?)
         }
     };
 

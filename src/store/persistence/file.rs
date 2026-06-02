@@ -16,6 +16,9 @@ pub struct FilePersistence {
 
 impl FilePersistence {
     /// Open (and create if absent) the data directory at `data_dir`.
+    ///
+    /// Only ensures the directory exists; write-permission is verified by
+    /// [`health`](FilePersistence::health), which callers should invoke at startup.
     pub async fn open(data_dir: PathBuf) -> anyhow::Result<Self> {
         tokio::fs::create_dir_all(&data_dir).await.map_err(|e| {
             anyhow::anyhow!("failed to create data dir {}: {e}", data_dir.display())
@@ -31,7 +34,9 @@ impl PersistenceBackend for FilePersistence {
     }
 
     async fn health(&self) -> anyhow::Result<()> {
-        let probe = self.root.join(".gproxy_health_probe");
+        let probe = self
+            .root
+            .join(format!(".gproxy_health_{}", std::process::id()));
         tokio::fs::write(&probe, b"ok")
             .await
             .map_err(|e| anyhow::anyhow!("data dir is not writable: {e}"))?;

@@ -19,7 +19,7 @@ impl DbPersistence {
         let opts = ConnectOptions::new(dsn.to_string());
         let conn = Database::connect(opts)
             .await
-            .map_err(|e| anyhow::anyhow!("db connect failed ({dsn}): {e}"))?;
+            .map_err(|e| anyhow::anyhow!("db connect failed: {e}"))?;
         Ok(Self { conn })
     }
 }
