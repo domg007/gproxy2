@@ -181,24 +181,31 @@ src/
 
 **没有任何域级 backend trait**(砍掉 v1 的 `RateLimitBackend` / `QuotaBackend` /
 `AffinityBackend`)。ratelimit / quota / affinity / config / session / log 都是
-**普通域代码**,持有 `&dyn CacheBackend` 和/或 `&dyn PersistenceBackend`。
-**「分域策略」= 这个域碰哪个 backend**:
+**普通域代码**,持有 `&dyn CacheBackend` 和/或 `&dyn PersistenceBackend`,外加进程内的
+**控制面快照(`ArcSwap`)**。**「分域策略」= 这个域把状态放哪**。
 
-| 数据域 | 碰哪个 backend | 说明 |
+`CacheBackend` 是**扁平的共享缓存**(memory 单 / redis 多),**不做 memory→redis→db
+分层,db 永不是 cache 的回落层**。多实例下实例的"本地内存"只有两块,且都可从
+persistence 重建(丢了不影响正确性,实例仍逻辑无状态):**① 控制面 ArcSwap 快照**、
+**② 凭证健康 / member 熔断这类软启发式**。
+
+| 数据域 | 放哪(多实例) | 说明 |
 |---|---|---|
-| 配置 / 供应商 / 路由 / 模型 | cache + persistence(写穿) | persistence 真相源,缓存加速;改动写库→换本地 `ArcSwap` 快照→`publish` 通知其他实例失效重载 |
-| 配额(钱) | cache + persistence(**弱一致**) | cache 先扣(并发下可能轻微超扣,可接受);persistence 经 usage / `user_quotas` 持久化;启动从 persistence 水合 cache,定期对账修正。**不**给 cache 加原子上限原语 |
-| 限流窗口 | 只 cache | `incr` 瞬时计数,过期即弃,不持久化 |
-| 凭证健康 / 熔断冷却 | cache(运行时) + persistence(审计快照) | 热状态在 cache;`credential_statuses` 留持久快照供控制台审计 |
-| 用户登录态 / session | 只 cache | 不持久化 |
-| 请求日志 / 用量明细 | 只 persistence | 直接落库(可异步批量写),不进 cache |
-| 用量看板统计 | 只 persistence(rollup) | 按 时/天/周/月 分桶计数;看板只读 rollup,**绝不实时聚合** |
+| 控制面(配置 / providers / routes / aliases / 规则表 / users / keys / 权限) | **本地 ArcSwap 快照** + persistence 真相源 + pub/sub 失效 | 读多写少,每请求多次查;失效广播保一致 |
+| 凭证健康 / 熔断冷却 + **LB member 熔断** | **本地内存**(软启发式);可选定期刷 `credential_statuses` 供审计 | 各实例自愈,无需全局一致;免去热路径 redis 往返 |
+| 限流计数 | **redis 直连**(memory 单实例) | 必须全局求和,本地会漏判 |
+| 配额(钱) | **redis 直连**(弱一致) | cache 先扣,本地会 N 倍超扣;persistence 经 usage/`user_quotas` 持久化,启动水合 + 定期对账 |
+| 用户登录态 / session | **redis 直连**(或粘性路由) | 请求可落任意实例 |
+| 请求日志 / 用量明细 | 只 persistence | 直接落库(可异步批量写) |
+| 用量看板统计 | 只 persistence(rollup) | 按 时/天/周/月 分桶;看板只读 rollup,**绝不实时聚合** |
 
 ### 7.3 多实例语义
 
-- 实例本身**无状态、可水平扩**(仅在 `redis` + `db` 组合下)。
-- 共享状态全部经 `CacheBackend`(redis)+ `PersistenceBackend`(db)。
-- 配置变更:写 persistence → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 → 其他实例 `subscribe` 收到后重载快照。
+- 实例**逻辑无状态、可水平扩**(`redis` + `db` 组合下)。本地内存仅控制面快照 +
+  健康/熔断启发式,二者皆可重建。
+- 必须全局一致的状态(限流 / 配额 / session)**只经 redis**,实例不留本地副本(杜绝脏读)。
+- 配置变更:写 persistence → 换本地 `ArcSwap` 快照 → `cache.publish` 广播失效 →
+  其他实例 `subscribe` 收到后从 persistence 重载快照。
 
 ### 7.4 上游传输抽象(`UpstreamClient`)
 
