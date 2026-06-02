@@ -90,11 +90,12 @@ src/
   api/                    # gproxy 自有 API 的端点清单 + 请求/响应形状(DTO);单一真相源
                           #   不用 OpenAPI/codegen;仅自有「管理/用户/鉴权」API
                           #   AI 协议网关端点不在此列(透传/转换,形状见 protocol/)
-  http/                   # HTTP 入口(axum,仅 native)
-    middleware/           # auth / classify / ratelimit / permission / sanitize
-    admin/                # 管理 API handler(用 api/ 的 DTO)
-    gateway/              # AI 协议代理端点 /v1、/{provider}/v1(透传/转换,无自定义形状)
-    console.rs            # rust-embed 静态资源
+  http/                   # HTTP 两端(按方向拆)
+    client/               # 出站传输:UpstreamClient trait + wreq(native)/ fetch(wasm)(见 §7.4)
+    server/               # 入站(native,axum):router + health + middleware/ + admin/ + gateway/ + console
+                          #   middleware: auth/classify/ratelimit/permission/sanitize
+                          #   admin: 管理 API handler(用 api/ 的 DTO);gateway: /v1、/{provider}/v1 透传/转换
+    edge.rs               # 入站 wasm:WinterCG fetch 入口,驱动同一 Router(见 §13)
   pipeline/               # 请求生命周期编排(替代旧 engine.execute 巨函数)
     classify.rs preprocess.rs route.rs balance.rs retry.rs execute.rs stream.rs
   protocol/               # 线格式类型 + 转换(去臃肿后)
@@ -102,7 +103,8 @@ src/
     transform/            # 两两转换
       common/             # 收敛后的共享样板(SSE 分帧、role/tool 映射、usage 搬运、错误包装)
       dispatch.rs         # (from, to) → impl 转换表,替代手写巨型 match
-  channel/                # 各上游渠道 + UpstreamClient 传输 trait(见 §7.4)
+  channel/                # (后续)按【供应商】的接入适配:Channel trait + openai/claude/codex/...
+                          #   每个 channel 用 http::client 的 UpstreamClient 发请求;不要把传输放这里
   store/                  # 存储抽象(两个 trait,见 §7)
     cache/                # CacheBackend trait + memory / redis 实现
     persistence/          # PersistenceBackend trait + db(SeaORM)/ file 实现

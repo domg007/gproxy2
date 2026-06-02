@@ -11,10 +11,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
 
-use super::client::{ChannelError, UpstreamClient};
+use super::{ClientError, UpstreamClient};
 
-fn js_err(e: wasm_bindgen::JsValue) -> ChannelError {
-    ChannelError::Transport(format!("{e:?}"))
+fn js_err(e: wasm_bindgen::JsValue) -> ClientError {
+    ClientError::Transport(format!("{e:?}"))
 }
 
 /// Upstream client that delegates to the host `fetch` (Cloudflare Workers / WinterCG).
@@ -34,7 +34,7 @@ impl Default for FetchClient {
 
 #[async_trait::async_trait(?Send)]
 impl UpstreamClient for FetchClient {
-    async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ChannelError> {
+    async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ClientError> {
         let (parts, body_bytes) = req.into_parts();
 
         // Build web_sys::Headers from http::HeaderMap.
@@ -42,7 +42,7 @@ impl UpstreamClient for FetchClient {
         for (name, value) in &parts.headers {
             let val_str = value
                 .to_str()
-                .map_err(|e| ChannelError::Transport(e.to_string()))?;
+                .map_err(|e| ClientError::Transport(e.to_string()))?;
             js_headers.append(name.as_str(), val_str).map_err(js_err)?;
         }
 
@@ -100,7 +100,7 @@ impl UpstreamClient for FetchClient {
         }
 
         let status = http::StatusCode::from_u16(status_code)
-            .map_err(|e| ChannelError::Transport(e.to_string()))?;
+            .map_err(|e| ClientError::Transport(e.to_string()))?;
 
         let mut builder = http::Response::builder().status(status);
         if let Some(hmap) = builder.headers_mut() {
@@ -108,6 +108,6 @@ impl UpstreamClient for FetchClient {
         }
         builder
             .body(body_out)
-            .map_err(|e| ChannelError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Transport(e.to_string()))
     }
 }

@@ -1,17 +1,12 @@
-//! HTTP surface. Domain routers (gateway, admin, console) get nested
-//! here in later phases.
+//! HTTP surface, split by direction:
+//! - [`client`] — outbound transport to upstreams (shared; wreq native / fetch edge)
+//! - [`server`] — inbound axum router + handlers (native)
+//! - [`edge`] — inbound WinterCG `fetch` entry (wasm)
 
-use axum::Router;
-use axum::routing::get;
+pub mod client;
 
-use crate::app::AppState;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod server;
 
-mod health;
-
-/// Build the top-level axum router.
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/healthz", get(health::healthz))
-        .route("/version", get(health::version))
-        .with_state(state)
-}
+#[cfg(target_arch = "wasm32")]
+pub mod edge;

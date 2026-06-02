@@ -4,7 +4,7 @@
 
 use bytes::Bytes;
 
-use super::client::{ChannelError, UpstreamClient};
+use super::{ClientError, UpstreamClient};
 
 /// Upstream client backed by [`wreq::Client`] (native, TLS-emulation capable).
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl Default for WreqClient {
 
 #[async_trait::async_trait]
 impl UpstreamClient for WreqClient {
-    async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ChannelError> {
+    async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ClientError> {
         // http::Request<Bytes> -> wreq::Request via From impl (Bytes: Into<wreq::Body>).
         let wreq_req: wreq::Request = req.into();
 
@@ -41,14 +41,14 @@ impl UpstreamClient for WreqClient {
             .inner
             .execute(wreq_req)
             .await
-            .map_err(|e| ChannelError::Transport(e.to_string()))?;
+            .map_err(|e| ClientError::Transport(e.to_string()))?;
 
         let status = resp.status();
         let headers = resp.headers().clone();
         let body_bytes = resp
             .bytes()
             .await
-            .map_err(|e| ChannelError::Transport(e.to_string()))?;
+            .map_err(|e| ClientError::Transport(e.to_string()))?;
 
         let mut builder = http::Response::builder().status(status);
         if let Some(hmap) = builder.headers_mut() {
@@ -56,6 +56,6 @@ impl UpstreamClient for WreqClient {
         }
         builder
             .body(body_bytes)
-            .map_err(|e| ChannelError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Transport(e.to_string()))
     }
 }

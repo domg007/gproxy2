@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("persistence backend: {} healthy", persistence.kind());
 
     let state = AppState::new(config, cache, persistence);
-    let app = http::router(state);
+    let app = http::server::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!("gproxy v2 listening on http://{bind}");
