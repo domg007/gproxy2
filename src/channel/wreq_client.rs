@@ -15,9 +15,9 @@ pub struct WreqClient {
 impl WreqClient {
     /// Build a `WreqClient` with a default [`wreq::Client`].
     ///
-    /// Decompression features are disabled in `Cargo.toml` (`gzip`/`brotli`/`zstd`/`deflate`
-    /// removed) so the client forwards raw bytes; decompression (if needed for transform)
-    /// happens in a higher layer.
+    /// Auto-decompression (`gzip`/`brotli`/`zstd`/`deflate`) is enabled: the
+    /// client transparently inflates compressed responses, so downstream
+    /// transform/billing logic always sees the plaintext body.
     pub fn new() -> Self {
         Self {
             inner: wreq::Client::new(),
