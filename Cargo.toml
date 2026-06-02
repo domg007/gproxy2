@@ -1,0 +1,31 @@
+[package]
+name = "gproxy"
+version = "2.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "gproxy v2 — high-performance LLM proxy (rewrite)"
+
+[lib]
+name = "gproxy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gproxy"
+path = "src/main.rs"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+arc-swap = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["http2", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
+dashmap = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
