@@ -17,10 +17,19 @@ pub enum PersistenceKind {
 
 /// Validated cache configuration. Illegal states (e.g. Redis without URL)
 /// cannot be constructed.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum CacheConfig {
     Memory,
     Redis { url: String },
+}
+
+impl std::fmt::Debug for CacheConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CacheConfig::Memory => write!(f, "Memory"),
+            CacheConfig::Redis { .. } => write!(f, "Redis {{ url: <redacted> }}"),
+        }
+    }
 }
 
 impl CacheConfig {
@@ -33,10 +42,21 @@ impl CacheConfig {
 }
 
 /// Validated persistence configuration. `Db` variant always carries a DSN.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum PersistenceConfig {
     File { data_dir: PathBuf },
     Db { dsn: String },
+}
+
+impl std::fmt::Debug for PersistenceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PersistenceConfig::File { data_dir } => {
+                write!(f, "File {{ data_dir: {data_dir:?} }}")
+            }
+            PersistenceConfig::Db { .. } => write!(f, "Db {{ dsn: <redacted> }}"),
+        }
+    }
 }
 
 impl PersistenceConfig {

@@ -35,6 +35,11 @@ pub trait CacheBackend: Send + Sync {
     /// The `ttl` is applied only when the key does not yet exist (or has
     /// expired); it is NOT refreshed on an already-live key (matches Redis
     /// INCR + EXPIRE-on-create semantics).
+    ///
+    /// Backends that can fail (e.g. Redis) return `0` on error (fail-open) after
+    /// logging; callers that make allow/deny decisions on the result should
+    /// account for this — a returned `0` may mean "backend unavailable", not
+    /// "no increments seen".
     async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64;
 
     /// Remove `key` if present.

@@ -14,9 +14,10 @@ use super::CacheBackend;
 ///
 /// # TTL-on-create semantics
 ///
-/// `incr`'s TTL is applied only when the key is newly created (i.e. the
-/// incremented value equals `delta`). This matches [`MemoryCache`](super::MemoryCache)'s
-/// behaviour: an already-live key's TTL is never refreshed by `incr`.
+/// `incr`'s TTL is applied only when the key did not previously exist, detected
+/// via a preceding `EXISTS` call inside the Lua script. This ensures the window
+/// expiry is never reset by subsequent increments (unlike the old `v == delta`
+/// heuristic, which misfired whenever a live counter happened to equal `delta`).
 pub struct RedisCache {
     cm: redis::aio::ConnectionManager,
 }
@@ -53,8 +54,13 @@ impl CacheBackend for RedisCache {
     async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
         let mut cm = self.cm.clone();
         if let Some(d) = ttl {
-            let ms = d.as_millis() as u64;
-            let _: Result<(), _> = cm.pset_ex(key, value, ms).await;
+            // Duration::ZERO treated as no-expiry (PSETEX 0 is rejected by Redis).
+            let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+            if ms == 0 {
+                let _: Result<(), _> = cm.set(key, value).await;
+            } else {
+                let _: Result<(), _> = cm.pset_ex(key, value, ms).await;
+            }
         } else {
             let _: Result<(), _> = cm.set(key, value).await;
         }
@@ -67,27 +73,36 @@ impl CacheBackend for RedisCache {
 
     /// Atomically increment `key` by `delta`. TTL is applied only on creation.
     ///
-    /// Lua script ensures the TTL is set in the same round-trip as INCRBY, and
-    /// only when the resulting value equals `delta` (i.e. the key was just
-    /// created). This matches `MemoryCache`'s TTL-on-create heuristic.
+    /// Uses an EXISTS-before-INCRBY Lua script so the TTL is set in the same
+    /// round-trip as INCRBY, and only when the key did not previously exist —
+    /// not whenever the counter value happens to equal `delta`. This prevents
+    /// spurious TTL resets on live counters (e.g. two increments of the same
+    /// delta on a pre-existing key).
+    ///
+    /// On any Redis/Lua error this returns `0` (fail-open) after logging;
+    /// callers making allow/deny decisions on the result should account for this.
     async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+        // local exists = redis.call('EXISTS', KEYS[1])
         // local v = redis.call('INCRBY', KEYS[1], ARGV[1])
-        // if v == tonumber(ARGV[1]) and tonumber(ARGV[2]) > 0 then
+        // if exists == 0 and tonumber(ARGV[2]) > 0 then
         //   redis.call('PEXPIRE', KEYS[1], ARGV[2])
         // end
         // return v
         static INCR_SCRIPT: std::sync::OnceLock<redis::Script> = std::sync::OnceLock::new();
         let script = INCR_SCRIPT.get_or_init(|| {
             redis::Script::new(
-                "local v = redis.call('INCRBY', KEYS[1], ARGV[1])\n\
-                 if v == tonumber(ARGV[1]) and tonumber(ARGV[2]) > 0 then\n\
+                "local exists = redis.call('EXISTS', KEYS[1])\n\
+                 local v = redis.call('INCRBY', KEYS[1], ARGV[1])\n\
+                 if exists == 0 and tonumber(ARGV[2]) > 0 then\n\
                    redis.call('PEXPIRE', KEYS[1], ARGV[2])\n\
                  end\n\
                  return v",
             )
         });
 
-        let ttl_ms: i64 = ttl.map(|d| d.as_millis() as i64).unwrap_or(0);
+        let ttl_ms: i64 = ttl
+            .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
         let mut cm = self.cm.clone();
         script
             .key(key)
@@ -95,7 +110,10 @@ impl CacheBackend for RedisCache {
             .arg(ttl_ms)
             .invoke_async::<i64>(&mut cm)
             .await
-            .unwrap_or(0)
+            .unwrap_or_else(|e| {
+                tracing::error!("redis incr failed, returning 0 (fail-open): {e}");
+                0
+            })
     }
 }
 

@@ -10,7 +10,7 @@ use gproxy::http;
 use gproxy::store::cache::{CacheBackend, MemoryCache, RedisCache};
 use gproxy::store::persistence::{DbPersistence, FilePersistence, PersistenceBackend};
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(name = "gproxy", version, about = "gproxy v2 LLM proxy")]
 struct Cli {
     /// Bind host (IPv6 must use bracket notation, e.g. [::1]).
