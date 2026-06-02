@@ -2,10 +2,9 @@
 //! layer over these modules.
 
 pub mod http;
+pub mod store;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod config;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod store;

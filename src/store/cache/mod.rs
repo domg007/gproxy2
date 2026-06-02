@@ -1,28 +1,47 @@
 //! Pluggable cache backend abstraction.
 //!
-//! Two implementations are provided:
-//! - [`MemoryCache`] — in-process, no external dependencies; single-instance
-//!   deployments.
+//! Native implementations:
+//! - [`MemoryCache`] — in-process, no external dependencies; single-instance deployments.
 //! - [`RedisCache`] — Redis-backed; multi-instance / shared cache.
+//!
+//! Edge (wasm32) implementations:
+//! - [`LibsqlCache`] — libSQL/Turso HTTP-backed kv table.
+//! - [`UpstashCache`] — Upstash Redis REST API.
 //!
 //! Business code depends only on [`CacheBackend`]; the concrete impl is
 //! selected at startup based on `CacheConfig`.
 
 use std::time::Duration;
 
-use async_trait::async_trait;
-
+#[cfg(not(target_arch = "wasm32"))]
 pub mod memory;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod redis;
 
+#[cfg(any(target_arch = "wasm32", test))]
+pub mod b64;
+#[cfg(target_arch = "wasm32")]
+pub mod libsql;
+#[cfg(target_arch = "wasm32")]
+pub mod upstash;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub use memory::MemoryCache;
+#[cfg(not(target_arch = "wasm32"))]
 pub use redis::RedisCache;
+
+#[cfg(target_arch = "wasm32")]
+pub use libsql::LibsqlCache;
+#[cfg(target_arch = "wasm32")]
+pub use upstash::UpstashCache;
 
 /// A pluggable cache backend.
 ///
-/// There are two impls: [`MemoryCache`] (in-process) and
-/// [`RedisCache`] (Redis-backed). Business code calls only this trait.
-#[async_trait]
+/// Native impls: [`MemoryCache`] (in-process) and [`RedisCache`] (Redis-backed).
+/// Edge impls: [`LibsqlCache`] (libSQL/Turso) and [`UpstashCache`] (Upstash REST).
+/// Business code calls only this trait.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait CacheBackend: Send + Sync {
     /// Fetch raw bytes for `key`, or `None` if absent or expired.
     async fn get(&self, key: &str) -> Option<Vec<u8>>;
