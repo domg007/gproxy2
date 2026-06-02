@@ -3,5 +3,5 @@
 
 pub mod app;
 pub mod config;
-// pub mod http;     // Task 5
+pub mod http;
 pub mod store;
