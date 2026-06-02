@@ -86,11 +86,14 @@ v2 是一次全量重写,但**不是字面意义的从零**:协议转换与 chan
 src/
   main.rs                 # 入口:解析参数、装配 AppState、起服务
   app.rs                  # AppState 装配 + axum Router 总装
-  config/                 # toml 种子解析、运行时配置快照(ArcSwap)、热更新
-  http/                   # 所有 HTTP 入口(axum)
+  config/                 # bootstrap(TOML/env)解析、运行时配置快照(ArcSwap)、热更新
+  api/                    # gproxy 自有 API 的端点清单 + 请求/响应形状(DTO);单一真相源
+                          #   不用 OpenAPI/codegen;仅自有「管理/用户/鉴权」API
+                          #   AI 协议网关端点不在此列(透传/转换,形状见 protocol/)
+  http/                   # HTTP 入口(axum,仅 native)
     middleware/           # auth / classify / ratelimit / permission / sanitize
-    admin/                # 管理后台 API(按资源拆,杜绝上帝文件)
-    gateway/              # 代理端点 /v1、/{provider}/v1
+    admin/                # 管理 API handler(用 api/ 的 DTO)
+    gateway/              # AI 协议代理端点 /v1、/{provider}/v1(透传/转换,无自定义形状)
     console.rs            # rust-embed 静态资源
   pipeline/               # 请求生命周期编排(替代旧 engine.execute 巨函数)
     classify.rs preprocess.rs route.rs balance.rs retry.rs execute.rs stream.rs
@@ -99,15 +102,16 @@ src/
     transform/            # 两两转换
       common/             # 收敛后的共享样板(SSE 分帧、role/tool 映射、usage 搬运、错误包装)
       dispatch.rs         # (from, to) → impl 转换表,替代手写巨型 match
-  channel/                # 各上游客户端(openai/claude/gemini/codex/...)
-  store/                  # 存储抽象
-    cache/                # CacheBackend trait + memory + redis 实现
-    db/                   # SeaORM 实体 + 查询 + 迁移
-    domains/              # 各数据域仓储,声明 缓存/持久化 策略
-  auth/ quota/ billing/ ratelimit/   # 横切领域
+  channel/                # 各上游渠道 + UpstreamClient 传输 trait(见 §7.4)
+  store/                  # 存储抽象(两个 trait,见 §7)
+    cache/                # CacheBackend trait + memory / redis 实现
+    persistence/          # PersistenceBackend trait + db(SeaORM)/ file 实现
+  domains/                # 域逻辑(routing/credentials/quota/ratelimit/usage/session…),组合两个 backend
+  auth/ billing/          # 横切领域
 ```
 
 设计原则:**任何一个文件都能单独读懂、单独测试**。文件变大即是"做了太多事"的信号。
+**HTTP 端点与形状以 `api/` 下的 Rust 类型 + 路由声明为单一真相源,不引入 OpenAPI。**
 
 ## 5. 请求管线(lifecycle)
 
