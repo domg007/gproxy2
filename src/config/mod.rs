@@ -1,63 +1,35 @@
-//! Configuration: on-disk TOML model + hot-swappable runtime snapshot.
+//! Configuration: CLI/env-only bootstrap (no config file).
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use serde::Deserialize;
+use clap::ValueEnum;
 
-/// On-disk configuration file model (TOML).
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConfigFile {
-    #[serde(default)]
-    pub global: GlobalConfig,
-}
-
-/// `[global]` table of the config file.
-#[derive(Debug, Clone, Deserialize)]
-pub struct GlobalConfig {
-    /// Bind host. IPv6 addresses must use bracket notation (e.g. `[::1]`)
-    /// because `bind_addr()` parses `host:port` as a `SocketAddr`.
-    #[serde(default = "default_host")]
-    pub host: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
-    #[serde(default = "default_data_dir")]
-    pub data_dir: PathBuf,
-    /// Database connection string. Parsed now, used in a later phase.
-    pub dsn: Option<String>,
+/// Where to persist durable data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "lowercase")]
+pub enum PersistenceKind {
+    /// Local disk — single-instance only.
+    File,
+    /// SeaORM-backed database — supports multi-instance.
+    Db,
 }
 
-fn default_host() -> String {
-    "127.0.0.1".to_string()
-}
-fn default_port() -> u16 {
-    8787
-}
-fn default_data_dir() -> PathBuf {
-    PathBuf::from("./data")
-}
-
-impl Default for GlobalConfig {
-    fn default() -> Self {
-        Self {
-            host: default_host(),
-            port: default_port(),
-            data_dir: default_data_dir(),
-            dsn: None,
-        }
-    }
-}
-
-/// Immutable runtime snapshot derived from [`ConfigFile`]. Wrapped in
-/// `ArcSwap` so it can be hot-reloaded without locking readers.
+/// Immutable runtime snapshot built from CLI args / environment variables.
+/// Wrapped in [`ArcSwap`] so it can be hot-reloaded without locking readers.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
+    /// Bind host. IPv6 addresses must use bracket notation (e.g. `[::1]`)
+    /// because [`bind_addr`](Self::bind_addr) parses `host:port` as a [`SocketAddr`].
     pub host: String,
     pub port: u16,
+    pub persistence: PersistenceKind,
     pub data_dir: PathBuf,
+    /// Database connection string — required when `persistence == Db`.
     pub dsn: Option<String>,
+    pub instance_name: String,
 }
 
 impl RuntimeConfig {
@@ -67,30 +39,14 @@ impl RuntimeConfig {
         addr.parse()
             .map_err(|e| anyhow::anyhow!("invalid bind address {addr}: {e}"))
     }
-}
 
-impl From<ConfigFile> for RuntimeConfig {
-    fn from(f: ConfigFile) -> Self {
-        Self {
-            host: f.global.host,
-            port: f.global.port,
-            data_dir: f.global.data_dir,
-            dsn: f.global.dsn,
+    /// Validate semantic constraints across fields.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.persistence == PersistenceKind::Db && self.dsn.is_none() {
+            anyhow::bail!("db persistence requires --dsn / GPROXY_DSN");
         }
+        Ok(())
     }
-}
-
-/// Parse a config from a TOML string.
-pub fn parse_config(toml_str: &str) -> anyhow::Result<RuntimeConfig> {
-    let file: ConfigFile = toml::from_str(toml_str)?;
-    Ok(file.into())
-}
-
-/// Load configuration from a path on disk.
-pub fn load_config(path: &Path) -> anyhow::Result<RuntimeConfig> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("failed to read config {}: {e}", path.display()))?;
-    parse_config(&raw)
 }
 
 /// Shared, hot-swappable config handle.
@@ -105,27 +61,40 @@ pub fn shared(config: RuntimeConfig) -> SharedConfig {
 mod tests {
     use super::*;
 
-    #[test]
-    fn parses_minimal_and_applies_defaults() {
-        let cfg = parse_config("[global]\n").expect("parse");
-        assert_eq!(cfg.host, "127.0.0.1");
-        assert_eq!(cfg.port, 8787);
-        assert_eq!(cfg.data_dir, PathBuf::from("./data"));
-        assert!(cfg.dsn.is_none());
+    fn base_cfg() -> RuntimeConfig {
+        RuntimeConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8787,
+            persistence: PersistenceKind::File,
+            data_dir: PathBuf::from("./data"),
+            dsn: None,
+            instance_name: "default".to_string(),
+        }
     }
 
     #[test]
-    fn overrides_and_bind_addr() {
-        let cfg = parse_config("[global]\nhost = \"0.0.0.0\"\nport = 9000\ndsn = \"sqlite://x\"\n")
-            .expect("parse");
-        assert_eq!(cfg.port, 9000);
-        assert_eq!(cfg.dsn.as_deref(), Some("sqlite://x"));
-        assert_eq!(cfg.bind_addr().unwrap().to_string(), "0.0.0.0:9000");
+    fn bind_addr_parses() {
+        let addr = base_cfg().bind_addr().unwrap();
+        assert_eq!(addr.to_string(), "127.0.0.1:8787");
     }
 
     #[test]
-    fn empty_input_uses_defaults() {
-        let cfg = parse_config("").unwrap();
-        assert_eq!(cfg.port, 8787);
+    fn validate_rejects_db_without_dsn() {
+        let cfg = RuntimeConfig {
+            persistence: PersistenceKind::Db,
+            ..base_cfg()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.to_string().contains("GPROXY_DSN"));
+    }
+
+    #[test]
+    fn validate_accepts_db_with_dsn() {
+        let cfg = RuntimeConfig {
+            persistence: PersistenceKind::Db,
+            dsn: Some("sqlite://test.db".to_string()),
+            ..base_cfg()
+        };
+        cfg.validate().unwrap();
     }
 }
