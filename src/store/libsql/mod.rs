@@ -165,7 +165,25 @@ impl LibsqlClient {
         let buf_val = JsFuture::from(buf_promise).await.map_err(js_err)?;
         let body_bytes = Uint8Array::new(&buf_val).to_vec();
 
-        let hrana: HranaResponse = serde_json::from_slice(&body_bytes)?;
+        // Parse into a generic Value first so we can detect a top-level Hrana
+        // error envelope — e.g. auth failures, bad URL, or quota exceeded return
+        // `{"type":"error","error":{"message":"..."}}` without a `results` field,
+        // which would otherwise produce a misleading "missing field `results`" error.
+        let val: serde_json::Value = serde_json::from_slice(&body_bytes)?;
+        if val.get("type").and_then(|t| t.as_str()) == Some("error") {
+            let msg = val
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or_else(|| val.as_str().unwrap_or("unknown Hrana top-level error"))
+                .to_owned();
+            return Err(StoreError::Hrana(msg));
+        }
+        if val.get("results").is_none() {
+            let msg = val.to_string();
+            return Err(StoreError::Hrana(msg));
+        }
+        let hrana: HranaResponse = serde_json::from_value(val)?;
 
         // First result is the execute; second is close. Extract execute result.
         let mut iter = hrana.results.into_iter();

@@ -18,7 +18,7 @@ pub mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod redis;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 pub mod b64;
 #[cfg(target_arch = "wasm32")]
 pub mod libsql;

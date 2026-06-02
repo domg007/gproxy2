@@ -128,6 +128,9 @@ impl CacheBackend for UpstashCache {
             }
         };
         // Set TTL only when the key was freshly created (value == delta).
+        // This heuristic assumes positive deltas (typical rate-limit counters).
+        // A negative delta that coincidentally equals `delta` would spuriously
+        // refresh the TTL, but that case is benign for current usage.
         if new_val == delta {
             if let Some(d) = ttl {
                 if !d.is_zero() {

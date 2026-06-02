@@ -114,6 +114,11 @@ impl CacheBackend for LibsqlCache {
     }
 
     async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+        // NOTE: `incr` treats the stored value as an integer counter via
+        // `CAST(v AS INTEGER)`.  Do NOT mix `set` (arbitrary bytes) and `incr`
+        // on the same key — SQLite's CAST of a binary blob to INTEGER yields a
+        // wrong value (unlike Redis, which errors).  Use distinct keys for byte
+        // blobs and integer counters.
         let expires = Self::expiry(ttl);
         let result = self
             .client
