@@ -1,0 +1,5 @@
+[global]
+host = "127.0.0.1"
+port = 8787
+data_dir = "./data"
+# dsn = "sqlite://./data/gproxy.db?mode=rwc"   # used in a later phase
