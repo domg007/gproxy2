@@ -67,8 +67,9 @@ pub struct RuntimeConfig {
     pub port: u16,
     pub cache: CacheConfig,
     pub persistence: PersistenceConfig,
-    /// Logical identifier for this instance (diagnostics / multi-node).
-    pub id: String,
+    /// Numeric identifier for this instance. Numeric (not a name) so the
+    /// database can partition / shard per-instance rows by it later.
+    pub instance_id: u64,
 }
 
 impl RuntimeConfig {
@@ -92,7 +93,7 @@ mod tests {
             persistence: PersistenceConfig::File {
                 data_dir: PathBuf::from("./data"),
             },
-            id: "default".to_string(),
+            instance_id: 0,
         }
     }
 

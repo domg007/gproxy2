@@ -86,7 +86,7 @@ v2 是一次全量重写,但**不是字面意义的从零**:协议转换与 chan
 src/
   main.rs                 # 入口:解析参数、装配 AppState、起服务
   app.rs                  # AppState 装配 + axum Router 总装
-  config/                 # bootstrap(TOML/env)解析、运行时配置快照(ArcSwap)、热更新
+  config/                 # bootstrap(env + CLI,无配置文件)、运行时设置快照(ArcSwap)
   api/                    # gproxy 自有 API 的端点清单 + 请求/响应形状(DTO);单一真相源
                           #   不用 OpenAPI/codegen;仅自有「管理/用户/鉴权」API
                           #   AI 协议网关端点不在此列(透传/转换,形状见 protocol/)
@@ -261,9 +261,16 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `usage_rollups`(看板源):`granularity`(hour/day/week/month)· `bucket_start` · 维度(`provider_id?` / `user_id?` / `route_name?` / `model?`)· 指标(`requests` / `input_tokens` / `output_tokens` / `cost`)。每请求 `add_usage_rollup` 累加
 - `downstream_requests` / `upstream_requests`:抓包日志(受 enable 开关),沿用 v1 结构(下行 path/query,上行 url/latency)
 
-**E. 设置**
-- Bootstrap(TOML/env,连库前就要):`dsn?` · `redis_url?` · `instance_name?` · `host?` · `port?`(`dsn` 缺省即 `file` 持久化模式)
-- `instance_settings`(按 `instance_name` 每实例一行,单实例一行/多实例多行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `update_channel?`
+**E. 设置(启动)**
+- **无配置文件**:启动**只靠环境变量 + CLI 参数**(clap `env=`,每参数同时读 env)。无 `gproxy.toml`。
+- Bootstrap 参数(连持久层之前就要):
+  - `--persistence <file|db>` / `GPROXY_PERSISTENCE`(默认 `file`)—— 选持久化后端
+  - `--data-dir <path>` / `GPROXY_DATA_DIR`(`file` 用,默认 `./data`)
+  - `--dsn <url>` / `GPROXY_DSN`(`db` 用;`persistence=db` 时必填)
+  - `--redis-url <url>` / `GPROXY_REDIS_URL`(给定即 redis 缓存,否则 memory)
+  - `--host` / `GPROXY_HOST`(默认 `127.0.0.1`)· `--port` / `GPROXY_PORT`(默认 `8787`)
+  - `--instance-name` / `GPROXY_INSTANCE_NAME`(默认 `default`)
+- `instance_settings`(运行时可改,存持久层,按 `instance_name` 每实例一行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `update_channel?`。host/port/dsn/redis 是 bootstrap,不进此表。
 
 **F. 文件**
 - `files`:`provider_id` · `file_id` · `filename` · `mime_type` · `size_bytes` · `downloadable?` · `raw_json`(元数据)

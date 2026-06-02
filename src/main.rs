@@ -38,9 +38,10 @@ struct Cli {
     #[arg(long, env = "GPROXY_REDIS_URL")]
     redis_url: Option<String>,
 
-    /// Logical identifier for this instance (diagnostics / multi-node).
-    #[arg(long, env = "GPROXY_INSTANCE_ID", default_value = "default")]
-    id: String,
+    /// Numeric identifier for this instance (used to partition per-instance
+    /// rows in the database; set distinct values across a multi-node fleet).
+    #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
+    instance_id: u64,
 }
 
 #[tokio::main]
@@ -56,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
         port: cli.port,
         cache: cache_cfg,
         persistence: persistence_cfg,
-        id: cli.id,
+        instance_id: cli.instance_id,
     });
 
     let bind = config.bind_addr()?;
