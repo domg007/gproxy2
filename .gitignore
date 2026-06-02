@@ -5,3 +5,7 @@
 node_modules/
 dist/
 .DS_Store
+
+# test-only secrets — never commit
+.env
+.env.*
