@@ -10,12 +10,15 @@ use serde::Deserialize;
 /// On-disk configuration file model (TOML).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigFile {
+    #[serde(default)]
     pub global: GlobalConfig,
 }
 
 /// `[global]` table of the config file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GlobalConfig {
+    /// Bind host. IPv6 addresses must use bracket notation (e.g. `[::1]`)
+    /// because `bind_addr()` parses `host:port` as a `SocketAddr`.
     #[serde(default = "default_host")]
     pub host: String,
     #[serde(default = "default_port")]
@@ -34,6 +37,17 @@ fn default_port() -> u16 {
 }
 fn default_data_dir() -> PathBuf {
     PathBuf::from("./data")
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            data_dir: default_data_dir(),
+            dsn: None,
+        }
+    }
 }
 
 /// Immutable runtime snapshot derived from [`ConfigFile`]. Wrapped in
@@ -107,5 +121,11 @@ mod tests {
         assert_eq!(cfg.port, 9000);
         assert_eq!(cfg.dsn.as_deref(), Some("sqlite://x"));
         assert_eq!(cfg.bind_addr().unwrap().to_string(), "0.0.0.0:9000");
+    }
+
+    #[test]
+    fn empty_input_uses_defaults() {
+        let cfg = parse_config("").unwrap();
+        assert_eq!(cfg.port, 8787);
     }
 }

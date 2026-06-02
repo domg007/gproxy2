@@ -43,7 +43,9 @@ impl CacheBackend for MemoryCache {
         let entry = self.map.get(key)?;
         if entry.is_expired() {
             drop(entry);
-            self.map.remove(key);
+            // Re-check under the write lock so we never evict a value a
+            // concurrent set() inserted between the drop and the removal.
+            self.map.remove_if(key, |_, v| v.is_expired());
             return None;
         }
         Some(entry.data.clone())
