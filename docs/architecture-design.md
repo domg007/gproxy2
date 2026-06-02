@@ -340,18 +340,19 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - codex / 各 API-key 类:边缘全可用。
 
 **为边缘需要做的(大多是加实现,非重写)**:
-1. `UpstreamClient` 的 `fetch` 实现(§7.4 接缝已留)。
-2. `CacheBackend` / `PersistenceBackend` 的 HTTP 实现:Upstash Redis(HTTP)+
-   Turso/libSQL(HTTP),一份 wasm 五平台通吃,不绑各家私有 binding。
-3. wasm 构建 + 各平台 fetch 入口适配器(薄)。
-4. `Send` 边界:wasm 上用 `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]`,
-   域代码不受影响(成熟套路,低成本)。
-5. 后台任务(对账/清理)做成可被宿主调度的函数(native tokio / edge cron),
-   核心不写死常驻循环。
+1. `UpstreamClient` 的 `fetch` 实现 ✅(已做:`http/client/fetch.rs`)。
+2. **edge 存储(已做,compile-verified)**:
+   - **PersistenceBackend = libSQL/Turso over HTTP**(Hrana-over-HTTP via fetch;`store/libsql/`)。SQL,SQLite 方言,和 native `db`(SeaORM)schema 同方言。**不用 KV 做持久化**——KV 做不了 rollup 聚合/即席查询。
+   - **CacheBackend = 可插拔,Redis 可选**:`upstash`(Upstash Redis REST,要 Redis)或 `libsql`(同一个 Turso 库的 kv 表,**不要 Redis**)。部署时按配置选,与 native 的 `memory/redis` 对称。
+   - **edge 多实例**:isolate 天然多实例;共享状态(限流/quota/session)走上面的共享存储(libSQL 原子 `UPDATE` 或 Upstash 原子 `INCR`);**pub/sub 失效在 edge 不需要**——isolate 朝生暮死、频繁重读配置。
+3. wasm 构建 + 各平台 fetch 入口适配器(薄)— **待做**(增量3)。
+4. `Send` 边界:wasm 上 `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]` ✅(已应用到 CacheBackend/PersistenceBackend/UpstreamClient)。
+5. wasm AppState + edge 入口驱动真 router — **待做**(增量2)。
+
+**关键限制(edge)**:V8/fetch 无 raw TCP → SQL 直连不可能 → 只能 HTTP-DB(libSQL/Turso)。`base64`/`Instant` 等在 wasm 上自处理(用 `js_sys::Date`,手写 base64)。EO/ESA 的 wasm 支持仍未验证(需探针)。
 
 **仍然不做的**:不搞通用"可换 HTTP 宿主"抽象层——native 用 axum、edge 用 fetch 入口,
 是**两个具体适配器**(cfg 分目标),不是一层抽象税。核心
 (`pipeline / protocol / route / balance / backends`)不依赖 axum。
 
-**节奏**:native 先交付;边缘作为后续阶段。v2 核心现在就埋好接缝(§7.4 的
-`UpstreamClient` trait + 渠道能力标记、后台任务不写死),使边缘是"加实现"而非"重写"。
+**节奏**:native 主线优先;edge 已打通存储层(compile),后续做 wasm AppState + 入口 + 部署产物。
