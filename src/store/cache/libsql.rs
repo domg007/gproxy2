@@ -1,0 +1,179 @@
+//! Edge (wasm32) cache backend backed by libSQL/Turso via Hrana HTTP.
+//!
+//! Stores key-value pairs in a `gproxy_kv` table:
+//! ```sql
+//! CREATE TABLE IF NOT EXISTS gproxy_kv (
+//!   k TEXT PRIMARY KEY,
+//!   v BLOB,
+//!   expires_ms INTEGER
+//! )
+//! ```
+//!
+//! # TTL
+//! TTL expiry-on-read filters `WHERE expires_ms IS NULL OR expires_ms > <now>`.
+//! `now` is obtained from JS via `js_sys::Date::now()` (milliseconds since epoch).
+//! TODO: TTL on edge needs a JS clock (no `std::time::Instant` on wasm32).
+//!
+//! # `incr` atomicity
+//! Uses a single SQL statement with `ON CONFLICT DO UPDATE` to atomically
+//! increment the stored integer value:
+//! ```sql
+//! INSERT INTO gproxy_kv(k, v, expires_ms)
+//! VALUES(?, CAST(? AS BLOB), ?)
+//! ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + ? AS BLOB)
+//! RETURNING CAST(v AS INTEGER)
+//! ```
+//! The TTL is set only on insert (new key), not on update of an existing key —
+//! matching Redis INCR + EXPIRE-on-create semantics.
+//!
+//! Compile-checked on wasm32 only; real Turso round-trips need credentials
+//! (see ignored integration tests).
+
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+use crate::store::libsql::LibsqlClient;
+
+use super::CacheBackend;
+use super::b64;
+
+/// Edge cache backend backed by a libSQL/Turso kv table.
+pub struct LibsqlCache {
+    client: LibsqlClient,
+}
+
+impl LibsqlCache {
+    /// Create a new cache backend and ensure the kv table exists.
+    pub async fn connect(
+        url: String,
+        token: String,
+    ) -> Result<Self, crate::store::libsql::StoreError> {
+        let client = LibsqlClient::new(url, token);
+        client
+            .execute(
+                "CREATE TABLE IF NOT EXISTS gproxy_kv \
+                 (k TEXT PRIMARY KEY, v BLOB, expires_ms INTEGER)",
+                &[],
+            )
+            .await?;
+        Ok(Self { client })
+    }
+
+    /// Current time in ms since epoch via JS clock (wasm32 has no Instant).
+    fn now_ms() -> i64 {
+        js_sys::Date::now() as i64
+    }
+
+    fn expiry(ttl: Option<Duration>) -> Value {
+        match ttl {
+            Some(d) if !d.is_zero() => {
+                json!(Self::now_ms() + d.as_millis() as i64)
+            }
+            _ => Value::Null,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl CacheBackend for LibsqlCache {
+    async fn get(&self, key: &str) -> Option<Vec<u8>> {
+        let now = Self::now_ms();
+        let result = self
+            .client
+            .execute(
+                "SELECT v FROM gproxy_kv \
+                 WHERE k = ? AND (expires_ms IS NULL OR expires_ms > ?)",
+                &[json!(key), json!(now)],
+            )
+            .await
+            .ok()?;
+        let cell = result.rows.into_iter().next()?.into_iter().next()?;
+        // Hrana: BLOB → {"type":"blob","base64":"..."}, TEXT → {"type":"text","value":"..."}
+        hrana_value_to_bytes(&cell)
+    }
+
+    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
+        let b64 = b64::encode(&value);
+        let expires = Self::expiry(ttl);
+        let _ = self
+            .client
+            .execute(
+                "INSERT INTO gproxy_kv(k, v, expires_ms) VALUES(?, ?, ?) \
+                 ON CONFLICT(k) DO UPDATE SET v = excluded.v, expires_ms = excluded.expires_ms",
+                &[json!(key), json!({"type":"blob","base64": b64}), expires],
+            )
+            .await;
+    }
+
+    async fn delete(&self, key: &str) {
+        let _ = self
+            .client
+            .execute("DELETE FROM gproxy_kv WHERE k = ?", &[json!(key)])
+            .await;
+    }
+
+    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+        let expires = Self::expiry(ttl);
+        let result = self
+            .client
+            .execute(
+                "INSERT INTO gproxy_kv(k, v, expires_ms) \
+                 VALUES(?, CAST(? AS BLOB), ?) \
+                 ON CONFLICT(k) DO UPDATE \
+                   SET v = CAST(CAST(v AS INTEGER) + ? AS BLOB) \
+                 RETURNING CAST(v AS INTEGER) AS val",
+                &[json!(key), json!(delta), expires, json!(delta)],
+            )
+            .await;
+        match result {
+            Ok(qr) => qr
+                .rows
+                .into_iter()
+                .next()
+                .and_then(|r| r.into_iter().next())
+                .and_then(|v| hrana_value_to_i64(&v))
+                .unwrap_or(0),
+            Err(e) => {
+                tracing::error!("libsql incr failed, returning 0 (fail-open): {e}");
+                0
+            }
+        }
+    }
+}
+
+fn hrana_value_to_bytes(v: &Value) -> Option<Vec<u8>> {
+    match v.get("type")?.as_str()? {
+        "blob" => b64::decode(v.get("base64")?.as_str()?).ok(),
+        "text" => Some(v.get("value")?.as_str()?.as_bytes().to_vec()),
+        _ => None,
+    }
+}
+
+fn hrana_value_to_i64(v: &Value) -> Option<i64> {
+    match v.get("type")?.as_str()? {
+        "integer" | "text" => v.get("value")?.as_str()?.parse().ok(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    #[ignore = "requires live Turso creds via GPROXY_TEST_TURSO_URL / GPROXY_TEST_TURSO_TOKEN"]
+    async fn integration_get_set_incr() {
+        let url = std::env::var("GPROXY_TEST_TURSO_URL").expect("GPROXY_TEST_TURSO_URL");
+        let token = std::env::var("GPROXY_TEST_TURSO_TOKEN").expect("GPROXY_TEST_TURSO_TOKEN");
+        let cache = LibsqlCache::connect(url, token).await.expect("connect");
+        cache.set("k", b"hello".to_vec(), None).await;
+        assert_eq!(cache.get("k").await, Some(b"hello".to_vec()));
+        cache.delete("k").await;
+        assert_eq!(cache.get("k").await, None);
+        cache.delete("ctr").await;
+        assert_eq!(cache.incr("ctr", 1, None).await, 1);
+        assert_eq!(cache.incr("ctr", 4, None).await, 5);
+        cache.delete("ctr").await;
+    }
+}
