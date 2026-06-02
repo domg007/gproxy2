@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use clap::Parser;
 use gproxy::app::AppState;
-use gproxy::config::{self, PersistenceKind, RuntimeConfig, SharedConfig};
+use gproxy::config::{CacheConfig, PersistenceConfig, PersistenceKind, RuntimeConfig};
 use gproxy::http;
-use gproxy::store::cache::MemoryCache;
+use gproxy::store::cache::{CacheBackend, MemoryCache, RedisCache};
 use gproxy::store::persistence::{DbPersistence, FilePersistence, PersistenceBackend};
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(name = "gproxy", version, about = "gproxy v2 LLM proxy")]
 struct Cli {
     /// Bind host (IPv6 must use bracket notation, e.g. [::1]).
@@ -33,9 +33,15 @@ struct Cli {
     #[arg(long, env = "GPROXY_DSN")]
     dsn: Option<String>,
 
-    /// Logical name for this instance (used in diagnostics / multi-node setups).
-    #[arg(long, env = "GPROXY_INSTANCE_NAME", default_value = "default")]
-    instance_name: String,
+    /// Redis URL for the shared cache backend (e.g. redis://127.0.0.1:6379).
+    /// Omit to use the in-process memory cache.
+    #[arg(long, env = "GPROXY_REDIS_URL")]
+    redis_url: Option<String>,
+
+    /// Numeric identifier for this instance (used to partition per-instance
+    /// rows in the database; set distinct values across a multi-node fleet).
+    #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
+    instance_id: u64,
 }
 
 #[tokio::main]
@@ -43,36 +49,42 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
     let cli = Cli::parse();
 
-    let runtime_config = RuntimeConfig {
+    let cache_cfg = CacheConfig::from_url(cli.redis_url);
+    let persistence_cfg = PersistenceConfig::from_parts(cli.persistence, cli.data_dir, cli.dsn)?;
+
+    let config = Arc::new(RuntimeConfig {
         host: cli.host,
         port: cli.port,
-        persistence: cli.persistence,
-        data_dir: cli.data_dir,
-        dsn: cli.dsn,
-        instance_name: cli.instance_name,
-    };
-    runtime_config.validate()?;
+        cache: cache_cfg,
+        persistence: persistence_cfg,
+        instance_id: cli.instance_id,
+    });
 
-    let bind = runtime_config.bind_addr()?;
-    let shared: SharedConfig = config::shared(runtime_config.clone());
+    let bind = config.bind_addr()?;
 
-    let persistence: Arc<dyn PersistenceBackend> = match runtime_config.persistence {
-        PersistenceKind::File => {
-            Arc::new(FilePersistence::open(runtime_config.data_dir.clone()).await?)
+    let cache: Arc<dyn CacheBackend> = match &config.cache {
+        CacheConfig::Memory => {
+            tracing::info!("cache backend: memory ready");
+            Arc::new(MemoryCache::new())
         }
-        PersistenceKind::Db => {
-            let dsn = runtime_config
-                .dsn
-                .as_deref()
-                .expect("validate() guarantees dsn is Some when persistence == Db");
-            Arc::new(DbPersistence::connect(dsn).await?)
+        CacheConfig::Redis { url } => {
+            let c = RedisCache::connect(url).await?;
+            c.health().await?;
+            tracing::info!("cache backend: redis ready");
+            Arc::new(c)
         }
     };
 
+    let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {
+        PersistenceConfig::File { data_dir } => {
+            Arc::new(FilePersistence::open(data_dir.clone()).await?)
+        }
+        PersistenceConfig::Db { dsn } => Arc::new(DbPersistence::connect(dsn).await?),
+    };
     persistence.health().await?;
     tracing::info!("persistence backend: {} healthy", persistence.kind());
 
-    let state = AppState::new(shared, Arc::new(MemoryCache::new()), persistence);
+    let state = AppState::new(config, cache, persistence);
     let app = http::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
