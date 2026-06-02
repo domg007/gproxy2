@@ -327,10 +327,11 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 
 ## 13. 边缘 / WASM 支持(后续目标)
 
-目标平台:Cloudflare Workers、阿里云 ESA、腾讯 EdgeOne Pages、Vercel Edge、
-Netlify Edge —— 这五家都是 V8 isolate / WASM 运行时,统一走 **WinterCG Web Fetch**
-入口,核心编译一份 `wasm32`,每平台一层薄 glue。(Vercel/Netlify 另有原生
-Serverless Functions,那条等于 Lambda 适配器,全功能、非边缘。)
+目标平台(候选,联网核实中):Cloudflare Workers、Netlify Edge、阿里云 ESA、
+腾讯 EdgeOne Pages —— V8 isolate / WASM 运行时,统一走 **WinterCG Web Fetch**
+入口,核心编译一份 `wasm32`,每平台一层薄 glue。**Vercel 已剔除**。
+⚠️ 阿里 ESA / 腾讯 EdgeOne 的 wasm 支持未文档化(待探针验证),CF / Netlify 可确认。
+(免费平台增补 + edge 存储选型见下;`free-serverless` 调研结论待并入。)
 
 **功能差异(按渠道能力自动降级,见 [§7.4](#74-上游传输抽象-upstreamclient))**:
 - `chatgpt`:**serverless / 边缘均不支持**(请求刚需 TLS 伪装),仅传统常驻部署可用。

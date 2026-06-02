@@ -9,12 +9,16 @@
 //! Response: `{"baton":..,"results":[{"type":"ok","response":{"type":"execute","result":{...}}},
 //! {"type":"ok","response":{"type":"close"}}]}` — or `{"type":"error","error":{"message":"..."}}`.
 
+mod wire;
+
 use js_sys::{Uint8Array, global};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
+
+pub use wire::{Col, QueryResult};
+use wire::{HranaOkResponse, HranaResponse, HranaResult, Pipeline, PipelineRequest, Stmt};
 
 /// Errors from the libSQL HTTP client.
 #[derive(Debug, thiserror::Error)]
@@ -31,77 +35,6 @@ pub enum StoreError {
 
 fn js_err(e: wasm_bindgen::JsValue) -> StoreError {
     StoreError::Fetch(format!("{e:?}"))
-}
-
-/// A single column descriptor returned by Hrana.
-#[derive(Debug, Deserialize)]
-pub struct Col {
-    pub name: Option<String>,
-}
-
-/// Result of a single `execute` statement.
-#[derive(Debug)]
-pub struct QueryResult {
-    pub cols: Vec<Col>,
-    /// Each row is a `Vec<Value>` of Hrana typed-value objects; callers can
-    /// inspect `value["type"]` / `value["value"]` for typed extraction.
-    pub rows: Vec<Vec<Value>>,
-    pub affected_row_count: u64,
-    pub last_insert_rowid: Option<String>,
-}
-
-// ── Hrana deserialization types ──────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct HranaResponse {
-    results: Vec<HranaResult>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum HranaResult {
-    Ok { response: HranaOkResponse },
-    Error { error: HranaError },
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum HranaOkResponse {
-    Execute { result: HranaExecuteResult },
-    Close,
-}
-
-#[derive(Deserialize)]
-struct HranaExecuteResult {
-    cols: Vec<Col>,
-    rows: Vec<Vec<Value>>,
-    affected_row_count: u64,
-    last_insert_rowid: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct HranaError {
-    message: String,
-}
-
-// ── Request serialization ─────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct Pipeline<'a> {
-    requests: Vec<PipelineRequest<'a>>,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum PipelineRequest<'a> {
-    Execute { stmt: Stmt<'a> },
-    Close,
-}
-
-#[derive(Serialize)]
-struct Stmt<'a> {
-    sql: &'a str,
-    args: &'a [Value],
 }
 
 // ── Client ────────────────────────────────────────────────────────────────────
