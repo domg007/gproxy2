@@ -291,7 +291,8 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 ## 12. 开放问题
 
 - v1 → v2 数据迁移的具体字段映射,待 v2 schema 定稿后单独成文。
-- 各 channel 的移植优先级排序(哪些 provider 先迁)。
+- 各 channel 的移植优先级排序。**`chatgpt` 渠道先不实现**(唯一刚需 TLS 伪装者,推后);
+  其余渠道优先。`UpstreamClient` 接缝与能力标记仍照建,后续补 chatgpt 是干净加法。
 
 ## 13. 边缘 / WASM 支持(后续目标)
 
