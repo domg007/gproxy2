@@ -15,3 +15,24 @@ dist/
 
 # ── wasm-bindgen build output (regenerated; never commit) ──
 pkg/
+
+# ── Supabase Edge Function build output (regenerated from the crate; never
+#    commit — only index.ts + config.toml are hand-written source) ──
+supabase/functions/gproxy/gproxy.js
+supabase/functions/gproxy/gproxy.d.ts
+supabase/functions/gproxy/gproxy_bg.wasm
+supabase/functions/gproxy/gproxy_bg.wasm.d.ts
+supabase/functions/gproxy/gproxy_wasm_inline.ts
+supabase/.temp/
+
+# ── Netlify Edge Function build output (regenerated from the crate; never
+#    commit — only gproxy.ts + netlify.toml + public/ are hand-written source) ──
+netlify/edge-functions/_lib/gproxy.js
+netlify/edge-functions/_lib/gproxy.d.ts
+netlify/edge-functions/_lib/gproxy_wasm_inline.ts
+.netlify/
+
+# ── Vercel Edge Function build output (regenerated from the crate; never
+#    commit — only api/index.ts + vercel.json + package.json are hand-written) ──
+vercel/api/_lib/
+.vercel/
