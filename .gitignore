@@ -36,3 +36,8 @@ netlify/edge-functions/_lib/gproxy_wasm_inline.ts
 #    commit — only api/index.ts + vercel.json + package.json are hand-written) ──
 vercel/api/_lib/
 .vercel/
+
+# ── Cloudflare Workers build output (regenerated from the crate; never commit —
+#    only src/worker.js + wrangler.toml + build.sh are hand-written source) ──
+cloudflare/src/_lib/
+.wrangler/
