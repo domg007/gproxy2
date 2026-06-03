@@ -1,10 +1,16 @@
 //! Edge inbound entry: bridges a WinterCG `fetch` event into the axum router.
 //!
-// TODO: drives a MINIMAL placeholder router. Wiring the full http::router(AppState) on wasm
-//       is BLOCKED on edge cache/persistence (no wasm CacheBackend/PersistenceBackend impls yet).
-//       This proves the inbound axum-on-wasm seam + Request/Response conversion only.
+//! `init` builds the shared [`AppState`] from JS-host-passed credentials and
+//! stashes it in a process-global `OnceLock`; `fetch` then routes every inbound
+//! request through the SAME [`crate::http::server::router`] that native uses —
+//! proving the inbound seam is shared across targets.
+//!
+//! `init` MUST be called exactly once before the first `fetch`. If `fetch`
+//! runs before `init`, it returns a 503 with a clear message (an `AppState`
+//! cannot be synthesised inside wasm without host-supplied credentials).
 
-use axum::{Router, routing::get};
+use std::sync::{Arc, OnceLock};
+
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use js_sys::Uint8Array;
@@ -13,21 +19,90 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Response, ResponseInit};
 
+use crate::app::AppState;
+use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig};
+use crate::store::cache::{CacheBackend, LibsqlCache, UpstashCache};
+use crate::store::persistence::{LibsqlPersistence, PersistenceBackend};
+
+/// Process-global app state, populated once by [`init`].
+static STATE: OnceLock<AppState> = OnceLock::new();
+
 fn js_err(e: impl std::fmt::Debug) -> JsValue {
     JsValue::from_str(&format!("{e:?}"))
 }
 
-/// WinterCG fetch entry-point: receives an inbound Request, routes through the
-/// minimal axum router, and returns a Response.
+/// Initialise the edge runtime from host-supplied credentials.
+///
+/// Persistence is always libSQL/Turso (`turso_url` + `turso_token`). The cache
+/// is Upstash Redis when both `upstash_url` and `upstash_token` are non-empty,
+/// otherwise it falls back to the libSQL kv table.
+///
+/// Must be called once before [`fetch`]. A second call is a no-op (the first
+/// `AppState` wins).
+#[wasm_bindgen]
+pub async fn init(
+    turso_url: String,
+    turso_token: String,
+    upstash_url: Option<String>,
+    upstash_token: Option<String>,
+) -> Result<(), JsValue> {
+    if STATE.get().is_some() {
+        return Ok(());
+    }
+
+    let persistence: Arc<dyn PersistenceBackend> = Arc::new(LibsqlPersistence::connect(
+        turso_url.clone(),
+        turso_token.clone(),
+    ));
+
+    let (cache, cache_cfg): (Arc<dyn CacheBackend>, CacheConfig) =
+        match (upstash_url, upstash_token) {
+            (Some(u), Some(t)) if !u.is_empty() && !t.is_empty() => (
+                Arc::new(UpstashCache::new(u.clone(), t)),
+                CacheConfig::Redis { url: u },
+            ),
+            _ => {
+                let c = LibsqlCache::connect(turso_url.clone(), turso_token.clone())
+                    .await
+                    .map_err(js_err)?;
+                (Arc::new(c), CacheConfig::Memory)
+            }
+        };
+
+    let config = Arc::new(RuntimeConfig {
+        host: "0.0.0.0".to_string(),
+        port: 0,
+        cache: cache_cfg,
+        persistence: PersistenceConfig::Db { dsn: turso_url },
+        instance_id: 0,
+    });
+
+    let _ = STATE.set(AppState::new(config, cache, persistence));
+    Ok(())
+}
+
+/// WinterCG fetch entry-point: receives an inbound Request, routes it through
+/// the real [`crate::http::server::router`], and returns a Response.
+///
+/// Returns 503 if [`init`] has not yet been called.
 #[wasm_bindgen]
 pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
+    let Some(state) = STATE.get() else {
+        return service_unavailable("gproxy edge not initialised: call init() first");
+    };
+
     let http_req = ws_request_to_http(req).await?;
-
-    // Minimal router — proves the axum-on-wasm seam compiles and routes.
-    let app: Router = Router::new().route("/healthz", get(|| async { "ok" }));
+    let app = crate::http::server::router(state.clone());
     let resp = app.oneshot(http_req).await.map_err(js_err)?;
-
     http_response_to_ws(resp).await
+}
+
+/// Build a plain-text 503 Response.
+fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
+    let init = ResponseInit::new();
+    init.set_status(503);
+    let mut body = msg.as_bytes().to_vec();
+    Response::new_with_opt_u8_array_and_init(Some(&mut body), &init).map_err(js_err)
 }
 
 /// Convert `web_sys::Request` → `http::Request<axum::body::Body>`.

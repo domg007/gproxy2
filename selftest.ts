@@ -1,9 +1,13 @@
-// Deno harness for the gproxy v2 wasm edge-storage self-test.
+// Deno harness for the gproxy v2 wasm self-test.
 //
 // Loads the wasm-bindgen `deno`-target glue from ./pkg, reads the four test
 // credentials from the environment (sourced from ./.env — never hard-coded
-// here), invokes the Rust `storage_selftest` export against the live Turso +
-// Upstash endpoints, and prints the per-step summary it returns.
+// here), then:
+//   1. invokes the Rust `storage_selftest` export against the live Turso +
+//      Upstash endpoints and prints the per-step summary it returns, and
+//   2. exercises the INBOUND path — calls `init(...)` to build the real
+//      AppState, then drives `fetch(new Request(...))` through the SAME
+//      http::server::router native uses, asserting /healthz and /version.
 //
 // Full reproduction (pkg/ is gitignored, regenerate it first):
 //   cargo build --lib --target wasm32-unknown-unknown --release
@@ -19,7 +23,7 @@
 //   set -a && source ./.env && set +a
 //   deno run --allow-net --allow-env --allow-read selftest.ts
 
-import { storage_selftest } from "./pkg/gproxy.js";
+import { fetch as edgeFetch, init, storage_selftest } from "./pkg/gproxy.js";
 
 function reqEnv(name: string): string {
   const v = Deno.env.get(name);
@@ -35,6 +39,7 @@ const tursoToken = reqEnv("GPROXY_TEST_TURSO_TOKEN");
 const upstashUrl = reqEnv("GPROXY_TEST_UPSTASH_URL");
 const upstashToken = reqEnv("GPROXY_TEST_UPSTASH_TOKEN");
 
+// ── 1. storage backends ──────────────────────────────────────────────────────
 const summary: string = await storage_selftest(
   tursoUrl,
   tursoToken,
@@ -44,3 +49,31 @@ const summary: string = await storage_selftest(
 
 console.log("=== gproxy v2 edge storage self-test ===");
 console.log(summary);
+
+// ── 2. inbound path through the REAL http::server::router ────────────────────
+console.log("\n=== gproxy v2 edge inbound self-test ===");
+
+// Build the AppState once (persistence = libSQL/Turso, cache = Upstash).
+await init(tursoUrl, tursoToken, upstashUrl, upstashToken);
+
+async function probe(path: string): Promise<string> {
+  const resp = await edgeFetch(new Request(`https://gproxy.local${path}`));
+  return `GET ${path} -> ${resp.status} ${await resp.text()}`;
+}
+
+const healthLine = await probe("/healthz");
+const versionLine = await probe("/version");
+console.log(healthLine);
+console.log(versionLine);
+
+let ok = true;
+if (!healthLine.endsWith('200 {"status":"ok"}')) {
+  console.error(`ASSERT FAIL: /healthz expected 200 {"status":"ok"}`);
+  ok = false;
+}
+if (!/-> 200 \{"version":".+"\}$/.test(versionLine)) {
+  console.error(`ASSERT FAIL: /version expected 200 {"version":"..."}`);
+  ok = false;
+}
+console.log(ok ? "inbound: ALL OK" : "inbound: FAILED");
+if (!ok) Deno.exit(1);
