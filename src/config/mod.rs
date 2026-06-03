@@ -3,11 +3,14 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use clap::ValueEnum;
-
 /// CLI input type only — used by `clap` for `--persistence`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-#[value(rename_all = "lowercase")]
+///
+/// The `clap::ValueEnum` derive is native-only (clap is not a wasm dep); the
+/// enum itself stays shared so `PersistenceConfig::from_parts` compiles on both
+/// targets.
+#[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
+#[cfg_attr(not(target_arch = "wasm32"), value(rename_all = "lowercase"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PersistenceKind {
     /// Local disk — single-instance only.
     File,
