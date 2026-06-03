@@ -8,3 +8,6 @@ pub mod store;
 pub mod app;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod config;
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_selftest;

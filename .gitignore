@@ -9,3 +9,9 @@ dist/
 # test-only secrets — never commit
 .env
 .env.*
+
+# ── Deno Deploy ──
+.deno_cache
+
+# ── wasm-bindgen build output (regenerated; never commit) ──
+pkg/
