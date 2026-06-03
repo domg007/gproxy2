@@ -325,16 +325,25 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - 各 channel 的移植优先级排序。**`chatgpt` 渠道先不实现**(唯一刚需 TLS 伪装者,推后);
   其余渠道优先。`UpstreamClient` 接缝与能力标记仍照建,后续补 chatgpt 是干净加法。
 
-## 13. 边缘 / WASM 支持(后续目标)
+## 13. 边缘 / WASM 支持
 
-目标平台(候选,联网核实中):Cloudflare Workers、Netlify Edge、阿里云 ESA、
-腾讯 EdgeOne Pages —— V8 isolate / WASM 运行时,统一走 **WinterCG Web Fetch**
-入口,核心编译一份 `wasm32`,每平台一层薄 glue。**Vercel 已剔除**。
-⚠️ 阿里 ESA / 腾讯 EdgeOne 的 wasm 支持未文档化(待探针验证),CF / Netlify 可确认。
-(免费平台增补 + edge 存储选型见下;`free-serverless` 调研结论待并入。)
+**已上线验证(wasm 跑在真实边缘,服务真 router + 真 Turso/Upstash)**:
+**Supabase Edge ✅**、**Netlify Edge ✅**、**Vercel Edge ✅**。
+
+**edge 目标平台(V8 isolate / WASM,统一 WinterCG Web Fetch 入口,核心一份 `wasm32` + 每平台薄 glue)**:
+Supabase、Netlify、Vercel(已上线);Cloudflare Workers、Deno Deploy(待有效 token);
+阿里云 ESA、腾讯 EdgeOne(wasm 支持未文档化,待探针)。
+
+**wasm 打包分两路**(实测):Deno 族(Deno/Netlify/Supabase)= 内联 base64 + 运行时
+`WebAssembly.instantiate(bytes)`;Vercel = `wasm-bindgen --target web` + 静态
+`import './x.wasm?module'`(Vercel 禁运行时字节实例化)。
+
+**原生容器平台(Cloud Run / AWS Lambda / Render / Zeabur 等)不在本设计内** ——
+它们跑完整 native 二进制(Dockerfile,wreq 伪装全功能),**延到所有功能设计完成后最后再评估/跑**。
+(Koyeb / Fly 不做。)
 
 **功能差异(按渠道能力自动降级,见 [§7.4](#74-上游传输抽象-upstreamclient))**:
-- `chatgpt`:**serverless / 边缘均不支持**(请求刚需 TLS 伪装),仅传统常驻部署可用。
+- `chatgpt`:**边缘不支持**(请求刚需 TLS 伪装),仅传统常驻部署可用。
 - `claudecode`:边缘可用,但**仅 token 模式**(需用户自行完成 OAuth 提供 token;
   cookie→oauth 自动换取需伪装,边缘不可用)。
 - codex / 各 API-key 类:边缘全可用。
