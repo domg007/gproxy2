@@ -102,7 +102,12 @@ fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     let init = ResponseInit::new();
     init.set_status(503);
     let mut body = msg.as_bytes().to_vec();
-    Response::new_with_opt_u8_array_and_init(Some(&mut body), &init).map_err(js_err)
+    // JS-owned copy — see http_response_to_ws for why a wasm-memory view breaks
+    // on Vercel's Edge Runtime.
+    let js_body = Uint8Array::new_with_length(body.len() as u32);
+    js_body.copy_from(&body);
+    body.clear();
+    Response::new_with_opt_js_u8_array_and_init(Some(&js_body), &init).map_err(js_err)
 }
 
 /// Convert `web_sys::Request` → `http::Request<axum::body::Body>`.
@@ -165,5 +170,14 @@ async fn http_response_to_ws(resp: http::Response<axum::body::Body>) -> Result<R
     init.set_headers_headers(&js_headers);
 
     let mut body_vec = bytes.to_vec();
-    Response::new_with_opt_u8_array_and_init(Some(&mut body_vec), &init).map_err(js_err)
+    // Copy the body into a JS-OWNED `Uint8Array` (its own ArrayBuffer) rather
+    // than handing `new Response(...)` a `&mut [u8]` view into wasm linear
+    // memory. Vercel's Edge Runtime retains that view lazily, so a later wasm
+    // allocation detaches/overwrites the buffer and the streamed body comes out
+    // garbled or never completes. Deno copies eagerly so a view worked there,
+    // but an owned copy is correct everywhere.
+    let js_body = Uint8Array::new_with_length(body_vec.len() as u32);
+    js_body.copy_from(&body_vec);
+    body_vec.clear();
+    Response::new_with_opt_js_u8_array_and_init(Some(&js_body), &init).map_err(js_err)
 }

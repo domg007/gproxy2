@@ -31,3 +31,8 @@ netlify/edge-functions/_lib/gproxy.js
 netlify/edge-functions/_lib/gproxy.d.ts
 netlify/edge-functions/_lib/gproxy_wasm_inline.ts
 .netlify/
+
+# ── Vercel Edge Function build output (regenerated from the crate; never
+#    commit — only api/index.ts + vercel.json + package.json are hand-written) ──
+vercel/api/_lib/
+.vercel/
