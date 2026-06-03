@@ -31,9 +31,9 @@
 
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use crate::store::libsql::LibsqlClient;
+use crate::store::libsql::{LibsqlClient, arg_blob, arg_integer, arg_null, arg_text};
 
 use super::CacheBackend;
 use super::b64;
@@ -67,10 +67,8 @@ impl LibsqlCache {
 
     fn expiry(ttl: Option<Duration>) -> Value {
         match ttl {
-            Some(d) if !d.is_zero() => {
-                json!(Self::now_ms() + d.as_millis() as i64)
-            }
-            _ => Value::Null,
+            Some(d) if !d.is_zero() => arg_integer(Self::now_ms() + d.as_millis() as i64),
+            _ => arg_null(),
         }
     }
 }
@@ -84,7 +82,7 @@ impl CacheBackend for LibsqlCache {
             .execute(
                 "SELECT v FROM gproxy_kv \
                  WHERE k = ? AND (expires_ms IS NULL OR expires_ms > ?)",
-                &[json!(key), json!(now)],
+                &[arg_text(key), arg_integer(now)],
             )
             .await
             .ok()?;
@@ -94,14 +92,13 @@ impl CacheBackend for LibsqlCache {
     }
 
     async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
-        let b64 = b64::encode(&value);
         let expires = Self::expiry(ttl);
         let _ = self
             .client
             .execute(
                 "INSERT INTO gproxy_kv(k, v, expires_ms) VALUES(?, ?, ?) \
                  ON CONFLICT(k) DO UPDATE SET v = excluded.v, expires_ms = excluded.expires_ms",
-                &[json!(key), json!({"type":"blob","base64": b64}), expires],
+                &[arg_text(key), arg_blob(&value), expires],
             )
             .await;
     }
@@ -109,7 +106,7 @@ impl CacheBackend for LibsqlCache {
     async fn delete(&self, key: &str) {
         let _ = self
             .client
-            .execute("DELETE FROM gproxy_kv WHERE k = ?", &[json!(key)])
+            .execute("DELETE FROM gproxy_kv WHERE k = ?", &[arg_text(key)])
             .await;
     }
 
@@ -128,7 +125,12 @@ impl CacheBackend for LibsqlCache {
                  ON CONFLICT(k) DO UPDATE \
                    SET v = CAST(CAST(v AS INTEGER) + ? AS BLOB) \
                  RETURNING CAST(v AS INTEGER) AS val",
-                &[json!(key), json!(delta), expires, json!(delta)],
+                &[
+                    arg_text(key),
+                    arg_integer(delta),
+                    expires,
+                    arg_integer(delta),
+                ],
             )
             .await;
         match result {

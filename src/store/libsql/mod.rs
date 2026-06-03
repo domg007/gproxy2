@@ -17,8 +17,37 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
 
+use serde_json::json;
+
 pub use wire::{Col, QueryResult};
 use wire::{HranaOkResponse, HranaResponse, HranaResult, Pipeline, PipelineRequest, Stmt};
+
+// ── Hrana typed-value args ──────────────────────────────────────────────────────
+//
+// Hrana v2 requires every bound statement arg to be an internally-tagged
+// typed-value object, NOT a bare JSON scalar. Passing a bare value yields
+// `invalid type: string "hi", expected internally tagged enum Value`.
+// Note that the integer form carries its value as a *quoted string*.
+
+/// Bind a text arg: `{"type":"text","value":"..."}`.
+pub fn arg_text(s: &str) -> Value {
+    json!({ "type": "text", "value": s })
+}
+
+/// Bind an integer arg: `{"type":"integer","value":"123"}` (value is a string).
+pub fn arg_integer(n: i64) -> Value {
+    json!({ "type": "integer", "value": n.to_string() })
+}
+
+/// Bind a blob arg: `{"type":"blob","base64":"..."}`.
+pub fn arg_blob(bytes: &[u8]) -> Value {
+    json!({ "type": "blob", "base64": crate::store::cache::b64::encode(bytes) })
+}
+
+/// Bind a null arg: `{"type":"null"}`.
+pub fn arg_null() -> Value {
+    json!({ "type": "null" })
+}
 
 /// Errors from the libSQL HTTP client.
 #[derive(Debug, thiserror::Error)]

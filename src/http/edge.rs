@@ -25,7 +25,7 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 
     // Minimal router — proves the axum-on-wasm seam compiles and routes.
     let app: Router = Router::new().route("/healthz", get(|| async { "ok" }));
-    let resp = app.oneshot(http_req).await.map_err(|e| js_err(e))?;
+    let resp = app.oneshot(http_req).await.map_err(js_err)?;
 
     http_response_to_ws(resp).await
 }
