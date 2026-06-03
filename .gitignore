@@ -24,3 +24,10 @@ supabase/functions/gproxy/gproxy_bg.wasm
 supabase/functions/gproxy/gproxy_bg.wasm.d.ts
 supabase/functions/gproxy/gproxy_wasm_inline.ts
 supabase/.temp/
+
+# ── Netlify Edge Function build output (regenerated from the crate; never
+#    commit — only gproxy.ts + netlify.toml + public/ are hand-written source) ──
+netlify/edge-functions/_lib/gproxy.js
+netlify/edge-functions/_lib/gproxy.d.ts
+netlify/edge-functions/_lib/gproxy_wasm_inline.ts
+.netlify/

@@ -1,0 +1,15 @@
+# gproxy v2 — Netlify site config.
+#
+# A minimal `public/` dir is published (Netlify requires a publish dir even
+# when the site's only job is to host an edge function). All traffic is routed
+# to the `gproxy` edge function, which serves the wasm router (`/healthz`,
+# `/version`, …).
+
+[build]
+  publish = "public"
+
+# Route every request to the gproxy edge function. The function name matches the
+# file basename in netlify/edge-functions/ (gproxy.ts → "gproxy").
+[[edge_functions]]
+  path = "/*"
+  function = "gproxy"
