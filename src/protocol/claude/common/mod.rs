@@ -3,8 +3,41 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod blocks;
+pub mod cache;
+pub mod content;
+pub mod context_management;
+pub mod mcp;
+pub mod misc_blocks;
+pub mod output;
+pub mod server_tool_results;
+pub mod sources;
+pub mod thinking;
+pub mod tool_blocks;
+pub mod tool_choice;
+pub mod tool_support;
+pub mod tools;
+pub mod types;
+pub mod usage;
+
+pub use blocks::*;
+pub use cache::*;
+pub use content::*;
+pub use context_management::*;
+pub use mcp::*;
+pub use misc_blocks::*;
+pub use output::*;
+pub use server_tool_results::*;
+pub use sources::*;
+pub use thinking::*;
+pub use tool_blocks::*;
+pub use tool_choice::*;
+pub use tool_support::*;
+pub use tools::*;
+pub use types::*;
+pub use usage::*;
+
 pub type AnthropicBeta = String;
-pub type ClaudeModel = String;
 pub type JsonObject = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,19 +63,9 @@ pub struct TypedObject {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheControl {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ttl: Option<String>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: JsonObject,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Citation {
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: CitationType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cited_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,7 +102,8 @@ pub struct Citation {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CitationConfig {
-    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: JsonObject,
 }
@@ -95,20 +119,8 @@ pub struct Metadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonSchemaFormat {
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: JsonSchemaFormatType,
     pub schema: JsonObject,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: JsonObject,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ThinkingConfig {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub budget_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: JsonObject,
 }

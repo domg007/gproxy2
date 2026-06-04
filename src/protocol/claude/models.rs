@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::JsonObject;
+use super::common::{ClaudeModel, JsonObject, ModelObjectType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListModelsQuery {
@@ -19,7 +19,7 @@ pub struct ListModelsQuery {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RetrieveModelPath {
-    pub model_id: String,
+    pub model_id: ClaudeModel,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,9 +34,9 @@ pub struct ListModelsResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelInfo {
-    pub id: String,
+    pub id: ClaudeModel,
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: ModelObjectType,
     pub created_at: String,
     pub display_name: String,
     pub max_input_tokens: u64,
@@ -71,8 +71,14 @@ pub struct CapabilitySupport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextManagementCapability {
     pub supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clear_thinking_20251015: Option<CapabilitySupport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clear_tool_uses_20250919: Option<CapabilitySupport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact_20260112: Option<CapabilitySupport>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub strategies: JsonObject,
+    pub extra: JsonObject,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,8 +101,17 @@ pub struct EffortCapability {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThinkingCapability {
     pub supported: bool,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub types: BTreeMap<String, CapabilitySupport>,
+    pub types: ThinkingTypes,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: JsonObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThinkingTypes {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<CapabilitySupport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<CapabilitySupport>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: JsonObject,
 }

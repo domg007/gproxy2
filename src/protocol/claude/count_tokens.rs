@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{CacheControl, ClaudeModel, JsonObject, JsonSchemaFormat, ThinkingConfig};
-use super::content::SystemPrompt;
-use super::messages::{ContextManagementConfig, MessageParam, OutputConfig};
-use super::tools::{McpServer, Tool, ToolChoice};
+use super::common::{
+    CacheControl, ClaudeModel, ContextManagementConfig, JsonObject, JsonSchemaFormat, McpServer,
+    MessageParam, OutputConfig, Speed, SystemPrompt, ThinkingConfig, Tool, ToolChoice,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CountTokensRequest {
+pub struct CountTokensRequestBody {
     pub model: ClaudeModel,
     pub messages: Vec<MessageParam>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,7 +22,7 @@ pub struct CountTokensRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<JsonSchemaFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub speed: Option<String>,
+    pub speed: Option<Speed>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<SystemPrompt>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,7 +36,7 @@ pub struct CountTokensRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CountTokensResponse {
+pub struct CountTokensResponseBody {
     pub input_tokens: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_management: Option<CountTokensContextManagement>,
