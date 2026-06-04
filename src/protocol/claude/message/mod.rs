@@ -6,8 +6,8 @@ use super::common::{
     AssistantRole, CacheControl, ClaudeModel, Container, ContainerParam, ContentBlock,
     ContextManagementConfig, ContextManagementResponse, Diagnostics, DiagnosticsParam,
     InferenceGeo, JsonObject, JsonSchemaFormat, McpServer, MessageObjectType, MessageParam,
-    Metadata, OutputConfig, RequestServiceTier, Speed, StopReason, StopSequence, SystemPrompt,
-    ThinkingConfig, Tool, ToolChoice, TypedObject, Usage,
+    Metadata, OutputConfig, RequestServiceTier, Speed, StopDetails, StopReason, StopSequence,
+    SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
 };
 
 pub mod stream;
@@ -85,7 +85,7 @@ pub struct CreateMessageResponseBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Diagnostics>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_details: Option<TypedObject>,
+    pub stop_details: Option<StopDetails>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: JsonObject,
 }

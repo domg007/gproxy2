@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     AdvisorToolName, AdvisorToolType, CacheControl, CitationConfig, ClaudeModel, CommandToolName,
     CommandToolType, ComputerToolName, ComputerToolType, CustomToolType, JsonSchema, McpToolset,
-    TextEditorToolName, TextEditorToolType, ToolCommon, TypedObject, WebFetchToolName,
-    WebFetchToolType, WebSearchToolName, WebSearchToolType,
+    TextEditorToolName, TextEditorToolType, ToolCommon, TypedObject, UserLocation,
+    WebFetchToolName, WebFetchToolType, WebSearchToolName, WebSearchToolType,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -82,7 +82,7 @@ pub struct WebSearchTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_uses: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_location: Option<TypedObject>,
+    pub user_location: Option<UserLocation>,
     #[serde(flatten)]
     pub common: ToolCommon,
 }

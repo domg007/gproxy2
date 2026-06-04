@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::CreateMessageResponseBody;
 use crate::protocol::claude::common::{
-    ContentBlock, JsonObject, StopReason, StopSequence, TypedObject, Usage,
+    ContentBlock, JsonObject, StopDetails, StopReason, StopSequence, TypedObject, Usage,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,7 +96,7 @@ pub struct MessageDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequence: Option<StopSequence>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_details: Option<TypedObject>,
+    pub stop_details: Option<StopDetails>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: JsonObject,
 }

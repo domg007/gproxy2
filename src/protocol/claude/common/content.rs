@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use super::blocks::*;
 use super::misc_blocks::*;
+use super::response_blocks::*;
+use super::response_server_tool_results::*;
 use super::server_tool_results::*;
 use super::tool_blocks::*;
 use super::{JsonObject, MessageRole, StringOrArray, TypedObject};
@@ -48,22 +50,22 @@ pub enum ContentBlockParam {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ResponseContentBlock {
-    Text(TextBlock),
+    Text(ResponseTextBlock),
     Thinking(ThinkingBlock),
     RedactedThinking(RedactedThinkingBlock),
-    ToolUse(ToolUseBlock),
-    ServerToolUse(ServerToolUseBlock),
-    WebSearchToolResult(WebSearchToolResultBlock),
-    WebFetchToolResult(WebFetchToolResultBlock),
-    AdvisorToolResult(AdvisorToolResultBlock),
-    CodeExecutionToolResult(CodeExecutionToolResultBlock),
-    BashCodeExecutionToolResult(BashCodeExecutionToolResultBlock),
-    TextEditorCodeExecutionToolResult(TextEditorCodeExecutionToolResultBlock),
-    ToolSearchToolResult(ToolSearchToolResultBlock),
-    McpToolUse(McpToolUseBlock),
-    McpToolResult(McpToolResultBlock),
-    ContainerUpload(ContainerUploadBlock),
-    Compaction(CompactionBlock),
+    ToolUse(ResponseToolUseBlock),
+    ServerToolUse(ResponseServerToolUseBlock),
+    WebSearchToolResult(ResponseWebSearchToolResultBlock),
+    WebFetchToolResult(ResponseWebFetchToolResultBlock),
+    AdvisorToolResult(ResponseAdvisorToolResultBlock),
+    CodeExecutionToolResult(ResponseCodeExecutionToolResultBlock),
+    BashCodeExecutionToolResult(ResponseBashCodeExecutionToolResultBlock),
+    TextEditorCodeExecutionToolResult(ResponseTextEditorCodeExecutionToolResultBlock),
+    ToolSearchToolResult(ResponseToolSearchToolResultBlock),
+    McpToolUse(ResponseMcpToolUseBlock),
+    McpToolResult(ResponseMcpToolResultBlock),
+    ContainerUpload(ResponseContainerUploadBlock),
+    Compaction(ResponseCompactionBlock),
     Raw(TypedObject),
 }
 

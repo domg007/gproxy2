@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CacheControl, Citation, CitationConfig, JsonObject, Source};
+use super::{CacheControl, Citation, CitationConfig, DocumentSource, ImageSource, JsonObject};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextBlock {
@@ -25,7 +25,7 @@ pub enum TextBlockType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageBlock {
-    pub source: Source,
+    pub source: ImageSource,
     #[serde(rename = "type")]
     pub type_: ImageBlockType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,7 +40,7 @@ pub enum ImageBlockType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DocumentBlock {
-    pub source: Source,
+    pub source: DocumentSource,
     #[serde(rename = "type")]
     pub type_: DocumentBlockType,
     #[serde(skip_serializing_if = "Option::is_none")]

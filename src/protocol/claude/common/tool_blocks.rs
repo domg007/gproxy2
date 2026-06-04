@@ -1,10 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::content::{McpToolResultContent, ToolResultContent};
-use super::{
-    CacheControl, JsonObject, ServerToolResultContent, ServerToolUseName, TypedObject,
-    WebSearchToolResultContent,
-};
+use super::{CacheControl, Caller, JsonObject, ServerToolUseName, WebSearchToolResultContent};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolUseBlock {
@@ -16,7 +13,7 @@ pub struct ToolUseBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub caller: Option<TypedObject>,
+    pub caller: Option<Caller>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,7 +66,7 @@ pub struct ServerToolUseBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub caller: Option<TypedObject>,
+    pub caller: Option<Caller>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,7 +84,7 @@ pub struct WebSearchToolResultBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub caller: Option<TypedObject>,
+    pub caller: Option<Caller>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,18 +108,6 @@ pub struct WebSearchResultBlock {
 pub enum WebSearchResultBlockType {
     #[serde(rename = "web_search_result")]
     WebSearchResult,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GenericServerToolResultBlock<C = ServerToolResultContent> {
-    pub tool_use_id: String,
-    pub content: C,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_control: Option<CacheControl>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub caller: Option<TypedObject>,
-    #[serde(default, flatten, skip_serializing_if = "JsonObject::is_empty")]
-    pub extra: JsonObject,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
