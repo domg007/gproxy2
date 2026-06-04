@@ -24,9 +24,10 @@
 //   perl -0pi -e \
 //     's/instantiateStreaming\(fetch\(wasmUrl\)/instantiateStreaming(globalThis.fetch(wasmUrl)/' \
 //     pkg/gproxy.js
-//   cp pkg/gproxy.js pkg/gproxy_bg.wasm pkg/*.d.ts supabase/functions/gproxy/
+//   cp pkg/gproxy.js pkg/gproxy_bg.wasm pkg/*.d.ts deploy/supabase/functions/gproxy/
 //
-// Deploy (storage creds become function secrets; the access token is NOT):
+// Deploy from deploy/supabase/ (storage creds become function secrets; the
+// access token is NOT):
 //   supabase secrets set TURSO_URL=… TURSO_TOKEN=… UPSTASH_URL=… UPSTASH_TOKEN=… \
 //     --project-ref "$SUPABASE_PROJECT_REF"
 //   supabase functions deploy gproxy --project-ref "$SUPABASE_PROJECT_REF" \

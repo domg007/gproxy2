@@ -21,9 +21,9 @@
 //   cargo build --lib --target wasm32-unknown-unknown --release
 //   wasm-bindgen --target deno --out-dir pkg \
 //     target/wasm32-unknown-unknown/release/gproxy.wasm
-//   cp pkg/gproxy.js pkg/gproxy.d.ts netlify/edge-functions/_lib/
+//   cp pkg/gproxy.js pkg/gproxy.d.ts deploy/netlify/edge-functions/_lib/
 //   # Generate the base64 inline module from pkg/gproxy_bg.wasm into
-//   # netlify/edge-functions/_lib/gproxy_wasm_inline.ts and rewrite the loader
+//   # deploy/netlify/edge-functions/_lib/gproxy_wasm_inline.ts and rewrite the loader
 //   # tail of the copied gproxy.js from the streaming-fetch-from-URL form
 //   #   const wasmUrl = new URL('gproxy_bg.wasm', import.meta.url);
 //   #   …WebAssembly.instantiateStreaming(fetch(wasmUrl), __wbg_get_imports());
@@ -32,7 +32,8 @@
 //   #   const wasmBytes = Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0));
 //   #   …WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
 //
-// Deploy (storage creds become site env vars; the Netlify auth token is NOT):
+// Deploy from deploy/netlify/ (storage creds become site env vars; the Netlify
+// auth token is NOT):
 //   netlify env:set TURSO_URL …  (and TURSO_TOKEN / UPSTASH_URL / UPSTASH_TOKEN)
 //   netlify deploy --prod --dir public
 //

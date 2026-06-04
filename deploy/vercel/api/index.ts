@@ -28,9 +28,10 @@
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache)
 //
 // The generated glue (_lib/gproxy.js + gproxy_bg.wasm + *.d.ts) is gitignored;
-// only this file + vercel.json are hand-written source. Build recipe:
+// only this file + vercel.json are hand-written source. Build from the crate
+// root, then run vercel from deploy/vercel/:
 //   cargo build --lib --target wasm32-unknown-unknown --release
-//   wasm-bindgen --target web --out-dir vercel/api/_lib \
+//   wasm-bindgen --target web --out-dir deploy/vercel/api/_lib \
 //     target/wasm32-unknown-unknown/release/gproxy.wasm
 
 // `?module` is a Vercel Edge import suffix that yields a `WebAssembly.Module`

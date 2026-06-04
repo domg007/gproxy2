@@ -17,12 +17,12 @@
 #
 # Run from the crate root (/home/linhuan/gproxy/v2):
 #   cargo build --lib --target wasm32-unknown-unknown --release
-#   bash cloudflare/build.sh
+#   bash deploy/cloudflare/build.sh
 set -euo pipefail
 
-CRATE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CRATE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WASM="$CRATE_ROOT/target/wasm32-unknown-unknown/release/gproxy.wasm"
-OUT="$CRATE_ROOT/cloudflare/src/_lib"
+OUT="$CRATE_ROOT/deploy/cloudflare/src/_lib"
 
 [ -f "$WASM" ] || { echo "missing $WASM — run cargo build first" >&2; exit 1; }
 

@@ -328,15 +328,17 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 ## 13. 边缘 / WASM 支持
 
 **已上线验证(wasm 跑在真实边缘,服务真 router + 真 Turso/Upstash)**:
-**Supabase Edge ✅**、**Netlify Edge ✅**、**Vercel Edge ✅**。
+**Supabase Edge ✅**、**Netlify Edge ✅**、**Vercel Edge ✅**、**Cloudflare Workers ✅**。
 
 **edge 目标平台(V8 isolate / WASM,统一 WinterCG Web Fetch 入口,核心一份 `wasm32` + 每平台薄 glue)**:
-Supabase、Netlify、Vercel(已上线);Cloudflare Workers、Deno Deploy(待有效 token);
-阿里云 ESA、腾讯 EdgeOne(wasm 支持未文档化,待探针)。
+Supabase、Netlify、Vercel、Cloudflare Workers(已上线);Deno Deploy(待有效 token);
+阿里云 ESA(待探针);腾讯 EdgeOne Pages(最小 WASM 可跑,但 gproxy 612KB wasm
+instantiate 被 ~15s isolate 限制硬杀,见 `deploy/eopages/NOTES.md`)。
 
-**wasm 打包分两路**(实测):Deno 族(Deno/Netlify/Supabase)= 内联 base64 + 运行时
-`WebAssembly.instantiate(bytes)`;Vercel = `wasm-bindgen --target web` + 静态
-`import './x.wasm?module'`(Vercel 禁运行时字节实例化)。
+**wasm 打包分两路**(实测):Deno 族(Deno/Netlify/Supabase/EdgeOne Pages)= 内联
+base64 + 运行时 `WebAssembly.instantiate(bytes)`;Vercel/Cloudflare =
+`wasm-bindgen --target web` + 静态 wasm module import(Vercel/Cloudflare 禁运行时
+字节实例化)。
 
 **原生容器平台(Cloud Run / AWS Lambda / Render / Zeabur 等)不在本设计内** ——
 它们跑完整 native 二进制(Dockerfile,wreq 伪装全功能),**延到所有功能设计完成后最后再评估/跑**。

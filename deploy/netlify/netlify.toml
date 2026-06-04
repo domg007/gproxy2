@@ -9,7 +9,7 @@
   publish = "public"
 
 # Route every request to the gproxy edge function. The function name matches the
-# file basename in netlify/edge-functions/ (gproxy.ts → "gproxy").
+# file basename in deploy/netlify/edge-functions/ (gproxy.ts → "gproxy").
 [[edge_functions]]
   path = "/*"
   function = "gproxy"

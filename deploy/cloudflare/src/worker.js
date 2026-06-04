@@ -24,9 +24,10 @@
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache)
 //
 // The generated glue (_lib/gproxy.js + gproxy_bg.wasm + *.d.ts) is gitignored;
-// only this file + wrangler.toml + build.sh are hand-written source. Build:
+// only this file + wrangler.toml + build.sh are hand-written source. Build
+// from the crate root, then run wrangler from deploy/cloudflare/:
 //   cargo build --lib --target wasm32-unknown-unknown --release
-//   bash cloudflare/build.sh
+//   bash deploy/cloudflare/build.sh
 
 import wasmModule from "./_lib/gproxy_bg.wasm";
 import initWasm, {
