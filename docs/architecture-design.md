@@ -328,15 +328,19 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 ## 13. 边缘 / WASM 支持
 
 **已上线验证(wasm 跑在真实边缘,服务真 router + 真 Turso/Upstash)**:
-**Supabase Edge ✅**、**Netlify Edge ✅**、**Vercel Edge ✅**、**Cloudflare Workers ✅**。
+**Supabase Edge ✅**、**Netlify Edge ✅**、**Vercel Edge ✅**、**Cloudflare Workers ✅**、**Tencent EdgeOne Pages ✅**。
 
 **edge 目标平台(V8 isolate / WASM,统一 WinterCG Web Fetch 入口,核心一份 `wasm32` + 每平台薄 glue)**:
-Supabase、Netlify、Vercel、Cloudflare Workers(已上线);Deno Deploy(待有效 token);
-阿里云 ESA(待探针);腾讯 EdgeOne Pages(最小 WASM 可跑,但 gproxy 612KB wasm
-instantiate 被 ~15s isolate 限制硬杀,见 `deploy/eopages/NOTES.md`)。
+Supabase、Netlify、Vercel、Cloudflare Workers、Tencent EdgeOne Pages(已上线);
+Deno Deploy(待有效 token);阿里云 ESA(待探针)。
+
+EdgeOne Pages 约束:需要 release size profile + 内联 lazy wasm loader
+(`__gproxy_load()`) + 显式 route 文件;根 `[[default]].js` catch-all 在直接上传
+包中会退回静态资源。详见 `deploy/eopages/NOTES.md`。
 
 **wasm 打包分两路**(实测):Deno 族(Deno/Netlify/Supabase/EdgeOne Pages)= 内联
-base64 + 运行时 `WebAssembly.instantiate(bytes)`;Vercel/Cloudflare =
+base64 + 运行时 `WebAssembly.instantiate(bytes)`(EdgeOne Pages 必须 lazy load);
+Vercel/Cloudflare =
 `wasm-bindgen --target web` + 静态 wasm module import(Vercel/Cloudflare 禁运行时
 字节实例化)。
 
@@ -356,11 +360,11 @@ base64 + 运行时 `WebAssembly.instantiate(bytes)`;Vercel/Cloudflare =
    - **PersistenceBackend = libSQL/Turso over HTTP**(Hrana-over-HTTP via fetch;`store/libsql/`)。SQL,SQLite 方言,和 native `db`(SeaORM)schema 同方言。**不用 KV 做持久化**——KV 做不了 rollup 聚合/即席查询。
    - **CacheBackend = 可插拔,Redis 可选**:`upstash`(Upstash Redis REST,要 Redis)或 `libsql`(同一个 Turso 库的 kv 表,**不要 Redis**)。部署时按配置选,与 native 的 `memory/redis` 对称。
    - **edge 多实例**:isolate 天然多实例;共享状态(限流/quota/session)走上面的共享存储(libSQL 原子 `UPDATE` 或 Upstash 原子 `INCR`);**pub/sub 失效在 edge 不需要**——isolate 朝生暮死、频繁重读配置。
-3. wasm 构建 + 各平台 fetch 入口适配器(薄)— **待做**(增量3)。
+3. wasm 构建 + 各平台 fetch 入口适配器(薄)— Supabase/Netlify/Vercel/Cloudflare/EdgeOne Pages 已上线验证;Deno Deploy/ESA 待验证。
 4. `Send` 边界:wasm 上 `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]` ✅(已应用到 CacheBackend/PersistenceBackend/UpstreamClient)。
 5. wasm AppState + edge 入口驱动真 router — **待做**(增量2)。
 
-**关键限制(edge)**:V8/fetch 无 raw TCP → SQL 直连不可能 → 只能 HTTP-DB(libSQL/Turso)。`base64`/`Instant` 等在 wasm 上自处理(用 `js_sys::Date`,手写 base64)。EO/ESA 的 wasm 支持仍未验证(需探针)。
+**关键限制(edge)**:V8/fetch 无 raw TCP → SQL 直连不可能 → 只能 HTTP-DB(libSQL/Turso)。`base64`/`Instant` 等在 wasm 上自处理(用 `js_sys::Date`,手写 base64)。ESA 的 wasm 支持仍未验证(需探针);EO Pages 已验证但有上面的打包/路由约束。
 
 **仍然不做的**:不搞通用"可换 HTTP 宿主"抽象层——native 用 axum、edge 用 fetch 入口,
 是**两个具体适配器**(cfg 分目标),不是一层抽象税。核心

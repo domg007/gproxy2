@@ -51,3 +51,10 @@ http-body-util = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -8,15 +8,28 @@
 the account had no `teo` zone.
 **Question:** Can gproxy v2's WebAssembly edge build deploy + run on EdgeOne Pages?
 
-## STATUS: `TRIVIAL_LIVE_BUT_WASM_FAILED`
+## STATUS: `GPROXY_WASM_LIVE_WITH_CONSTRAINTS`
 
-EdgeOne Pages edge functions **DO run WebAssembly** — a minimal module
-instantiates and executes live (curl → `5`). But gproxy's **real ~612 KB**
-wasm module **cannot be instantiated**: `WebAssembly.instantiate()` of it is
-hard-killed by the edge-function execution limit at a fixed **~15.0 s** (TCP
-reset, zero bytes), even though the SAME bytes `WebAssembly.compile()` in 3 ms.
-So WASM-on-Pages is real but the gproxy module is **too large to instantiate
-within the isolate's budget**.
+EdgeOne Pages edge functions **DO run WebAssembly**, and gproxy v2's real wasm
+edge build now deploys and serves live routes on EdgeOne Pages. The first
+attempt with a ~612 KB `wasm-bindgen` module was killed during
+`WebAssembly.instantiate()` at a fixed **~15.0 s**. Step 1 fixed it by shrinking
+the release wasm and making the inline wasm loader explicit/lazy:
+
+- Cargo release profile: `opt-level = "z"`, `lto = "fat"`, `codegen-units = 1`,
+  `panic = "abort"`, `strip = true`.
+- `deploy/eopages/build.sh` optionally runs `wasm-opt -Oz` when available, then
+  base64-inlines the generated wasm.
+- The generated glue exports `__gproxy_load()`, so EdgeOne does not instantiate
+  wasm as top-level module work before a handler runs.
+- gproxy uses explicit route files (`healthz.js`, `version.js`) instead of the
+  root `[[default]].js` catch-all, because that catch-all fell back to static
+  assets in direct uploads.
+
+Latest live proof on `gproxy-v2`: a temporary `/loadprobe` route returned
+`load-ok ms=65`; after removing temporary probes and redeploying the cleaned
+package, `/healthz` returned `200 {"status":"ok"}` in 0.795 s and `/version`
+returned `200 {"version":"2.0.0"}` in 0.338 s.
 
 ---
 
@@ -45,7 +58,9 @@ within the isolate's budget**.
 - Edge functions live under **`edge-functions/`** (NOT `functions/`). Each file
   is a route by its path: `edge-functions/healthz.js` → `/healthz`. Subdirs are
   allowed; a `_lib/` subdir holds importable modules (its files are not served
-  as functions). Catch-all is `edge-functions/[[default]].js`.
+  as functions). The platform documents/supports `edge-functions/[[default]].js`
+  as a catch-all, but the gproxy direct-upload package currently uses explicit
+  route files because the root catch-all fell back to static assets.
 - Handler is the exported **`onRequest(context)`** returning a `Response`
   (Edge Functions do NOT support `addEventListener`). `context` = `{ request,
   env, params, uuid, waitUntil }`; **env vars come from `context.env`**.
@@ -83,19 +98,16 @@ the same capability tier as Netlify / Supabase / Deno, and MORE permissive than
 Vercel / Cloudflare (which forbid buffer instantiation and require a static
 `?module` import). So the base64-inline glue approach is the right model.
 
-## Step 4 — Real gproxy wasm: **BLOCKED** ❌ (instantiate killed at ~15 s)
+## Step 4 — Real gproxy wasm: **LIVE** ✅ (after shrink + lazy explicit routes)
 
-Built the deno-target glue + base64-inlined the 612 KB `gproxy_bg.wasm`
-(`deploy/eopages/build.sh`), wrote a catch-all `[[default]].js` that
-lazy-`init`s from `context.env` and routes to `wasmFetch`. Set the four storage
-vars with `edgeone pages env set` (after `edgeone pages link gproxy-v2`), then
-deployed `gproxy-v2` (`pages-zsrplszrfd5s`).
+The original deno-target glue + base64-inlined 612 KB `gproxy_bg.wasm`
+(`deploy/eopages/build.sh`) failed under EdgeOne Pages. A catch-all
+`[[default]].js` also caused direct uploads to fall through to the static index;
+even a plain `/probe` route returned `index.html` through that shape.
 
-`/healthz` + `/version` fell through to the static index → **404 from the
-function** at first; isolation testing (a separate `gproxy-iso` project)
-pinpointed the cause — it is NOT routing and NOT the `init` network path. The
-following probes (each a separate `onRequest` in the SAME project, sharing the
-SAME `_lib/` glue) localize it precisely:
+Isolation testing (a separate `gproxy-iso` project) showed the first failure was
+not a missing `WebAssembly` global, not `init` network I/O, and not Turso/Upstash
+configuration. The old module shape localized the instantiate problem:
 
 | probe | what it does | result |
 |---|---|---|
@@ -106,7 +118,7 @@ SAME `_lib/` glue) localize it precisely:
 | `/probesplit` | instantiate with `__wbindgen_start()` wrapped in try/catch (never throws) | **TCP reset @ ~15.09 s** |
 | `/probewasm` | full `init()` + `wasmFetch('/version')` | **TCP reset @ ~15.10 s** |
 
-Conclusion chain:
+Old failure chain:
 - A 41-byte module instantiates instantly (`5`). ✅
 - The 612 KB module **decodes** fine (108 ms) and **compiles** fine (3 ms). ✅
 - The 612 KB module **`instantiate()` is hard-killed at a fixed ~15.0 s**, with
@@ -115,12 +127,26 @@ Conclusion chain:
 - Locally in node v22 the identical bytes `instantiate` in ~0 ms with 51 stub
   imports — so the module is cheap on standard V8; the kill is EdgeOne-specific.
 
-This is an EdgeOne Pages edge-function **resource limit on wasm instantiation**
-(the 15.0 s constant = a fixed execution/CPU-time kill; the isolate is
-terminated mid-instantiate, presumably during full codegen/linking of the
-612 KB module — `compile` appears to be lazy/streaming, deferring the real cost
-to `instantiate`). NOT a missing-`WebAssembly` problem, NOT a routing problem,
-NOT the Turso/Upstash init.
+The fixed path changes two things:
+
+1. The release wasm is smaller before bindgen inline output. In the local
+   environment, `wasm-opt` was unavailable and `npx -p binaryen wasm-opt` failed
+   with `ECONNRESET`, so the Cargo release profile alone was used.
+2. The generated glue no longer instantiates wasm at top level. It exports
+   `__gproxy_load()`, and the explicit route handlers call that inside
+   `onRequest()` before `init()` and `wasmFetch()`.
+
+Live verification after the fix:
+
+| route | result |
+|---|---|
+| `/probe` | `200 probe-ok` with an explicit route file |
+| `/loadprobe` | `200 load-ok ms=65` (`__gproxy_load()` only) |
+| `/healthz` | `200 {"status":"ok"}` after cleaned redeploy |
+| `/version` | `200 {"version":"2.0.0"}` after cleaned redeploy |
+
+Conclusion: EdgeOne Pages can run gproxy's wasm build, but only with the
+optimized release profile, inline lazy loader, and explicit route files.
 
 ## Exact CLI commands (secrets redacted)
 
@@ -136,35 +162,35 @@ curl -L      -b jar "https://gproxy-spike-te2iwbpy.edgeone.run/healthz"         
 
 # real gproxy
 cargo build --lib --target wasm32-unknown-unknown --release
-bash deploy/eopages/build.sh                 # deno-target glue + base64-inline patch
-edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -t <TOK> -e production
-edgeone pages link                                 # (enter: gproxy-v2)  -> .edgeone/project.json
+bash deploy/eopages/build.sh                 # deno-target glue + lazy base64-inline patch
+edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -e production
+edgeone pages link                           # (enter: gproxy-v2) -> .edgeone/project.json
 edgeone pages env set TURSO_URL   <REDACTED> -t <TOK>     # + TURSO_TOKEN, UPSTASH_URL, UPSTASH_TOKEN
-edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -t <TOK> -e production
+edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -e production
 curl -L -c jar -b jar "https://gproxy-v2-g1yrgdxl.edgeone.run/healthz?eo_token=<…>&eo_time=<…>"
-#   -> 404 from function (instantiate of 612KB wasm killed at ~15s; see probe table)
+#   -> {"status":"ok"}
+curl -L -c jar -b jar "https://gproxy-v2-g1yrgdxl.edgeone.run/version?eo_token=<…>&eo_time=<…>"
+#   -> {"version":"2.0.0"}
 ```
 
-Verbatim failure signature (every wasm-instantiate path): no HTTP status, no
+Old failure signature (pre-shrink wasm-instantiate paths): no HTTP status, no
 headers — `curl: (56) Recv failure: Connection reset by peer` at
 `time_total ≈ 15.05–15.10 s`.
 
 ## Bottom line — Can gproxy's WASM run on EdgeOne Pages?
 
-**WASM: YES. gproxy's wasm: NO (today).** EdgeOne Pages edge functions run
-WebAssembly (proven live: `add(2,3) → 5`), and buffer-`instantiate` is allowed.
-But gproxy's **612 KB** module exceeds the edge-function **wasm-instantiation
-time budget (~15 s hard kill)**, so `/healthz` + `/version` never came up.
+**YES, with constraints.** EdgeOne Pages edge functions run WebAssembly and
+gproxy's wasm build now serves real `/healthz` and `/version` routes. Step 1
+(shrink + lazy inline loader) was enough, so the Pages Node Functions fallback
+is not needed right now.
 
-Paths forward to revisit (not done in this spike):
-1. **Shrink the wasm** below the instantiation budget — `wasm-opt -Oz`, strip
-   panic/format machinery, `opt-level="z"` + `lto`, drop unused deps — and
-   re-test `/probeinst`. Today's module is 612 KB; the working probe was 41 B,
-   so the threshold is somewhere between.
-2. Try the **Pages Node Functions** runtime (full Node, longer compute budget)
-   instead of Edge Functions — `node-functions/` + `WebAssembly.instantiate`
-   from a `fs`-read `.wasm`. Different runtime; not an edge isolate.
-3. File/confirm the exact Edge Function wasm-instantiation limit with Tencent.
+Remaining follow-ups:
+1. Install/use native `wasm-opt` in CI or release packaging and record the final
+   post-link byte size.
+2. Re-test `[[default]].js` only if catch-all routing becomes necessary; explicit
+   route files are the known-good shape.
+3. File/confirm the exact Edge Function wasm-instantiation limit with Tencent if
+   future wasm growth approaches the budget again.
 
 ## Reproduce
 
@@ -176,8 +202,10 @@ bash deploy/eopages/build.sh
 # trivial wasm proof:
 edgeone pages deploy deploy/eopages/trivial --name gproxy-spike -t "$EDGEONE_PAGES_API_TOKEN" -e production
 #   then curl /wasmtest (carry the printed eo_token/eo_time + cookie jar) -> 5
-# real gproxy (will reset at ~15s on /healthz):
-edgeone pages deploy deploy/eopages/gproxy  --name gproxy-v2 -t "$EDGEONE_PAGES_API_TOKEN" -e production
+# real gproxy:
+edgeone pages deploy deploy/eopages/gproxy  --name gproxy-v2 -e production
+#   then curl /healthz and /version (carry printed eo_token/eo_time + cookie jar)
+#   -> {"status":"ok"} and {"version":"2.0.0"}
 ```
 
 **Cleanup:** three preview projects were created on the account —
