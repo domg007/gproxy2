@@ -24,6 +24,8 @@ pub enum PersistenceKind {
 pub enum CacheConfig {
     Memory,
     Redis { url: String },
+    Libsql { url: String },
+    Upstash { url: String },
 }
 
 impl std::fmt::Debug for CacheConfig {
@@ -31,6 +33,8 @@ impl std::fmt::Debug for CacheConfig {
         match self {
             CacheConfig::Memory => write!(f, "Memory"),
             CacheConfig::Redis { .. } => write!(f, "Redis {{ url: <redacted> }}"),
+            CacheConfig::Libsql { .. } => write!(f, "Libsql {{ url: <redacted> }}"),
+            CacheConfig::Upstash { .. } => write!(f, "Upstash {{ url: <redacted> }}"),
         }
     }
 }

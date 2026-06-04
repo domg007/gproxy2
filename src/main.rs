@@ -73,6 +73,9 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("cache backend: redis ready");
             Arc::new(c)
         }
+        CacheConfig::Libsql { .. } | CacheConfig::Upstash { .. } => {
+            anyhow::bail!("edge-only cache backend cannot be used by native server")
+        }
     };
 
     let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {

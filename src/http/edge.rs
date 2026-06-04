@@ -59,13 +59,18 @@ pub async fn init(
         match (upstash_url, upstash_token) {
             (Some(u), Some(t)) if !u.is_empty() && !t.is_empty() => (
                 Arc::new(UpstashCache::new(u.clone(), t)),
-                CacheConfig::Redis { url: u },
+                CacheConfig::Upstash { url: u },
             ),
             _ => {
                 let c = LibsqlCache::connect(turso_url.clone(), turso_token.clone())
                     .await
                     .map_err(js_err)?;
-                (Arc::new(c), CacheConfig::Memory)
+                (
+                    Arc::new(c),
+                    CacheConfig::Libsql {
+                        url: turso_url.clone(),
+                    },
+                )
             }
         };
 
