@@ -24,11 +24,9 @@
 //     's/instantiateStreaming\(fetch\(wasmUrl\)/instantiateStreaming(globalThis.fetch(wasmUrl)/' \
 //     pkg/gproxy.js
 //
-// Deploy (storage creds become Deno Deploy env vars; deploy tokens are NOT):
-//   deployctl deploy --project="$DENO_DEPLOY_PROJECT" --token="$DENO_DEPLOY_TOKEN" \
-//     --env=TURSO_URL=… --env=TURSO_TOKEN=… \
-//     --env=UPSTASH_URL=… --env=UPSTASH_TOKEN=… \
-//     --prod deploy/deno/main.ts
+// Deploy with deploy/deno/build.sh. The script builds a temporary upload root
+// whose main.ts imports ./pkg/gproxy.js, matching Deno Deploy's app build
+// configuration.
 //
 // `wasmFetch` is aliased from the wasm `fetch` export so it does not shadow
 // Deno's global `fetch`, which the glue's loader still needs at import time.

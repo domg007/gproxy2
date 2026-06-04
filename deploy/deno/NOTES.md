@@ -1,23 +1,40 @@
 # Deno Deploy — WASM Deployment Notes
 
 **Date:** 2026-06-04
-**Product:** Deno Deploy.
+**Product:** Deno Deploy new platform.
 **Question:** Can the existing `deploy/deno/main.ts` entry be deployed and
 verified?
 
-## STATUS: `BLOCKED_ON_NEW_DENO_DEPLOY_APP`
+## STATUS: `GPROXY_WASM_LIVE`
 
-The wasm package builds locally:
+gproxy v2's wasm edge build is live on Deno Deploy:
 
 ```text
-cargo build --lib --target wasm32-unknown-unknown --release
-wasm-bindgen --target deno --out-dir pkg target/wasm32-unknown-unknown/release/gproxy.wasm
-pkg/gproxy_bg.wasm: 412312 bytes
+Production URL: https://gproxy-deno.leenhawk20.deno.net
+GET /healthz  -> 200 {"status":"ok"}    time=0.942s
+GET /version  -> 200 {"version":"2.0.0"} time=0.930s
 ```
 
-The old Deploy Classic path is blocked before code execution. `deployctl`
-accepted the token but found no existing `gproxy-deno` project; when it tried to
-create one, the API rejected it:
+The app is:
+
+```text
+org: leenhawk20
+app: gproxy-deno
+```
+
+Environment variables set on the app:
+
+```text
+TURSO_URL
+TURSO_TOKEN
+UPSTASH_URL
+UPSTASH_TOKEN
+```
+
+## Important CLI Notes
+
+The old Deploy Classic path is blocked for new projects. `deployctl` accepted
+the token but tried to create a missing Classic project and failed:
 
 ```text
 Project 'gproxy-deno' not found. Creating...
@@ -25,29 +42,41 @@ error: APIError: New project creation is disabled. Deno Deploy Classic is being
 sunset on July 20, 2026. Please migrate to the new Deno Deploy platform.
 ```
 
-Deno 2.8.2 was installed locally, but `deno deploy --help` could not fetch its
-JSR helper in this environment:
+Use the new Deno Deploy CLI instead:
+
+```bash
+deno run -A https://jsr.io/@deno/deploy/0.0.99/main.ts --token "$DENO_DEPLOY_TOKEN" --prod /tmp/gproxy-deno-upload
+```
+
+In this environment, the shorthand `deno deploy` initially failed to resolve
+`jsr:@deno/deploy` because Cloudflare challenged the package metadata request:
 
 ```text
 error: Import 'https://jsr.io/@deno/deploy/meta.json' failed: 403 Forbidden
 ```
 
-Conclusion: do not treat this as a gproxy wasm failure. The next step is account
-setup on the new Deno Deploy platform, then update this deployment entry for the
-new `deno deploy` flow.
+Pinning the direct module URL `https://jsr.io/@deno/deploy/0.0.99/main.ts`
+worked and cached the CLI.
 
-## What The User Needs To Do
+## Build And Deploy
 
-1. Open `https://console.deno.com`.
-2. Create a new Deno Deploy organization.
-3. Create an app for this project, for example `gproxy-deno`.
-4. Add production environment variables:
-   - `TURSO_URL`
-   - `TURSO_TOKEN`
-   - `UPSTASH_URL`
-   - `UPSTASH_TOKEN`
-5. Provide the new app/org/token details, or log the local CLI into that new
-   account so Codex can retry from this workspace.
+Run from the crate root:
 
-The existing `DENO_DEPLOY_TOKEN` in `.env` is not enough if it only belongs to
-Deploy Classic or if the target app does not already exist on the new platform.
+```bash
+set -a && source ./.env && set +a
+bash deploy/deno/build.sh
+```
+
+The script:
+
+1. Builds `target/wasm32-unknown-unknown/release/gproxy.wasm`.
+2. Runs `wasm-bindgen --target deno --out-dir pkg`.
+3. Patches the generated loader to call `globalThis.fetch(wasmUrl)` so the Rust
+   export named `fetch` does not shadow Deno's global `fetch`.
+4. Creates `/tmp/gproxy-deno-upload` with root `main.ts` and `pkg/`.
+5. Deploys that compact upload root to `leenhawk20/gproxy-deno`.
+
+The compact upload root matters because the new Deno Deploy app stores build
+configuration. The verified shape has root `main.ts` importing `./pkg/gproxy.js`;
+deploying directly from the repo root with `deploy/deno/main.ts` did not update
+the app entrypoint and produced a failed revision.
