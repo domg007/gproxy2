@@ -13,6 +13,9 @@ dist/
 # ── Deno Deploy ──
 .deno_cache
 
+# ── Alibaba Cloud ESA local dev output ──
+.dev/
+
 # ── wasm-bindgen build output (regenerated; never commit) ──
 pkg/
 
@@ -43,7 +46,7 @@ deploy/cloudflare/src/_lib/
 .wrangler/
 
 # ── EdgeOne Pages build output (regenerated from the crate by
-#    deploy/eopages/build.sh; never commit — only the [[default]].js entry,
+#    deploy/eopages/build.sh; never commit — only explicit route entries,
 #    index.html, build.sh, the trivial/ probe + NOTES.md are hand-written) ──
 deploy/eopages/gproxy/edge-functions/_lib/
 # `edgeone pages link` artifacts (project IDs + pulled env) — never commit
