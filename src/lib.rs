@@ -4,6 +4,7 @@
 pub mod app;
 pub mod config;
 pub mod http;
+pub mod protocol;
 pub mod store;
 
 #[cfg(target_arch = "wasm32")]
