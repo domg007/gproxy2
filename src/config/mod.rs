@@ -82,6 +82,37 @@ impl PersistenceConfig {
     }
 }
 
+/// Outbound upstream transport configuration.
+#[derive(Clone)]
+pub struct UpstreamConfig {
+    /// Native-only proxy for upstream provider requests. Redacted in `Debug`
+    /// because proxy URLs may carry credentials.
+    pub proxy_url: Option<String>,
+}
+
+impl std::fmt::Debug for UpstreamConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.proxy_url {
+            Some(_) => write!(f, "UpstreamConfig {{ proxy_url: <redacted> }}"),
+            None => write!(f, "UpstreamConfig {{ proxy_url: None }}"),
+        }
+    }
+}
+
+impl UpstreamConfig {
+    pub fn from_proxy_url(proxy_url: Option<String>) -> Self {
+        let proxy_url = proxy_url.and_then(|url| {
+            let trimmed = url.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        Self { proxy_url }
+    }
+}
+
 /// Immutable runtime snapshot built from CLI args / environment variables.
 ///
 /// Wrapped in [`Arc`](std::sync::Arc) for cheap sharing across handlers.
@@ -94,6 +125,7 @@ pub struct RuntimeConfig {
     pub port: u16,
     pub cache: CacheConfig,
     pub persistence: PersistenceConfig,
+    pub upstream: UpstreamConfig,
     /// Numeric identifier for this instance. Numeric (not a name) so the
     /// database can partition / shard per-instance rows by it later.
     pub instance_id: u64,
@@ -120,6 +152,7 @@ mod tests {
             persistence: PersistenceConfig::File {
                 data_dir: PathBuf::from("./data"),
             },
+            upstream: UpstreamConfig::from_proxy_url(None),
             instance_id: 0,
         }
     }
@@ -162,5 +195,17 @@ mod tests {
     fn cache_from_url_some_is_redis() {
         let cfg = CacheConfig::from_url(Some("redis://127.0.0.1".to_string()));
         assert!(matches!(cfg, CacheConfig::Redis { .. }));
+    }
+
+    #[test]
+    fn upstream_proxy_url_blank_is_none() {
+        let cfg = UpstreamConfig::from_proxy_url(Some("  ".to_string()));
+        assert!(cfg.proxy_url.is_none());
+    }
+
+    #[test]
+    fn upstream_proxy_url_is_trimmed() {
+        let cfg = UpstreamConfig::from_proxy_url(Some(" http://127.0.0.1:7890 ".to_string()));
+        assert_eq!(cfg.proxy_url.as_deref(), Some("http://127.0.0.1:7890"));
     }
 }

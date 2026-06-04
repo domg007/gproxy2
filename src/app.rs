@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::config::RuntimeConfig;
+use crate::http::client::UpstreamClient;
 use crate::store::cache::CacheBackend;
 use crate::store::persistence::PersistenceBackend;
 
@@ -13,6 +14,7 @@ pub struct AppState {
     pub config: Arc<RuntimeConfig>,
     pub cache: Arc<dyn CacheBackend>,
     pub persistence: Arc<dyn PersistenceBackend>,
+    pub upstream: Arc<dyn UpstreamClient>,
 }
 
 impl AppState {
@@ -20,11 +22,13 @@ impl AppState {
         config: Arc<RuntimeConfig>,
         cache: Arc<dyn CacheBackend>,
         persistence: Arc<dyn PersistenceBackend>,
+        upstream: Arc<dyn UpstreamClient>,
     ) -> Self {
         Self {
             config,
             cache,
             persistence,
+            upstream,
         }
     }
 }

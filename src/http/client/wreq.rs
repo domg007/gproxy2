@@ -23,6 +23,17 @@ impl WreqClient {
             inner: wreq::Client::new(),
         }
     }
+
+    /// Build a `WreqClient` with an optional all-traffic upstream proxy.
+    pub fn with_proxy_url(proxy_url: Option<&str>) -> wreq::Result<Self> {
+        let mut builder = wreq::Client::builder();
+        if let Some(proxy_url) = proxy_url {
+            builder = builder.proxy(wreq::Proxy::all(proxy_url)?);
+        }
+        Ok(Self {
+            inner: builder.build()?,
+        })
+    }
 }
 
 impl Default for WreqClient {

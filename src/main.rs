@@ -5,8 +5,11 @@ use std::sync::Arc;
 
 use clap::Parser;
 use gproxy::app::AppState;
-use gproxy::config::{CacheConfig, PersistenceConfig, PersistenceKind, RuntimeConfig};
+use gproxy::config::{
+    CacheConfig, PersistenceConfig, PersistenceKind, RuntimeConfig, UpstreamConfig,
+};
 use gproxy::http;
+use gproxy::http::client::{UpstreamClient, WreqClient};
 use gproxy::store::cache::{CacheBackend, MemoryCache, RedisCache};
 use gproxy::store::persistence::{DbPersistence, FilePersistence, PersistenceBackend};
 
@@ -38,6 +41,10 @@ struct Cli {
     #[arg(long, env = "GPROXY_REDIS_URL")]
     redis_url: Option<String>,
 
+    /// Optional native proxy URL for upstream provider requests.
+    #[arg(long, env = "GPROXY_UPSTREAM_PROXY_URL")]
+    upstream_proxy_url: Option<String>,
+
     /// Numeric identifier for this instance (used to partition per-instance
     /// rows in the database; set distinct values across a multi-node fleet).
     #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
@@ -51,12 +58,14 @@ async fn main() -> anyhow::Result<()> {
 
     let cache_cfg = CacheConfig::from_url(cli.redis_url);
     let persistence_cfg = PersistenceConfig::from_parts(cli.persistence, cli.data_dir, cli.dsn)?;
+    let upstream_cfg = UpstreamConfig::from_proxy_url(cli.upstream_proxy_url);
 
     let config = Arc::new(RuntimeConfig {
         host: cli.host,
         port: cli.port,
         cache: cache_cfg,
         persistence: persistence_cfg,
+        upstream: upstream_cfg,
         instance_id: cli.instance_id,
     });
 
@@ -87,7 +96,19 @@ async fn main() -> anyhow::Result<()> {
     persistence.health().await?;
     tracing::info!("persistence backend: {} healthy", persistence.kind());
 
-    let state = AppState::new(config, cache, persistence);
+    let upstream: Arc<dyn UpstreamClient> = Arc::new(WreqClient::with_proxy_url(
+        config.upstream.proxy_url.as_deref(),
+    )?);
+    tracing::info!(
+        "upstream transport: wreq ready{}",
+        if config.upstream.proxy_url.is_some() {
+            " with proxy"
+        } else {
+            ""
+        }
+    );
+
+    let state = AppState::new(config, cache, persistence, upstream);
     let app = http::server::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;

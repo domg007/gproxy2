@@ -20,7 +20,8 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Response, ResponseInit};
 
 use crate::app::AppState;
-use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig};
+use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig, UpstreamConfig};
+use crate::http::client::{FetchClient, UpstreamClient};
 use crate::store::cache::{CacheBackend, LibsqlCache, UpstashCache};
 use crate::store::persistence::{LibsqlPersistence, PersistenceBackend};
 
@@ -79,10 +80,12 @@ pub async fn init(
         port: 0,
         cache: cache_cfg,
         persistence: PersistenceConfig::Db { dsn: turso_url },
+        upstream: UpstreamConfig::from_proxy_url(None),
         instance_id: 0,
     });
 
-    let _ = STATE.set(AppState::new(config, cache, persistence));
+    let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());
+    let _ = STATE.set(AppState::new(config, cache, persistence, upstream));
     Ok(())
 }
 
