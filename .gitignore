@@ -4,6 +4,7 @@
 *.db-*
 node_modules/
 dist/
+__pycache__/
 .DS_Store
 
 # test-only secrets — never commit
@@ -18,6 +19,9 @@ dist/
 
 # ── wasm-bindgen build output (regenerated; never commit) ──
 pkg/
+
+# ── Upstream API docs snapshots (separate nested git repo; never commit here) ──
+/upstream_docs/
 
 # ── Supabase Edge Function build output (regenerated from the crate; never
 #    commit — only index.ts + config.toml are hand-written source) ──
