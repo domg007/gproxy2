@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ClaudeModel, IterationUsageType, JsonObject, Speed, UsageServiceTier};
+use super::{ClaudeModel, InferenceGeo, IterationUsageType, JsonObject, Speed, UsageServiceTier};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
@@ -23,7 +23,7 @@ pub struct Usage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iterations: Option<Vec<IterationUsage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub inference_geo: Option<String>,
+    pub inference_geo: Option<InferenceGeo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<UsageServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]

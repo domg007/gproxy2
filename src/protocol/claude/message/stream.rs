@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::CreateMessageResponseBody;
-use crate::protocol::claude::common::{ContentBlock, JsonObject, StopReason, TypedObject, Usage};
+use crate::protocol::claude::common::{
+    ContentBlock, JsonObject, StopReason, StopSequence, TypedObject, Usage,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -92,7 +94,7 @@ pub struct MessageDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<StopReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequence: Option<String>,
+    pub stop_sequence: Option<StopSequence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_details: Option<TypedObject>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]

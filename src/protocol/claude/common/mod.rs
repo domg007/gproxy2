@@ -5,8 +5,10 @@ use serde_json::Value;
 
 pub mod blocks;
 pub mod cache;
+pub mod container;
 pub mod content;
 pub mod context_management;
+pub mod diagnostics;
 pub mod mcp;
 pub mod misc_blocks;
 pub mod output;
@@ -22,8 +24,10 @@ pub mod usage;
 
 pub use blocks::*;
 pub use cache::*;
+pub use container::*;
 pub use content::*;
 pub use context_management::*;
+pub use diagnostics::*;
 pub use mcp::*;
 pub use misc_blocks::*;
 pub use output::*;
