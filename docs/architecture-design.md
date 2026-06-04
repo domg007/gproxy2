@@ -332,8 +332,9 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 
 **edge 目标平台(V8 isolate / WASM,统一 WinterCG Web Fetch 入口,核心一份 `wasm32` + 每平台薄 glue)**:
 Supabase、Netlify、Vercel、Cloudflare Workers、Tencent EdgeOne Pages(已上线);
-Deno Deploy(待有效 token);阿里云 ESA(本地 runtime 最小 WASM 可跑,远端默认域名/route
-仍未打通到函数,见 `deploy/esa/NOTES.md`)。
+Deno Deploy(Classic 已禁新建项目,需新 Deno Deploy org/app 后重测,见
+`deploy/deno/NOTES.md`);阿里云 ESA(本地 runtime 最小 WASM 可跑,远端默认域名/route 仍未
+打通到函数,见 `deploy/esa/NOTES.md`)。
 
 EdgeOne Pages 约束:需要 release size profile + 内联 lazy wasm loader
 (`__gproxy_load()`) + 显式 route 文件;根 `[[default]].js` catch-all 在直接上传
@@ -361,7 +362,7 @@ Vercel/Cloudflare =
    - **PersistenceBackend = libSQL/Turso over HTTP**(Hrana-over-HTTP via fetch;`store/libsql/`)。SQL,SQLite 方言,和 native `db`(SeaORM)schema 同方言。**不用 KV 做持久化**——KV 做不了 rollup 聚合/即席查询。
    - **CacheBackend = 可插拔,Redis 可选**:`upstash`(Upstash Redis REST,要 Redis)或 `libsql`(同一个 Turso 库的 kv 表,**不要 Redis**)。部署时按配置选,与 native 的 `memory/redis` 对称。
    - **edge 多实例**:isolate 天然多实例;共享状态(限流/quota/session)走上面的共享存储(libSQL 原子 `UPDATE` 或 Upstash 原子 `INCR`);**pub/sub 失效在 edge 不需要**——isolate 朝生暮死、频繁重读配置。
-3. wasm 构建 + 各平台 fetch 入口适配器(薄)— Supabase/Netlify/Vercel/Cloudflare/EdgeOne Pages 已上线验证;Deno Deploy 待有效 token;ESA 远端访问链路待打通。
+3. wasm 构建 + 各平台 fetch 入口适配器(薄)— Supabase/Netlify/Vercel/Cloudflare/EdgeOne Pages 已上线验证;Deno Deploy 需迁到新平台 app 后重测;ESA 远端访问链路待打通。
 4. `Send` 边界:wasm 上 `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]` ✅(已应用到 CacheBackend/PersistenceBackend/UpstreamClient)。
 5. wasm AppState + edge 入口驱动真 router — **待做**(增量2)。
 
