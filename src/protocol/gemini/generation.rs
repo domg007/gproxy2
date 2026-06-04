@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::common::{
     CitationMetadata, ExtraFields, ModalityTokenCount, SafetyRating, SafetySetting, WireEnum,
 };
 use super::content::Content;
 use super::generation_config::GenerationConfig;
+use super::grounding::{GroundingMetadata, UrlContextMetadata};
 use super::tools::{Tool, ToolConfig};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -73,13 +73,13 @@ pub struct Candidate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub grounding_metadata: Option<Value>,
+    pub grounding_metadata: Option<GroundingMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avg_logprobs: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs_result: Option<LogprobsResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_context_metadata: Option<Value>,
+    pub url_context_metadata: Option<UrlContextMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]

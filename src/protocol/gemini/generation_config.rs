@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::common::{ExtraFields, WireEnum};
+use super::speech::SpeechConfig;
 use super::tools::Schema;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -47,7 +48,7 @@ pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_enhanced_civic_answers: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub speech_config: Option<Value>,
+    pub speech_config: Option<SpeechConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_config: Option<ThinkingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
