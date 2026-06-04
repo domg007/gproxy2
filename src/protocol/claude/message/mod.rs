@@ -3,16 +3,18 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    AssistantRole, CacheControl, ClaudeModel, Container, ContainerParam, ContentBlock,
-    ContextManagementConfig, ContextManagementResponse, Diagnostics, DiagnosticsParam,
-    InferenceGeo, JsonObject, JsonSchemaFormat, McpServer, MessageObjectType, MessageParam,
-    Metadata, OutputConfig, RequestServiceTier, Speed, StopDetails, StopReason, StopSequence,
-    SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
+    AnthropicBetaHeaders, AssistantRole, CacheControl, ClaudeModel, Container, ContainerParam,
+    ContentBlock, ContextManagementConfig, ContextManagementResponse, Diagnostics,
+    DiagnosticsParam, InferenceGeo, JsonObject, JsonSchemaFormat, McpServer, MessageObjectType,
+    MessageParam, Metadata, OutputConfig, RequestServiceTier, Speed, StopDetails, StopReason,
+    StopSequence, SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
 };
 
 pub mod stream;
 
 pub use stream::*;
+
+pub type CreateMessageRequestHeaders = AnthropicBetaHeaders;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateMessageRequestBody {
@@ -73,9 +75,7 @@ pub struct CreateMessageResponseBody {
     pub role: AssistantRole,
     pub content: Vec<ContentBlock>,
     pub model: ClaudeModel,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_reason: Option<StopReason>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: StopReason,
     pub stop_sequence: Option<StopSequence>,
     pub usage: Usage,
     #[serde(skip_serializing_if = "Option::is_none")]

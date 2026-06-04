@@ -3,9 +3,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    CacheControl, ClaudeModel, ContextManagementConfig, JsonObject, JsonSchemaFormat, McpServer,
-    MessageParam, OutputConfig, Speed, SystemPrompt, ThinkingConfig, Tool, ToolChoice,
+    AnthropicBetaHeaders, CacheControl, ClaudeModel, ContextManagementConfig, JsonObject,
+    JsonSchemaFormat, McpServer, MessageParam, OutputConfig, Speed, SystemPrompt, ThinkingConfig,
+    Tool, ToolChoice,
 };
+
+pub type CountTokensRequestHeaders = AnthropicBetaHeaders;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CountTokensRequestBody {

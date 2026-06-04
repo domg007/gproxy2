@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{ClaudeModel, JsonObject, ModelObjectType};
+use super::common::{AnthropicBetaHeaders, ClaudeModel, JsonObject, ModelObjectType};
+
+pub type ListModelsRequestHeaders = AnthropicBetaHeaders;
+pub type RetrieveModelRequestHeaders = AnthropicBetaHeaders;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListModelsQuery {

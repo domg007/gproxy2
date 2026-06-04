@@ -59,7 +59,7 @@ pub struct ResponseWebSearchToolResultBlock {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseWebSearchResultBlock {
     pub encrypted_content: String,
-    pub page_age: String,
+    pub page_age: Option<String>,
     pub title: String,
     #[serde(rename = "type")]
     pub type_: WebSearchResultBlockType,

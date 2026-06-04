@@ -34,6 +34,18 @@ pub use usage::*;
 pub type AnthropicBeta = String;
 pub type JsonObject = BTreeMap<String, Value>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AnthropicBetaHeaders {
+    #[serde(
+        rename = "anthropic-beta",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub anthropic_beta: Option<Vec<AnthropicBeta>>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StringOrArray<T> {
