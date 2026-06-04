@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use super::super::{
+    CacheControl, Caller, JsonObject, ServerToolUseName, WebSearchToolResultContent,
+};
 use super::content::{McpToolResultContent, ToolResultContent};
-use super::{CacheControl, Caller, JsonObject, ServerToolUseName, WebSearchToolResultContent};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolUseBlock {

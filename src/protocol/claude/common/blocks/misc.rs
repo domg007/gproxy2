@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::CacheControl;
-use super::blocks::TextBlock;
+use super::super::CacheControl;
+use super::TextBlock;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContainerUploadBlock {

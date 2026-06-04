@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CacheControl, JsonObject, JsonSchemaObjectType};
+use super::super::{CacheControl, JsonObject, JsonSchemaObjectType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ToolCommon {

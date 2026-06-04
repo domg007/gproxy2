@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{DocumentBlock, JsonObject, StopReason, ToolReferenceBlock};
+use super::super::{DocumentBlock, JsonObject, StopReason, ToolReferenceBlock};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WebFetchResultBlock {

@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CacheControl, Citation, CitationConfig, DocumentSource, ImageSource, JsonObject};
+use super::super::{CacheControl, Citation, CitationConfig, JsonObject};
+use super::{DocumentSource, ImageSource};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextBlock {

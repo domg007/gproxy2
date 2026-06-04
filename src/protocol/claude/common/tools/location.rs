@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::JsonObject;
+use super::super::JsonObject;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserLocation {

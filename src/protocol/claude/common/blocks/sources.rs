@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::blocks::{ImageBlock, TextBlock};
-use super::{JsonObject, TypedObject};
+use super::super::{JsonObject, TypedObject};
+use super::{ImageBlock, TextBlock};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
