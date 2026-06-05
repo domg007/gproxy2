@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::responses::{ResponseInput, ResponseItem};
+use super::response_items::ResponseItem;
+use super::responses::ResponseInput;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextManagement {
