@@ -110,6 +110,43 @@ mod tests {
         assert_eq!(request.store, Some(true));
         assert!(!request.extra.contains_key("store"));
     }
+
+    #[test]
+    fn chat_completion_response_models_moderation_results() {
+        let response: ChatCompletionResponse = serde_json::from_value(json!({
+            "id": "chatcmpl_123",
+            "choices": [],
+            "created": 1,
+            "model": "gpt-5.4",
+            "object": "chat.completion",
+            "moderation": {
+                "input": {
+                    "model": "omni-moderation-latest",
+                    "results": [{
+                        "categories": { "violence": false },
+                        "category_applied_input_types": { "violence": ["text"] },
+                        "category_scores": { "violence": 0.01 },
+                        "flagged": false,
+                        "model": "omni-moderation-latest",
+                        "type": "moderation_result"
+                    }],
+                    "type": "moderation_results"
+                },
+                "output": {
+                    "code": "server_error",
+                    "message": "moderation failed",
+                    "type": "error"
+                }
+            }
+        }))
+        .expect("chat completion response should deserialize");
+
+        assert!(matches!(
+            response.moderation.expect("moderation").input,
+            ChatCompletionModerationOutcome::Results(_)
+        ));
+        assert!(!response.extra.contains_key("moderation"));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -294,6 +331,8 @@ pub struct ChatCompletionResponse {
     pub model: OpenAiModelId,
     pub object: OpenAiObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<ChatCompletionModeration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
@@ -312,6 +351,37 @@ pub struct ChatCompletionChoice {
     pub message: ChatMessage,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatCompletionModeration {
+    pub input: ChatCompletionModerationOutcome,
+    pub output: ChatCompletionModerationOutcome,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatCompletionModerationOutcome {
+    Results(ChatCompletionModerationResults),
+    Error(ModerationError),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatCompletionModerationResults {
+    pub model: OpenAiModelId,
+    pub results: Vec<ModerationResult>,
+    #[serde(rename = "type")]
+    pub type_: ChatCompletionModerationResultsType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatCompletionModerationResultsType {
+    #[serde(rename = "moderation_results")]
+    ModerationResults,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

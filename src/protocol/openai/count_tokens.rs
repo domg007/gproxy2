@@ -3,9 +3,6 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::*;
-use super::generate_content::{
-    ContextManagement, PromptRef, ReasoningConfig, ResponseTool, TextConfig,
-};
 use super::generate_content::{ResponseConversationRef, ResponseInput};
 
 pub type ResponseInputTokensWireModel =
@@ -14,37 +11,9 @@ pub type ResponseInputTokensWireModel =
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseInputTokensRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_management: Option<Vec<ContextManagement>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<ResponseConversationRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<ResponseIncludable>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<ResponseInput>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<ResponseInput>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Metadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<OpenAiModelId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parallel_tool_calls: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub personality: Option<ResponsePersonality>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_response_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<PromptRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<ReasoningConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<TextConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<ResponseTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation: Option<TruncationStrategy>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -55,4 +24,28 @@ pub struct ResponseInputTokensResponse {
     pub object: OpenAiObjectType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn response_input_tokens_request_matches_documented_body_fields() {
+        let request: ResponseInputTokensRequest = serde_json::from_value(json!({
+            "conversation": { "id": "conv_123" },
+            "input": "hello",
+            "model": "gpt-5.4"
+        }))
+        .expect("input token count request should deserialize");
+
+        assert!(matches!(
+            request.conversation,
+            Some(ResponseConversationRef::Object(_))
+        ));
+        assert!(matches!(request.input, Some(ResponseInput::Text(_))));
+        assert!(request.extra.contains_key("model"));
+    }
 }

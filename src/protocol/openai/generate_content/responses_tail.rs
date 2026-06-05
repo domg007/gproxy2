@@ -155,49 +155,6 @@ pub enum ResponseModerationOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ModerationResult {
-    pub categories: BTreeMap<String, bool>,
-    pub category_applied_input_types: BTreeMap<String, Vec<ModerationInputType>>,
-    pub category_scores: BTreeMap<String, f64>,
-    pub flagged: bool,
-    pub model: OpenAiModelId,
-    #[serde(rename = "type")]
-    pub type_: ModerationResultType,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ModerationInputType {
-    #[serde(rename = "text")]
-    Text,
-    #[serde(rename = "image")]
-    Image,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ModerationResultType {
-    #[serde(rename = "moderation_result")]
-    ModerationResult,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ModerationError {
-    pub code: String,
-    pub message: String,
-    #[serde(rename = "type")]
-    pub type_: ModerationErrorType,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ModerationErrorType {
-    #[serde(rename = "error")]
-    Error,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IncompleteDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<IncompleteReason>,
