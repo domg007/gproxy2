@@ -91,9 +91,9 @@ pub struct StreamOptions {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatChoiceLogprobs {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<TokenLogprob>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refusal: Vec<TokenLogprob>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -263,6 +263,15 @@ mod tests {
     fn chat_web_search_user_location_requires_approximate_object() {
         let result = serde_json::from_value::<ChatWebSearchUserLocation>(json!({
             "type": "approximate"
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn chat_choice_logprobs_requires_documented_arrays() {
+        let result = serde_json::from_value::<ChatChoiceLogprobs>(json!({
+            "content": []
         }));
 
         assert!(result.is_err());

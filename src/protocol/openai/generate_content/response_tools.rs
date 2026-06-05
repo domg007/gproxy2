@@ -116,9 +116,9 @@ pub enum ResponseTool {
         #[serde(skip_serializing_if = "Option::is_none")]
         partial_images: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        quality: Option<ImageQuality>,
+        quality: Option<ImageEditQuality>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        size: Option<ImageSize>,
+        size: Option<ResponseImageGenerationSize>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -744,6 +744,33 @@ mod tests {
                 ..
             } if parameters == json!(["not", "a", "schema"])
         ));
+    }
+
+    #[test]
+    fn response_image_generation_tool_matches_tool_specific_image_shape() {
+        let tool: ResponseTool = serde_json::from_value(json!({
+            "type": "image_generation",
+            "quality": "auto",
+            "size": "1536x864"
+        }))
+        .expect("image_generation tool should deserialize");
+
+        let ResponseTool::ImageGeneration { quality, size, .. } = tool else {
+            panic!("expected image_generation tool");
+        };
+        assert_eq!(quality, Some(ImageEditQuality::Auto));
+        assert!(matches!(
+            size,
+            Some(ResponseImageGenerationSize::Unknown(value)) if value == "1536x864"
+        ));
+
+        assert!(
+            serde_json::from_value::<ResponseTool>(json!({
+                "type": "image_generation",
+                "quality": "hd"
+            }))
+            .is_err()
+        );
     }
 
     #[test]

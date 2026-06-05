@@ -65,6 +65,13 @@ strict_string_enum!(ImageEditSize {
     Size1024By1536 => "1024x1536",
 });
 
+extensible_string_enum!(ResponseImageGenerationSize, ResponseImageGenerationSizeKnown {
+    Auto => "auto",
+    Size1024By1024 => "1024x1024",
+    Size1024By1536 => "1024x1536",
+    Size1536By1024 => "1536x1024",
+});
+
 strict_string_enum!(ImageResponseSize {
     Size1024By1024 => "1024x1024",
     Size1024By1536 => "1024x1536",
