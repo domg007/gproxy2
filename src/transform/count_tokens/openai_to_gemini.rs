@@ -20,6 +20,9 @@ pub fn request(
                 Some(gemini::ContentRole::Known(gemini::ContentRoleKnown::System)),
             )
         });
+    let tools = common::openai_tools_to_gemini(input.tools);
+    let tool_config = common::openai_tool_config_to_gemini(input.tool_choice);
+    let generation_config = common::openai_generation_config_to_gemini(input.reasoning, input.text);
 
     Ok(gemini::CountTokensRequest {
         model: Some(model.clone()),
@@ -27,11 +30,11 @@ pub fn request(
         generate_content_request: Some(gemini::GenerateContentRequest {
             model: Some(model),
             contents,
-            tools: Vec::new(),
-            tool_config: None,
+            tools,
+            tool_config,
             safety_settings: Vec::new(),
             system_instruction,
-            generation_config: None,
+            generation_config,
             cached_content: None,
             service_tier: None,
             store: None,

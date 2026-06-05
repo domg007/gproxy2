@@ -1,4 +1,5 @@
 use crate::protocol::{claude, gemini, openai};
+use serde_json::Value;
 
 pub(in crate::transform::count_tokens) const DEFAULT_MODEL: &str = "unknown";
 
@@ -230,4 +231,451 @@ pub(in crate::transform::count_tokens) fn text_to_gemini_content(
         role,
         extra: Default::default(),
     }
+}
+
+pub(in crate::transform::count_tokens) fn openai_tools_to_gemini(
+    tools: Option<Vec<openai::ResponseTool>>,
+) -> Vec<gemini::Tool> {
+    let mut declarations = Vec::new();
+    let mut gemini_tools = Vec::new();
+
+    for tool in tools.into_iter().flatten() {
+        match tool {
+            openai::ResponseTool::Function {
+                name,
+                parameters,
+                description,
+                ..
+            } => declarations.push(gemini::FunctionDeclaration {
+                name,
+                description: description.unwrap_or_default(),
+                behavior: None,
+                parameters: None,
+                parameters_json_schema: Some(json_value(parameters)),
+                response: None,
+                response_json_schema: None,
+                extra: Default::default(),
+            }),
+            openai::ResponseTool::Namespace { tools, .. } => {
+                declarations.extend(tools.into_iter().filter_map(openai_namespace_function));
+            }
+            openai::ResponseTool::FileSearch {
+                vector_store_ids,
+                max_num_results,
+                ..
+            } => gemini_tools.push(gemini::Tool {
+                file_search: Some(gemini::FileSearch {
+                    file_search_store_names: vector_store_ids,
+                    metadata_filter: None,
+                    top_k: max_num_results.map(u32_to_i32),
+                    extra: Default::default(),
+                }),
+                ..Default::default()
+            }),
+            openai::ResponseTool::WebSearch { .. }
+            | openai::ResponseTool::WebSearch20250826 { .. }
+            | openai::ResponseTool::WebSearchPreview { .. }
+            | openai::ResponseTool::WebSearchPreview20250311 { .. } => {
+                gemini_tools.push(gemini::Tool {
+                    google_search: Some(gemini::GoogleSearch::default()),
+                    ..Default::default()
+                });
+            }
+            openai::ResponseTool::CodeInterpreter { .. } => gemini_tools.push(gemini::Tool {
+                code_execution: Some(gemini::CodeExecution::default()),
+                ..Default::default()
+            }),
+            openai::ResponseTool::Computer { .. }
+            | openai::ResponseTool::ComputerUsePreview { .. } => gemini_tools.push(gemini::Tool {
+                computer_use: Some(gemini::ComputerUse::default()),
+                ..Default::default()
+            }),
+            openai::ResponseTool::Mcp {
+                server_label,
+                server_url,
+                headers,
+                ..
+            } => gemini_tools.push(gemini::Tool {
+                mcp_servers: vec![gemini::McpServer {
+                    name: Some(server_label),
+                    streamable_http_transport: server_url.map(|url| {
+                        gemini::StreamableHttpTransport {
+                            url: Some(url),
+                            headers: headers.unwrap_or_default(),
+                            timeout: None,
+                            sse_read_timeout: None,
+                            terminate_on_close: None,
+                            extra: Default::default(),
+                        }
+                    }),
+                    extra: Default::default(),
+                }],
+                ..Default::default()
+            }),
+            _ => {}
+        }
+    }
+
+    if !declarations.is_empty() {
+        gemini_tools.insert(
+            0,
+            gemini::Tool {
+                function_declarations: declarations,
+                ..Default::default()
+            },
+        );
+    }
+
+    gemini_tools
+}
+
+fn openai_namespace_function(
+    tool: openai::ResponseNamespaceTool,
+) -> Option<gemini::FunctionDeclaration> {
+    match tool {
+        openai::ResponseNamespaceTool::Function {
+            name,
+            description,
+            parameters,
+            ..
+        } => Some(gemini::FunctionDeclaration {
+            name,
+            description: description.unwrap_or_default(),
+            behavior: None,
+            parameters: None,
+            parameters_json_schema: parameters,
+            response: None,
+            response_json_schema: None,
+            extra: Default::default(),
+        }),
+        _ => None,
+    }
+}
+
+pub(in crate::transform::count_tokens) fn claude_tools_to_gemini(
+    tools: Option<Vec<claude::Tool>>,
+    mcp_servers: Option<Vec<claude::McpServer>>,
+) -> Vec<gemini::Tool> {
+    let mut declarations = Vec::new();
+    let mut gemini_tools = Vec::new();
+
+    for tool in tools.into_iter().flatten() {
+        match tool {
+            claude::Tool::Custom(tool) => declarations.push(gemini::FunctionDeclaration {
+                name: tool.name,
+                description: tool.description.unwrap_or_default(),
+                behavior: None,
+                parameters: None,
+                parameters_json_schema: Some(json_value(tool.input_schema)),
+                response: None,
+                response_json_schema: None,
+                extra: Default::default(),
+            }),
+            claude::Tool::WebSearch(_) => gemini_tools.push(gemini::Tool {
+                google_search: Some(gemini::GoogleSearch::default()),
+                ..Default::default()
+            }),
+            claude::Tool::WebFetch(_) => gemini_tools.push(gemini::Tool {
+                url_context: Some(gemini::UrlContext::default()),
+                ..Default::default()
+            }),
+            claude::Tool::Computer(_) => gemini_tools.push(gemini::Tool {
+                computer_use: Some(gemini::ComputerUse::default()),
+                ..Default::default()
+            }),
+            claude::Tool::Command(
+                claude::CommandTool::CodeExecution20250522(_)
+                | claude::CommandTool::CodeExecution20250825(_)
+                | claude::CommandTool::CodeExecution20260120(_),
+            ) => gemini_tools.push(gemini::Tool {
+                code_execution: Some(gemini::CodeExecution::default()),
+                ..Default::default()
+            }),
+            claude::Tool::Command(_) => {}
+            claude::Tool::McpToolset(toolset) => gemini_tools.push(gemini::Tool {
+                mcp_servers: vec![gemini::McpServer {
+                    name: Some(toolset.mcp_server_name),
+                    streamable_http_transport: None,
+                    extra: Default::default(),
+                }],
+                ..Default::default()
+            }),
+            _ => {}
+        }
+    }
+
+    let mcp_servers = mcp_servers
+        .into_iter()
+        .flatten()
+        .map(|server| gemini::McpServer {
+            name: Some(server.name),
+            streamable_http_transport: Some(gemini::StreamableHttpTransport {
+                url: Some(server.url),
+                headers: Default::default(),
+                timeout: None,
+                sse_read_timeout: None,
+                terminate_on_close: None,
+                extra: Default::default(),
+            }),
+            extra: Default::default(),
+        })
+        .collect::<Vec<_>>();
+    if !mcp_servers.is_empty() {
+        gemini_tools.push(gemini::Tool {
+            mcp_servers,
+            ..Default::default()
+        });
+    }
+
+    if !declarations.is_empty() {
+        gemini_tools.insert(
+            0,
+            gemini::Tool {
+                function_declarations: declarations,
+                ..Default::default()
+            },
+        );
+    }
+
+    gemini_tools
+}
+
+pub(in crate::transform::count_tokens) fn openai_tool_config_to_gemini(
+    tool_choice: Option<openai::ResponseToolChoice>,
+) -> Option<gemini::ToolConfig> {
+    let function_calling_config = match tool_choice? {
+        openai::ResponseToolChoice::Mode(mode) => Some(gemini::FunctionCallingConfig {
+            mode: Some(openai_tool_choice_mode_to_gemini(mode)),
+            allowed_function_names: Vec::new(),
+            extra: Default::default(),
+        }),
+        openai::ResponseToolChoice::Allowed(choice) => Some(gemini::FunctionCallingConfig {
+            mode: Some(openai_allowed_tools_mode_to_gemini(choice.mode)),
+            allowed_function_names: choice
+                .tools
+                .into_iter()
+                .filter_map(openai_allowed_tool_name)
+                .collect(),
+            extra: Default::default(),
+        }),
+        openai::ResponseToolChoice::Function(choice) => Some(gemini::FunctionCallingConfig {
+            mode: Some(gemini::FunctionCallingMode::Known(
+                gemini::FunctionCallingModeKnown::Any,
+            )),
+            allowed_function_names: vec![choice.name],
+            extra: Default::default(),
+        }),
+        _ => None,
+    }?;
+
+    Some(gemini::ToolConfig {
+        function_calling_config: Some(function_calling_config),
+        retrieval_config: None,
+        include_server_side_tool_invocations: None,
+        extra: Default::default(),
+    })
+}
+
+fn openai_tool_choice_mode_to_gemini(mode: openai::ToolChoiceMode) -> gemini::FunctionCallingMode {
+    match mode {
+        openai::ToolChoiceMode::None => {
+            gemini::FunctionCallingMode::Known(gemini::FunctionCallingModeKnown::None)
+        }
+        openai::ToolChoiceMode::Auto => {
+            gemini::FunctionCallingMode::Known(gemini::FunctionCallingModeKnown::Auto)
+        }
+        openai::ToolChoiceMode::Required => {
+            gemini::FunctionCallingMode::Known(gemini::FunctionCallingModeKnown::Any)
+        }
+    }
+}
+
+fn openai_allowed_tools_mode_to_gemini(
+    mode: openai::AllowedToolsMode,
+) -> gemini::FunctionCallingMode {
+    match mode {
+        openai::AllowedToolsMode::Auto => {
+            gemini::FunctionCallingMode::Known(gemini::FunctionCallingModeKnown::Auto)
+        }
+        openai::AllowedToolsMode::Required => {
+            gemini::FunctionCallingMode::Known(gemini::FunctionCallingModeKnown::Any)
+        }
+    }
+}
+
+fn openai_allowed_tool_name(tool: openai::ResponseAllowedTool) -> Option<String> {
+    match tool {
+        openai::ResponseAllowedTool::Function { name, .. } => Some(name),
+        _ => None,
+    }
+}
+
+pub(in crate::transform::count_tokens) fn claude_tool_config_to_gemini(
+    tool_choice: Option<claude::ToolChoice>,
+) -> Option<gemini::ToolConfig> {
+    let function_calling_config = match tool_choice? {
+        claude::ToolChoice::Auto(_) => Some(gemini::FunctionCallingConfig {
+            mode: Some(gemini::FunctionCallingMode::Known(
+                gemini::FunctionCallingModeKnown::Auto,
+            )),
+            allowed_function_names: Vec::new(),
+            extra: Default::default(),
+        }),
+        claude::ToolChoice::Any(_) => Some(gemini::FunctionCallingConfig {
+            mode: Some(gemini::FunctionCallingMode::Known(
+                gemini::FunctionCallingModeKnown::Any,
+            )),
+            allowed_function_names: Vec::new(),
+            extra: Default::default(),
+        }),
+        claude::ToolChoice::Tool(choice) => Some(gemini::FunctionCallingConfig {
+            mode: Some(gemini::FunctionCallingMode::Known(
+                gemini::FunctionCallingModeKnown::Any,
+            )),
+            allowed_function_names: vec![choice.name],
+            extra: Default::default(),
+        }),
+        claude::ToolChoice::None(_) => Some(gemini::FunctionCallingConfig {
+            mode: Some(gemini::FunctionCallingMode::Known(
+                gemini::FunctionCallingModeKnown::None,
+            )),
+            allowed_function_names: Vec::new(),
+            extra: Default::default(),
+        }),
+        claude::ToolChoice::Unknown(_) => None,
+    }?;
+
+    Some(gemini::ToolConfig {
+        function_calling_config: Some(function_calling_config),
+        retrieval_config: None,
+        include_server_side_tool_invocations: None,
+        extra: Default::default(),
+    })
+}
+
+pub(in crate::transform::count_tokens) fn openai_generation_config_to_gemini(
+    reasoning: Option<openai::ReasoningConfig>,
+    text: Option<openai::TextConfig>,
+) -> Option<gemini::GenerationConfig> {
+    let mut config = gemini::GenerationConfig::default();
+
+    if let Some(reasoning) = reasoning {
+        config.thinking_config = Some(gemini::ThinkingConfig {
+            include_thoughts: None,
+            thinking_budget: None,
+            thinking_level: reasoning.effort.map(openai_reasoning_effort_to_gemini),
+            extra: Default::default(),
+        });
+    }
+
+    if let Some(text) = text.and_then(|text| text.format) {
+        apply_openai_response_format(&mut config, text);
+    }
+
+    non_empty_generation_config(config)
+}
+
+fn openai_reasoning_effort_to_gemini(effort: openai::ReasoningEffort) -> gemini::ThinkingLevel {
+    let level = match effort {
+        openai::ReasoningEffort::None | openai::ReasoningEffort::Minimal => {
+            gemini::ThinkingLevelKnown::Minimal
+        }
+        openai::ReasoningEffort::Low => gemini::ThinkingLevelKnown::Low,
+        openai::ReasoningEffort::Medium => gemini::ThinkingLevelKnown::Medium,
+        openai::ReasoningEffort::High | openai::ReasoningEffort::XHigh => {
+            gemini::ThinkingLevelKnown::High
+        }
+    };
+    gemini::ThinkingLevel::Known(level)
+}
+
+fn apply_openai_response_format(
+    config: &mut gemini::GenerationConfig,
+    format: openai::ResponseFormat,
+) {
+    match format {
+        openai::ResponseFormat::Text(_) => {
+            config.response_mime_type = Some(gemini::ResponseMimeType::Known(
+                gemini::ResponseMimeTypeKnown::TextPlain,
+            ));
+        }
+        openai::ResponseFormat::JsonObject(_) => {
+            config.response_mime_type = Some(gemini::ResponseMimeType::Known(
+                gemini::ResponseMimeTypeKnown::ApplicationJson,
+            ));
+        }
+        openai::ResponseFormat::JsonSchema(format) => {
+            config.response_mime_type = Some(gemini::ResponseMimeType::Known(
+                gemini::ResponseMimeTypeKnown::ApplicationJson,
+            ));
+            config.response_json_schema = Some(json_value(format.schema));
+        }
+    }
+}
+
+pub(in crate::transform::count_tokens) fn claude_generation_config_to_gemini(
+    output_config: Option<claude::OutputConfig>,
+    output_format: Option<claude::JsonSchemaFormat>,
+    thinking: Option<claude::ThinkingConfig>,
+) -> Option<gemini::GenerationConfig> {
+    let mut config = gemini::GenerationConfig::default();
+
+    let output_format = output_config
+        .as_ref()
+        .and_then(|config| config.format.clone())
+        .or(output_format);
+    if let Some(format) = output_format {
+        config.response_mime_type = Some(gemini::ResponseMimeType::Known(
+            gemini::ResponseMimeTypeKnown::ApplicationJson,
+        ));
+        config.response_json_schema = Some(json_value(format.schema));
+    }
+
+    if let Some(task_budget) = output_config.and_then(|config| config.task_budget) {
+        config.max_output_tokens = Some(u64_to_i32(task_budget.total));
+    }
+
+    if let Some(thinking) = thinking {
+        config.thinking_config = Some(claude_thinking_to_gemini(thinking));
+    }
+
+    non_empty_generation_config(config)
+}
+
+fn claude_thinking_to_gemini(thinking: claude::ThinkingConfig) -> gemini::ThinkingConfig {
+    match thinking {
+        claude::ThinkingConfig::Enabled(config) => gemini::ThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_budget: Some(u64_to_i32(config.budget_tokens)),
+            thinking_level: None,
+            extra: Default::default(),
+        },
+        claude::ThinkingConfig::Disabled(_) => gemini::ThinkingConfig {
+            include_thoughts: Some(false),
+            thinking_budget: None,
+            thinking_level: None,
+            extra: Default::default(),
+        },
+        claude::ThinkingConfig::Adaptive(_) => gemini::ThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_budget: None,
+            thinking_level: None,
+            extra: Default::default(),
+        },
+        claude::ThinkingConfig::Unknown(_) => gemini::ThinkingConfig::default(),
+    }
+}
+
+fn non_empty_generation_config(
+    config: gemini::GenerationConfig,
+) -> Option<gemini::GenerationConfig> {
+    if config == gemini::GenerationConfig::default() {
+        None
+    } else {
+        Some(config)
+    }
+}
+
+fn json_value<T: serde::Serialize>(value: T) -> Value {
+    serde_json::to_value(value).unwrap_or(Value::Null)
 }

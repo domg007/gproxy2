@@ -17,15 +17,22 @@ pub fn request(
             Some(gemini::ContentRole::Known(gemini::ContentRoleKnown::System)),
         )
     });
+    let tools = common::claude_tools_to_gemini(input.tools, input.mcp_servers);
+    let tool_config = common::claude_tool_config_to_gemini(input.tool_choice);
+    let generation_config = common::claude_generation_config_to_gemini(
+        input.output_config,
+        input.output_format,
+        input.thinking,
+    );
 
     let generate_content_request = gemini::GenerateContentRequest {
         model: Some(model.clone()),
         contents,
-        tools: Vec::new(),
-        tool_config: None,
+        tools,
+        tool_config,
         safety_settings: Vec::new(),
         system_instruction,
-        generation_config: None,
+        generation_config,
         cached_content: None,
         service_tier: None,
         store: None,
