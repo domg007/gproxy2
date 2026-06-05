@@ -149,9 +149,13 @@ pub struct CompletionUsage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompletionTokensDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub accepted_prediction_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rejected_prediction_tokens: Option<u32>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -159,7 +163,9 @@ pub struct CompletionTokensDetails {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptTokensDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_tokens: Option<u32>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -197,4 +203,50 @@ pub struct ApproximateLocation {
     pub timezone: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn chat_usage_details_omit_absent_optional_counts() {
+        let usage = CompletionUsage {
+            completion_tokens: 1,
+            prompt_tokens: 2,
+            total_tokens: 3,
+            completion_tokens_details: Some(CompletionTokensDetails {
+                accepted_prediction_tokens: Some(1),
+                audio_tokens: None,
+                reasoning_tokens: None,
+                rejected_prediction_tokens: None,
+                extra: Default::default(),
+            }),
+            prompt_tokens_details: Some(PromptTokensDetails {
+                audio_tokens: None,
+                cached_tokens: Some(2),
+                extra: Default::default(),
+            }),
+            extra: Default::default(),
+        };
+
+        let value = serde_json::to_value(usage).expect("usage should serialize");
+
+        assert_eq!(
+            value,
+            json!({
+                "completion_tokens": 1,
+                "prompt_tokens": 2,
+                "total_tokens": 3,
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 1
+                },
+                "prompt_tokens_details": {
+                    "cached_tokens": 2
+                }
+            })
+        );
+    }
 }
