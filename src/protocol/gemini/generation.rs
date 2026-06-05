@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    CitationMetadata, ExtraFields, ModalityTokenCount, SafetyRating, SafetySetting, WireEnum,
+    BlockReason, CachedContentName, CitationMetadata, ExtraFields, FinishReason, GeminiModelName,
+    ModalityTokenCount, ModelStage, Rfc3339Timestamp, SafetyRating, SafetySetting, ServiceTier,
 };
 use super::content::Content;
 use super::generation_config::GenerationConfig;
@@ -14,7 +15,7 @@ use super::tools::{Tool, ToolConfig};
 #[serde(rename_all = "camelCase")]
 pub struct GenerateContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<GeminiModelName>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contents: Vec<Content>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -28,9 +29,9 @@ pub struct GenerateContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<String>,
+    pub cached_content: Option<CachedContentName>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<WireEnum>,
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -65,7 +66,7 @@ pub struct Candidate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub finish_reason: Option<WireEnum>,
+    pub finish_reason: Option<FinishReason>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub safety_ratings: Vec<SafetyRating>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,7 +93,7 @@ pub struct Candidate {
 #[serde(rename_all = "camelCase")]
 pub struct PromptFeedback {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_reason: Option<WireEnum>,
+    pub block_reason: Option<BlockReason>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub safety_ratings: Vec<SafetyRating>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -130,9 +131,9 @@ pub struct UsageMetadata {
 #[serde(rename_all = "camelCase")]
 pub struct ModelStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_stage: Option<WireEnum>,
+    pub model_stage: Option<ModelStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub retirement_time: Option<String>,
+    pub retirement_time: Option<Rfc3339Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{ExtraFields, WireEnum};
+use super::common::{
+    ComputerUseEnvironment, DurationString, DynamicRetrievalMode, ExtraFields, Rfc3339Timestamp,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +19,7 @@ pub struct GoogleSearchRetrieval {
 #[serde(rename_all = "camelCase")]
 pub struct DynamicRetrievalConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode: Option<WireEnum>,
+    pub mode: Option<DynamicRetrievalMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic_threshold: Option<f64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -51,9 +53,9 @@ pub struct ImageSearch {}
 #[serde(rename_all = "camelCase")]
 pub struct Interval {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<String>,
+    pub start_time: Option<Rfc3339Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
+    pub end_time: Option<Rfc3339Timestamp>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -73,7 +75,7 @@ pub struct SearchTypes {
 #[serde(rename_all = "camelCase")]
 pub struct ComputerUse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub environment: Option<WireEnum>,
+    pub environment: Option<ComputerUseEnvironment>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_predefined_functions: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -112,9 +114,9 @@ pub struct StreamableHttpTransport {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<String>,
+    pub timeout: Option<DurationString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sse_read_timeout: Option<String>,
+    pub sse_read_timeout: Option<DurationString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminate_on_close: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

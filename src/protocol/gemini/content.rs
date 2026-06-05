@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{ExtraFields, JsonMap, WireEnum};
+use super::common::{
+    CodeExecutionOutcome, ContentRole, DurationString, ExecutableCodeLanguage, ExtraFields,
+    FunctionResponseScheduling, JsonMap, MediaResolutionLevel, ServerToolType,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -10,7 +13,7 @@ pub struct Content {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub role: Option<ContentRole>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -26,37 +29,68 @@ pub struct Part {
     pub part_metadata: Option<JsonMap>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_resolution: Option<MediaResolution>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inline_data: Option<Blob>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<FunctionCall>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_response: Option<FunctionResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_data: Option<FileData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub executable_code: Option<ExecutableCode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code_execution_result: Option<CodeExecutionResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call: Option<ToolCall>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_response: Option<ToolResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub video_metadata: Option<VideoMetadata>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub data: Option<PartData>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<PartMetadata>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PartData {
+    Text {
+        text: String,
+    },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: Blob,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCall,
+    },
+    FunctionResponse {
+        #[serde(rename = "functionResponse")]
+        function_response: FunctionResponse,
+    },
+    FileData {
+        #[serde(rename = "fileData")]
+        file_data: FileData,
+    },
+    ExecutableCode {
+        #[serde(rename = "executableCode")]
+        executable_code: ExecutableCode,
+    },
+    CodeExecutionResult {
+        #[serde(rename = "codeExecutionResult")]
+        code_execution_result: CodeExecutionResult,
+    },
+    ToolCall {
+        #[serde(rename = "toolCall")]
+        tool_call: ToolCall,
+    },
+    ToolResponse {
+        #[serde(rename = "toolResponse")]
+        tool_response: ToolResponse,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PartMetadata {
+    VideoMetadata {
+        #[serde(rename = "videoMetadata")]
+        video_metadata: VideoMetadata,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Blob {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mime_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<String>,
+    pub mime_type: String,
+    pub data: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -66,8 +100,7 @@ pub struct Blob {
 pub struct FileData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_uri: Option<String>,
+    pub file_uri: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -77,8 +110,7 @@ pub struct FileData {
 pub struct FunctionCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<JsonMap>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -90,16 +122,14 @@ pub struct FunctionCall {
 pub struct FunctionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<JsonMap>,
+    pub name: String,
+    pub response: JsonMap,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<FunctionResponsePart>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub will_continue: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub scheduling: Option<WireEnum>,
+    pub scheduling: Option<FunctionResponseScheduling>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -107,8 +137,26 @@ pub struct FunctionResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionResponsePart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inline_data: Option<Blob>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub data: Option<FunctionResponsePartData>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
+    pub extra: ExtraFields,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FunctionResponsePartData {
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: FunctionResponseBlob,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionResponseBlob {
+    pub mime_type: String,
+    pub data: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -118,10 +166,8 @@ pub struct FunctionResponsePart {
 pub struct ExecutableCode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<WireEnum>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
+    pub language: ExecutableCodeLanguage,
+    pub code: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -131,8 +177,7 @@ pub struct ExecutableCode {
 pub struct CodeExecutionResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub outcome: Option<WireEnum>,
+    pub outcome: CodeExecutionOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -144,8 +189,7 @@ pub struct CodeExecutionResult {
 pub struct ToolCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_type: Option<WireEnum>,
+    pub tool_type: ServerToolType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<JsonMap>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -157,8 +201,7 @@ pub struct ToolCall {
 pub struct ToolResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_type: Option<WireEnum>,
+    pub tool_type: ServerToolType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<JsonMap>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
@@ -169,9 +212,11 @@ pub struct ToolResponse {
 #[serde(rename_all = "camelCase")]
 pub struct VideoMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_offset: Option<String>,
+    pub start_offset: Option<DurationString>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_offset: Option<String>,
+    pub end_offset: Option<DurationString>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fps: Option<f64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -179,8 +224,14 @@ pub struct VideoMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaResolution {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub level: Option<WireEnum>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub value: Option<MediaResolutionValue>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MediaResolutionValue {
+    Level { level: MediaResolutionLevel },
 }

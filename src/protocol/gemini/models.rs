@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::ExtraFields;
+use super::common::{ExtraFields, GeminiBaseModelId, GeminiModelName, SupportedGenerationMethod};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +30,7 @@ pub struct ListModelsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct GetModelRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<GeminiModelName>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -39,9 +39,9 @@ pub struct GetModelRequest {
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<GeminiModelName>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_model_id: Option<String>,
+    pub base_model_id: Option<GeminiBaseModelId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,9 +53,9 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_token_limit: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub supported_generation_methods: Vec<String>,
+    pub supported_generation_methods: Vec<SupportedGenerationMethod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub supported_actions: Vec<String>,
+    pub supported_actions: Vec<SupportedGenerationMethod>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

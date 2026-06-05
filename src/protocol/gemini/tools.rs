@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{ExtraFields, WireEnum};
+use super::common::{ExtraFields, FunctionBehavior, FunctionCallingMode, SchemaType};
 use super::tool_support::*;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -34,12 +34,10 @@ pub struct Tool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionDeclaration {
+    pub name: String,
+    pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub behavior: Option<WireEnum>,
+    pub behavior: Option<FunctionBehavior>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Schema>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,8 +53,7 @@ pub struct FunctionDeclaration {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Schema {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<WireEnum>,
+    pub r#type: SchemaType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,6 +79,20 @@ pub struct Schema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maximum: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_items: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_properties: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<Value>,
@@ -106,7 +117,7 @@ pub struct ToolConfig {
 #[serde(rename_all = "camelCase")]
 pub struct FunctionCallingConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode: Option<WireEnum>,
+    pub mode: Option<FunctionCallingMode>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_function_names: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

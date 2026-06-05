@@ -1,5 +1,7 @@
 //! Gemini wire model types.
 
+pub mod batch;
+pub mod caching;
 pub mod common;
 pub mod content;
 pub mod count_tokens;
@@ -12,6 +14,8 @@ pub mod speech;
 pub mod tool_support;
 pub mod tools;
 
+pub use batch::*;
+pub use caching::*;
 pub use common::*;
 pub use content::*;
 pub use count_tokens::*;
