@@ -407,6 +407,12 @@ pub enum ResponseContentPart {
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
+    #[serde(rename = "reasoning_text")]
+    ReasoningText {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

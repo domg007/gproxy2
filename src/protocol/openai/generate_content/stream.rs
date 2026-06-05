@@ -1,61 +1,635 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::super::common::*;
-use super::{ResponseAnnotation, ResponseContentPart, ResponseItem, ResponseObject};
+use super::{ResponseContentPart, ResponseItem, ResponseObject, ResponseReasoningSummaryPart};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseStreamEvent {
-    #[serde(rename = "type")]
-    pub type_: ResponseStreamEventType,
+#[serde(untagged)]
+pub enum ResponseStreamEvent {
+    Known(KnownResponseStreamEvent),
+    Unknown(UnknownResponseStreamEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum KnownResponseStreamEvent {
+    #[serde(rename = "response.created")]
+    ResponseCreated {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.in_progress")]
+    ResponseInProgress {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.completed")]
+    ResponseCompleted {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.failed")]
+    ResponseFailed {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.incomplete")]
+    ResponseIncomplete {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.queued")]
+    ResponseQueued {
+        response: Box<ResponseObject>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.output_item.added")]
+    ResponseOutputItemAdded {
+        item: Box<ResponseItem>,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.output_item.done")]
+    ResponseOutputItemDone {
+        item: Box<ResponseItem>,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.content_part.added")]
+    ResponseContentPartAdded {
+        content_index: u32,
+        item_id: String,
+        output_index: u32,
+        part: ResponseContentPart,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.content_part.done")]
+    ResponseContentPartDone {
+        content_index: u32,
+        item_id: String,
+        output_index: u32,
+        part: ResponseContentPart,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.output_text.delta")]
+    ResponseOutputTextDelta {
+        content_index: u32,
+        delta: String,
+        item_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logprobs: Option<Vec<TokenLogprob>>,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.output_text.done")]
+    ResponseOutputTextDone {
+        content_index: u32,
+        item_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logprobs: Option<Vec<TokenLogprob>>,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.output_text.annotation.added")]
+    ResponseOutputTextAnnotationAdded {
+        annotation: Value,
+        annotation_index: u32,
+        content_index: u32,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.function_call_arguments.delta")]
+    ResponseFunctionCallArgumentsDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.function_call_arguments.done")]
+    ResponseFunctionCallArgumentsDone {
+        arguments: String,
+        item_id: String,
+        name: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.custom_tool_call_input.delta")]
+    ResponseCustomToolCallInputDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.custom_tool_call_input.done")]
+    ResponseCustomToolCallInputDone {
+        input: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.refusal.delta")]
+    ResponseRefusalDelta {
+        content_index: u32,
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.refusal.done")]
+    ResponseRefusalDone {
+        content_index: u32,
+        item_id: String,
+        output_index: u32,
+        refusal: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_summary_part.added")]
+    ResponseReasoningSummaryPartAdded {
+        item_id: String,
+        output_index: u32,
+        part: ResponseReasoningSummaryPart,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        summary_index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_summary_part.done")]
+    ResponseReasoningSummaryPartDone {
+        item_id: String,
+        output_index: u32,
+        part: ResponseReasoningSummaryPart,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        summary_index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_summary_text.delta")]
+    ResponseReasoningSummaryTextDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        summary_index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_summary_text.done")]
+    ResponseReasoningSummaryTextDone {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        summary_index: u32,
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_text.delta")]
+    ResponseReasoningTextDelta {
+        content_index: u32,
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.reasoning_text.done")]
+    ResponseReasoningTextDone {
+        content_index: u32,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.audio.delta")]
+    ResponseAudioDelta {
+        delta: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.audio.done")]
+    ResponseAudioDone {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.audio.transcript.delta")]
+    ResponseAudioTranscriptDelta {
+        delta: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.audio.transcript.done")]
+    ResponseAudioTranscriptDone {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.image_generation_call.completed")]
+    ResponseImageGenerationCallCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.image_generation_call.generating")]
+    ResponseImageGenerationCallGenerating {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.image_generation_call.in_progress")]
+    ResponseImageGenerationCallInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.image_generation_call.partial_image")]
+    ResponseImageGenerationCallPartialImage {
+        item_id: String,
+        output_index: u32,
+        partial_image_b64: String,
+        partial_image_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.file_search_call.in_progress")]
+    ResponseFileSearchCallInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.file_search_call.searching")]
+    ResponseFileSearchCallSearching {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.file_search_call.completed")]
+    ResponseFileSearchCallCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.web_search_call.in_progress")]
+    ResponseWebSearchCallInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.web_search_call.searching")]
+    ResponseWebSearchCallSearching {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.web_search_call.completed")]
+    ResponseWebSearchCallCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.code_interpreter_call.in_progress")]
+    ResponseCodeInterpreterCallInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.code_interpreter_call.interpreting")]
+    ResponseCodeInterpreterCallInterpreting {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.code_interpreter_call.completed")]
+    ResponseCodeInterpreterCallCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.code_interpreter_call_code.delta")]
+    ResponseCodeInterpreterCallCodeDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.code_interpreter_call_code.done")]
+    ResponseCodeInterpreterCallCodeDone {
+        code: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_call_arguments.delta")]
+    ResponseMcpCallArgumentsDelta {
+        delta: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_call_arguments.done")]
+    ResponseMcpCallArgumentsDone {
+        arguments: String,
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_call.in_progress")]
+    ResponseMcpCallInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_call.completed")]
+    ResponseMcpCallCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_call.failed")]
+    ResponseMcpCallFailed {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_list_tools.in_progress")]
+    ResponseMcpListToolsInProgress {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_list_tools.completed")]
+    ResponseMcpListToolsCompleted {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "response.mcp_list_tools.failed")]
+    ResponseMcpListToolsFailed {
+        item_id: String,
+        output_index: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "error")]
+    Error {
+        code: String,
+        message: String,
+        param: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sequence_number: Option<u64>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnknownResponseStreamEvent {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_: Option<ResponseStreamEventType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence_number: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<ResponseObject>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub item: Option<ResponseItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub item_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delta: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logprobs: Option<Vec<TokenLogprob>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part: Option<ResponseContentPart>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotation: Option<ResponseAnnotation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotation_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partial_image_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub b64_json: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<StreamError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub obfuscation: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StreamError {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub param: Option<String>,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<String>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn response_stream_event_models_response_created() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "response.created",
+            "response": {
+                "id": "resp_123",
+                "object": "response",
+                "created_at": 1,
+                "output": []
+            }
+        }))
+        .expect("created event should deserialize");
+
+        assert!(matches!(
+            event,
+            ResponseStreamEvent::Known(KnownResponseStreamEvent::ResponseCreated { .. })
+        ));
+    }
+
+    #[test]
+    fn response_stream_event_models_output_text_delta() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "response.output_text.delta",
+            "item_id": "msg_123",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Hi"
+        }))
+        .expect("text delta event should deserialize");
+
+        let ResponseStreamEvent::Known(KnownResponseStreamEvent::ResponseOutputTextDelta {
+            delta,
+            ..
+        }) = event
+        else {
+            panic!("expected output_text delta event");
+        };
+        assert_eq!(delta, "Hi");
+    }
+
+    #[test]
+    fn response_stream_event_models_content_part_added() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "response.content_part.added",
+            "item_id": "msg_123",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+                "type": "reasoning_text",
+                "text": "working"
+            }
+        }))
+        .expect("content part added event should deserialize");
+
+        let ResponseStreamEvent::Known(KnownResponseStreamEvent::ResponseContentPartAdded {
+            part,
+            ..
+        }) = event
+        else {
+            panic!("expected content_part added event");
+        };
+        assert!(matches!(part, ResponseContentPart::ReasoningText { .. }));
+    }
+
+    #[test]
+    fn response_stream_event_models_error_event() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "error",
+            "code": "invalid_request_error",
+            "message": "bad request",
+            "param": "input"
+        }))
+        .expect("error event should deserialize");
+
+        assert!(matches!(
+            event,
+            ResponseStreamEvent::Known(KnownResponseStreamEvent::Error { .. })
+        ));
+    }
+
+    #[test]
+    fn response_stream_event_keeps_unknown_event_extensible() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "response.future_event",
+            "payload": { "x": 1 }
+        }))
+        .expect("unknown event should deserialize");
+
+        assert!(matches!(event, ResponseStreamEvent::Unknown(_)));
+    }
 }
