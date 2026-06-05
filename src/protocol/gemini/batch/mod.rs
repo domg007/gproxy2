@@ -2,10 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    BatchName, BatchPriority, BatchState, DiscoveryInt64String, ExtraFields, FieldMask, FileName,
-    GeminiModelName, JsonMap, OperationName, Rfc3339Timestamp, Status,
-};
+use super::common::{BatchState, ExtraFields, JsonMap, Status};
 use super::embeddings::{EmbedContentRequest, EmbedContentResponse};
 use super::generate_content::{GenerateContentRequest, GenerateContentResponse};
 
@@ -35,7 +32,7 @@ pub type AsyncBatchEmbedContentResponseBody = Operation;
 #[serde(rename_all = "camelCase")]
 pub struct GetBatchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<BatchName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -74,7 +71,7 @@ pub struct ListBatchesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CancelBatchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<BatchName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -85,7 +82,7 @@ pub type CancelBatchResponseBody = JsonMap;
 #[serde(rename_all = "camelCase")]
 pub struct DeleteBatchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<BatchName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -96,7 +93,7 @@ pub type DeleteBatchResponseBody = JsonMap;
 #[serde(rename_all = "camelCase")]
 pub struct UpdateGenerateContentBatchQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_mask: Option<FieldMask>,
+    pub update_mask: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -108,7 +105,7 @@ pub type UpdateGenerateContentBatchResponseBody = GenerateContentBatch;
 #[serde(rename_all = "camelCase")]
 pub struct UpdateEmbedContentBatchQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_mask: Option<FieldMask>,
+    pub update_mask: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -120,7 +117,7 @@ pub type UpdateEmbedContentBatchResponseBody = EmbedContentBatch;
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<OperationName>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonMap>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,9 +139,9 @@ pub enum OperationResult {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateContentBatch {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<BatchName>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,17 +149,17 @@ pub struct GenerateContentBatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<GenerateContentBatchOutput>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub create_time: Option<Rfc3339Timestamp>,
+    pub create_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<Rfc3339Timestamp>,
+    pub end_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_time: Option<Rfc3339Timestamp>,
+    pub update_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_stats: Option<BatchStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<BatchState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<BatchPriority>,
+    pub priority: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -179,9 +176,9 @@ pub struct InputConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum InputConfigSource {
-    FileName {
+    String {
         #[serde(rename = "fileName")]
-        file_name: FileName,
+        file_name: String,
     },
     Requests {
         requests: InlinedRequests,
@@ -222,7 +219,7 @@ pub struct GenerateContentBatchOutput {
 pub enum GenerateContentBatchOutputData {
     ResponsesFile {
         #[serde(rename = "responsesFile")]
-        responses_file: FileName,
+        responses_file: String,
     },
     InlinedResponses {
         #[serde(rename = "inlinedResponses")]
@@ -265,13 +262,13 @@ pub enum InlinedResponseOutput {
 #[serde(rename_all = "camelCase")]
 pub struct BatchStats {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_count: Option<DiscoveryInt64String>,
+    pub request_count: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub successful_request_count: Option<DiscoveryInt64String>,
+    pub successful_request_count: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_request_count: Option<DiscoveryInt64String>,
+    pub failed_request_count: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending_request_count: Option<DiscoveryInt64String>,
+    pub pending_request_count: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -280,9 +277,9 @@ pub struct BatchStats {
 #[serde(rename_all = "camelCase")]
 pub struct EmbedContentBatch {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<BatchName>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -290,17 +287,17 @@ pub struct EmbedContentBatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<EmbedContentBatchOutput>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub create_time: Option<Rfc3339Timestamp>,
+    pub create_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<Rfc3339Timestamp>,
+    pub end_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_time: Option<Rfc3339Timestamp>,
+    pub update_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_stats: Option<BatchStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<BatchState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<BatchPriority>,
+    pub priority: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -317,9 +314,9 @@ pub struct InputEmbedContentConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum InputEmbedContentConfigSource {
-    FileName {
+    String {
         #[serde(rename = "fileName")]
-        file_name: FileName,
+        file_name: String,
     },
     Requests {
         requests: InlinedEmbedContentRequests,
@@ -360,7 +357,7 @@ pub struct EmbedContentBatchOutput {
 pub enum EmbedContentBatchOutputData {
     ResponsesFile {
         #[serde(rename = "responsesFile")]
-        responses_file: FileName,
+        responses_file: String,
     },
     InlinedResponses {
         #[serde(rename = "inlinedResponses")]

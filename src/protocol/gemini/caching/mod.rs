@@ -2,10 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{
-    CachedContentName, Content, DurationString, ExtraFields, FieldMask, GeminiModelName, JsonMap,
-    Rfc3339Timestamp, Tool, ToolConfig,
-};
+use super::common::{Content, ExtraFields, JsonMap, Tool, ToolConfig};
 
 pub type CreateCachedContentRequestBody = CachedContent;
 pub type CreateCachedContentResponseBody = CachedContent;
@@ -22,19 +19,19 @@ pub struct CachedContent {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Tool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub create_time: Option<Rfc3339Timestamp>,
+    pub create_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_time: Option<Rfc3339Timestamp>,
+    pub update_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_metadata: Option<CachedContentUsageMetadata>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub expiration: Option<CachedContentExpiration>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<CachedContentName>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_instruction: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,10 +45,10 @@ pub struct CachedContent {
 pub enum CachedContentExpiration {
     ExpireTime {
         #[serde(rename = "expireTime")]
-        expire_time: Rfc3339Timestamp,
+        expire_time: String,
     },
     Ttl {
-        ttl: DurationString,
+        ttl: String,
     },
 }
 
@@ -90,7 +87,7 @@ pub struct ListCachedContentsResponseBody {
 #[serde(rename_all = "camelCase")]
 pub struct GetCachedContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<CachedContentName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -99,7 +96,7 @@ pub struct GetCachedContentRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCachedContentQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub update_mask: Option<FieldMask>,
+    pub update_mask: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -108,7 +105,7 @@ pub struct UpdateCachedContentQuery {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteCachedContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<CachedContentName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }

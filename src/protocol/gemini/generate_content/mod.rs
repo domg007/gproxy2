@@ -7,16 +7,16 @@ pub mod config;
 pub use config::*;
 
 use super::common::{
-    BlockReason, CachedContentName, CitationMetadata, Content, ExtraFields, FinishReason,
-    GeminiModelName, GroundingMetadata, ModalityTokenCount, ModelStage, Rfc3339Timestamp,
-    SafetyRating, SafetySetting, ServiceTier, Tool, ToolConfig, UrlContextMetadata,
+    BlockReason, CitationMetadata, Content, ExtraFields, FinishReason, GroundingMetadata,
+    ModalityTokenCount, ModelStage, SafetyRating, SafetySetting, ServiceTier, Tool, ToolConfig,
+    UrlContextMetadata,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contents: Vec<Content>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -30,7 +30,7 @@ pub struct GenerateContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<CachedContentName>,
+    pub cached_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -134,7 +134,7 @@ pub struct ModelStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_stage: Option<ModelStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub retirement_time: Option<Rfc3339Timestamp>,
+    pub retirement_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{Content, ExtraFields, GeminiModelName, ModalityTokenCount, TaskType};
+use super::common::{Content, ExtraFields, ModalityTokenCount, TaskType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbedContentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]

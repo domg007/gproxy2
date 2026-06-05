@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{Content, ExtraFields, GeminiModelName, ModalityTokenCount};
+use super::common::{Content, ExtraFields, ModalityTokenCount};
 use super::generate_content::GenerateContentRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CountTokensRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<GeminiModelName>,
+    pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contents: Vec<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]

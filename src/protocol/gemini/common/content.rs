@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CodeExecutionOutcome, ContentRole, DurationString, ExecutableCodeLanguage, ExtraFields,
+    CodeExecutionOutcome, ContentRole, ExecutableCodeLanguage, ExtraFields,
     FunctionResponseScheduling, JsonMap, MediaResolutionLevel, ServerToolType,
 };
 
@@ -212,9 +212,9 @@ pub struct ToolResponse {
 #[serde(rename_all = "camelCase")]
 pub struct VideoMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_offset: Option<DurationString>,
+    pub start_offset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_offset: Option<DurationString>,
+    pub end_offset: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fps: Option<f64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

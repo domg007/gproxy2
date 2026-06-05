@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    ComputerUseEnvironment, DurationString, DynamicRetrievalMode, ExtraFields, Rfc3339Timestamp,
-};
+use super::super::{ComputerUseEnvironment, DynamicRetrievalMode, ExtraFields};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -53,9 +51,9 @@ pub struct ImageSearch {}
 #[serde(rename_all = "camelCase")]
 pub struct Interval {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<Rfc3339Timestamp>,
+    pub start_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<Rfc3339Timestamp>,
+    pub end_time: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -114,9 +112,9 @@ pub struct StreamableHttpTransport {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<DurationString>,
+    pub timeout: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sse_read_timeout: Option<DurationString>,
+    pub sse_read_timeout: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminate_on_close: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

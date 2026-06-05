@@ -7,7 +7,7 @@ use super::common::{
     ContentBlock, ContextManagementConfig, ContextManagementResponse, Diagnostics,
     DiagnosticsParam, InferenceGeo, JsonObject, JsonSchemaFormat, McpServer, MessageObjectType,
     MessageParam, Metadata, OutputConfig, RequestServiceTier, Speed, StopDetails, StopReason,
-    StopSequence, SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
+    SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
 };
 
 pub mod stream;
@@ -44,7 +44,7 @@ pub struct CreateMessageRequestBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<Speed>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequences: Option<Vec<StopSequence>>,
+    pub stop_sequences: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,7 +76,7 @@ pub struct CreateMessageResponseBody {
     pub content: Vec<ContentBlock>,
     pub model: ClaudeModel,
     pub stop_reason: StopReason,
-    pub stop_sequence: Option<StopSequence>,
+    pub stop_sequence: Option<String>,
     pub usage: Usage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<Container>,

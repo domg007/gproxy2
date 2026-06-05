@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{ExtraFields, GeminiBaseModelId, GeminiModelName, SupportedGenerationMethod};
+use super::common::{ExtraFields, SupportedGenerationMethod};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +30,7 @@ pub struct ListModelsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct GetModelRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<GeminiModelName>,
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -39,9 +39,9 @@ pub struct GetModelRequest {
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<GeminiModelName>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_model_id: Option<GeminiBaseModelId>,
+    pub base_model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
