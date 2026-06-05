@@ -19,6 +19,14 @@ extensible_string_enum!(AllowedToolsMode, AllowedToolsModeKnown {
     Required => "required",
 });
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatToolCallType {
+    #[serde(rename = "function")]
+    Function,
+    #[serde(rename = "custom")]
+    Custom,
+}
+
 extensible_string_enum!(CustomToolInputFormatType, CustomToolInputFormatTypeKnown {
     Text => "text",
     Grammar => "grammar",

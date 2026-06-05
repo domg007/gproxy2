@@ -61,7 +61,7 @@ pub struct ChatToolCallDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<ToolType>,
+    pub type_: Option<ChatToolCallType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<FunctionCallDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,5 +116,28 @@ mod tests {
         .expect("chat completion chunk should deserialize");
 
         assert_eq!(chunk.choices[0].delta.role, Some(ChatDeltaRole::Assistant));
+    }
+
+    #[test]
+    fn chat_delta_rejects_response_only_tool_call_type() {
+        let result = serde_json::from_value::<ChatCompletionChunk>(json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1694268190,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_123",
+                        "type": "file_search"
+                    }]
+                },
+                "finish_reason": null
+            }]
+        }));
+
+        assert!(result.is_err());
     }
 }
