@@ -648,7 +648,7 @@ pub(in crate::transform::count_tokens) fn claude_speed_to_gemini_service_tier(
     let tier = match speed? {
         claude::Speed::Known(claude::SpeedKnown::Standard) => gemini::ServiceTierKnown::Standard,
         claude::Speed::Known(claude::SpeedKnown::Fast) => gemini::ServiceTierKnown::Priority,
-        claude::Speed::Unknown(value) => return Some(gemini::ServiceTier::Unknown(value)),
+        claude::Speed::Unknown(_) => gemini::ServiceTierKnown::Standard,
     };
     Some(gemini::ServiceTier::Known(tier))
 }
