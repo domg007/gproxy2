@@ -14,7 +14,7 @@ extensible_string_enum!(ToolChoiceMode, ToolChoiceModeKnown {
     Required => "required",
 });
 
-extensible_string_enum!(AllowedToolsMode, AllowedToolsModeKnown {
+strict_string_enum!(AllowedToolsMode {
     Auto => "auto",
     Required => "required",
 });

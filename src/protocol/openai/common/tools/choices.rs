@@ -449,6 +449,17 @@ mod tests {
             }))
             .is_err()
         );
+
+        assert!(
+            serde_json::from_value::<ChatToolChoice>(json!({
+                "type": "allowed_tools",
+                "allowed_tools": {
+                    "mode": "none",
+                    "tools": []
+                }
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -510,6 +521,15 @@ mod tests {
                     "type": "function",
                     "function": { "name": "get_weather" }
                 }]
+            }))
+            .is_err()
+        );
+
+        assert!(
+            serde_json::from_value::<ResponseToolChoice>(json!({
+                "type": "allowed_tools",
+                "mode": "none",
+                "tools": []
             }))
             .is_err()
         );
