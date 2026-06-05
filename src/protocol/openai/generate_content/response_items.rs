@@ -196,6 +196,8 @@ pub enum TypedResponseItem {
         acknowledged_safety_checks: Option<Vec<SafetyCheck>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseComputerCallOutputStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -344,6 +346,8 @@ pub enum TypedResponseItem {
         environment: Option<ShellEnvironment>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemLifecycleStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -357,6 +361,8 @@ pub enum TypedResponseItem {
         max_output_length: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemLifecycleStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -367,6 +373,8 @@ pub enum TypedResponseItem {
         status: ResponseApplyPatchCallStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -378,6 +386,8 @@ pub enum TypedResponseItem {
         id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -905,6 +915,8 @@ pub struct ShellCallOutputContent {
     pub outcome: ShellCallOutcome,
     pub stderr: String,
     pub stdout: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -1074,6 +1086,139 @@ mod tests {
         assert!(matches!(execution, Some(ToolSearchExecution::Server)));
         assert_eq!(created_by.as_deref(), Some("system"));
         assert!(!extra.contains_key("execution"));
+        assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_computer_call_output_creator() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "type": "computer_call_output",
+            "id": "cc_out_123",
+            "call_id": "call_123",
+            "output": {
+                "type": "computer_screenshot",
+                "image_url": "data:image/png;base64,..."
+            },
+            "status": "completed",
+            "created_by": "developer"
+        }))
+        .expect("computer call output should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ComputerCallOutput {
+            created_by, extra, ..
+        }) = item
+        else {
+            panic!("expected computer_call_output item");
+        };
+        assert_eq!(created_by.as_deref(), Some("developer"));
+        assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_shell_call_creator_metadata() {
+        let shell_call: ResponseItem = serde_json::from_value(json!({
+            "type": "shell_call",
+            "id": "sh_123",
+            "call_id": "call_123",
+            "action": {
+                "commands": ["cargo test"],
+                "max_output_length": 2000,
+                "timeout_ms": 30000
+            },
+            "environment": {
+                "type": "container_reference",
+                "container_id": "cntr_123"
+            },
+            "status": "completed",
+            "created_by": "assistant"
+        }))
+        .expect("shell call should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ShellCall {
+            created_by, extra, ..
+        }) = shell_call
+        else {
+            panic!("expected shell_call item");
+        };
+        assert_eq!(created_by.as_deref(), Some("assistant"));
+        assert!(!extra.contains_key("created_by"));
+
+        let shell_output: ResponseItem = serde_json::from_value(json!({
+            "type": "shell_call_output",
+            "id": "sh_out_123",
+            "call_id": "call_123",
+            "max_output_length": 2000,
+            "output": [{
+                "outcome": { "type": "exit", "exit_code": 0 },
+                "stderr": "",
+                "stdout": "ok",
+                "created_by": "developer"
+            }],
+            "status": "completed",
+            "created_by": "developer"
+        }))
+        .expect("shell call output should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ShellCallOutput {
+            output,
+            created_by,
+            extra,
+            ..
+        }) = shell_output
+        else {
+            panic!("expected shell_call_output item");
+        };
+        assert_eq!(created_by.as_deref(), Some("developer"));
+        assert!(!extra.contains_key("created_by"));
+        assert_eq!(
+            output.first().and_then(|chunk| chunk.created_by.as_deref()),
+            Some("developer")
+        );
+        assert!(!output[0].extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_apply_patch_creator_metadata() {
+        let call: ResponseItem = serde_json::from_value(json!({
+            "type": "apply_patch_call",
+            "id": "ap_123",
+            "call_id": "call_123",
+            "operation": {
+                "type": "update_file",
+                "path": "src/lib.rs",
+                "diff": "@@"
+            },
+            "status": "completed",
+            "created_by": "assistant"
+        }))
+        .expect("apply patch call should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ApplyPatchCall {
+            created_by, extra, ..
+        }) = call
+        else {
+            panic!("expected apply_patch_call item");
+        };
+        assert_eq!(created_by.as_deref(), Some("assistant"));
+        assert!(!extra.contains_key("created_by"));
+
+        let output: ResponseItem = serde_json::from_value(json!({
+            "type": "apply_patch_call_output",
+            "id": "ap_out_123",
+            "call_id": "call_123",
+            "status": "completed",
+            "output": "done",
+            "created_by": "developer"
+        }))
+        .expect("apply patch call output should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ApplyPatchCallOutput {
+            created_by, extra, ..
+        }) = output
+        else {
+            panic!("expected apply_patch_call_output item");
+        };
+        assert_eq!(created_by.as_deref(), Some("developer"));
         assert!(!extra.contains_key("created_by"));
     }
 
