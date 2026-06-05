@@ -9,18 +9,25 @@ pub fn request(
     input: claude::CountTokensRequestBody,
     _: &TransformContext,
 ) -> Result<openai::ResponseInputTokensRequest, TransformError> {
+    let tool_choice = input.tool_choice;
+    let output_config = input.output_config;
+    let output_format = input.output_format;
+
     Ok(openai::ResponseInputTokensRequest {
         conversation: None,
         input: common::text_to_openai_input(common::claude_messages_to_text(input.messages)),
         instructions: common::claude_system_to_text(input.system),
         model: Some(common::claude_model_string(&input.model).into()),
-        parallel_tool_calls: None,
+        parallel_tool_calls: common::claude_parallel_tool_calls(tool_choice.as_ref()),
         personality: None,
         previous_response_id: None,
-        reasoning: None,
-        text: None,
-        tool_choice: None,
-        tools: None,
+        reasoning: common::claude_generation_to_openai_reasoning(
+            input.thinking,
+            output_config.as_ref(),
+        ),
+        text: common::claude_generation_to_openai_text(output_config.as_ref(), output_format),
+        tool_choice: common::claude_tool_choice_to_openai(tool_choice),
+        tools: common::claude_tools_to_openai(input.tools, input.mcp_servers),
         truncation: None,
         extra: Default::default(),
     })
