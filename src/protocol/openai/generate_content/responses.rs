@@ -37,6 +37,8 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<OpenAiModelId>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<ModerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
@@ -97,4 +99,29 @@ pub struct ResponseConversationParam {
 pub enum ResponseInput {
     Text(String),
     Items(Vec<ResponseItem>),
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn response_create_request_models_moderation_parameter() {
+        let request: ResponseCreateRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "moderation": {
+                "model": "omni-moderation-latest"
+            }
+        }))
+        .expect("response create request should deserialize");
+
+        assert_eq!(
+            request.moderation.expect("moderation").model,
+            "omni-moderation-latest"
+        );
+        assert!(!request.extra.contains_key("moderation"));
+    }
 }

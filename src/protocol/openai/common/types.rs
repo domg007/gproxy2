@@ -11,6 +11,13 @@ pub type Metadata = BTreeMap<String, Value>;
 pub type OpenAiModelId = String;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModerationConfig {
+    pub model: OpenAiModelId,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiWireModel<TRequest, TResponse> {
     pub operation_key: OperationKey,
     #[serde(skip_serializing_if = "Option::is_none")]

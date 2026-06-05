@@ -39,7 +39,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modalities: Option<Vec<TextOrAudioModality>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub moderation: Option<ChatModerationConfig>,
+    pub moderation: Option<ModerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,6 +65,8 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<StringOrList>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
@@ -88,11 +90,26 @@ pub struct ChatCompletionRequest {
     pub extra: Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChatModerationConfig {
-    pub model: OpenAiModelId,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn chat_completion_request_models_store_parameter() {
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "store": true
+        }))
+        .expect("chat completion request should deserialize");
+
+        assert_eq!(request.store, Some(true));
+        assert!(!request.extra.contains_key("store"));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
