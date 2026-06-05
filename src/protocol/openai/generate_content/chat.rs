@@ -94,6 +94,7 @@ pub struct ChatCompletionRequest {
 mod tests {
     use serde_json::json;
 
+    use super::super::chat_tail::VoiceRef;
     use super::*;
 
     #[test]
@@ -129,6 +130,43 @@ mod tests {
         assert_eq!(logit_bias.get("50256"), Some(&-100.0));
         assert_eq!(logit_bias.get("198"), Some(&1.5));
         assert!(!request.extra.contains_key("logit_bias"));
+    }
+
+    #[test]
+    fn chat_completion_request_models_builtin_and_custom_audio_voice() {
+        let builtin: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "audio": {
+                "format": "wav",
+                "voice": "marin"
+            }
+        }))
+        .expect("chat completion request with built-in voice should deserialize");
+
+        assert!(matches!(
+            builtin.audio.expect("audio").voice,
+            VoiceRef::Name(VoiceName::Known(VoiceNameKnown::Marin))
+        ));
+
+        let custom: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "audio": {
+                "format": "mp3",
+                "voice": { "id": "voice_1234" }
+            }
+        }))
+        .expect("chat completion request with custom voice should deserialize");
+
+        assert!(matches!(
+            custom.audio.expect("audio").voice,
+            VoiceRef::Object { ref id } if id == "voice_1234"
+        ));
     }
 
     #[test]

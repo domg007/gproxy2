@@ -84,6 +84,22 @@ extensible_string_enum!(AudioResponseFormat, AudioResponseFormatKnown {
     Pcm16 => "pcm16",
 });
 
+extensible_string_enum!(VoiceName, VoiceNameKnown {
+    Alloy => "alloy",
+    Ash => "ash",
+    Ballad => "ballad",
+    Coral => "coral",
+    Echo => "echo",
+    Fable => "fable",
+    Nova => "nova",
+    Onyx => "onyx",
+    Sage => "sage",
+    Shimmer => "shimmer",
+    Verse => "verse",
+    Marin => "marin",
+    Cedar => "cedar",
+});
+
 extensible_string_enum!(DetailLevel, DetailLevelKnown {
     Auto => "auto",
     Low => "low",

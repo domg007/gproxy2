@@ -53,7 +53,7 @@ pub struct ChatAudioParam {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum VoiceRef {
-    Name(String),
+    Name(VoiceName),
     Object { id: String },
 }
 
