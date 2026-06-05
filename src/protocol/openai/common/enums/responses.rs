@@ -33,15 +33,65 @@ extensible_string_enum!(ResponseErrorCode, ResponseErrorCodeKnown {
     ImageFileNotFound => "image_file_not_found",
 });
 
-extensible_string_enum!(ResponseItemStatus, ResponseItemStatusKnown {
+strict_string_enum!(ResponseItemLifecycleStatus {
     InProgress => "in_progress",
     Completed => "completed",
     Incomplete => "incomplete",
+});
+
+strict_string_enum!(ResponseFileSearchCallStatus {
+    InProgress => "in_progress",
     Searching => "searching",
+    Completed => "completed",
+    Incomplete => "incomplete",
     Failed => "failed",
+});
+
+strict_string_enum!(ResponseWebSearchCallStatus {
+    InProgress => "in_progress",
+    Searching => "searching",
+    Completed => "completed",
+    Failed => "failed",
+});
+
+strict_string_enum!(ResponseComputerCallOutputStatus {
+    InProgress => "in_progress",
+    Completed => "completed",
+    Incomplete => "incomplete",
+    Failed => "failed",
+});
+
+strict_string_enum!(ResponseImageGenerationCallStatus {
+    InProgress => "in_progress",
+    Completed => "completed",
     Generating => "generating",
+    Failed => "failed",
+});
+
+strict_string_enum!(ResponseCodeInterpreterCallStatus {
+    InProgress => "in_progress",
+    Completed => "completed",
+    Incomplete => "incomplete",
     Interpreting => "interpreting",
+    Failed => "failed",
+});
+
+strict_string_enum!(ResponseApplyPatchCallStatus {
+    InProgress => "in_progress",
+    Completed => "completed",
+});
+
+strict_string_enum!(ResponseApplyPatchCallOutputStatus {
+    Completed => "completed",
+    Failed => "failed",
+});
+
+strict_string_enum!(ResponseMcpCallStatus {
+    InProgress => "in_progress",
+    Completed => "completed",
+    Incomplete => "incomplete",
     Calling => "calling",
+    Failed => "failed",
 });
 
 extensible_string_enum!(ResponsePhase, ResponsePhaseKnown {

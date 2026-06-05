@@ -93,7 +93,7 @@ pub struct ResponseOutputMessageItem {
     pub id: String,
     pub role: ResponseOutputMessageRole,
     pub content: Vec<ResponseOutputContentPart>,
-    pub status: ResponseItemStatus,
+    pub status: ResponseItemLifecycleStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<ResponsePhase>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -109,7 +109,7 @@ pub struct ResponseInputMessageItem {
     pub role: ResponseInputMessageRole,
     pub content: Vec<ResponseInputContentPart>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<ResponseItemStatus>,
+    pub status: Option<ResponseItemLifecycleStatus>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -167,7 +167,7 @@ pub enum TypedResponseItem {
     FileSearchCall {
         id: String,
         queries: Vec<String>,
-        status: ResponseItemStatus,
+        status: ResponseFileSearchCallStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         results: Option<Vec<FileSearchResult>>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -178,7 +178,7 @@ pub enum TypedResponseItem {
         id: String,
         call_id: String,
         pending_safety_checks: Vec<SafetyCheck>,
-        status: ResponseItemStatus,
+        status: ResponseItemLifecycleStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<ComputerAction>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,7 +195,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         acknowledged_safety_checks: Option<Vec<SafetyCheck>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseComputerCallOutputStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -203,7 +203,7 @@ pub enum TypedResponseItem {
     WebSearchCall {
         id: String,
         action: WebSearchAction,
-        status: ResponseItemStatus,
+        status: ResponseWebSearchCallStatus,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -217,7 +217,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         namespace: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -228,7 +228,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -244,7 +244,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         execution: Option<ToolSearchExecution>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -260,7 +260,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         execution: Option<ToolSearchExecution>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -284,7 +284,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         encrypted_content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -302,7 +302,7 @@ pub enum TypedResponseItem {
     ImageGenerationCall {
         id: String,
         result: String,
-        status: ResponseItemStatus,
+        status: ResponseImageGenerationCallStatus,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -312,7 +312,7 @@ pub enum TypedResponseItem {
         code: Option<String>,
         container_id: String,
         outputs: Option<Vec<CodeInterpreterOutput>>,
-        status: ResponseItemStatus,
+        status: ResponseCodeInterpreterCallStatus,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -321,7 +321,7 @@ pub enum TypedResponseItem {
         id: String,
         action: LocalShellAction,
         call_id: String,
-        status: ResponseItemStatus,
+        status: ResponseItemLifecycleStatus,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -330,7 +330,7 @@ pub enum TypedResponseItem {
         id: String,
         output: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -343,7 +343,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         environment: Option<ShellEnvironment>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -356,7 +356,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         max_output_length: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -364,7 +364,7 @@ pub enum TypedResponseItem {
     ApplyPatchCall {
         call_id: String,
         operation: ApplyPatchOperation,
-        status: ResponseItemStatus,
+        status: ResponseApplyPatchCallStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -373,7 +373,7 @@ pub enum TypedResponseItem {
     #[serde(rename = "apply_patch_call_output")]
     ApplyPatchCallOutput {
         call_id: String,
-        status: ResponseItemStatus,
+        status: ResponseApplyPatchCallOutputStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -424,7 +424,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseMcpCallStatus>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -447,7 +447,7 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        status: Option<ResponseItemStatus>,
+        status: Option<ResponseItemLifecycleStatus>,
         #[serde(skip_serializing_if = "Option::is_none")]
         created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1002,10 +1002,7 @@ mod tests {
             panic!("expected output message");
         };
         assert_eq!(message.role, ResponseOutputMessageRole::Assistant);
-        assert_eq!(
-            message.status,
-            ResponseItemStatus::Known(ResponseItemStatusKnown::Completed)
-        );
+        assert_eq!(message.status, ResponseItemLifecycleStatus::Completed);
     }
 
     #[test]
@@ -1081,6 +1078,24 @@ mod tests {
     }
 
     #[test]
+    fn response_item_rejects_status_values_from_other_item_families() {
+        let apply_patch_output = serde_json::from_value::<ResponseItem>(json!({
+            "type": "apply_patch_call_output",
+            "call_id": "ap_123",
+            "status": "in_progress"
+        }));
+        assert!(apply_patch_output.is_err());
+
+        let web_search = serde_json::from_value::<ResponseItem>(json!({
+            "type": "web_search_call",
+            "id": "ws_123",
+            "action": { "type": "search", "query": "docs" },
+            "status": "incomplete"
+        }));
+        assert!(web_search.is_err());
+    }
+
+    #[test]
     fn response_item_models_custom_output_and_compaction_metadata() {
         let custom_output: ResponseItem = serde_json::from_value(json!({
             "type": "custom_tool_call_output",
@@ -1103,9 +1118,7 @@ mod tests {
         };
         assert!(matches!(
             status,
-            Some(ResponseItemStatus::Known(
-                ResponseItemStatusKnown::Completed
-            ))
+            Some(ResponseItemLifecycleStatus::Completed)
         ));
         assert_eq!(created_by.as_deref(), Some("developer"));
         assert!(!extra.contains_key("status"));

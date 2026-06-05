@@ -57,7 +57,7 @@ pub struct CompactMessageItem {
     pub type_: ResponseMessageItemType,
     pub content: Vec<CompactMessageContentPart>,
     pub role: CompactMessageRole,
-    pub status: ResponseItemStatus,
+    pub status: ResponseItemLifecycleStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<ResponsePhase>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]

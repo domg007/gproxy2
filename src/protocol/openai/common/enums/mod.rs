@@ -17,6 +17,18 @@ macro_rules! extensible_string_enum {
     };
 }
 
+macro_rules! strict_string_enum {
+    ($outer:ident { $($variant:ident => $wire:literal),+ $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        pub enum $outer {
+            $(
+                #[serde(rename = $wire)]
+                $variant,
+            )+
+        }
+    };
+}
+
 mod chat;
 mod content;
 mod images;
