@@ -40,7 +40,7 @@ pub struct ChatAllowedToolChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatAllowedTools {
     pub mode: AllowedToolsMode,
-    pub tools: Vec<Extra>,
+    pub tools: Vec<ChatAllowedTool>,
     #[serde(
         default,
         flatten,
@@ -50,9 +50,34 @@ pub struct ChatAllowedTools {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ChatAllowedTool {
+    #[serde(rename = "function")]
+    Function {
+        function: NamedTool,
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        custom: NamedTool,
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseAllowedToolChoice {
     pub mode: AllowedToolsMode,
-    pub tools: Vec<Extra>,
+    pub tools: Vec<ResponseAllowedTool>,
     #[serde(rename = "type")]
     pub type_: AllowedToolsType,
     #[serde(
@@ -61,6 +86,142 @@ pub struct ResponseAllowedToolChoice {
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseAllowedTool {
+    #[serde(rename = "function")]
+    Function {
+        name: String,
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        name: String,
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "mcp")]
+    Mcp {
+        server_label: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "file_search")]
+    FileSearch {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "web_search_preview")]
+    WebSearchPreview {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "computer")]
+    Computer {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "computer_use_preview")]
+    ComputerUsePreview {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "computer_use")]
+    ComputerUse {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "web_search_preview_2025_03_11")]
+    WebSearchPreview20250311 {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "image_generation")]
+    ImageGeneration {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "code_interpreter")]
+    CodeInterpreter {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "local_shell")]
+    LocalShell {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "shell")]
+    Shell {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
+    #[serde(rename = "apply_patch")]
+    ApplyPatch {
+        #[serde(
+            default,
+            flatten,
+            skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        )]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +421,37 @@ mod tests {
     }
 
     #[test]
+    fn chat_allowed_tools_reject_response_only_entries() {
+        let allowed_choice: ChatToolChoice = serde_json::from_value(json!({
+            "type": "allowed_tools",
+            "allowed_tools": {
+                "mode": "required",
+                "tools": [
+                    { "type": "function", "function": { "name": "get_weather" } },
+                    { "type": "custom", "custom": { "name": "raw_tool" } }
+                ]
+            }
+        }))
+        .expect("chat allowed tools should deserialize");
+        let ChatToolChoice::Allowed(ChatAllowedToolChoice { allowed_tools, .. }) = allowed_choice
+        else {
+            panic!("expected chat allowed tools");
+        };
+        assert_eq!(allowed_tools.tools.len(), 2);
+
+        assert!(
+            serde_json::from_value::<ChatToolChoice>(json!({
+                "type": "allowed_tools",
+                "allowed_tools": {
+                    "mode": "auto",
+                    "tools": [{ "type": "file_search" }]
+                }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn response_tool_choice_only_accepts_response_shapes() {
         let hosted_choice: ResponseToolChoice = serde_json::from_value(json!({
             "type": "file_search"
@@ -287,6 +479,37 @@ mod tests {
             serde_json::from_value::<ResponseToolChoice>(json!({
                 "type": "function",
                 "function": { "name": "get_weather" }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn response_allowed_tools_reject_chat_only_entries() {
+        let allowed_choice: ResponseToolChoice = serde_json::from_value(json!({
+            "type": "allowed_tools",
+            "mode": "auto",
+            "tools": [
+                { "type": "function", "name": "get_weather" },
+                { "type": "mcp", "server_label": "deepwiki" },
+                { "type": "image_generation" }
+            ]
+        }))
+        .expect("response allowed tools should deserialize");
+        let ResponseToolChoice::Allowed(ResponseAllowedToolChoice { tools, .. }) = allowed_choice
+        else {
+            panic!("expected response allowed tools");
+        };
+        assert_eq!(tools.len(), 3);
+
+        assert!(
+            serde_json::from_value::<ResponseToolChoice>(json!({
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [{
+                    "type": "function",
+                    "function": { "name": "get_weather" }
+                }]
             }))
             .is_err()
         );
