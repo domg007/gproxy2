@@ -431,21 +431,46 @@ mod tests {
         }))
         .expect("images response should deserialize");
 
-        assert!(matches!(
+        assert_eq!(
             response.background,
-            Some(ImageResponseBackground::Known(
-                ImageResponseBackgroundKnown::Transparent
-            ))
-        ));
+            Some(ImageResponseBackground::Transparent)
+        );
+        assert_eq!(response.quality, Some(ImageResponseQuality::High));
+        assert_eq!(response.size, Some(ImageResponseSize::Size1024By1536));
+    }
+
+    #[test]
+    fn image_request_rejects_undocumented_closed_enum_values() {
+        let invalid_background = serde_json::from_value::<ImageGenerationRequest>(json!({
+            "prompt": "a city skyline",
+            "background": "gradient"
+        }));
+        assert!(invalid_background.is_err());
+
+        let invalid_response_format = serde_json::from_value::<ImageGenerationRequest>(json!({
+            "prompt": "a city skyline",
+            "response_format": "bytes"
+        }));
+        assert!(invalid_response_format.is_err());
+
+        let invalid_style = serde_json::from_value::<ImageGenerationRequest>(json!({
+            "prompt": "a city skyline",
+            "style": "cinematic"
+        }));
+        assert!(invalid_style.is_err());
+    }
+
+    #[test]
+    fn image_size_keeps_documented_string_fallback() {
+        let request: ImageGenerationRequest = serde_json::from_value(json!({
+            "prompt": "a city skyline",
+            "size": "1536x864"
+        }))
+        .expect("arbitrary documented image size string should deserialize");
+
         assert!(matches!(
-            response.quality,
-            Some(ImageResponseQuality::Known(ImageResponseQualityKnown::High))
-        ));
-        assert!(matches!(
-            response.size,
-            Some(ImageResponseSize::Known(
-                ImageResponseSizeKnown::Size1024By1536
-            ))
+            request.size,
+            Some(ImageSize::Unknown(value)) if value == "1536x864"
         ));
     }
 

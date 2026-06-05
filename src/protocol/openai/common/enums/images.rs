@@ -1,26 +1,26 @@
-extensible_string_enum!(ImageBackground, ImageBackgroundKnown {
+strict_string_enum!(ImageBackground {
     Transparent => "transparent",
     Opaque => "opaque",
     Auto => "auto",
 });
 
-extensible_string_enum!(ImageResponseBackground, ImageResponseBackgroundKnown {
+strict_string_enum!(ImageResponseBackground {
     Transparent => "transparent",
     Opaque => "opaque",
 });
 
-extensible_string_enum!(ImageModeration, ImageModerationKnown {
+strict_string_enum!(ImageModeration {
     Low => "low",
     Auto => "auto",
 });
 
-extensible_string_enum!(ImageOutputFormat, ImageOutputFormatKnown {
+strict_string_enum!(ImageOutputFormat {
     Png => "png",
     Jpeg => "jpeg",
     Webp => "webp",
 });
 
-extensible_string_enum!(ImageQuality, ImageQualityKnown {
+strict_string_enum!(ImageQuality {
     Standard => "standard",
     Hd => "hd",
     Low => "low",
@@ -29,13 +29,13 @@ extensible_string_enum!(ImageQuality, ImageQualityKnown {
     Auto => "auto",
 });
 
-extensible_string_enum!(ImageResponseQuality, ImageResponseQualityKnown {
+strict_string_enum!(ImageResponseQuality {
     Low => "low",
     Medium => "medium",
     High => "high",
 });
 
-extensible_string_enum!(ImageResponseFormat, ImageResponseFormatKnown {
+strict_string_enum!(ImageResponseFormat {
     Url => "url",
     B64Json => "b64_json",
 });
@@ -51,18 +51,18 @@ extensible_string_enum!(ImageSize, ImageSizeKnown {
     Size1024By1792 => "1024x1792",
 });
 
-extensible_string_enum!(ImageResponseSize, ImageResponseSizeKnown {
+strict_string_enum!(ImageResponseSize {
     Size1024By1024 => "1024x1024",
     Size1024By1536 => "1024x1536",
     Size1536By1024 => "1536x1024",
 });
 
-extensible_string_enum!(ImageStyle, ImageStyleKnown {
+strict_string_enum!(ImageStyle {
     Vivid => "vivid",
     Natural => "natural",
 });
 
-extensible_string_enum!(ImageInputFidelity, ImageInputFidelityKnown {
+strict_string_enum!(ImageInputFidelity {
     High => "high",
     Low => "low",
 });
