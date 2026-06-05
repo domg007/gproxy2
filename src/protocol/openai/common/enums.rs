@@ -181,8 +181,10 @@ extensible_string_enum!(ImageInputFidelity, ImageInputFidelityKnown {
 });
 
 extensible_string_enum!(ImageStreamEventType, ImageStreamEventTypeKnown {
-    PartialImage => "image_generation.partial_image",
-    Completed => "image_generation.completed",
+    ImageGenerationPartialImage => "image_generation.partial_image",
+    ImageGenerationCompleted => "image_generation.completed",
+    ImageEditPartialImage => "image_edit.partial_image",
+    ImageEditCompleted => "image_edit.completed",
 });
 
 extensible_string_enum!(ToolChoiceMode, ToolChoiceModeKnown {
