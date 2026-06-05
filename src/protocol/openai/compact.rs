@@ -151,14 +151,9 @@ mod tests {
         assert_eq!(request.previous_response_id.as_deref(), Some("resp_123"));
         assert_eq!(
             request.prompt_cache_retention,
-            Some(PromptCacheRetention::Known(
-                PromptCacheRetentionKnown::TwentyFourHours
-            ))
+            Some(PromptCacheRetention::TwentyFourHours)
         );
-        assert_eq!(
-            request.service_tier,
-            Some(ServiceTier::Known(ServiceTierKnown::Priority))
-        );
+        assert_eq!(request.service_tier, Some(ServiceTier::Priority));
     }
 
     #[test]

@@ -90,13 +90,13 @@ mod tests {
             ))
         ));
         assert_eq!(request.previous_response_id.as_deref(), Some("resp_123"));
-        assert!(matches!(
+        assert_eq!(
             request.reasoning.expect("reasoning").effort,
-            Some(ReasoningEffort::Known(ReasoningEffortKnown::Low))
-        ));
+            Some(ReasoningEffort::Low)
+        );
         assert!(matches!(
             request.text.expect("text").verbosity,
-            Some(Verbosity::Known(VerbosityKnown::Low))
+            Some(Verbosity::Low)
         ));
         assert!(matches!(
             request.tool_choice,
@@ -105,10 +105,7 @@ mod tests {
             )))
         ));
         assert_eq!(request.tools.expect("tools").len(), 1);
-        assert!(matches!(
-            request.truncation,
-            Some(TruncationStrategy::Known(TruncationStrategyKnown::Auto))
-        ));
+        assert_eq!(request.truncation, Some(TruncationStrategy::Auto));
         assert!(!request.extra.contains_key("model"));
         assert!(!request.extra.contains_key("personality"));
     }
