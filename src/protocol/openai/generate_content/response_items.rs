@@ -6,12 +6,49 @@ use serde_json::Value;
 use super::super::common::*;
 use super::response_tools::ResponseTool;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ResponseItem {
     Message(ResponseMessageItem),
     Typed(TypedResponseItem),
     Unknown(UnknownResponseItem),
+}
+
+impl<'de> Deserialize<'de> for ResponseItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let type_name = value.get("type").and_then(Value::as_str);
+
+        let Some(type_name) = type_name else {
+            return serde_json::from_value::<ResponseMessageItem>(value.clone())
+                .map(Self::Message)
+                .or_else(|_| {
+                    serde_json::from_value(value)
+                        .map(Self::Unknown)
+                        .map_err(de::Error::custom)
+                });
+        };
+
+        let item_type =
+            serde_json::from_value::<ResponseItemType>(Value::String(type_name.to_owned()))
+                .map_err(de::Error::custom)?;
+
+        match item_type {
+            ResponseItemType::Known(ResponseItemTypeKnown::Message) => {
+                serde_json::from_value(value)
+                    .map(Self::Message)
+                    .map_err(de::Error::custom)
+            }
+            ResponseItemType::Known(_) => serde_json::from_value(value)
+                .map(Self::Typed)
+                .map_err(de::Error::custom),
+            ResponseItemType::Unknown(_) => serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -441,7 +478,7 @@ pub struct UnknownResponseItem {
 #[serde(untagged)]
 pub enum ResponseOutput {
     Text(String),
-    Parts(Vec<ResponseInputContentPart>),
+    Parts(Vec<ResponseToolOutputContentPart>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -489,6 +526,43 @@ pub enum ResponseInputContentPart {
     #[serde(rename = "input_audio")]
     InputAudio {
         input_audio: InputAudioContent,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseToolOutputContentPart {
+    #[serde(rename = "input_text")]
+    InputText {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_image")]
+    InputImage {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_file")]
+    InputFile {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_data: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -950,6 +1024,22 @@ mod tests {
         assert!(matches!(output, ResponseOutput::Parts(_)));
         assert_eq!(created_by.as_deref(), Some("developer"));
         assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_rejects_undocumented_audio_tool_output_content() {
+        let result = serde_json::from_value::<ResponseItem>(json!({
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": [
+                {
+                    "type": "input_audio",
+                    "input_audio": { "data": "...", "format": "wav" }
+                }
+            ]
+        }));
+
+        assert!(result.is_err());
     }
 
     #[test]

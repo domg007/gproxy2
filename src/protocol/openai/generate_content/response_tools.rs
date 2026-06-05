@@ -237,9 +237,25 @@ pub struct FileSearchComparisonFilter {
     pub key: String,
     #[serde(rename = "type")]
     pub type_: FileSearchComparisonOperator,
-    pub value: Value,
+    pub value: FileSearchComparisonValue,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FileSearchComparisonValue {
+    String(String),
+    Number(f64),
+    Boolean(bool),
+    List(Vec<FileSearchComparisonListValue>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FileSearchComparisonListValue {
+    String(String),
+    Number(f64),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -623,6 +639,21 @@ mod tests {
         .expect("file_search tool should deserialize");
 
         assert!(matches!(tool, ResponseTool::FileSearch { .. }));
+    }
+
+    #[test]
+    fn response_tool_rejects_undocumented_file_search_filter_value() {
+        let result = serde_json::from_value::<ResponseTool>(json!({
+            "type": "file_search",
+            "vector_store_ids": ["vs_123"],
+            "filters": {
+                "type": "eq",
+                "key": "metadata",
+                "value": { "kind": "guide" }
+            }
+        }));
+
+        assert!(result.is_err());
     }
 
     #[test]
