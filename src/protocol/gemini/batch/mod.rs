@@ -7,7 +7,7 @@ use super::common::{
     GeminiModelName, JsonMap, OperationName, Rfc3339Timestamp, Status,
 };
 use super::embeddings::{EmbedContentRequest, EmbedContentResponse};
-use super::generation::{GenerateContentRequest, GenerateContentResponse};
+use super::generate_content::{GenerateContentRequest, GenerateContentResponse};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

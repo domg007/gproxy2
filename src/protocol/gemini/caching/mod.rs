@@ -3,11 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    CachedContentName, DurationString, ExtraFields, FieldMask, GeminiModelName, JsonMap,
-    Rfc3339Timestamp,
+    CachedContentName, Content, DurationString, ExtraFields, FieldMask, GeminiModelName, JsonMap,
+    Rfc3339Timestamp, Tool, ToolConfig,
 };
-use super::content::Content;
-use super::tools::{Tool, ToolConfig};
 
 pub type CreateCachedContentRequestBody = CachedContent;
 pub type CreateCachedContentResponseBody = CachedContent;

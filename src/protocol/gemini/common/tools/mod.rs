@@ -3,8 +3,11 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{ExtraFields, FunctionBehavior, FunctionCallingMode, SchemaType};
-use super::tool_support::*;
+pub mod support;
+
+pub use support::*;
+
+use super::{ExtraFields, FunctionBehavior, FunctionCallingMode, SchemaType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

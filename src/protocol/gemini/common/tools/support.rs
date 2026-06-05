@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{
+use super::super::{
     ComputerUseEnvironment, DurationString, DynamicRetrievalMode, ExtraFields, Rfc3339Timestamp,
 };
 

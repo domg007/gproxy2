@@ -3,14 +3,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{
+use super::super::common::{
     AudioResponseDelivery, AudioResponseFormatMimeType, ExtraFields, GenerationMediaResolution,
     ImageAspectRatio, ImageResponseAspectRatio, ImageResponseDelivery, ImageResponseFormatMimeType,
-    ImageResponseSize, ImageSize, ResponseMimeType, ResponseModality, TextResponseFormatMimeType,
-    ThinkingLevel,
+    ImageResponseSize, ImageSize, ResponseMimeType, ResponseModality, Schema, SpeechConfig,
+    TextResponseFormatMimeType, ThinkingLevel,
 };
-use super::speech::SpeechConfig;
-use super::tools::Schema;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

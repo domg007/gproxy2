@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{ExtraFields, GeminiModelName, ModalityTokenCount, TaskType};
-use super::content::Content;
+use super::common::{Content, ExtraFields, GeminiModelName, ModalityTokenCount, TaskType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
