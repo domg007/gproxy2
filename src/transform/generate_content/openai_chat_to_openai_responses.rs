@@ -5,7 +5,7 @@ use crate::transform::{TransformContext, TransformError};
 
 pub fn request(
     input: ChatCompletionRequest,
-    ctx: &TransformContext,
+    _: &TransformContext,
 ) -> Result<ResponseCreateRequest, TransformError> {
     reject_some(&input.audio, "audio")?;
     reject_some(&input.frequency_penalty, "frequency_penalty")?;
@@ -30,7 +30,7 @@ pub fn request(
             reject_some(&options.include_usage, "stream_options.include_usage")?;
             Ok(ResponseStreamOptions {
                 include_obfuscation: options.include_obfuscation,
-                extra: carry_extra(options.extra, ctx, "stream_options")?,
+                extra: Extra::new(),
             })
         })
         .transpose()?;
@@ -84,7 +84,7 @@ pub fn request(
         top_p: input.top_p,
         truncation: None,
         user: input.user,
-        extra: carry_extra(input.extra, ctx, "request")?,
+        extra: Extra::new(),
     })
 }
 
@@ -101,20 +101,17 @@ fn chat_message_to_response_item(
     message: ChatCompletionMessageParam,
 ) -> Result<ResponseItem, TransformError> {
     match message {
-        ChatCompletionMessageParam::Developer { content, extra, .. } => Ok(easy_input(
+        ChatCompletionMessageParam::Developer { content, .. } => Ok(easy_input(
             ResponseEasyInputMessageRole::Developer,
             chat_text_to_easy_content(content)?,
-            extra,
         )),
-        ChatCompletionMessageParam::System { content, extra, .. } => Ok(easy_input(
+        ChatCompletionMessageParam::System { content, .. } => Ok(easy_input(
             ResponseEasyInputMessageRole::System,
             chat_text_to_easy_content(content)?,
-            extra,
         )),
-        ChatCompletionMessageParam::User { content, extra, .. } => Ok(easy_input(
+        ChatCompletionMessageParam::User { content, .. } => Ok(easy_input(
             ResponseEasyInputMessageRole::User,
             chat_content_to_easy_content(content)?,
-            extra,
         )),
         ChatCompletionMessageParam::Assistant {
             content,
@@ -122,7 +119,6 @@ fn chat_message_to_response_item(
             function_call,
             refusal,
             tool_calls,
-            extra,
             ..
         } => {
             reject_some(&audio, "message.audio")?;
@@ -133,11 +129,7 @@ fn chat_message_to_response_item(
                 .map(chat_assistant_content_to_easy_content)
                 .transpose()?
                 .unwrap_or_else(|| ResponseEasyInputContent::Text(String::new()));
-            Ok(easy_input(
-                ResponseEasyInputMessageRole::Assistant,
-                content,
-                extra,
-            ))
+            Ok(easy_input(ResponseEasyInputMessageRole::Assistant, content))
         }
         ChatCompletionMessageParam::Tool { .. } => Err(TransformError::UnsupportedField {
             field: "message",
@@ -153,7 +145,6 @@ fn chat_message_to_response_item(
 fn easy_input(
     role: ResponseEasyInputMessageRole,
     content: ResponseEasyInputContent,
-    extra: Extra,
 ) -> ResponseItem {
     ResponseItem::Message(ResponseMessageItem::EasyInput(
         ResponseEasyInputMessageItem {
@@ -161,7 +152,7 @@ fn easy_input(
             role,
             content,
             phase: None,
-            extra,
+            extra: Extra::new(),
         },
     ))
 }
@@ -175,8 +166,7 @@ fn chat_text_to_easy_content(
             let mut text = String::new();
             for part in parts {
                 match part {
-                    ChatTextContentPart::Text { text: value, extra } => {
-                        require_empty_extra(extra, "text")?;
+                    ChatTextContentPart::Text { text: value, .. } => {
                         text.push_str(&value);
                     }
                 }
@@ -195,8 +185,7 @@ fn chat_assistant_content_to_easy_content(
             let mut text = String::new();
             for part in parts {
                 match part {
-                    ChatAssistantContentPart::Text { text: value, extra } => {
-                        require_empty_extra(extra, "assistant.text")?;
+                    ChatAssistantContentPart::Text { text: value, .. } => {
                         text.push_str(&value);
                     }
                     ChatAssistantContentPart::Refusal { .. } => {
@@ -229,35 +218,33 @@ fn chat_content_part_to_response_part(
     part: ChatContentPart,
 ) -> Result<ResponseInputContentPart, TransformError> {
     match part {
-        ChatContentPart::Text { text, extra } => {
-            Ok(ResponseInputContentPart::InputText { text, extra })
-        }
-        ChatContentPart::ImageUrl { image_url, extra } => {
-            require_empty_extra(image_url.extra, "image_url")?;
-            Ok(ResponseInputContentPart::InputImage {
-                detail: image_url.detail.map(chat_detail_to_response_detail),
-                file_id: None,
-                image_url: Some(image_url.url),
-                extra,
-            })
-        }
-        ChatContentPart::InputAudio { input_audio, extra } => {
+        ChatContentPart::Text { text, .. } => Ok(ResponseInputContentPart::InputText {
+            text,
+            extra: Extra::new(),
+        }),
+        ChatContentPart::ImageUrl { image_url, .. } => Ok(ResponseInputContentPart::InputImage {
+            detail: image_url.detail.map(chat_detail_to_response_detail),
+            file_id: None,
+            image_url: Some(image_url.url),
+            extra: Extra::new(),
+        }),
+        ChatContentPart::InputAudio { input_audio, .. } => {
             Ok(ResponseInputContentPart::InputAudio {
                 input_audio: InputAudioContent {
                     data: input_audio.data,
                     format: input_audio.format,
-                    extra: input_audio.extra,
+                    extra: Extra::new(),
                 },
-                extra,
+                extra: Extra::new(),
             })
         }
-        ChatContentPart::File { file, extra } => Ok(ResponseInputContentPart::InputFile {
+        ChatContentPart::File { file, .. } => Ok(ResponseInputContentPart::InputFile {
             detail: None,
             file_data: file.file_data,
             file_id: file.file_id,
             file_url: None,
             filename: file.filename,
-            extra: merge_extra(extra, file.extra),
+            extra: Extra::new(),
         }),
     }
 }
@@ -281,7 +268,7 @@ fn chat_response_format_to_response_format(
                 schema: json_schema,
                 description: schema.json_schema.description,
                 strict: schema.json_schema.strict,
-                extra: merge_extra(schema.extra, schema.json_schema.extra),
+                extra: Extra::new(),
             }))
         }
     }
@@ -316,33 +303,4 @@ fn reject_some<T>(value: &Option<T>, field: &'static str) -> Result<(), Transfor
         });
     }
     Ok(())
-}
-
-fn carry_extra(
-    extra: Extra,
-    ctx: &TransformContext,
-    field: &'static str,
-) -> Result<Extra, TransformError> {
-    if ctx.preserve_unknown_fields || extra.is_empty() {
-        return Ok(extra);
-    }
-    Err(TransformError::LossyField {
-        field,
-        reason: "extra fields would be dropped",
-    })
-}
-
-fn require_empty_extra(extra: Extra, field: &'static str) -> Result<(), TransformError> {
-    if extra.is_empty() {
-        return Ok(());
-    }
-    Err(TransformError::LossyField {
-        field,
-        reason: "extra fields would be dropped",
-    })
-}
-
-fn merge_extra(mut first: Extra, second: Extra) -> Extra {
-    first.extend(second);
-    first
 }

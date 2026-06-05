@@ -15,9 +15,9 @@ provider wire models only.
   - tool id/result helpers
   - usage arithmetic
   - error construction helpers
-  - metadata/extra-field preservation helpers
-- Unknown provider fields may move through only when the target wire shape has
-  a safe `extra` or metadata location. Otherwise return `TransformError::LossyField`.
+  - metadata helpers
+- Provider `extra` fields are not preserved by transforms. Pair files should
+  drop source `extra` fields and initialize target `extra` fields as empty.
 
 ## Pair Files
 

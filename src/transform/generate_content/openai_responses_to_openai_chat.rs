@@ -5,7 +5,7 @@ use crate::transform::{TransformContext, TransformError};
 
 pub fn request(
     input: ResponseCreateRequest,
-    ctx: &TransformContext,
+    _: &TransformContext,
 ) -> Result<ChatCompletionRequest, TransformError> {
     reject_some(&input.background, "background")?;
     reject_some(&input.context_management, "context_management")?;
@@ -37,37 +37,26 @@ pub fn request(
         });
     }
     if let Some(input) = input.input {
-        append_response_input(input, &mut messages, ctx)?;
+        append_response_input(input, &mut messages)?;
     }
 
-    let stream_options = input
-        .stream_options
-        .map(|options| {
-            let extra = carry_extra(options.extra, ctx, "stream_options")?;
-            Ok(StreamOptions {
-                include_obfuscation: options.include_obfuscation,
-                include_usage: None,
-                extra,
-            })
-        })
-        .transpose()?;
+    let stream_options = input.stream_options.map(|options| StreamOptions {
+        include_obfuscation: options.include_obfuscation,
+        include_usage: None,
+        extra: Extra::new(),
+    });
 
-    let (reasoning_effort, reasoning_extra) = match input.reasoning {
+    let reasoning_effort = match input.reasoning {
         Some(reasoning) => {
             reject_some(&reasoning.summary, "reasoning.summary")?;
             reject_some(&reasoning.generate_summary, "reasoning.generate_summary")?;
-            (reasoning.effort, reasoning.extra)
+            reasoning.effort
         }
-        None => (None, Extra::new()),
+        None => None,
     };
-    carry_extra(reasoning_extra, ctx, "reasoning")?;
 
     let verbosity = match input.text {
-        Some(text) => {
-            let extra = carry_extra(text.extra, ctx, "text")?;
-            drop(extra);
-            text.verbosity
-        }
+        Some(text) => text.verbosity,
         None => None,
     };
 
@@ -108,14 +97,13 @@ pub fn request(
         user: input.user,
         verbosity,
         web_search_options: None,
-        extra: carry_extra(input.extra, ctx, "request")?,
+        extra: Extra::new(),
     })
 }
 
 fn append_response_input(
     input: ResponseInput,
     messages: &mut Vec<ChatCompletionMessageParam>,
-    ctx: &TransformContext,
 ) -> Result<(), TransformError> {
     match input {
         ResponseInput::Text(text) => {
@@ -127,7 +115,7 @@ fn append_response_input(
         }
         ResponseInput::Items(items) => {
             for item in items {
-                messages.push(response_item_to_chat_message(item, ctx)?);
+                messages.push(response_item_to_chat_message(item)?);
             }
         }
     }
@@ -137,7 +125,6 @@ fn append_response_input(
 
 fn response_item_to_chat_message(
     item: ResponseItem,
-    ctx: &TransformContext,
 ) -> Result<ChatCompletionMessageParam, TransformError> {
     match item {
         ResponseItem::Message(ResponseMessageItem::EasyInput(message)) => {
@@ -150,7 +137,7 @@ fn response_item_to_chat_message(
             input_message_to_chat_message(message)
         }
         ResponseItem::Message(ResponseMessageItem::Output(message)) => {
-            output_message_to_chat_message(message, ctx)
+            output_message_to_chat_message(message)
         }
         ResponseItem::Typed(_) => Err(TransformError::UnsupportedField {
             field: "input",
@@ -170,23 +157,22 @@ fn easy_message_to_chat_message(
         ResponseEasyInputContent::Text(text) => text,
         ResponseEasyInputContent::Parts(parts) => response_input_parts_to_text(parts)?,
     };
-    let extra = message.extra;
 
     match message.role {
         ResponseEasyInputMessageRole::Developer => Ok(ChatCompletionMessageParam::Developer {
             content: ChatTextContent::Text(content),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
         ResponseEasyInputMessageRole::System => Ok(ChatCompletionMessageParam::System {
             content: ChatTextContent::Text(content),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
         ResponseEasyInputMessageRole::User => Ok(ChatCompletionMessageParam::User {
             content: ChatContent::Text(content),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
         ResponseEasyInputMessageRole::Assistant => Ok(ChatCompletionMessageParam::Assistant {
             content: Some(ChatAssistantContent::Text(content)),
@@ -195,7 +181,7 @@ fn easy_message_to_chat_message(
             name: None,
             refusal: None,
             tool_calls: None,
-            extra,
+            extra: Extra::new(),
         }),
     }
 }
@@ -203,29 +189,27 @@ fn easy_message_to_chat_message(
 fn input_message_to_chat_message(
     message: ResponseInputMessageItem,
 ) -> Result<ChatCompletionMessageParam, TransformError> {
-    let extra = message.extra;
     match message.role {
         ResponseInputMessageRole::Developer => Ok(ChatCompletionMessageParam::Developer {
             content: ChatTextContent::Text(response_input_parts_to_text(message.content)?),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
         ResponseInputMessageRole::System => Ok(ChatCompletionMessageParam::System {
             content: ChatTextContent::Text(response_input_parts_to_text(message.content)?),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
         ResponseInputMessageRole::User => Ok(ChatCompletionMessageParam::User {
             content: ChatContent::Parts(response_input_parts_to_chat_parts(message.content)?),
             name: None,
-            extra,
+            extra: Extra::new(),
         }),
     }
 }
 
 fn output_message_to_chat_message(
     message: ResponseOutputMessageItem,
-    ctx: &TransformContext,
 ) -> Result<ChatCompletionMessageParam, TransformError> {
     reject_some(&message.phase, "output.phase")?;
 
@@ -233,18 +217,13 @@ fn output_message_to_chat_message(
     let mut refusal = None;
     for part in message.content {
         match part {
-            ResponseMessageOutputContentPart::OutputText { text, extra, .. } => {
-                carry_extra(extra, ctx, "output_text")?;
+            ResponseMessageOutputContentPart::OutputText { text, .. } => {
                 parts.push(ChatAssistantContentPart::Text {
                     text,
                     extra: Extra::new(),
                 });
             }
-            ResponseMessageOutputContentPart::Refusal {
-                refusal: value,
-                extra,
-            } => {
-                carry_extra(extra, ctx, "refusal")?;
+            ResponseMessageOutputContentPart::Refusal { refusal: value, .. } => {
                 refusal = Some(value.clone());
                 parts.push(ChatAssistantContentPart::Refusal {
                     refusal: value,
@@ -261,7 +240,7 @@ fn output_message_to_chat_message(
         name: None,
         refusal,
         tool_calls: None,
-        extra: message.extra,
+        extra: Extra::new(),
     })
 }
 
@@ -271,8 +250,7 @@ fn response_input_parts_to_text(
     let mut text = String::new();
     for part in parts {
         match part {
-            ResponseInputContentPart::InputText { text: value, extra } => {
-                require_empty_extra(extra, "input_text")?;
+            ResponseInputContentPart::InputText { text: value, .. } => {
                 text.push_str(&value);
             }
             _ => {
@@ -292,13 +270,13 @@ fn response_input_parts_to_chat_parts(
     parts
         .into_iter()
         .map(|part| match part {
-            ResponseInputContentPart::InputText { text, extra } => {
-                Ok(ChatContentPart::Text { text, extra })
-            }
+            ResponseInputContentPart::InputText { text, .. } => Ok(ChatContentPart::Text {
+                text,
+                extra: Extra::new(),
+            }),
             ResponseInputContentPart::InputImage {
                 detail,
                 image_url: Some(url),
-                extra,
                 ..
             } => Ok(ChatContentPart::ImageUrl {
                 image_url: ImageUrl {
@@ -306,23 +284,22 @@ fn response_input_parts_to_chat_parts(
                     detail: detail.map(response_detail_to_chat_detail).transpose()?,
                     extra: Extra::new(),
                 },
-                extra,
+                extra: Extra::new(),
             }),
-            ResponseInputContentPart::InputAudio { input_audio, extra } => {
+            ResponseInputContentPart::InputAudio { input_audio, .. } => {
                 Ok(ChatContentPart::InputAudio {
                     input_audio: InputAudio {
                         data: input_audio.data,
                         format: input_audio.format,
-                        extra: input_audio.extra,
+                        extra: Extra::new(),
                     },
-                    extra,
+                    extra: Extra::new(),
                 })
             }
             ResponseInputContentPart::InputFile {
                 file_data,
                 file_id,
                 filename,
-                extra,
                 ..
             } => Ok(ChatContentPart::File {
                 file: ChatFileRef {
@@ -331,7 +308,7 @@ fn response_input_parts_to_chat_parts(
                     filename,
                     extra: Extra::new(),
                 },
-                extra,
+                extra: Extra::new(),
             }),
             _ => Err(TransformError::UnsupportedField {
                 field: "content",
@@ -363,28 +340,4 @@ fn reject_some<T>(value: &Option<T>, field: &'static str) -> Result<(), Transfor
         });
     }
     Ok(())
-}
-
-fn carry_extra(
-    extra: Extra,
-    ctx: &TransformContext,
-    field: &'static str,
-) -> Result<Extra, TransformError> {
-    if ctx.preserve_unknown_fields || extra.is_empty() {
-        return Ok(extra);
-    }
-    Err(TransformError::LossyField {
-        field,
-        reason: "extra fields would be dropped",
-    })
-}
-
-fn require_empty_extra(extra: Extra, field: &'static str) -> Result<(), TransformError> {
-    if extra.is_empty() {
-        return Ok(());
-    }
-    Err(TransformError::LossyField {
-        field,
-        reason: "extra fields would be dropped",
-    })
 }
