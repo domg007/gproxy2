@@ -1,16 +1,42 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 
 use super::super::common::*;
 use super::{ResponseContentPart, ResponseItem, ResponseObject, ResponseReasoningSummaryPart};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ResponseStreamEvent {
     Known(KnownResponseStreamEvent),
     Unknown(UnknownResponseStreamEvent),
+}
+
+impl<'de> Deserialize<'de> for ResponseStreamEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let Some(type_name) = value.get("type").and_then(Value::as_str) else {
+            return serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom);
+        };
+
+        let event_type =
+            serde_json::from_value::<ResponseStreamEventType>(Value::String(type_name.to_owned()))
+                .map_err(de::Error::custom)?;
+
+        match event_type {
+            ResponseStreamEventType::Known(_) => serde_json::from_value(value)
+                .map(Self::Known)
+                .map_err(de::Error::custom),
+            ResponseStreamEventType::Unknown(_) => serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -664,5 +690,17 @@ mod tests {
         .expect("unknown event should deserialize");
 
         assert!(matches!(event, ResponseStreamEvent::Unknown(_)));
+    }
+
+    #[test]
+    fn response_stream_event_rejects_invalid_known_event_shape() {
+        let result = serde_json::from_value::<ResponseStreamEvent>(json!({
+            "type": "response.output_text.delta",
+            "item_id": "msg_123",
+            "output_index": 0,
+            "content_index": 0
+        }));
+
+        assert!(result.is_err());
     }
 }
