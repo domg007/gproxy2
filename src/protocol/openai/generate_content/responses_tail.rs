@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::super::common::*;
 use super::response_items::ResponseItem;
 use super::response_tools::ResponseTool;
-use super::responses::ResponseInput;
+use super::responses::{ResponseConversationParam, ResponseInput};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextManagement {
@@ -63,6 +63,12 @@ pub struct ResponseObject {
     pub id: String,
     pub created_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ResponseConversationParam>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ResponseError>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incomplete_details: Option<IncompleteDetails>,
@@ -71,9 +77,13 @@ pub struct ResponseObject {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tool_calls: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<OpenAiModelId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<ResponseModeration>,
     pub object: OpenAiObjectType,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output: Vec<ResponseItem>,
@@ -82,9 +92,17 @@ pub struct ResponseObject {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<PromptRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,6 +118,8 @@ pub struct ResponseObject {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ResponseTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_logprobs: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncation: Option<TruncationStrategy>,
@@ -113,10 +133,68 @@ pub struct ResponseObject {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseError {
-    pub code: String,
+    pub code: ResponseErrorCode,
     pub message: String,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseModeration {
+    pub input: ResponseModerationOutcome,
+    pub output: ResponseModerationOutcome,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResponseModerationOutcome {
+    Result(ModerationResult),
+    Error(ModerationError),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModerationResult {
+    pub categories: BTreeMap<String, bool>,
+    pub category_applied_input_types: BTreeMap<String, Vec<ModerationInputType>>,
+    pub category_scores: BTreeMap<String, f64>,
+    pub flagged: bool,
+    pub model: OpenAiModelId,
+    #[serde(rename = "type")]
+    pub type_: ModerationResultType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModerationInputType {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "image")]
+    Image,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModerationResultType {
+    #[serde(rename = "moderation_result")]
+    ModerationResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModerationError {
+    pub code: String,
+    pub message: String,
+    #[serde(rename = "type")]
+    pub type_: ModerationErrorType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModerationErrorType {
+    #[serde(rename = "error")]
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,4 +230,59 @@ pub struct ResponseOutputTokensDetails {
     pub reasoning_tokens: u32,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn response_object_models_returned_metadata_fields() {
+        let response: ResponseObject = serde_json::from_value(json!({
+            "id": "resp_123",
+            "created_at": 1,
+            "object": "response",
+            "output": [],
+            "background": true,
+            "completed_at": 2,
+            "conversation": { "id": "conv_123" },
+            "max_tool_calls": 3,
+            "moderation": {
+                "input": {
+                    "categories": { "violence": false },
+                    "category_applied_input_types": { "violence": ["text"] },
+                    "category_scores": { "violence": 0.01 },
+                    "flagged": false,
+                    "model": "omni-moderation-latest",
+                    "type": "moderation_result"
+                },
+                "output": {
+                    "code": "server_error",
+                    "message": "moderation failed",
+                    "type": "error"
+                }
+            },
+            "prompt": { "id": "pmpt_123" },
+            "prompt_cache_key": "cache-key",
+            "prompt_cache_retention": "24h",
+            "safety_identifier": "safe-user",
+            "top_logprobs": 2
+        }))
+        .expect("response object should deserialize");
+
+        assert_eq!(response.background, Some(true));
+        assert_eq!(response.completed_at, Some(2));
+        assert_eq!(response.conversation.expect("conversation").id, "conv_123");
+        assert_eq!(response.max_tool_calls, Some(3));
+        assert!(matches!(
+            response.moderation.expect("moderation").input,
+            ResponseModerationOutcome::Result(_)
+        ));
+        assert_eq!(response.prompt.expect("prompt").id, "pmpt_123");
+        assert_eq!(response.prompt_cache_key.as_deref(), Some("cache-key"));
+        assert_eq!(response.top_logprobs, Some(2));
+        assert!(!response.extra.contains_key("moderation"));
+    }
 }
