@@ -118,10 +118,10 @@ mod tests {
         }))
         .expect("response create request should deserialize");
 
-        assert_eq!(
+        assert!(matches!(
             request.moderation.expect("moderation").model,
-            "omni-moderation-latest"
-        );
+            OpenAiModelId::Known(OpenAiModelIdKnown::OmniModerationLatest)
+        ));
         assert!(!request.extra.contains_key("moderation"));
     }
 }
