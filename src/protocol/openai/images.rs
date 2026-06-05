@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
+use serde_json::Value;
 
 use super::common::*;
 
@@ -138,11 +139,27 @@ pub struct ImageTokenDetails {
     pub extra: Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ImageStreamEvent {
     Known(KnownImageStreamEvent),
     Unknown(UnknownImageStreamEvent),
+}
+
+impl<'de> Deserialize<'de> for ImageStreamEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match image_stream_event_type::<D::Error>(&value)? {
+            Some(ImageStreamEventType::Known(_)) => serde_json::from_value(value)
+                .map(Self::Known)
+                .map_err(de::Error::custom),
+            Some(ImageStreamEventType::Unknown(_)) | None => serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -180,11 +197,33 @@ pub enum KnownImageStreamEvent {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ImageGenerationStreamEvent {
     Known(KnownImageGenerationStreamEvent),
     Unknown(UnknownImageStreamEvent),
+}
+
+impl<'de> Deserialize<'de> for ImageGenerationStreamEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match image_stream_event_type::<D::Error>(&value)? {
+            Some(ImageStreamEventType::Known(
+                ImageStreamEventTypeKnown::ImageGenerationPartialImage
+                | ImageStreamEventTypeKnown::ImageGenerationCompleted,
+            )) => serde_json::from_value(value)
+                .map(Self::Known)
+                .map_err(de::Error::custom),
+            Some(ImageStreamEventType::Known(_)) => Err(de::Error::custom(
+                "known image edit stream event cannot deserialize as image generation stream event",
+            )),
+            Some(ImageStreamEventType::Unknown(_)) | None => serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,11 +246,33 @@ pub enum KnownImageGenerationStreamEvent {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ImageEditStreamEvent {
     Known(KnownImageEditStreamEvent),
     Unknown(UnknownImageStreamEvent),
+}
+
+impl<'de> Deserialize<'de> for ImageEditStreamEvent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match image_stream_event_type::<D::Error>(&value)? {
+            Some(ImageStreamEventType::Known(
+                ImageStreamEventTypeKnown::ImageEditPartialImage
+                | ImageStreamEventTypeKnown::ImageEditCompleted,
+            )) => serde_json::from_value(value)
+                .map(Self::Known)
+                .map_err(de::Error::custom),
+            Some(ImageStreamEventType::Known(_)) => Err(de::Error::custom(
+                "known image generation stream event cannot deserialize as image edit stream event",
+            )),
+            Some(ImageStreamEventType::Unknown(_)) | None => serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -240,6 +301,19 @@ pub struct UnknownImageStreamEvent {
     pub type_: Option<ImageStreamEventType>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+fn image_stream_event_type<E>(value: &Value) -> Result<Option<ImageStreamEventType>, E>
+where
+    E: de::Error,
+{
+    let Some(type_name) = value.get("type").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+
+    serde_json::from_value(Value::String(type_name.to_owned()))
+        .map(Some)
+        .map_err(de::Error::custom)
 }
 
 #[cfg(test)]
@@ -293,6 +367,26 @@ mod tests {
         .expect("unknown image stream event should deserialize");
 
         assert!(matches!(event, ImageStreamEvent::Unknown(_)));
+    }
+
+    #[test]
+    fn image_stream_event_rejects_invalid_known_event_shape() {
+        let result = serde_json::from_value::<ImageStreamEvent>(json!({
+            "type": "image_generation.partial_image",
+            "b64_json": "..."
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn image_generation_stream_rejects_edit_event_type() {
+        let result = serde_json::from_value::<ImageGenerationStreamEvent>(json!({
+            "type": "image_edit.completed",
+            "b64_json": "..."
+        }));
+
+        assert!(result.is_err());
     }
 
     #[test]
