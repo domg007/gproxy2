@@ -687,7 +687,7 @@ pub enum ResponseToolOutputContentPart {
 pub enum ResponseMessageOutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         annotations: Vec<ResponseAnnotation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<Vec<TokenLogprob>>,
@@ -708,7 +708,7 @@ pub enum ResponseMessageOutputContentPart {
 pub enum ResponseOutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         annotations: Vec<ResponseAnnotation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<Vec<TokenLogprob>>,
@@ -1166,6 +1166,22 @@ mod tests {
             "content": [{
                 "type": "reasoning_text",
                 "text": "hidden"
+            }]
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn response_output_text_requires_documented_annotations_array() {
+        let result = serde_json::from_value::<ResponseItem>(json!({
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{
+                "type": "output_text",
+                "text": "hello"
             }]
         }));
 
