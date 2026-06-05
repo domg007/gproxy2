@@ -147,6 +147,25 @@ mod tests {
         ));
         assert!(!response.extra.contains_key("moderation"));
     }
+
+    #[test]
+    fn chat_completion_choice_models_assistant_message_role() {
+        let choice: ChatCompletionChoice = serde_json::from_value(json!({
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "hello"
+            }
+        }))
+        .expect("chat completion choice should deserialize");
+
+        assert!(matches!(
+            choice.finish_reason,
+            ChatFinishReason::Known(ChatFinishReasonKnown::Stop)
+        ));
+        assert_eq!(choice.message.role, ChatCompletionMessageRole::Assistant);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -344,7 +363,7 @@ pub struct ChatCompletionResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatCompletionChoice {
-    pub finish_reason: Option<ChatFinishReason>,
+    pub finish_reason: ChatFinishReason,
     pub index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<ChatChoiceLogprobs>,
@@ -386,7 +405,7 @@ pub enum ChatCompletionModerationResultsType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: ChatMessageRole,
+    pub role: ChatCompletionMessageRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -401,4 +420,10 @@ pub struct ChatMessage {
     pub tool_calls: Option<Vec<ChatToolCall>>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatCompletionMessageRole {
+    #[serde(rename = "assistant")]
+    Assistant,
 }
