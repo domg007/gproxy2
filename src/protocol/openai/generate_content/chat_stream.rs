@@ -45,6 +45,8 @@ pub struct ChatDelta {
     pub tool_calls: Option<Vec<ChatToolCallDelta>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCallDelta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub obfuscation: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -139,5 +141,29 @@ mod tests {
         }));
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn chat_delta_models_stream_obfuscation() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1694268190,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": "hello",
+                    "obfuscation": "abc123"
+                },
+                "finish_reason": null
+            }]
+        }))
+        .expect("chat completion chunk should deserialize");
+
+        assert_eq!(
+            chunk.choices[0].delta.obfuscation.as_deref(),
+            Some("abc123")
+        );
     }
 }

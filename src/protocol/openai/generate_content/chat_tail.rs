@@ -9,7 +9,7 @@ use super::chat::ChatTextContent;
 pub struct ImageUrl {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<DetailLevel>,
+    pub detail: Option<ChatImageDetailLevel>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -183,8 +183,7 @@ pub struct ChatWebSearchOptions {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatWebSearchUserLocation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub approximate: Option<ApproximateLocation>,
+    pub approximate: ApproximateLocation,
     #[serde(rename = "type")]
     pub type_: ApproximateLocationType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -248,5 +247,24 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn chat_image_detail_rejects_response_only_original() {
+        let result = serde_json::from_value::<ImageUrl>(json!({
+            "url": "https://example.com/image.png",
+            "detail": "original"
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn chat_web_search_user_location_requires_approximate_object() {
+        let result = serde_json::from_value::<ChatWebSearchUserLocation>(json!({
+            "type": "approximate"
+        }));
+
+        assert!(result.is_err());
     }
 }

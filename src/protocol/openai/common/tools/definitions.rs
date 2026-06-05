@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::super::{CustomToolGrammarSyntax, CustomToolInputFormatType, Extra, JsonSchema};
+use super::super::{CustomToolGrammarSyntax, Extra, JsonSchema};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionDefinition {
@@ -47,29 +47,44 @@ pub struct CustomToolDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CustomToolInputFormat {
+#[serde(untagged)]
+pub enum CustomToolInputFormat {
+    Text(CustomToolTextFormat),
+    Grammar(CustomToolGrammarFormat),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomToolTextFormat {
     #[serde(rename = "type")]
-    pub type_: CustomToolInputFormatType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub grammar: Option<CustomToolGrammar>,
-    #[serde(
-        default,
-        flatten,
-        skip_serializing_if = "std::collections::BTreeMap::is_empty"
-    )]
-    pub extra: Extra,
+    pub type_: CustomToolTextFormatType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CustomToolTextFormatType {
+    #[serde(rename = "text")]
+    Text,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomToolGrammarFormat {
+    #[serde(rename = "type")]
+    pub type_: CustomToolGrammarFormatType,
+    pub grammar: CustomToolGrammar,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CustomToolGrammarFormatType {
+    #[serde(rename = "grammar")]
+    Grammar,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CustomToolGrammar {
     pub definition: String,
     pub syntax: CustomToolGrammarSyntax,
-    #[serde(
-        default,
-        flatten,
-        skip_serializing_if = "std::collections::BTreeMap::is_empty"
-    )]
-    pub extra: Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,4 +96,47 @@ pub struct NamedTool {
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn custom_tool_input_format_matches_documented_union() {
+        let text: CustomToolInputFormat = serde_json::from_value(json!({
+            "type": "text"
+        }))
+        .expect("text format should deserialize");
+        assert!(matches!(text, CustomToolInputFormat::Text(_)));
+
+        let grammar: CustomToolInputFormat = serde_json::from_value(json!({
+            "type": "grammar",
+            "grammar": {
+                "definition": "start: /.+/",
+                "syntax": "lark"
+            }
+        }))
+        .expect("grammar format should deserialize");
+        assert!(matches!(grammar, CustomToolInputFormat::Grammar(_)));
+
+        assert!(
+            serde_json::from_value::<CustomToolInputFormat>(json!({
+                "type": "grammar"
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<CustomToolInputFormat>(json!({
+                "type": "text",
+                "grammar": {
+                    "definition": "start: /.+/",
+                    "syntax": "lark"
+                }
+            }))
+            .is_err()
+        );
+    }
 }

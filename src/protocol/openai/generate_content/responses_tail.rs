@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::response_items::ResponseItem;
+use super::response_items::ResponseOutputItem;
 use super::response_tools::ResponseTool;
 use super::responses::{ResponseConversationParam, ResponseInput};
 
@@ -60,7 +60,7 @@ pub enum PromptVariableInputContentPart {
     #[serde(rename = "input_file")]
     InputFile {
         #[serde(skip_serializing_if = "Option::is_none")]
-        detail: Option<DetailLevel>,
+        detail: Option<InputFileDetailLevel>,
         #[serde(skip_serializing_if = "Option::is_none")]
         file_data: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,8 +131,7 @@ pub struct ResponseObject {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moderation: Option<ResponseModeration>,
     pub object: ResponseObjectType,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub output: Vec<ResponseItem>,
+    pub output: Vec<ResponseOutputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,5 +367,35 @@ mod tests {
 
         assert!(undocumented_status);
         assert!(undocumented_reason);
+    }
+
+    #[test]
+    fn response_object_requires_output_array() {
+        let result = serde_json::from_value::<ResponseObject>(json!({
+            "id": "resp_123",
+            "created_at": 1,
+            "object": "response"
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn response_object_accepts_returned_input_item_instructions() {
+        let response: ResponseObject = serde_json::from_value(json!({
+            "id": "resp_123",
+            "created_at": 1,
+            "object": "response",
+            "output": [],
+            "instructions": [
+                { "role": "developer", "content": "Be concise." }
+            ]
+        }))
+        .expect("response object should deserialize");
+
+        assert!(matches!(
+            response.instructions,
+            Some(ResponseInput::Items(items)) if items.len() == 1
+        ));
     }
 }

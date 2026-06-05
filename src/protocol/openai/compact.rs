@@ -25,7 +25,7 @@ pub struct CompactResponseRequestBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<ServiceTier>,
+    pub service_tier: Option<CompactServiceTier>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -35,7 +35,6 @@ pub struct CompactedResponseObject {
     pub id: String,
     pub created_at: u64,
     pub object: ResponseCompactionObjectType,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output: Vec<CompactResponseItem>,
     pub usage: ResponseUsage,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -124,6 +123,18 @@ pub enum CompactMessageRole {
     Tool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompactServiceTier {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "flex")]
+    Flex,
+    #[serde(rename = "priority")]
+    Priority,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -153,7 +164,14 @@ mod tests {
             request.prompt_cache_retention,
             Some(PromptCacheRetention::TwentyFourHours)
         );
-        assert_eq!(request.service_tier, Some(ServiceTier::Priority));
+        assert_eq!(request.service_tier, Some(CompactServiceTier::Priority));
+        assert!(
+            serde_json::from_value::<CompactResponseRequestBody>(json!({
+                "model": "gpt-5.4",
+                "service_tier": "scale"
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -204,6 +222,22 @@ mod tests {
             &response.output[1],
             CompactResponseItem::Typed(TypedResponseItem::Compaction { .. })
         ));
+
+        assert!(
+            serde_json::from_value::<CompactedResponseObject>(json!({
+                "id": "resp_001",
+                "object": "response.compaction",
+                "created_at": 1764967971u64,
+                "usage": {
+                    "input_tokens": 139,
+                    "input_tokens_details": { "cached_tokens": 0 },
+                    "output_tokens": 438,
+                    "output_tokens_details": { "reasoning_tokens": 64 },
+                    "total_tokens": 577
+                }
+            }))
+            .is_err()
+        );
     }
 
     #[test]

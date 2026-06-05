@@ -55,7 +55,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<ResponseFormat>,
+    pub response_format: Option<ChatResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub safety_identifier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,6 +130,42 @@ mod tests {
         assert_eq!(logit_bias.get("50256"), Some(&-100.0));
         assert_eq!(logit_bias.get("198"), Some(&1.5));
         assert!(!request.extra.contains_key("logit_bias"));
+    }
+
+    #[test]
+    fn chat_completion_request_requires_nested_json_schema_response_format() {
+        let nested: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "answer",
+                    "schema": { "type": "object" }
+                }
+            }
+        }))
+        .expect("chat nested response format should deserialize");
+        assert!(matches!(
+            nested.response_format,
+            Some(ChatResponseFormat::ChatJsonSchema(_))
+        ));
+
+        let flat = serde_json::from_value::<ChatCompletionRequest>(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "name": "answer",
+                "schema": { "type": "object" }
+            }
+        }));
+
+        assert!(flat.is_err());
     }
 
     #[test]

@@ -4,8 +4,15 @@ use super::{Extra, JsonSchema};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ResponseFormat {
+pub enum ChatResponseFormat {
     ChatJsonSchema(ChatJsonSchemaFormat),
+    Text(TextResponseFormat),
+    JsonObject(JsonObjectResponseFormat),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResponseFormat {
     JsonSchema(JsonSchemaResponseFormat),
     Text(TextResponseFormat),
     JsonObject(JsonObjectResponseFormat),

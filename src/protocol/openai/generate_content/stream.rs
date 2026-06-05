@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 
 use super::super::common::*;
-use super::{ResponseContentPart, ResponseItem, ResponseObject, ResponseReasoningSummaryPart};
+use super::{
+    ResponseContentPart, ResponseObject, ResponseOutputItem, ResponseReasoningSummaryPart,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ResponseStreamEvent {
@@ -92,7 +94,7 @@ pub enum KnownResponseStreamEvent {
     },
     #[serde(rename = "response.output_item.added")]
     ResponseOutputItemAdded {
-        item: Box<ResponseItem>,
+        item: Box<ResponseOutputItem>,
         output_index: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         sequence_number: Option<u64>,
@@ -101,7 +103,7 @@ pub enum KnownResponseStreamEvent {
     },
     #[serde(rename = "response.output_item.done")]
     ResponseOutputItemDone {
-        item: Box<ResponseItem>,
+        item: Box<ResponseOutputItem>,
         output_index: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         sequence_number: Option<u64>,

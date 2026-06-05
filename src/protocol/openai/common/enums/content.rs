@@ -107,6 +107,17 @@ strict_string_enum!(DetailLevel {
     Original => "original",
 });
 
+strict_string_enum!(ChatImageDetailLevel {
+    Auto => "auto",
+    Low => "low",
+    High => "high",
+});
+
+strict_string_enum!(InputFileDetailLevel {
+    Low => "low",
+    High => "high",
+});
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -119,6 +130,8 @@ mod tests {
         assert!(serde_json::from_value::<ReasoningEffort>(json!("extreme")).is_err());
         assert!(serde_json::from_value::<PromptCacheRetention>(json!("7d")).is_err());
         assert!(serde_json::from_value::<DetailLevel>(json!("medium")).is_err());
+        assert!(serde_json::from_value::<ChatImageDetailLevel>(json!("original")).is_err());
+        assert!(serde_json::from_value::<InputFileDetailLevel>(json!("auto")).is_err());
     }
 
     #[test]

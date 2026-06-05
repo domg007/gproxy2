@@ -27,11 +27,6 @@ pub enum ChatToolCallType {
     Custom,
 }
 
-strict_string_enum!(CustomToolInputFormatType {
-    Text => "text",
-    Grammar => "grammar",
-});
-
 strict_string_enum!(CustomToolGrammarSyntax {
     Lark => "lark",
     Regex => "regex",
@@ -84,7 +79,6 @@ mod tests {
     #[test]
     fn documented_tool_enums_reject_unknown_strings() {
         assert!(serde_json::from_value::<ToolChoiceMode>(json!("maybe")).is_err());
-        assert!(serde_json::from_value::<CustomToolInputFormatType>(json!("json")).is_err());
         assert!(serde_json::from_value::<CustomToolGrammarSyntax>(json!("peg")).is_err());
         assert!(serde_json::from_value::<CodeInterpreterContainerType>(json!("manual")).is_err());
         assert!(serde_json::from_value::<CodeInterpreterMemoryLimit>(json!("2g")).is_err());

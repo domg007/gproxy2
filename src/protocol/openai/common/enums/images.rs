@@ -29,6 +29,13 @@ strict_string_enum!(ImageQuality {
     Auto => "auto",
 });
 
+strict_string_enum!(ImageEditQuality {
+    Low => "low",
+    Medium => "medium",
+    High => "high",
+    Auto => "auto",
+});
+
 strict_string_enum!(ImageResponseQuality {
     Low => "low",
     Medium => "medium",
@@ -49,6 +56,13 @@ extensible_string_enum!(ImageSize, ImageSizeKnown {
     Size512By512 => "512x512",
     Size1792By1024 => "1792x1024",
     Size1024By1792 => "1024x1792",
+});
+
+strict_string_enum!(ImageEditSize {
+    Auto => "auto",
+    Size1024By1024 => "1024x1024",
+    Size1536By1024 => "1536x1024",
+    Size1024By1536 => "1024x1536",
 });
 
 strict_string_enum!(ImageResponseSize {

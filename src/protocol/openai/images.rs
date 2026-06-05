@@ -67,9 +67,9 @@ pub struct ImageEditRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_images: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<ImageQuality>,
+    pub quality: Option<ImageEditQuality>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<ImageSize>,
+    pub size: Option<ImageEditSize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -458,6 +458,20 @@ mod tests {
             "style": "cinematic"
         }));
         assert!(invalid_style.is_err());
+
+        let generation_only_edit_quality = serde_json::from_value::<ImageEditRequest>(json!({
+            "prompt": "make it brighter",
+            "images": [{ "file_id": "file_123" }],
+            "quality": "hd"
+        }));
+        assert!(generation_only_edit_quality.is_err());
+
+        let generation_only_edit_size = serde_json::from_value::<ImageEditRequest>(json!({
+            "prompt": "make it brighter",
+            "images": [{ "file_id": "file_123" }],
+            "size": "1792x1024"
+        }));
+        assert!(generation_only_edit_size.is_err());
     }
 
     #[test]

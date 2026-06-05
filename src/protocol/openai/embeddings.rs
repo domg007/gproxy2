@@ -41,18 +41,11 @@ pub struct EmbeddingResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Embedding {
-    pub embedding: EmbeddingVector,
+    pub embedding: Vec<f64>,
     pub index: u32,
     pub object: EmbeddingObjectType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum EmbeddingVector {
-    Float(Vec<f64>),
-    Base64(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -94,5 +87,24 @@ mod tests {
             Some(EmbeddingEncodingFormat::Base64)
         );
         assert!(!request.extra.contains_key("encoding_format"));
+    }
+
+    #[test]
+    fn embedding_response_rejects_base64_embedding_payload() {
+        let result = serde_json::from_value::<EmbeddingResponse>(json!({
+            "object": "list",
+            "model": "text-embedding-3-small",
+            "data": [{
+                "object": "embedding",
+                "index": 0,
+                "embedding": "AAAA"
+            }],
+            "usage": {
+                "prompt_tokens": 1,
+                "total_tokens": 1
+            }
+        }));
+
+        assert!(result.is_err());
     }
 }

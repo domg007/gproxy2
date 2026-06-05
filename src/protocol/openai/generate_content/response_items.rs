@@ -22,13 +22,17 @@ impl<'de> Deserialize<'de> for ResponseItem {
         let type_name = value.get("type").and_then(Value::as_str);
 
         let Some(type_name) = type_name else {
-            return serde_json::from_value::<ResponseMessageItem>(value.clone())
-                .map(Self::Message)
-                .or_else(|_| {
-                    serde_json::from_value(value)
-                        .map(Self::Unknown)
-                        .map_err(de::Error::custom)
-                });
+            if let Ok(message) = serde_json::from_value::<ResponseMessageItem>(value.clone()) {
+                return Ok(Self::Message(message));
+            }
+
+            if let Some(item_reference) = item_reference_without_type(&value) {
+                return Ok(Self::Typed(item_reference));
+            }
+
+            return serde_json::from_value(value)
+                .map(Self::Unknown)
+                .map_err(de::Error::custom);
         };
 
         let item_type =
@@ -49,6 +53,106 @@ impl<'de> Deserialize<'de> for ResponseItem {
                 .map_err(de::Error::custom),
         }
     }
+}
+
+fn item_reference_without_type(value: &Value) -> Option<TypedResponseItem> {
+    let object = value.as_object()?;
+    let id = object.get("id")?.as_str()?.to_owned();
+    let mut extra = Extra::new();
+
+    for (key, value) in object {
+        if key != "id" {
+            extra.insert(key.clone(), value.clone());
+        }
+    }
+
+    Some(TypedResponseItem::ItemReference { id, extra })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ResponseOutputItem(pub ResponseItem);
+
+impl<'de> Deserialize<'de> for ResponseOutputItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let item = ResponseItem::deserialize(deserializer)?;
+        validate_response_output_item(&item).map_err(de::Error::custom)?;
+        Ok(Self(item))
+    }
+}
+
+fn validate_response_output_item(item: &ResponseItem) -> Result<(), &'static str> {
+    let ResponseItem::Typed(typed) = item else {
+        return Ok(());
+    };
+
+    match typed {
+        TypedResponseItem::ComputerCallOutput { id, status, .. } => {
+            require_some(id, "computer_call_output.id")?;
+            require_some(status, "computer_call_output.status")?;
+        }
+        TypedResponseItem::FunctionCallOutput { id, status, .. } => {
+            require_some(id, "function_call_output.id")?;
+            require_some(status, "function_call_output.status")?;
+        }
+        TypedResponseItem::ToolSearchCall {
+            id,
+            call_id,
+            execution,
+            status,
+            ..
+        } => {
+            require_some(id, "tool_search_call.id")?;
+            require_some(call_id, "tool_search_call.call_id")?;
+            require_some(execution, "tool_search_call.execution")?;
+            require_some(status, "tool_search_call.status")?;
+        }
+        TypedResponseItem::ToolSearchOutput {
+            id,
+            call_id,
+            execution,
+            status,
+            ..
+        } => {
+            require_some(id, "tool_search_output.id")?;
+            require_some(call_id, "tool_search_output.call_id")?;
+            require_some(execution, "tool_search_output.execution")?;
+            require_some(status, "tool_search_output.status")?;
+        }
+        TypedResponseItem::AdditionalTools { id, .. } => {
+            require_some(id, "additional_tools.id")?;
+        }
+        TypedResponseItem::ShellCall {
+            id,
+            environment,
+            status,
+            ..
+        } => {
+            require_some(id, "shell_call.id")?;
+            require_some(environment, "shell_call.environment")?;
+            require_some(status, "shell_call.status")?;
+        }
+        TypedResponseItem::ShellCallOutput {
+            id,
+            max_output_length,
+            status,
+            ..
+        } => {
+            require_some(id, "shell_call_output.id")?;
+            require_some(max_output_length, "shell_call_output.max_output_length")?;
+            require_some(status, "shell_call_output.status")?;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn require_some<T>(value: &Option<T>, field: &'static str) -> Result<(), &'static str> {
+    value.as_ref().map(|_| ()).ok_or(field)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -92,7 +196,7 @@ pub struct ResponseOutputMessageItem {
     pub type_: ResponseMessageItemType,
     pub id: String,
     pub role: ResponseOutputMessageRole,
-    pub content: Vec<ResponseOutputContentPart>,
+    pub content: Vec<ResponseMessageOutputContentPart>,
     pub status: ResponseItemLifecycleStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<ResponsePhase>,
@@ -521,7 +625,7 @@ pub enum ResponseInputContentPart {
     #[serde(rename = "input_file")]
     InputFile {
         #[serde(skip_serializing_if = "Option::is_none")]
-        detail: Option<DetailLevel>,
+        detail: Option<InputFileDetailLevel>,
         #[serde(skip_serializing_if = "Option::is_none")]
         file_data: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -564,7 +668,7 @@ pub enum ResponseToolOutputContentPart {
     #[serde(rename = "input_file")]
     InputFile {
         #[serde(skip_serializing_if = "Option::is_none")]
-        detail: Option<DetailLevel>,
+        detail: Option<InputFileDetailLevel>,
         #[serde(skip_serializing_if = "Option::is_none")]
         file_data: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -573,6 +677,27 @@ pub enum ResponseToolOutputContentPart {
         file_url: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         filename: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseMessageOutputContentPart {
+    #[serde(rename = "output_text")]
+    OutputText {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        annotations: Vec<ResponseAnnotation>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logprobs: Option<Vec<TokenLogprob>>,
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "refusal")]
+    Refusal {
+        refusal: String,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -1032,6 +1157,35 @@ mod tests {
     }
 
     #[test]
+    fn response_output_message_rejects_reasoning_text_content() {
+        let result = serde_json::from_value::<ResponseItem>(json!({
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{
+                "type": "reasoning_text",
+                "text": "hidden"
+            }]
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn response_item_models_optional_type_item_reference() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "id": "item_123"
+        }))
+        .expect("item_reference without type should deserialize");
+
+        assert!(matches!(
+            item,
+            ResponseItem::Typed(TypedResponseItem::ItemReference { id, .. }) if id == "item_123"
+        ));
+    }
+
+    #[test]
     fn response_item_models_function_call_output_content() {
         let item: ResponseItem = serde_json::from_value(json!({
             "type": "function_call_output",
@@ -1057,6 +1211,58 @@ mod tests {
         assert!(matches!(output, ResponseOutput::Parts(_)));
         assert_eq!(created_by.as_deref(), Some("developer"));
         assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_output_item_requires_returned_metadata_fields() {
+        let input_side_item: ResponseItem = serde_json::from_value(json!({
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "ok"
+        }))
+        .expect("input-side tool output can omit returned metadata");
+        assert!(matches!(
+            input_side_item,
+            ResponseItem::Typed(TypedResponseItem::FunctionCallOutput { .. })
+        ));
+
+        assert!(
+            serde_json::from_value::<ResponseOutputItem>(json!({
+                "type": "function_call_output",
+                "call_id": "call_123",
+                "output": "ok"
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ResponseOutputItem>(json!({
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": []
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ResponseOutputItem>(json!({
+                "type": "shell_call",
+                "id": "sh_123",
+                "call_id": "call_123",
+                "action": { "commands": ["pwd"] }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn response_input_file_rejects_image_only_detail_values() {
+        let result = serde_json::from_value::<ResponseInputContentPart>(json!({
+            "type": "input_file",
+            "file_id": "file_123",
+            "detail": "auto"
+        }))
+        .is_err();
+
+        assert!(result);
     }
 
     #[test]

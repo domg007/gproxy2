@@ -40,38 +40,13 @@ pub struct ChatAllowedToolChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatAllowedTools {
     pub mode: AllowedToolsMode,
-    pub tools: Vec<ChatAllowedTool>,
+    pub tools: Vec<Extra>,
     #[serde(
         default,
         flatten,
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ChatAllowedTool {
-    #[serde(rename = "function")]
-    Function {
-        function: NamedTool,
-        #[serde(
-            default,
-            flatten,
-            skip_serializing_if = "std::collections::BTreeMap::is_empty"
-        )]
-        extra: Extra,
-    },
-    #[serde(rename = "custom")]
-    Custom {
-        custom: NamedTool,
-        #[serde(
-            default,
-            flatten,
-            skip_serializing_if = "std::collections::BTreeMap::is_empty"
-        )]
-        extra: Extra,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -421,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_allowed_tools_reject_response_only_entries() {
+    fn chat_allowed_tools_accept_documented_unknown_maps() {
         let allowed_choice: ChatToolChoice = serde_json::from_value(json!({
             "type": "allowed_tools",
             "allowed_tools": {
@@ -439,16 +414,18 @@ mod tests {
         };
         assert_eq!(allowed_tools.tools.len(), 2);
 
-        assert!(
-            serde_json::from_value::<ChatToolChoice>(json!({
-                "type": "allowed_tools",
-                "allowed_tools": {
-                    "mode": "auto",
-                    "tools": [{ "type": "file_search" }]
-                }
-            }))
-            .is_err()
-        );
+        let response_only_entry: ChatToolChoice = serde_json::from_value(json!({
+            "type": "allowed_tools",
+            "allowed_tools": {
+                "mode": "auto",
+                "tools": [{ "type": "file_search" }]
+            }
+        }))
+        .expect("chat allowed tools are documented as map[unknown]");
+        assert!(matches!(
+            response_only_entry,
+            ChatToolChoice::Allowed(ChatAllowedToolChoice { .. })
+        ));
 
         assert!(
             serde_json::from_value::<ChatToolChoice>(json!({
