@@ -11,9 +11,9 @@ pub struct ChatCompletionChunk {
     pub choices: Vec<ChatChunkChoice>,
     pub created: u64,
     pub model: OpenAiModelId,
-    pub object: String,
+    pub object: OpenAiObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,7 +26,7 @@ pub struct ChatCompletionChunk {
 pub struct ChatChunkChoice {
     pub index: u32,
     pub delta: ChatDelta,
-    pub finish_reason: Option<String>,
+    pub finish_reason: Option<ChatFinishReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<ChatChoiceLogprobs>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -36,7 +36,7 @@ pub struct ChatChunkChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub role: Option<ChatMessageRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,7 +55,7 @@ pub struct ChatToolCallDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<String>,
+    pub type_: Option<ToolType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<FunctionCallDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]

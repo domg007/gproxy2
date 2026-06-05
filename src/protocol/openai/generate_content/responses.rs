@@ -21,7 +21,7 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<ResponseConversationRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
+    pub include: Option<Vec<ResponseIncludable>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<ResponseInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -39,11 +39,17 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<PromptRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub safety_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,7 +69,9 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation: Option<String>,
+    pub truncation: Option<TruncationStrategy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -92,17 +100,17 @@ pub enum ResponseInput {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseItem {
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<String>,
+    pub type_: Option<ResponseItemType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub role: Option<ResponseMessageRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<ResponseItemStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
+    pub phase: Option<ResponsePhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<ResponseContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,65 +137,110 @@ pub enum ResponseContent {
 pub enum ResponseOutput {
     Text(String),
     Content(ResponseContent),
-    Object(TypedObject),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseContentPart {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_data: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_audio: Option<InputAudioContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Vec<ResponseAnnotation>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logprobs: Option<Vec<TokenLogprob>>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[serde(tag = "type")]
+pub enum ResponseContentPart {
+    #[serde(rename = "input_text")]
+    InputText {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_image")]
+    InputImage {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_file")]
+    InputFile {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_data: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_audio")]
+    InputAudio {
+        input_audio: InputAudioContent,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "output_text")]
+    OutputText {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        annotations: Vec<ResponseAnnotation>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logprobs: Option<Vec<TokenLogprob>>,
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "refusal")]
+    Refusal {
+        refusal: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InputAudioContent {
     pub data: String,
-    pub format: String,
+    pub format: InputAudioFormat,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseAnnotation {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_index: Option<u32>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[serde(tag = "type")]
+pub enum ResponseAnnotation {
+    #[serde(rename = "file_citation")]
+    FileCitation {
+        file_id: String,
+        filename: String,
+        index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "url_citation")]
+    UrlCitation {
+        end_index: u32,
+        start_index: u32,
+        title: String,
+        url: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "container_file_citation")]
+    ContainerFileCitation {
+        container_id: String,
+        end_index: u32,
+        file_id: String,
+        filename: String,
+        start_index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "file_path")]
+    FilePath {
+        file_id: String,
+        index: u32,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }

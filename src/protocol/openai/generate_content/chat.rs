@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use super::super::common::*;
 use super::chat_stream::ChatCompletionChunk;
 use super::chat_tail::{
-    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs, CompletionUsage,
-    CustomToolCall, FileRef, ImageUrl, InputAudio, PredictionContent, StreamOptions,
+    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs,
+    ChatWebSearchOptions, CompletionUsage, CustomToolCall, FileRef, ImageUrl, InputAudio,
+    PredictionContent, StreamOptions,
 };
 
 pub type ChatCompletionWireModel = OpenAiWireModel<ChatCompletionRequest, ChatCompletionResponse>;
@@ -22,7 +23,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<ToolChoice>,
+    pub function_call: Option<LegacyFunctionCallChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<Vec<FunctionDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,7 +37,9 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modalities: Option<Vec<String>>,
+    pub modalities: Option<Vec<TextOrAudioModality>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<ChatModerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,9 +49,19 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<String>,
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<StringOrList>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,30 +81,120 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verbosity: Option<String>,
+    pub verbosity: Option<Verbosity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_search_options: Option<ChatWebSearchOptions>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChatCompletionMessageParam {
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<ChatContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio: Option<ChatAudioRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_call: Option<FunctionCall>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ChatToolCall>>,
+pub struct ChatModerationConfig {
+    pub model: OpenAiModelId,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "role")]
+pub enum ChatCompletionMessageParam {
+    #[serde(rename = "developer")]
+    Developer {
+        content: ChatTextContent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "system")]
+    System {
+        content: ChatTextContent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "user")]
+    User {
+        content: ChatContent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "assistant")]
+    Assistant {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        content: Option<ChatAssistantContent>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audio: Option<ChatAudioRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        function_call: Option<FunctionCall>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refusal: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_calls: Option<Vec<ChatToolCall>>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "tool")]
+    Tool {
+        content: ChatTextContent,
+        tool_call_id: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "function")]
+    Function {
+        content: String,
+        name: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatTextContent {
+    Text(String),
+    Parts(Vec<ChatTextContentPart>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ChatTextContentPart {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatAssistantContent {
+    Text(String),
+    Parts(Vec<ChatAssistantContentPart>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ChatAssistantContentPart {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "refusal")]
+    Refusal {
+        refusal: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -102,46 +205,68 @@ pub enum ChatContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChatContentPart {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_url: Option<ImageUrl>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_audio: Option<InputAudio>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<FileRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<String>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[serde(tag = "type")]
+pub enum ChatContentPart {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "image_url")]
+    ImageUrl {
+        image_url: ImageUrl,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_audio")]
+    InputAudio {
+        input_audio: InputAudio,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "file")]
+    File {
+        file: FileRef,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChatTool {
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<FunctionDefinition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom: Option<CustomToolDefinition>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[serde(tag = "type")]
+pub enum ChatTool {
+    #[serde(rename = "function")]
+    Function {
+        function: FunctionDefinition,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        custom: CustomToolDefinition,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChatToolCall {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<FunctionCall>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom: Option<CustomToolCall>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
+#[serde(tag = "type")]
+pub enum ChatToolCall {
+    #[serde(rename = "function")]
+    Function {
+        id: String,
+        function: FunctionCall,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        id: String,
+        custom: CustomToolCall,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,9 +275,9 @@ pub struct ChatCompletionResponse {
     pub choices: Vec<ChatCompletionChoice>,
     pub created: u64,
     pub model: OpenAiModelId,
-    pub object: String,
+    pub object: OpenAiObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,7 +288,7 @@ pub struct ChatCompletionResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatCompletionChoice {
-    pub finish_reason: Option<String>,
+    pub finish_reason: Option<ChatFinishReason>,
     pub index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<ChatChoiceLogprobs>,
@@ -174,7 +299,7 @@ pub struct ChatCompletionChoice {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: String,
+    pub role: ChatMessageRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

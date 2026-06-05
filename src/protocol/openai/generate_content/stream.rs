@@ -8,7 +8,7 @@ use super::{ResponseAnnotation, ResponseContentPart, ResponseItem, ResponseObjec
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseStreamEvent {
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: ResponseStreamEventType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence_number: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

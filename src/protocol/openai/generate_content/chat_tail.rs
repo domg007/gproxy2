@@ -3,13 +3,13 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::chat::ChatContent;
+use super::chat::ChatTextContent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageUrl {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
+    pub detail: Option<DetailLevel>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -17,7 +17,7 @@ pub struct ImageUrl {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InputAudio {
     pub data: String,
-    pub format: String,
+    pub format: InputAudioFormat,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -46,7 +46,7 @@ pub struct CustomToolCall {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatAudioParam {
-    pub format: String,
+    pub format: AudioResponseFormat,
     pub voice: VoiceRef,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -69,10 +69,16 @@ pub struct ChatAudioRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PredictionContent {
     #[serde(rename = "type")]
-    pub type_: String,
-    pub content: ChatContent,
+    pub type_: PredictionContentType,
+    pub content: ChatTextContent,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PredictionContentType {
+    #[serde(rename = "content")]
+    Content,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -98,11 +104,16 @@ pub struct ChatChoiceLogprobs {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatAnnotation {
     #[serde(rename = "type")]
-    pub type_: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url_citation: Option<UrlCitation>,
+    pub type_: ChatAnnotationType,
+    pub url_citation: UrlCitation,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatAnnotationType {
+    #[serde(rename = "url_citation")]
+    UrlCitation,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -154,4 +165,44 @@ pub struct PromptTokensDetails {
     pub cached_tokens: Option<u32>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatWebSearchOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_context_size: Option<SearchContextSize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_location: Option<ChatWebSearchUserLocation>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatWebSearchUserLocation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approximate: Option<ApproximateLocation>,
+    #[serde(rename = "type")]
+    pub type_: ApproximateLocationType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApproximateLocation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApproximateLocationType {
+    #[serde(rename = "approximate")]
+    Approximate,
 }

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{Extra, OpenAiModelId, OpenAiWireModel};
+use super::common::*;
 
 pub type EmbeddingWireModel = OpenAiWireModel<EmbeddingRequest, EmbeddingResponse>;
 
@@ -13,7 +13,7 @@ pub struct EmbeddingRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub encoding_format: Option<String>,
+    pub encoding_format: Option<EmbeddingEncodingFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -33,7 +33,7 @@ pub enum EmbeddingInput {
 pub struct EmbeddingResponse {
     pub data: Vec<Embedding>,
     pub model: OpenAiModelId,
-    pub object: String,
+    pub object: OpenAiObjectType,
     pub usage: EmbeddingUsage,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -43,7 +43,7 @@ pub struct EmbeddingResponse {
 pub struct Embedding {
     pub embedding: EmbeddingVector,
     pub index: u32,
-    pub object: String,
+    pub object: OpenAiObjectType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }

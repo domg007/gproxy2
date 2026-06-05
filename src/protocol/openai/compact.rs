@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::common::{Extra, Metadata, OpenAiModelId, OpenAiWireModel, ToolChoice};
+use super::common::*;
 use super::generate_content::{
     ContextManagement, PromptRef, ReasoningConfig, ResponseConversationRef, ResponseInput,
     ResponseObject, ResponseStreamOptions, ResponseTool, TextConfig,
@@ -19,7 +19,7 @@ pub struct CompactResponseRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<ResponseConversationRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
+    pub include: Option<Vec<ResponseIncludable>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<ResponseInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,11 +36,17 @@ pub struct CompactResponseRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<PromptRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub safety_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,7 +66,9 @@ pub struct CompactResponseRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation: Option<String>,
+    pub truncation: Option<TruncationStrategy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
