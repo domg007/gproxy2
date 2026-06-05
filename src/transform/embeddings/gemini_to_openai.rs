@@ -17,8 +17,8 @@ pub fn request(
     for request in requests {
         let converted = request_parts(request, ctx)?;
         inputs.push(converted.text);
-        merge_model(&mut model, converted.model)?;
-        merge_dimensions(&mut dimensions, converted.dimensions)?;
+        merge_model(&mut model, converted.model);
+        merge_dimensions(&mut dimensions, converted.dimensions);
     }
 
     Ok(openai::EmbeddingRequest {
@@ -61,7 +61,7 @@ pub fn response(
             .into_iter()
             .enumerate()
             .map(|(index, embedding)| openai_embedding(embedding, index))
-            .collect::<Result<Vec<_>, _>>()?,
+            .collect(),
         model: DEFAULT_OPENAI_EMBEDDING_MODEL.to_owned().into(),
         object: openai::ListObjectType::List,
         usage: usage(input.usage_metadata)?,
@@ -73,13 +73,9 @@ pub fn single_response(
     input: gemini::EmbedContentResponse,
     ctx: &TransformContext,
 ) -> Result<openai::EmbeddingResponse, TransformError> {
-    let embedding = input.embedding.ok_or(TransformError::InvalidInput {
-        reason: "Gemini embedding response is missing `embedding`".to_owned(),
-    })?;
-
     response(
         gemini::BatchEmbedContentsResponse {
-            embeddings: vec![embedding],
+            embeddings: input.embedding.into_iter().collect(),
             usage_metadata: input.usage_metadata,
             extra: Default::default(),
         },
@@ -97,61 +93,26 @@ fn request_parts(
     input: gemini::EmbedContentRequest,
     _: &TransformContext,
 ) -> Result<ConvertedRequest, TransformError> {
-    if input.task_type.is_some() {
-        return Err(TransformError::UnsupportedField {
-            field: "task_type",
-            reason: "OpenAI embedding request has no task type field",
-        });
-    }
-    if input.title.is_some() {
-        return Err(TransformError::UnsupportedField {
-            field: "title",
-            reason: "OpenAI embedding request has no document title field",
-        });
-    }
-
     Ok(ConvertedRequest {
-        text: content_text(input.content)?,
+        text: content_text(input.content),
         model: input.model,
-        dimensions: input
-            .output_dimensionality
-            .map(|value| i32_to_u32(value, "output_dimensionality"))
-            .transpose()?,
+        dimensions: input.output_dimensionality.map(i32_to_u32),
     })
 }
 
-fn content_text(input: Option<gemini::Content>) -> Result<String, TransformError> {
-    let content = input.ok_or(TransformError::InvalidInput {
-        reason: "Gemini embedding request is missing `content`".to_owned(),
-    })?;
+fn content_text(input: Option<gemini::Content>) -> String {
+    let Some(content) = input else {
+        return String::new();
+    };
     let mut text = String::new();
 
     for part in content.parts {
-        if part.thought.is_some()
-            || part.thought_signature.is_some()
-            || part.part_metadata.is_some()
-            || part.media_resolution.is_some()
-            || part.metadata.is_some()
-        {
-            return Err(TransformError::UnsupportedField {
-                field: "content.parts",
-                reason: "OpenAI embedding input cannot represent Gemini part metadata",
-            });
-        }
-
-        match part.data {
-            Some(gemini::PartData::Text { text: value }) => text.push_str(&value),
-            Some(_) => {
-                return Err(TransformError::UnsupportedField {
-                    field: "content.parts",
-                    reason: "OpenAI embedding input supports text only",
-                });
-            }
-            None => {}
+        if let Some(gemini::PartData::Text { text: value }) = part.data {
+            text.push_str(&value);
         }
     }
 
-    Ok(text)
+    text
 }
 
 fn strings_to_openai_input(values: Vec<String>) -> openai::EmbeddingInput {
@@ -163,52 +124,31 @@ fn strings_to_openai_input(values: Vec<String>) -> openai::EmbeddingInput {
     }
 }
 
-fn merge_model(target: &mut Option<String>, next: Option<String>) -> Result<(), TransformError> {
+fn merge_model(target: &mut Option<String>, next: Option<String>) {
     let Some(next) = next else {
-        return Ok(());
+        return;
     };
-    match target {
-        Some(current) if current != &next => Err(TransformError::InvalidInput {
-            reason: "Gemini batch embedding requests use different models".to_owned(),
-        }),
-        Some(_) => Ok(()),
-        None => {
-            *target = Some(next);
-            Ok(())
-        }
+    if target.is_none() {
+        *target = Some(next);
     }
 }
 
-fn merge_dimensions(target: &mut Option<u32>, next: Option<u32>) -> Result<(), TransformError> {
+fn merge_dimensions(target: &mut Option<u32>, next: Option<u32>) {
     let Some(next) = next else {
-        return Ok(());
+        return;
     };
-    match target {
-        Some(current) if *current != next => Err(TransformError::InvalidInput {
-            reason: "Gemini batch embedding requests use different output dimensionalities"
-                .to_owned(),
-        }),
-        Some(_) => Ok(()),
-        None => {
-            *target = Some(next);
-            Ok(())
-        }
+    if target.is_none() {
+        *target = Some(next);
     }
 }
 
-fn openai_embedding(
-    input: gemini::ContentEmbedding,
-    index: usize,
-) -> Result<openai::Embedding, TransformError> {
-    Ok(openai::Embedding {
+fn openai_embedding(input: gemini::ContentEmbedding, index: usize) -> openai::Embedding {
+    openai::Embedding {
         embedding: input.values.into_iter().map(f64::from).collect(),
-        index: u32::try_from(index).map_err(|_| TransformError::LossyField {
-            field: "index",
-            reason: "embedding index cannot be represented as u32",
-        })?,
+        index: u32::try_from(index).unwrap_or(u32::MAX),
         object: openai::EmbeddingObjectType::Embedding,
         extra: Default::default(),
-    })
+    }
 }
 
 fn usage(
@@ -223,16 +163,8 @@ fn usage(
     };
 
     Ok(openai::EmbeddingUsage {
-        prompt_tokens: input
-            .input_token_count
-            .map(|value| i32_to_u32(value, "usage_metadata.input_token_count"))
-            .transpose()?
-            .unwrap_or_default(),
-        total_tokens: input
-            .total_token_count
-            .map(|value| i32_to_u32(value, "usage_metadata.total_token_count"))
-            .transpose()?
-            .unwrap_or_default(),
+        prompt_tokens: input.input_token_count.map(i32_to_u32).unwrap_or_default(),
+        total_tokens: input.total_token_count.map(i32_to_u32).unwrap_or_default(),
         extra: Default::default(),
     })
 }
