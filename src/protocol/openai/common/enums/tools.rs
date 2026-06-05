@@ -8,7 +8,7 @@ pub enum ToolSearchExecution {
     Client,
 }
 
-extensible_string_enum!(ToolChoiceMode, ToolChoiceModeKnown {
+strict_string_enum!(ToolChoiceMode {
     None => "none",
     Auto => "auto",
     Required => "required",
@@ -27,34 +27,34 @@ pub enum ChatToolCallType {
     Custom,
 }
 
-extensible_string_enum!(CustomToolInputFormatType, CustomToolInputFormatTypeKnown {
+strict_string_enum!(CustomToolInputFormatType {
     Text => "text",
     Grammar => "grammar",
 });
 
-extensible_string_enum!(CustomToolGrammarSyntax, CustomToolGrammarSyntaxKnown {
+strict_string_enum!(CustomToolGrammarSyntax {
     Lark => "lark",
     Regex => "regex",
 });
 
-extensible_string_enum!(CodeInterpreterContainerType, CodeInterpreterContainerTypeKnown {
+strict_string_enum!(CodeInterpreterContainerType {
     Auto => "auto",
 });
 
-extensible_string_enum!(CodeInterpreterMemoryLimit, CodeInterpreterMemoryLimitKnown {
+strict_string_enum!(CodeInterpreterMemoryLimit {
     OneG => "1g",
     FourG => "4g",
     SixteenG => "16g",
     SixtyFourG => "64g",
 });
 
-extensible_string_enum!(ImageGenerationAction, ImageGenerationActionKnown {
+strict_string_enum!(ImageGenerationAction {
     Generate => "generate",
     Edit => "edit",
     Auto => "auto",
 });
 
-extensible_string_enum!(ToolType, ToolTypeKnown {
+strict_string_enum!(ToolType {
     Function => "function",
     Custom => "custom",
     FileSearch => "file_search",
@@ -74,3 +74,21 @@ extensible_string_enum!(ToolType, ToolTypeKnown {
     ToolSearch => "tool_search",
     Namespace => "namespace",
 });
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn documented_tool_enums_reject_unknown_strings() {
+        assert!(serde_json::from_value::<ToolChoiceMode>(json!("maybe")).is_err());
+        assert!(serde_json::from_value::<CustomToolInputFormatType>(json!("json")).is_err());
+        assert!(serde_json::from_value::<CustomToolGrammarSyntax>(json!("peg")).is_err());
+        assert!(serde_json::from_value::<CodeInterpreterContainerType>(json!("manual")).is_err());
+        assert!(serde_json::from_value::<CodeInterpreterMemoryLimit>(json!("2g")).is_err());
+        assert!(serde_json::from_value::<ImageGenerationAction>(json!("upscale")).is_err());
+        assert!(serde_json::from_value::<ToolType>(json!("browser")).is_err());
+    }
+}

@@ -98,12 +98,10 @@ mod tests {
             request.text.expect("text").verbosity,
             Some(Verbosity::Low)
         ));
-        assert!(matches!(
+        assert_eq!(
             request.tool_choice,
-            Some(ResponseToolChoice::Mode(ToolChoiceMode::Known(
-                ToolChoiceModeKnown::Auto
-            )))
-        ));
+            Some(ResponseToolChoice::Mode(ToolChoiceMode::Auto))
+        );
         assert_eq!(request.tools.expect("tools").len(), 1);
         assert_eq!(request.truncation, Some(TruncationStrategy::Auto));
         assert!(!request.extra.contains_key("model"));
