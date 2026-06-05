@@ -27,7 +27,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<Vec<LegacyFunctionDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logit_bias: Option<Extra>,
+    pub logit_bias: Option<LogitBias>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +109,26 @@ mod tests {
 
         assert_eq!(request.store, Some(true));
         assert!(!request.extra.contains_key("store"));
+    }
+
+    #[test]
+    fn chat_completion_request_models_logit_bias_as_token_bias_map() {
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "logit_bias": {
+                "50256": -100.0,
+                "198": 1.5
+            }
+        }))
+        .expect("chat completion request should deserialize");
+
+        let logit_bias = request.logit_bias.expect("logit_bias");
+        assert_eq!(logit_bias.get("50256"), Some(&-100.0));
+        assert_eq!(logit_bias.get("198"), Some(&1.5));
+        assert!(!request.extra.contains_key("logit_bias"));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::response_items::ResponseItem;
+use super::response_items::{ResponseInputContentPart, ResponseItem};
 use super::response_tools::ResponseTool;
 use super::responses::{ResponseConversationParam, ResponseInput};
 
@@ -23,9 +23,18 @@ pub struct PromptRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Extra>,
+    pub variables: Option<PromptVariables>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+pub type PromptVariables = BTreeMap<String, PromptVariableValue>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PromptVariableValue {
+    Text(String),
+    InputContent(ResponseInputContentPart),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -241,5 +250,44 @@ mod tests {
         assert_eq!(response.prompt_cache_key.as_deref(), Some("cache-key"));
         assert_eq!(response.top_logprobs, Some(2));
         assert!(!response.extra.contains_key("moderation"));
+    }
+
+    #[test]
+    fn response_prompt_variables_model_documented_value_shapes() {
+        let prompt: PromptRef = serde_json::from_value(json!({
+            "id": "pmpt_123",
+            "version": "1",
+            "variables": {
+                "topic": "image analysis",
+                "image": {
+                    "type": "input_image",
+                    "image_url": "https://example.com/image.png",
+                    "detail": "low"
+                },
+                "attachment": {
+                    "type": "input_file",
+                    "file_id": "file_123"
+                }
+            }
+        }))
+        .expect("prompt reference should deserialize");
+
+        let variables = prompt.variables.expect("variables");
+        assert!(matches!(
+            variables.get("topic"),
+            Some(PromptVariableValue::Text(topic)) if topic == "image analysis"
+        ));
+        assert!(matches!(
+            variables.get("image"),
+            Some(PromptVariableValue::InputContent(
+                ResponseInputContentPart::InputImage { .. }
+            ))
+        ));
+        assert!(matches!(
+            variables.get("attachment"),
+            Some(PromptVariableValue::InputContent(
+                ResponseInputContentPart::InputFile { .. }
+            ))
+        ));
     }
 }

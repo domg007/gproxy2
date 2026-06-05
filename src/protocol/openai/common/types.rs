@@ -9,6 +9,7 @@ use super::model_ids::OpenAiModelId;
 
 pub type Extra = BTreeMap<String, Value>;
 pub type JsonSchema = BTreeMap<String, Value>;
+pub type LogitBias = BTreeMap<String, f64>;
 pub type Metadata = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
