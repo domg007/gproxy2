@@ -11,7 +11,6 @@ mod embeddings;
 pub mod generate_content;
 mod images;
 mod models;
-mod video;
 
 pub use common::*;
 pub use compact::*;
@@ -21,4 +20,3 @@ pub use embeddings::*;
 pub use generate_content::*;
 pub use images::*;
 pub use models::*;
-pub use video::*;

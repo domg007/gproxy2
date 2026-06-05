@@ -47,9 +47,3 @@ pub enum ConversationObjectType {
     #[serde(rename = "conversation")]
     Conversation,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VideoObjectType {
-    #[serde(rename = "video")]
-    Video,
-}
