@@ -200,9 +200,3 @@ pub struct ApproximateLocation {
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ApproximateLocationType {
-    #[serde(rename = "approximate")]
-    Approximate,
-}

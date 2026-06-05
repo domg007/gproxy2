@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
 use super::response_items::ResponseItem;
+use super::response_tools::ResponseTool;
 use super::responses_tail::{
     ContextManagement, PromptRef, ReasoningConfig, ResponseObject, ResponseStreamOptions,
-    ResponseTool, TextConfig,
+    TextConfig,
 };
 
 pub type ResponseWireModel = OpenAiWireModel<ResponseCreateRequest, ResponseObject>;

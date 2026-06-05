@@ -88,6 +88,20 @@ extensible_string_enum!(SearchContextSize, SearchContextSizeKnown {
     High => "high",
 });
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApproximateLocationType {
+    #[serde(rename = "approximate")]
+    Approximate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolSearchExecution {
+    #[serde(rename = "server")]
+    Server,
+    #[serde(rename = "client")]
+    Client,
+}
+
 extensible_string_enum!(TextOrAudioModality, TextOrAudioModalityKnown {
     Text => "text",
     Audio => "audio",

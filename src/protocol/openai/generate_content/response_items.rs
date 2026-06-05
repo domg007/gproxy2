@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::common::*;
-use super::responses_tail::ResponseTool;
+use super::response_tools::ResponseTool;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -600,14 +600,6 @@ pub struct WebSearchSource {
 pub enum WebSearchSourceType {
     #[serde(rename = "url")]
     Url,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ToolSearchExecution {
-    #[serde(rename = "server")]
-    Server,
-    #[serde(rename = "client")]
-    Client,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

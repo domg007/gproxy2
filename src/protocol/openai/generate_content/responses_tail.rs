@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
 use super::response_items::ResponseItem;
+use super::response_tools::ResponseTool;
 use super::responses::ResponseInput;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,101 +54,6 @@ pub struct TextConfig {
 pub struct ResponseStreamOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_obfuscation: Option<bool>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseTool {
-    #[serde(rename = "type")]
-    pub type_: ToolType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parameters: Option<JsonSchema>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strict: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<CustomToolInputFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub container: Option<CodeInterpreterContainer>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vector_store_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filters: Option<Extra>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_num_results: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub search_context_size: Option<SearchContextSize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub action: Option<ImageGenerationAction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub background: Option<ImageBackground>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_fidelity: Option<ImageInputFidelity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_image_mask: Option<ImageMask>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<OpenAiModelId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moderation: Option<ImageModeration>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<ImageOutputFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<ImageQuality>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<ImageSize>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CodeInterpreterContainer {
-    Id(String),
-    Auto(CodeInterpreterAutoContainer),
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CodeInterpreterAutoContainer {
-    #[serde(rename = "type")]
-    pub type_: CodeInterpreterContainerType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_limit: Option<CodeInterpreterMemoryLimit>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_policy: Option<CodeInterpreterNetworkPolicy>,
-    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-    pub extra: Extra,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum CodeInterpreterNetworkPolicy {
-    #[serde(rename = "disabled")]
-    Disabled {
-        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-        extra: Extra,
-    },
-    #[serde(rename = "allowlist")]
-    Allowlist {
-        allowed_domains: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        domain_secrets: Option<Extra>,
-        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-        extra: Extra,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ImageMask {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_url: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
