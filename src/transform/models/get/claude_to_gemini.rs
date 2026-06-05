@@ -3,7 +3,7 @@
 use crate::protocol::{claude, gemini};
 use crate::transform::{TransformContext, TransformError};
 
-use super::super::{model, wire_string};
+use super::super::common::{self, wire_string};
 
 pub fn request(
     input: claude::RetrieveModelPath,
@@ -19,5 +19,5 @@ pub fn response(
     input: claude::ModelInfo,
     ctx: &TransformContext,
 ) -> Result<gemini::Model, TransformError> {
-    model::claude_to_gemini(input, ctx)
+    common::claude_to_gemini::model(input, ctx)
 }

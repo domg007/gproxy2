@@ -3,11 +3,11 @@
 use crate::protocol::{claude, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::super::model;
+use super::super::common;
 
 pub fn response(
     input: openai::Model,
     ctx: &TransformContext,
 ) -> Result<claude::ModelInfo, TransformError> {
-    model::openai_to_claude(input, ctx)
+    common::openai_to_claude::model(input, ctx)
 }

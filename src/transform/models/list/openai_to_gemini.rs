@@ -3,7 +3,7 @@
 use crate::protocol::{gemini, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::super::model;
+use super::super::common;
 
 pub fn request(_: (), _: &TransformContext) -> gemini::ListModelsRequest {
     gemini::ListModelsRequest::default()
@@ -17,7 +17,7 @@ pub fn response(
         models: input
             .data
             .into_iter()
-            .map(|model| model::openai_to_gemini(model, ctx))
+            .map(|model| common::openai_to_gemini::model(model, ctx))
             .collect::<Result<Vec<_>, _>>()?,
         next_page_token: None,
         extra: Default::default(),

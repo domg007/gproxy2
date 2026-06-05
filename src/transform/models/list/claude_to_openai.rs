@@ -3,7 +3,7 @@
 use crate::protocol::{claude, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::super::model;
+use super::super::common;
 
 pub fn request(_: claude::ListModelsQuery, _: &TransformContext) {}
 
@@ -15,7 +15,7 @@ pub fn response(
         data: input
             .data
             .into_iter()
-            .map(|model| model::claude_to_openai(model, ctx))
+            .map(|model| common::claude_to_openai::model(model, ctx))
             .collect::<Result<Vec<_>, _>>()?,
         object: openai::ListObjectType::List,
         extra: Default::default(),

@@ -3,7 +3,7 @@
 use crate::protocol::{claude, gemini};
 use crate::transform::{TransformContext, TransformError};
 
-use super::super::{model, u64_to_i32_default};
+use super::super::common::{self, u64_to_i32_default};
 
 pub fn request(input: claude::ListModelsQuery, _: &TransformContext) -> gemini::ListModelsRequest {
     gemini::ListModelsRequest {
@@ -21,7 +21,7 @@ pub fn response(
         models: input
             .data
             .into_iter()
-            .map(|model| model::claude_to_gemini(model, ctx))
+            .map(|model| common::claude_to_gemini::model(model, ctx))
             .collect::<Result<Vec<_>, _>>()?,
         next_page_token: if input.has_more {
             Some(input.last_id)
