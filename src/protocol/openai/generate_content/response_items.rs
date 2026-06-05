@@ -647,7 +647,7 @@ pub enum ResponseAnnotation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FileSearchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attributes: Option<Metadata>,
+    pub attributes: Option<FileSearchResultAttributes>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -658,6 +658,16 @@ pub struct FileSearchResult {
     pub text: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+pub type FileSearchResultAttributes = BTreeMap<String, FileSearchResultAttributeValue>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FileSearchResultAttributeValue {
+    String(String),
+    Number(f64),
+    Boolean(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1137,6 +1147,48 @@ mod tests {
             panic!("expected web_search_call item");
         };
         assert!(matches!(action, WebSearchAction::Search { .. }));
+    }
+
+    #[test]
+    fn response_item_models_file_search_result_attributes() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "type": "file_search_call",
+            "id": "fs_123",
+            "queries": ["billing"],
+            "status": "completed",
+            "results": [{
+                "file_id": "file_123",
+                "filename": "invoice.md",
+                "score": 0.9,
+                "attributes": {
+                    "kind": "invoice",
+                    "year": 2026,
+                    "paid": false
+                }
+            }]
+        }))
+        .expect("file search call result should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::FileSearchCall {
+            results: Some(results),
+            ..
+        }) = item
+        else {
+            panic!("expected file_search_call item");
+        };
+        let attributes = results[0].attributes.as_ref().expect("attributes");
+        assert!(matches!(
+            attributes.get("kind"),
+            Some(FileSearchResultAttributeValue::String(kind)) if kind == "invoice"
+        ));
+        assert!(matches!(
+            attributes.get("year"),
+            Some(FileSearchResultAttributeValue::Number(year)) if (*year - 2026.0).abs() < f64::EPSILON
+        ));
+        assert!(matches!(
+            attributes.get("paid"),
+            Some(FileSearchResultAttributeValue::Boolean(false))
+        ));
     }
 
     #[test]

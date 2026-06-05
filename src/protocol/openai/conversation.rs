@@ -51,10 +51,19 @@ mod tests {
                 .metadata
                 .expect("metadata")
                 .get("topic")
-                .and_then(|value| value.as_str()),
+                .map(String::as_str),
             Some("demo")
         );
         assert_eq!(request.items.expect("items").len(), 1);
+    }
+
+    #[test]
+    fn create_conversation_rejects_non_string_metadata_values() {
+        let result = serde_json::from_value::<CreateConversationRequestBody>(json!({
+            "metadata": { "priority": 1 }
+        }));
+
+        assert!(result.is_err());
     }
 
     #[test]
