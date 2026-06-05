@@ -9,29 +9,37 @@ pub fn request(
     input: claude::CountTokensRequestBody,
     _: &TransformContext,
 ) -> Result<gemini::CountTokensRequest, TransformError> {
+    let model = common::claude_model_string(&input.model);
+    let contents = common::text_to_gemini_contents(common::claude_messages_to_text(input.messages));
     let system_instruction = common::claude_system_to_text(input.system).map(|text| {
         common::text_to_gemini_content(
             text,
             Some(gemini::ContentRole::Known(gemini::ContentRoleKnown::System)),
         )
     });
-
-    Ok(gemini::CountTokensRequest {
-        model: Some(common::claude_model_string(&input.model)),
-        contents: common::text_to_gemini_contents(common::claude_messages_to_text(input.messages)),
-        generate_content_request: Some(gemini::GenerateContentRequest {
-            model: Some(common::claude_model_string(&input.model)),
-            contents: Vec::new(),
+    let generate_content_request =
+        system_instruction.map(|system_instruction| gemini::GenerateContentRequest {
+            model: Some(model.clone()),
+            contents: contents.clone(),
             tools: Vec::new(),
             tool_config: None,
             safety_settings: Vec::new(),
-            system_instruction,
+            system_instruction: Some(system_instruction),
             generation_config: None,
             cached_content: None,
             service_tier: None,
             store: None,
             extra: Default::default(),
-        }),
+        });
+
+    Ok(gemini::CountTokensRequest {
+        model: Some(model),
+        contents: if generate_content_request.is_some() {
+            Vec::new()
+        } else {
+            contents
+        },
+        generate_content_request,
         extra: Default::default(),
     })
 }
