@@ -812,8 +812,22 @@ pub enum WebSearchSourceType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AdditionalToolsRole {
+    #[serde(rename = "unknown")]
+    Unknown,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "critic")]
+    Critic,
+    #[serde(rename = "discriminator")]
+    Discriminator,
     #[serde(rename = "developer")]
     Developer,
+    #[serde(rename = "tool")]
+    Tool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1087,6 +1101,39 @@ mod tests {
         assert_eq!(created_by.as_deref(), Some("system"));
         assert!(!extra.contains_key("execution"));
         assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_additional_tools_documented_roles() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "type": "additional_tools",
+            "id": "at_123",
+            "role": "assistant",
+            "tools": []
+        }))
+        .expect("additional_tools should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::AdditionalTools { role, .. }) = item else {
+            panic!("expected additional_tools item");
+        };
+        assert_eq!(role, AdditionalToolsRole::Assistant);
+
+        let roles = [
+            ("unknown", AdditionalToolsRole::Unknown),
+            ("user", AdditionalToolsRole::User),
+            ("assistant", AdditionalToolsRole::Assistant),
+            ("system", AdditionalToolsRole::System),
+            ("critic", AdditionalToolsRole::Critic),
+            ("discriminator", AdditionalToolsRole::Discriminator),
+            ("developer", AdditionalToolsRole::Developer),
+            ("tool", AdditionalToolsRole::Tool),
+        ];
+
+        for (raw, expected) in roles {
+            let role: AdditionalToolsRole =
+                serde_json::from_value(json!(raw)).expect("role should deserialize");
+            assert_eq!(role, expected);
+        }
     }
 
     #[test]
