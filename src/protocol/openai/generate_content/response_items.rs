@@ -192,6 +192,8 @@ pub enum TypedResponseItem {
         id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -206,6 +208,8 @@ pub enum TypedResponseItem {
         execution: Option<ToolSearchExecution>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -217,7 +221,11 @@ pub enum TypedResponseItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         call_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        execution: Option<ToolSearchExecution>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -248,6 +256,8 @@ pub enum TypedResponseItem {
         encrypted_content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -399,6 +409,10 @@ pub enum TypedResponseItem {
         output: ResponseOutput,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status: Option<ResponseItemStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        created_by: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -914,18 +928,105 @@ mod tests {
     fn response_item_models_function_call_output_content() {
         let item: ResponseItem = serde_json::from_value(json!({
             "type": "function_call_output",
+            "id": "fc_out_123",
             "call_id": "call_123",
             "output": [
                 { "type": "input_text", "text": "{\"ok\":true}" }
             ],
-            "status": "completed"
+            "status": "completed",
+            "created_by": "developer"
         }))
         .expect("function call output should deserialize");
 
-        let ResponseItem::Typed(TypedResponseItem::FunctionCallOutput { output, .. }) = item else {
+        let ResponseItem::Typed(TypedResponseItem::FunctionCallOutput {
+            output,
+            created_by,
+            extra,
+            ..
+        }) = item
+        else {
             panic!("expected function_call_output item");
         };
         assert!(matches!(output, ResponseOutput::Parts(_)));
+        assert_eq!(created_by.as_deref(), Some("developer"));
+        assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_tool_search_output_metadata() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "type": "tool_search_output",
+            "id": "tso_123",
+            "call_id": "ts_123",
+            "execution": "server",
+            "status": "completed",
+            "tools": [],
+            "created_by": "system"
+        }))
+        .expect("tool search output should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::ToolSearchOutput {
+            execution,
+            created_by,
+            extra,
+            ..
+        }) = item
+        else {
+            panic!("expected tool_search_output item");
+        };
+        assert!(matches!(execution, Some(ToolSearchExecution::Server)));
+        assert_eq!(created_by.as_deref(), Some("system"));
+        assert!(!extra.contains_key("execution"));
+        assert!(!extra.contains_key("created_by"));
+    }
+
+    #[test]
+    fn response_item_models_custom_output_and_compaction_metadata() {
+        let custom_output: ResponseItem = serde_json::from_value(json!({
+            "type": "custom_tool_call_output",
+            "id": "cto_123",
+            "call_id": "ct_123",
+            "output": "done",
+            "status": "completed",
+            "created_by": "developer"
+        }))
+        .expect("custom tool call output should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::CustomToolCallOutput {
+            status,
+            created_by,
+            extra,
+            ..
+        }) = custom_output
+        else {
+            panic!("expected custom_tool_call_output item");
+        };
+        assert!(matches!(
+            status,
+            Some(ResponseItemStatus::Known(
+                ResponseItemStatusKnown::Completed
+            ))
+        ));
+        assert_eq!(created_by.as_deref(), Some("developer"));
+        assert!(!extra.contains_key("status"));
+        assert!(!extra.contains_key("created_by"));
+
+        let compaction: ResponseItem = serde_json::from_value(json!({
+            "type": "compaction",
+            "id": "cmp_123",
+            "encrypted_content": "encrypted",
+            "created_by": "server"
+        }))
+        .expect("compaction item should deserialize");
+
+        let ResponseItem::Typed(TypedResponseItem::Compaction {
+            created_by, extra, ..
+        }) = compaction
+        else {
+            panic!("expected compaction item");
+        };
+        assert_eq!(created_by.as_deref(), Some("server"));
+        assert!(!extra.contains_key("created_by"));
     }
 
     #[test]
