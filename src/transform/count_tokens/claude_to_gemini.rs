@@ -24,6 +24,7 @@ pub fn request(
         input.output_format,
         input.thinking,
     );
+    let service_tier = common::claude_speed_to_gemini_service_tier(input.speed);
 
     let generate_content_request = gemini::GenerateContentRequest {
         model: Some(model.clone()),
@@ -34,7 +35,7 @@ pub fn request(
         system_instruction,
         generation_config,
         cached_content: None,
-        service_tier: None,
+        service_tier,
         store: None,
         extra: Default::default(),
     };

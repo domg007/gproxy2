@@ -642,6 +642,17 @@ pub(in crate::transform::count_tokens) fn claude_generation_config_to_gemini(
     non_empty_generation_config(config)
 }
 
+pub(in crate::transform::count_tokens) fn claude_speed_to_gemini_service_tier(
+    speed: Option<claude::Speed>,
+) -> Option<gemini::ServiceTier> {
+    let tier = match speed? {
+        claude::Speed::Known(claude::SpeedKnown::Standard) => gemini::ServiceTierKnown::Standard,
+        claude::Speed::Known(claude::SpeedKnown::Fast) => gemini::ServiceTierKnown::Priority,
+        claude::Speed::Unknown(value) => return Some(gemini::ServiceTier::Unknown(value)),
+    };
+    Some(gemini::ServiceTier::Known(tier))
+}
+
 fn claude_thinking_to_gemini(thinking: claude::ThinkingConfig) -> gemini::ThinkingConfig {
     match thinking {
         claude::ThinkingConfig::Enabled(config) => gemini::ThinkingConfig {
