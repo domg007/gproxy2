@@ -78,7 +78,7 @@ pub struct ImageEditRequest {
     pub extra: Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ImageReference {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
@@ -86,6 +86,36 @@ pub struct ImageReference {
     pub image_url: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+impl<'de> Deserialize<'de> for ImageReference {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawImageReference {
+            file_id: Option<String>,
+            image_url: Option<String>,
+            #[serde(default, flatten)]
+            extra: Extra,
+        }
+
+        let raw = RawImageReference::deserialize(deserializer)?;
+        match (raw.file_id.is_some(), raw.image_url.is_some()) {
+            (true, false) | (false, true) => Ok(Self {
+                file_id: raw.file_id,
+                image_url: raw.image_url,
+                extra: raw.extra,
+            }),
+            (true, true) => Err(de::Error::custom(
+                "image reference must contain exactly one of file_id or image_url",
+            )),
+            (false, false) => Err(de::Error::custom(
+                "image reference must contain file_id or image_url",
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -417,5 +447,39 @@ mod tests {
                 ImageResponseSizeKnown::Size1024By1536
             ))
         ));
+    }
+
+    #[test]
+    fn image_edit_reference_requires_exactly_one_source() {
+        let request: ImageEditRequest = serde_json::from_value(json!({
+            "prompt": "make it brighter",
+            "images": [{ "image_url": "https://example.com/source.png" }],
+            "mask": { "file_id": "file_mask" }
+        }))
+        .expect("image references with one source should deserialize");
+
+        assert_eq!(
+            request.images[0].image_url.as_deref(),
+            Some("https://example.com/source.png")
+        );
+        assert_eq!(
+            request.mask.expect("mask").file_id.as_deref(),
+            Some("file_mask")
+        );
+
+        let both = serde_json::from_value::<ImageEditRequest>(json!({
+            "prompt": "make it brighter",
+            "images": [{
+                "file_id": "file_123",
+                "image_url": "https://example.com/source.png"
+            }]
+        }));
+        assert!(both.is_err());
+
+        let neither = serde_json::from_value::<ImageEditRequest>(json!({
+            "prompt": "make it brighter",
+            "images": [{}]
+        }));
+        assert!(neither.is_err());
     }
 }
