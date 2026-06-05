@@ -150,7 +150,7 @@ pub enum ResponseTool {
     Namespace {
         description: String,
         name: String,
-        tools: Vec<ResponseTool>,
+        tools: Vec<ResponseNamespaceTool>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -189,6 +189,37 @@ pub enum ResponseTool {
     },
     #[serde(rename = "apply_patch")]
     ApplyPatch {
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseNamespaceTool {
+    #[serde(rename = "function")]
+    Function {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        defer_loading: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parameters: Option<Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        strict: Option<bool>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        defer_loading: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<CustomToolInputFormat>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -564,5 +595,41 @@ mod tests {
         .expect("code_interpreter tool should deserialize");
 
         assert!(matches!(tool, ResponseTool::CodeInterpreter { .. }));
+    }
+
+    #[test]
+    fn response_tool_models_namespace_deferred_function() {
+        let tool: ResponseTool = serde_json::from_value(json!({
+            "type": "namespace",
+            "name": "crm",
+            "description": "CRM tools",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "search_customer",
+                    "defer_loading": true
+                },
+                {
+                    "type": "custom",
+                    "name": "raw_note",
+                    "description": "Store raw note"
+                }
+            ]
+        }))
+        .expect("namespace tool should deserialize");
+
+        let ResponseTool::Namespace { tools, .. } = tool else {
+            panic!("expected namespace tool");
+        };
+        assert!(matches!(
+            &tools[0],
+            ResponseNamespaceTool::Function {
+                defer_loading: Some(true),
+                parameters: None,
+                strict: None,
+                ..
+            }
+        ));
+        assert!(matches!(&tools[1], ResponseNamespaceTool::Custom { .. }));
     }
 }
