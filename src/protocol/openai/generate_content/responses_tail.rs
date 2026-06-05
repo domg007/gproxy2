@@ -343,4 +343,30 @@ mod tests {
 
         assert!(result);
     }
+
+    #[test]
+    fn response_object_rejects_undocumented_status_and_incomplete_reason() {
+        let undocumented_status = serde_json::from_value::<ResponseObject>(json!({
+            "id": "resp_123",
+            "created_at": 1,
+            "object": "response",
+            "output": [],
+            "status": "paused"
+        }))
+        .is_err();
+
+        let undocumented_reason = serde_json::from_value::<ResponseObject>(json!({
+            "id": "resp_123",
+            "created_at": 1,
+            "object": "response",
+            "output": [],
+            "incomplete_details": {
+                "reason": "server_timeout"
+            }
+        }))
+        .is_err();
+
+        assert!(undocumented_status);
+        assert!(undocumented_reason);
+    }
 }

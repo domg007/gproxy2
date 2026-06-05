@@ -226,10 +226,22 @@ mod tests {
             panic!("expected compact message");
         };
         assert_eq!(message.role, CompactMessageRole::Unknown);
-        assert_eq!(
-            message.phase,
-            Some(ResponsePhase::Known(ResponsePhaseKnown::Commentary))
-        );
+        assert_eq!(message.phase, Some(ResponsePhase::Commentary));
         assert_eq!(message.content.len(), 3);
+    }
+
+    #[test]
+    fn compact_response_rejects_undocumented_message_phase() {
+        let result = serde_json::from_value::<CompactMessageItem>(json!({
+            "id": "msg_123",
+            "content": "intermediate",
+            "role": "assistant",
+            "phase": "analysis",
+            "status": "completed",
+            "type": "message"
+        }))
+        .is_err();
+
+        assert!(result);
     }
 }

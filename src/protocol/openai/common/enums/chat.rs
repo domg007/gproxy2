@@ -1,4 +1,4 @@
-extensible_string_enum!(ChatFinishReason, ChatFinishReasonKnown {
+strict_string_enum!(ChatFinishReason {
     Stop => "stop",
     Length => "length",
     ToolCalls => "tool_calls",

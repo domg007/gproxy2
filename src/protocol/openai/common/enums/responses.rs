@@ -1,4 +1,4 @@
-extensible_string_enum!(ResponseStatus, ResponseStatusKnown {
+strict_string_enum!(ResponseStatus {
     Completed => "completed",
     Failed => "failed",
     InProgress => "in_progress",
@@ -7,7 +7,7 @@ extensible_string_enum!(ResponseStatus, ResponseStatusKnown {
     Incomplete => "incomplete",
 });
 
-extensible_string_enum!(IncompleteReason, IncompleteReasonKnown {
+strict_string_enum!(IncompleteReason {
     MaxOutputTokens => "max_output_tokens",
     ContentFilter => "content_filter",
 });
@@ -94,7 +94,7 @@ strict_string_enum!(ResponseMcpCallStatus {
     Failed => "failed",
 });
 
-extensible_string_enum!(ResponsePhase, ResponsePhaseKnown {
+strict_string_enum!(ResponsePhase {
     Commentary => "commentary",
     FinalAnswer => "final_answer",
 });
@@ -130,7 +130,7 @@ extensible_string_enum!(ResponseItemType, ResponseItemTypeKnown {
     ItemReference => "item_reference",
 });
 
-extensible_string_enum!(ResponseIncludable, ResponseIncludableKnown {
+strict_string_enum!(ResponseIncludable {
     FileSearchCallResults => "file_search_call.results",
     WebSearchCallResults => "web_search_call.results",
     WebSearchCallActionSources => "web_search_call.action.sources",

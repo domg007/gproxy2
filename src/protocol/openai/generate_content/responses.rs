@@ -136,4 +136,16 @@ mod tests {
 
         assert_eq!(request.instructions.as_deref(), Some("Be concise."));
     }
+
+    #[test]
+    fn response_create_request_rejects_undocumented_include_values() {
+        let result = serde_json::from_value::<ResponseCreateRequest>(json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "include": ["message.output_text.tokens"]
+        }))
+        .is_err();
+
+        assert!(result);
+    }
 }

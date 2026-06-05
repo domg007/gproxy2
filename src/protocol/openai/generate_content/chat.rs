@@ -289,11 +289,23 @@ mod tests {
         }))
         .expect("chat completion choice should deserialize");
 
-        assert!(matches!(
-            choice.finish_reason,
-            ChatFinishReason::Known(ChatFinishReasonKnown::Stop)
-        ));
+        assert!(matches!(choice.finish_reason, ChatFinishReason::Stop));
         assert_eq!(choice.message.role, ChatCompletionMessageRole::Assistant);
+    }
+
+    #[test]
+    fn chat_finish_reason_rejects_undocumented_values() {
+        let result = serde_json::from_value::<ChatCompletionChoice>(json!({
+            "finish_reason": "paused",
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "hello"
+            }
+        }))
+        .is_err();
+
+        assert!(result);
     }
 }
 
