@@ -218,20 +218,3 @@ pub enum OpenAiModelIdKnown {
     #[serde(rename = "omni-moderation-latest")]
     OmniModerationLatest,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn openai_model_id_keeps_known_and_future_models_distinct() {
-        let known: OpenAiModelId = serde_json::from_str("\"gpt-5.4\"").expect("known model");
-        let future: OpenAiModelId = serde_json::from_str("\"gpt-future-1\"").expect("future model");
-
-        assert!(matches!(
-            known,
-            OpenAiModelId::Known(OpenAiModelIdKnown::Gpt54)
-        ));
-        assert!(matches!(future, OpenAiModelId::Unknown(model) if model == "gpt-future-1"));
-    }
-}

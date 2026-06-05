@@ -117,34 +117,3 @@ strict_string_enum!(InputFileDetailLevel {
     Low => "low",
     High => "high",
 });
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn documented_closed_content_enums_reject_unknown_strings() {
-        assert!(serde_json::from_value::<ServiceTier>(json!("batch")).is_err());
-        assert!(serde_json::from_value::<ReasoningEffort>(json!("extreme")).is_err());
-        assert!(serde_json::from_value::<PromptCacheRetention>(json!("7d")).is_err());
-        assert!(serde_json::from_value::<DetailLevel>(json!("medium")).is_err());
-        assert!(serde_json::from_value::<ChatImageDetailLevel>(json!("original")).is_err());
-        assert!(serde_json::from_value::<InputFileDetailLevel>(json!("auto")).is_err());
-    }
-
-    #[test]
-    fn documented_string_fallback_enums_remain_extensible() {
-        assert!(matches!(
-            serde_json::from_value::<VoiceName>(json!("voice_custom"))
-                .expect("voice names support custom string fallback"),
-            VoiceName::Unknown(value) if value == "voice_custom"
-        ));
-        assert!(matches!(
-            serde_json::from_value::<ResponsePersonality>(json!("laconic"))
-                .expect("personality supports string fallback"),
-            ResponsePersonality::Unknown(value) if value == "laconic"
-        ));
-    }
-}

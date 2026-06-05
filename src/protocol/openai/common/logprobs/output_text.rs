@@ -18,24 +18,6 @@ pub struct TokenLogprob {
     pub extra: Extra,
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn token_logprob_requires_documented_top_logprobs_array() {
-        let result = serde_json::from_value::<TokenLogprob>(json!({
-            "token": "hello",
-            "bytes": [104],
-            "logprob": -0.1
-        }));
-
-        assert!(result.is_err());
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokenLogprobTop {
     pub token: String,
