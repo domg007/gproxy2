@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::response_items::{ResponseInputContentPart, ResponseItem};
+use super::response_items::ResponseItem;
 use super::response_tools::ResponseTool;
 use super::responses::{ResponseConversationParam, ResponseInput};
 
@@ -34,7 +34,44 @@ pub type PromptVariables = BTreeMap<String, PromptVariableValue>;
 #[serde(untagged)]
 pub enum PromptVariableValue {
     Text(String),
-    InputContent(ResponseInputContentPart),
+    InputContent(PromptVariableInputContentPart),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PromptVariableInputContentPart {
+    #[serde(rename = "input_text")]
+    InputText {
+        text: String,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_image")]
+    InputImage {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
+    #[serde(rename = "input_file")]
+    InputFile {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<DetailLevel>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_data: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: Extra,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,14 +317,30 @@ mod tests {
         assert!(matches!(
             variables.get("image"),
             Some(PromptVariableValue::InputContent(
-                ResponseInputContentPart::InputImage { .. }
+                PromptVariableInputContentPart::InputImage { .. }
             ))
         ));
         assert!(matches!(
             variables.get("attachment"),
             Some(PromptVariableValue::InputContent(
-                ResponseInputContentPart::InputFile { .. }
+                PromptVariableInputContentPart::InputFile { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn response_prompt_variables_reject_undocumented_input_audio() {
+        let result = serde_json::from_value::<PromptRef>(json!({
+            "id": "pmpt_123",
+            "variables": {
+                "audio": {
+                    "type": "input_audio",
+                    "input_audio": { "data": "...", "format": "wav" }
+                }
+            }
+        }))
+        .is_err();
+
+        assert!(result);
     }
 }

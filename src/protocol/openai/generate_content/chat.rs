@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use super::super::common::*;
 use super::chat_stream::ChatCompletionChunk;
 use super::chat_tail::{
-    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs,
-    ChatWebSearchOptions, CompletionUsage, CustomToolCall, FileRef, ImageUrl, InputAudio,
-    PredictionContent, StreamOptions,
+    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs, ChatFileRef,
+    ChatWebSearchOptions, CompletionUsage, CustomToolCall, ImageUrl, InputAudio, PredictionContent,
+    StreamOptions,
 };
 
 pub type ChatCompletionWireModel = OpenAiWireModel<ChatCompletionRequest, ChatCompletionResponse>;
@@ -129,6 +129,44 @@ mod tests {
         assert_eq!(logit_bias.get("50256"), Some(&-100.0));
         assert_eq!(logit_bias.get("198"), Some(&1.5));
         assert!(!request.extra.contains_key("logit_bias"));
+    }
+
+    #[test]
+    fn chat_completion_user_file_part_matches_chat_file_shape() {
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "file",
+                    "file": {
+                        "file_id": "file_123",
+                        "filename": "notes.txt"
+                    }
+                }]
+            }]
+        }))
+        .expect("chat completion request should deserialize");
+
+        let ChatCompletionMessageParam::User { content, .. } =
+            request.messages.into_iter().next().expect("message")
+        else {
+            panic!("expected user message");
+        };
+        let ChatContent::Parts(parts) = content else {
+            panic!("expected content parts");
+        };
+        assert!(matches!(
+            parts.as_slice(),
+            [ChatContentPart::File {
+                file: ChatFileRef {
+                    file_id: Some(file_id),
+                    filename: Some(filename),
+                    ..
+                },
+                ..
+            }] if file_id == "file_123" && filename == "notes.txt"
+        ));
     }
 
     #[test]
@@ -353,7 +391,7 @@ pub enum ChatContentPart {
     },
     #[serde(rename = "file")]
     File {
-        file: FileRef,
+        file: ChatFileRef,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },

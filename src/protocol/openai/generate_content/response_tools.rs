@@ -161,7 +161,7 @@ pub enum ResponseTool {
         #[serde(skip_serializing_if = "Option::is_none")]
         execution: Option<ToolSearchExecution>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parameters: Option<JsonSchema>,
+        parameters: Option<Value>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
@@ -476,22 +476,86 @@ pub enum ResponseShellEnvironment {
         memory_limit: Option<CodeInterpreterMemoryLimit>,
         #[serde(skip_serializing_if = "Option::is_none")]
         network_policy: Option<CodeInterpreterNetworkPolicy>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        skills: Option<Vec<ResponseShellContainerSkill>>,
     },
     #[serde(rename = "local")]
     Local {
         #[serde(skip_serializing_if = "Option::is_none")]
-        skills: Option<Vec<ResponseShellSkill>>,
+        skills: Option<Vec<ResponseShellLocalSkill>>,
     },
     #[serde(rename = "container_reference")]
     ContainerReference { container_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseShellSkill {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub skill_id: Option<String>,
+#[serde(untagged)]
+pub enum ResponseShellContainerSkill {
+    Reference(ResponseShellSkillReference),
+    Inline(ResponseShellInlineSkill),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseShellSkillReference {
+    pub skill_id: String,
+    #[serde(rename = "type")]
+    pub type_: ResponseShellSkillReferenceType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseShellSkillReferenceType {
+    #[serde(rename = "skill_reference")]
+    SkillReference,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseShellInlineSkill {
+    pub description: String,
+    pub name: String,
+    pub source: ResponseShellInlineSkillSource,
+    #[serde(rename = "type")]
+    pub type_: ResponseShellInlineSkillType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseShellInlineSkillType {
+    #[serde(rename = "inline")]
+    Inline,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseShellInlineSkillSource {
+    pub data: String,
+    pub media_type: ResponseShellInlineSkillMediaType,
+    #[serde(rename = "type")]
+    pub type_: ResponseShellInlineSkillSourceType,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseShellInlineSkillMediaType {
+    #[serde(rename = "application/zip")]
+    ApplicationZip,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseShellInlineSkillSourceType {
+    #[serde(rename = "base64")]
+    Base64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseShellLocalSkill {
+    pub description: String,
+    pub name: String,
+    pub path: String,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -631,5 +695,109 @@ mod tests {
             }
         ));
         assert!(matches!(&tools[1], ResponseNamespaceTool::Custom { .. }));
+    }
+
+    #[test]
+    fn response_tool_search_parameters_accept_unknown_json() {
+        let tool: ResponseTool = serde_json::from_value(json!({
+            "type": "tool_search",
+            "execution": "client",
+            "parameters": ["not", "a", "schema"]
+        }))
+        .expect("tool_search should accept unknown parameters shape");
+
+        assert!(matches!(
+            tool,
+            ResponseTool::ToolSearch {
+                parameters: Some(parameters),
+                ..
+            } if parameters == json!(["not", "a", "schema"])
+        ));
+    }
+
+    #[test]
+    fn response_shell_container_auto_models_reference_and_inline_skills() {
+        let tool: ResponseTool = serde_json::from_value(json!({
+            "type": "shell",
+            "environment": {
+                "type": "container_auto",
+                "skills": [
+                    {
+                        "type": "skill_reference",
+                        "skill_id": "skill_123",
+                        "version": "latest"
+                    },
+                    {
+                        "type": "inline",
+                        "name": "zip skill",
+                        "description": "Inline skill",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/zip",
+                            "data": "UEs="
+                        }
+                    }
+                ]
+            }
+        }))
+        .expect("shell container_auto should deserialize skills");
+
+        let ResponseTool::Shell {
+            environment:
+                Some(ResponseShellEnvironment::ContainerAuto {
+                    skills: Some(skills),
+                    ..
+                }),
+            ..
+        } = tool
+        else {
+            panic!("expected shell container_auto skills");
+        };
+        assert!(matches!(
+            &skills[0],
+            ResponseShellContainerSkill::Reference(ResponseShellSkillReference {
+                skill_id,
+                ..
+            }) if skill_id == "skill_123"
+        ));
+        assert!(matches!(
+            &skills[1],
+            ResponseShellContainerSkill::Inline(ResponseShellInlineSkill {
+                source: ResponseShellInlineSkillSource {
+                    media_type: ResponseShellInlineSkillMediaType::ApplicationZip,
+                    type_: ResponseShellInlineSkillSourceType::Base64,
+                    ..
+                },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn response_shell_local_environment_models_local_skills() {
+        let tool: ResponseTool = serde_json::from_value(json!({
+            "type": "shell",
+            "environment": {
+                "type": "local",
+                "skills": [{
+                    "name": "repo",
+                    "description": "Use repository helpers",
+                    "path": "/workspace/.skills/repo"
+                }]
+            }
+        }))
+        .expect("shell local environment should deserialize local skills");
+
+        let ResponseTool::Shell {
+            environment:
+                Some(ResponseShellEnvironment::Local {
+                    skills: Some(skills),
+                }),
+            ..
+        } = tool
+        else {
+            panic!("expected shell local skills");
+        };
+        assert_eq!(skills[0].path, "/workspace/.skills/repo");
     }
 }
