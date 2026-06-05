@@ -91,15 +91,15 @@ pub struct ImageReference {
 pub struct ImagesResponse {
     pub created: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub background: Option<ImageBackground>,
+    pub background: Option<ImageResponseBackground>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<Image>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<ImageOutputFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<ImageQuality>,
+    pub quality: Option<ImageResponseQuality>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<ImageSize>,
+    pub size: Option<ImageResponseSize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<ImageUsage>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -293,5 +293,35 @@ mod tests {
         .expect("unknown image stream event should deserialize");
 
         assert!(matches!(event, ImageStreamEvent::Unknown(_)));
+    }
+
+    #[test]
+    fn images_response_uses_response_only_image_enums() {
+        let response: ImagesResponse = serde_json::from_value(json!({
+            "created": 1,
+            "background": "transparent",
+            "output_format": "png",
+            "quality": "high",
+            "size": "1024x1536",
+            "data": []
+        }))
+        .expect("images response should deserialize");
+
+        assert!(matches!(
+            response.background,
+            Some(ImageResponseBackground::Known(
+                ImageResponseBackgroundKnown::Transparent
+            ))
+        ));
+        assert!(matches!(
+            response.quality,
+            Some(ImageResponseQuality::Known(ImageResponseQualityKnown::High))
+        ));
+        assert!(matches!(
+            response.size,
+            Some(ImageResponseSize::Known(
+                ImageResponseSizeKnown::Size1024By1536
+            ))
+        ));
     }
 }

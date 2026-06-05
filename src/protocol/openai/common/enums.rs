@@ -19,16 +19,6 @@ macro_rules! extensible_string_enum {
     };
 }
 
-extensible_string_enum!(OpenAiObjectType, OpenAiObjectTypeKnown {
-    ChatCompletion => "chat.completion",
-    ChatCompletionChunk => "chat.completion.chunk",
-    Response => "response",
-    ResponseInputTokens => "response.input_tokens",
-    List => "list",
-    Model => "model",
-    Embedding => "embedding",
-});
-
 extensible_string_enum!(EmbeddingEncodingFormat, EmbeddingEncodingFormatKnown {
     Float => "float",
     Base64 => "base64",
@@ -134,6 +124,11 @@ extensible_string_enum!(ImageBackground, ImageBackgroundKnown {
     Auto => "auto",
 });
 
+extensible_string_enum!(ImageResponseBackground, ImageResponseBackgroundKnown {
+    Transparent => "transparent",
+    Opaque => "opaque",
+});
+
 extensible_string_enum!(ImageModeration, ImageModerationKnown {
     Low => "low",
     Auto => "auto",
@@ -154,6 +149,12 @@ extensible_string_enum!(ImageQuality, ImageQualityKnown {
     Auto => "auto",
 });
 
+extensible_string_enum!(ImageResponseQuality, ImageResponseQualityKnown {
+    Low => "low",
+    Medium => "medium",
+    High => "high",
+});
+
 extensible_string_enum!(ImageResponseFormat, ImageResponseFormatKnown {
     Url => "url",
     B64Json => "b64_json",
@@ -168,6 +169,12 @@ extensible_string_enum!(ImageSize, ImageSizeKnown {
     Size512By512 => "512x512",
     Size1792By1024 => "1792x1024",
     Size1024By1792 => "1024x1792",
+});
+
+extensible_string_enum!(ImageResponseSize, ImageResponseSizeKnown {
+    Size1024By1024 => "1024x1024",
+    Size1024By1536 => "1024x1536",
+    Size1536By1024 => "1536x1024",
 });
 
 extensible_string_enum!(ImageStyle, ImageStyleKnown {

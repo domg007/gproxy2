@@ -84,7 +84,7 @@ pub struct ResponseObject {
     pub model: Option<OpenAiModelId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moderation: Option<ResponseModeration>,
-    pub object: OpenAiObjectType,
+    pub object: ResponseObjectType,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output: Vec<ResponseItem>,
     #[serde(skip_serializing_if = "Option::is_none")]

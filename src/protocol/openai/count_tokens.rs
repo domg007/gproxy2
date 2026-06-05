@@ -21,7 +21,7 @@ pub struct ResponseInputTokensRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseInputTokensResponse {
     pub input_tokens: u32,
-    pub object: OpenAiObjectType,
+    pub object: ResponseInputTokensObjectType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }

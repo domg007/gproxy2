@@ -348,7 +348,7 @@ pub struct ChatCompletionResponse {
     pub choices: Vec<ChatCompletionChoice>,
     pub created: u64,
     pub model: OpenAiModelId,
-    pub object: OpenAiObjectType,
+    pub object: ChatCompletionObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moderation: Option<ChatCompletionModeration>,
     #[serde(skip_serializing_if = "Option::is_none")]

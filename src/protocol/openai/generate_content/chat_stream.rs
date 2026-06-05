@@ -11,7 +11,7 @@ pub struct ChatCompletionChunk {
     pub choices: Vec<ChatChunkChoice>,
     pub created: u64,
     pub model: OpenAiModelId,
-    pub object: OpenAiObjectType,
+    pub object: ChatCompletionChunkObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]

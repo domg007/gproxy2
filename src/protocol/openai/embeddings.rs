@@ -33,7 +33,7 @@ pub enum EmbeddingInput {
 pub struct EmbeddingResponse {
     pub data: Vec<Embedding>,
     pub model: OpenAiModelId,
-    pub object: OpenAiObjectType,
+    pub object: ListObjectType,
     pub usage: EmbeddingUsage,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -43,7 +43,7 @@ pub struct EmbeddingResponse {
 pub struct Embedding {
     pub embedding: EmbeddingVector,
     pub index: u32,
-    pub object: OpenAiObjectType,
+    pub object: EmbeddingObjectType,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
