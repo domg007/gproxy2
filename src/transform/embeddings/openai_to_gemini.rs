@@ -1,0 +1,1 @@
+//! OpenAI -> Gemini embedding transforms.
