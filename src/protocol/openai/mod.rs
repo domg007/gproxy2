@@ -5,16 +5,20 @@
 
 mod common;
 mod compact;
+mod conversation;
 mod count_tokens;
 mod embeddings;
 pub mod generate_content;
 mod images;
 mod models;
+mod video;
 
 pub use common::*;
 pub use compact::*;
+pub use conversation::*;
 pub use count_tokens::*;
 pub use embeddings::*;
 pub use generate_content::*;
 pub use images::*;
 pub use models::*;
+pub use video::*;

@@ -24,6 +24,8 @@ pub enum OperationGroup {
     Images,
     Embeddings,
     Compact,
+    Video,
+    Conversation,
 }
 
 /// Provider-neutral operation name.
@@ -43,6 +45,10 @@ pub enum Operation {
     EditImage,
     CreateEmbedding,
     CompactContent,
+    CreateVideo,
+    RetrieveVideo,
+    RetrieveVideoContent,
+    CreateConversation,
 }
 
 impl Operation {
@@ -55,6 +61,10 @@ impl Operation {
             Self::CreateImage | Self::EditImage => OperationGroup::Images,
             Self::CreateEmbedding => OperationGroup::Embeddings,
             Self::CompactContent => OperationGroup::Compact,
+            Self::CreateVideo | Self::RetrieveVideo | Self::RetrieveVideoContent => {
+                OperationGroup::Video
+            }
+            Self::CreateConversation => OperationGroup::Conversation,
         }
     }
 }
@@ -247,6 +257,11 @@ mod tests {
         assert!(models.is_consistent());
         assert_eq!(responses.group(), OperationGroup::GenerateContent);
         assert_eq!(models.group(), OperationGroup::Models);
+        assert_eq!(Operation::CreateVideo.group(), OperationGroup::Video);
+        assert_eq!(
+            Operation::CreateConversation.group(),
+            OperationGroup::Conversation
+        );
     }
 
     #[test]
