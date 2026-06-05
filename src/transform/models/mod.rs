@@ -32,14 +32,6 @@ pub(super) fn wire_string<T: Serialize>(
         })
 }
 
-pub(super) fn openai_model_id(value: String) -> openai::OpenAiModelId {
-    openai::OpenAiModelId::Unknown(value)
-}
-
-pub(super) fn claude_model_id(value: String) -> claude::ClaudeModel {
-    claude::ClaudeModel::Unknown(value)
-}
-
 pub(super) const fn openai_model_object() -> openai::ModelObjectType {
     openai::ModelObjectType::Model
 }

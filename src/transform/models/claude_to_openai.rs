@@ -3,7 +3,7 @@
 use crate::protocol::{claude, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::{DEFAULT_OPENAI_OWNED_BY, openai_model_id, openai_model_object, wire_string};
+use super::{DEFAULT_OPENAI_OWNED_BY, openai_model_object, wire_string};
 
 pub fn list_request(_: claude::ListModelsQuery, _: &TransformContext) {}
 
@@ -34,7 +34,7 @@ fn model_response(
     _: &TransformContext,
 ) -> Result<openai::Model, TransformError> {
     Ok(openai::Model {
-        id: openai_model_id(wire_string(&input.id, "id")?),
+        id: wire_string(&input.id, "id")?.into(),
         created: 0,
         object: openai_model_object(),
         owned_by: DEFAULT_OPENAI_OWNED_BY.to_owned(),

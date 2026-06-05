@@ -3,7 +3,7 @@
 use crate::protocol::{gemini, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::{DEFAULT_OPENAI_OWNED_BY, openai_model_id, openai_model_object};
+use super::{DEFAULT_OPENAI_OWNED_BY, openai_model_object};
 
 pub fn list_request(_: gemini::ListModelsRequest, _: &TransformContext) {}
 
@@ -28,7 +28,7 @@ pub fn get_response(input: gemini::Model, ctx: &TransformContext) -> openai::Mod
 
 fn model_response(input: gemini::Model, _: &TransformContext) -> openai::Model {
     openai::Model {
-        id: openai_model_id(gemini_model_id(&input)),
+        id: gemini_model_id(&input).into(),
         created: 0,
         object: openai_model_object(),
         owned_by: DEFAULT_OPENAI_OWNED_BY.to_owned(),

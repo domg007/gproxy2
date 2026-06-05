@@ -35,6 +35,12 @@ extensible_string_enum!(ClaudeModel, ClaudeModelKnown {
     ClaudeSonnet420250514 => "claude-sonnet-4-20250514", Claude3Haiku20240307 => "claude-3-haiku-20240307",
 });
 
+impl From<String> for ClaudeModel {
+    fn from(value: String) -> Self {
+        Self::Unknown(value)
+    }
+}
+
 extensible_string_enum!(AnthropicBeta, AnthropicBetaKnown {
     MessageBatches20240924 => "message-batches-2024-09-24",
     PromptCaching20240731 => "prompt-caching-2024-07-31",

@@ -7,6 +7,12 @@ pub enum OpenAiModelId {
     Unknown(String),
 }
 
+impl From<String> for OpenAiModelId {
+    fn from(value: String) -> Self {
+        Self::Unknown(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpenAiModelIdKnown {
     #[serde(rename = "gpt-5.5")]

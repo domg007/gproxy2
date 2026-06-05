@@ -3,10 +3,7 @@
 use crate::protocol::{claude, openai};
 use crate::transform::{TransformContext, TransformError};
 
-use super::{
-    DEFAULT_CREATED_AT, claude_model_id, claude_model_object, default_claude_capabilities,
-    wire_string,
-};
+use super::{DEFAULT_CREATED_AT, claude_model_object, default_claude_capabilities, wire_string};
 
 pub fn list_request(_: (), _: &TransformContext) -> claude::ListModelsQuery {
     claude::ListModelsQuery {
@@ -61,7 +58,7 @@ fn model_response(
     let id = wire_string(&input.id, "id")?;
 
     Ok(claude::ModelInfo {
-        id: claude_model_id(id.clone()),
+        id: id.clone().into(),
         type_: claude_model_object(),
         created_at: DEFAULT_CREATED_AT.to_owned(),
         display_name: id,

@@ -4,8 +4,7 @@ use crate::protocol::{claude, gemini};
 use crate::transform::{TransformContext, TransformError};
 
 use super::{
-    DEFAULT_CREATED_AT, claude_model_id, claude_model_object, default_claude_capabilities,
-    i32_to_u64_default,
+    DEFAULT_CREATED_AT, claude_model_object, default_claude_capabilities, i32_to_u64_default,
 };
 
 pub fn list_request(
@@ -25,7 +24,7 @@ pub fn get_request(
     _: &TransformContext,
 ) -> claude::RetrieveModelPath {
     claude::RetrieveModelPath {
-        model_id: claude_model_id(input.name.unwrap_or_default()),
+        model_id: input.name.unwrap_or_default().into(),
     }
 }
 
@@ -63,7 +62,7 @@ fn model_response(input: gemini::Model, _: &TransformContext) -> claude::ModelIn
     let id = gemini_model_id(&input);
 
     claude::ModelInfo {
-        id: claude_model_id(id.clone()),
+        id: id.clone().into(),
         type_: claude_model_object(),
         created_at: DEFAULT_CREATED_AT.to_owned(),
         display_name: input.display_name.unwrap_or(id),
