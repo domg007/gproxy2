@@ -65,7 +65,7 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TextConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
+    pub tool_choice: Option<ResponseToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ResponseTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]

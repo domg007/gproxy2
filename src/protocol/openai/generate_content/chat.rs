@@ -25,7 +25,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<LegacyFunctionCallChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub functions: Option<Vec<FunctionDefinition>>,
+    pub functions: Option<Vec<LegacyFunctionDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logit_bias: Option<Extra>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +73,7 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
+    pub tool_choice: Option<ChatToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ChatTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +109,39 @@ mod tests {
 
         assert_eq!(request.store, Some(true));
         assert!(!request.extra.contains_key("store"));
+    }
+
+    #[test]
+    fn chat_completion_request_models_legacy_function_shapes() {
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "messages": [
+                { "role": "user", "content": "hello" }
+            ],
+            "function_call": { "name": "get_weather" },
+            "functions": [{
+                "name": "get_weather",
+                "description": "Get weather",
+                "parameters": { "type": "object" },
+                "strict": true
+            }]
+        }))
+        .expect("chat completion request should deserialize");
+
+        assert!(matches!(
+            request.function_call.expect("function_call"),
+            LegacyFunctionCallChoice::Named(LegacyFunctionCallOption { ref name, .. })
+                if name == "get_weather"
+        ));
+
+        let function = request
+            .functions
+            .expect("functions")
+            .into_iter()
+            .next()
+            .expect("function");
+        assert_eq!(function.name, "get_weather");
+        assert!(function.extra.contains_key("strict"));
     }
 
     #[test]
