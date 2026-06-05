@@ -17,29 +17,25 @@ pub fn request(
             Some(gemini::ContentRole::Known(gemini::ContentRoleKnown::System)),
         )
     });
-    let generate_content_request =
-        system_instruction.map(|system_instruction| gemini::GenerateContentRequest {
-            model: Some(model.clone()),
-            contents: contents.clone(),
-            tools: Vec::new(),
-            tool_config: None,
-            safety_settings: Vec::new(),
-            system_instruction: Some(system_instruction),
-            generation_config: None,
-            cached_content: None,
-            service_tier: None,
-            store: None,
-            extra: Default::default(),
-        });
+
+    let generate_content_request = gemini::GenerateContentRequest {
+        model: Some(model.clone()),
+        contents,
+        tools: Vec::new(),
+        tool_config: None,
+        safety_settings: Vec::new(),
+        system_instruction,
+        generation_config: None,
+        cached_content: None,
+        service_tier: None,
+        store: None,
+        extra: Default::default(),
+    };
 
     Ok(gemini::CountTokensRequest {
         model: Some(model),
-        contents: if generate_content_request.is_some() {
-            Vec::new()
-        } else {
-            contents
-        },
-        generate_content_request,
+        contents: Vec::new(),
+        generate_content_request: Some(generate_content_request),
         extra: Default::default(),
     })
 }
