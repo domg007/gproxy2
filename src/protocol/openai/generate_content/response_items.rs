@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 
 use super::super::common::*;
@@ -14,16 +14,75 @@ pub enum ResponseItem {
     Unknown(UnknownResponseItem),
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ResponseMessageItem {
+    Output(ResponseOutputMessageItem),
+    Input(ResponseInputMessageItem),
+    EasyInput(ResponseEasyInputMessageItem),
+}
+
+impl<'de> Deserialize<'de> for ResponseMessageItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let role = value.get("role").and_then(Value::as_str);
+        let has_id = value.get("id").is_some();
+        let has_status = value.get("status").is_some();
+
+        if role == Some("assistant") && has_id && has_status {
+            return serde_json::from_value(value)
+                .map(Self::Output)
+                .map_err(de::Error::custom);
+        }
+
+        if has_id || has_status {
+            return serde_json::from_value(value)
+                .map(Self::Input)
+                .map_err(de::Error::custom);
+        }
+
+        serde_json::from_value(value)
+            .map(Self::EasyInput)
+            .map_err(de::Error::custom)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResponseMessageItem {
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<ResponseMessageItemType>,
+pub struct ResponseOutputMessageItem {
+    #[serde(rename = "type")]
+    pub type_: ResponseMessageItemType,
+    pub id: String,
+    pub role: ResponseOutputMessageRole,
+    pub content: Vec<ResponseOutputContentPart>,
+    pub status: ResponseItemStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<ResponsePhase>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseInputMessageItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    pub role: ResponseMessageRole,
-    pub content: ResponseContent,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_: Option<ResponseMessageItemType>,
+    pub role: ResponseInputMessageRole,
+    pub content: Vec<ResponseInputContentPart>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ResponseItemStatus>,
+    #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResponseEasyInputMessageItem {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_: Option<ResponseMessageItemType>,
+    pub role: ResponseEasyInputMessageRole,
+    pub content: ResponseEasyInputContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<ResponsePhase>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
@@ -34,6 +93,34 @@ pub struct ResponseMessageItem {
 pub enum ResponseMessageItemType {
     #[serde(rename = "message")]
     Message,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseOutputMessageRole {
+    #[serde(rename = "assistant")]
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseInputMessageRole {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "developer")]
+    Developer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseEasyInputMessageRole {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "developer")]
+    Developer,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -338,21 +425,21 @@ pub struct UnknownResponseItem {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ResponseContent {
+pub enum ResponseOutput {
     Text(String),
-    Parts(Vec<ResponseContentPart>),
+    Parts(Vec<ResponseInputContentPart>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ResponseOutput {
+pub enum ResponseEasyInputContent {
     Text(String),
-    Parts(Vec<ResponseContentPart>),
+    Parts(Vec<ResponseInputContentPart>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum ResponseContentPart {
+pub enum ResponseInputContentPart {
     #[serde(rename = "input_text")]
     InputText {
         text: String,
@@ -391,6 +478,11 @@ pub enum ResponseContentPart {
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseOutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -414,6 +506,8 @@ pub enum ResponseContentPart {
         extra: Extra,
     },
 }
+
+pub type ResponseContentPart = ResponseOutputContentPart;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InputAudioContent {
@@ -765,7 +859,55 @@ mod tests {
         }))
         .expect("easy message should deserialize");
 
-        assert!(matches!(item, ResponseItem::Message(_)));
+        assert!(matches!(
+            item,
+            ResponseItem::Message(ResponseMessageItem::EasyInput(_))
+        ));
+    }
+
+    #[test]
+    fn response_item_models_returned_input_message_id() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "id": "msg_input_123",
+            "type": "message",
+            "role": "user",
+            "status": "completed",
+            "content": [
+                { "type": "input_text", "text": "hello" }
+            ]
+        }))
+        .expect("returned input message should deserialize");
+
+        let ResponseItem::Message(ResponseMessageItem::Input(message)) = item else {
+            panic!("expected input message");
+        };
+        assert_eq!(message.id.as_deref(), Some("msg_input_123"));
+        assert_eq!(message.role, ResponseInputMessageRole::User);
+    }
+
+    #[test]
+    fn response_item_models_output_message_role_and_content() {
+        let item: ResponseItem = serde_json::from_value(json!({
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{
+                "type": "output_text",
+                "text": "hello",
+                "annotations": []
+            }]
+        }))
+        .expect("output message should deserialize");
+
+        let ResponseItem::Message(ResponseMessageItem::Output(message)) = item else {
+            panic!("expected output message");
+        };
+        assert_eq!(message.role, ResponseOutputMessageRole::Assistant);
+        assert_eq!(
+            message.status,
+            ResponseItemStatus::Known(ResponseItemStatusKnown::Completed)
+        );
     }
 
     #[test]
