@@ -27,7 +27,7 @@ pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<ResponseInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<ResponseInput>,
+    pub instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,5 +123,17 @@ mod tests {
             OpenAiModelId::Known(OpenAiModelIdKnown::OmniModerationLatest)
         ));
         assert!(!request.extra.contains_key("moderation"));
+    }
+
+    #[test]
+    fn response_create_request_models_instructions_as_string() {
+        let request: ResponseCreateRequest = serde_json::from_value(json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "instructions": "Be concise."
+        }))
+        .expect("response create request should deserialize");
+
+        assert_eq!(request.instructions.as_deref(), Some("Be concise."));
     }
 }

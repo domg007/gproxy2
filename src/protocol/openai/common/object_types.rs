@@ -19,6 +19,12 @@ pub enum ResponseObjectType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseCompactionObjectType {
+    #[serde(rename = "response.compaction")]
+    ResponseCompaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ResponseInputTokensObjectType {
     #[serde(rename = "response.input_tokens")]
     ResponseInputTokens,
