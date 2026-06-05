@@ -36,7 +36,7 @@ pub struct ChatChunkChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<ChatMessageRole>,
+    pub role: Option<ChatDeltaRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,6 +47,12 @@ pub struct ChatDelta {
     pub function_call: Option<FunctionCallDelta>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatDeltaRole {
+    #[serde(rename = "assistant")]
+    Assistant,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -82,4 +88,33 @@ pub struct CustomToolCallDelta {
     pub name: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn chat_delta_models_assistant_role() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1694268190,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "content": ""
+                },
+                "logprobs": null,
+                "finish_reason": null
+            }]
+        }))
+        .expect("chat completion chunk should deserialize");
+
+        assert_eq!(chunk.choices[0].delta.role, Some(ChatDeltaRole::Assistant));
+    }
 }

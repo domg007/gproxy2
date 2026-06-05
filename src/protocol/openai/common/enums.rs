@@ -304,15 +304,6 @@ extensible_string_enum!(ResponseMessageRole, ResponseMessageRoleKnown {
     Developer => "developer",
 });
 
-extensible_string_enum!(ChatMessageRole, ChatMessageRoleKnown {
-    Developer => "developer",
-    System => "system",
-    User => "user",
-    Assistant => "assistant",
-    Tool => "tool",
-    Function => "function",
-});
-
 extensible_string_enum!(ChatFinishReason, ChatFinishReasonKnown {
     Stop => "stop",
     Length => "length",

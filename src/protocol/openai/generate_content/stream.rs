@@ -110,7 +110,7 @@ pub enum KnownResponseStreamEvent {
         delta: String,
         item_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        logprobs: Option<Vec<TokenLogprob>>,
+        logprobs: Option<Vec<StreamTokenLogprob>>,
         output_index: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         sequence_number: Option<u64>,
@@ -122,7 +122,7 @@ pub enum KnownResponseStreamEvent {
         content_index: u32,
         item_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        logprobs: Option<Vec<TokenLogprob>>,
+        logprobs: Option<Vec<StreamTokenLogprob>>,
         output_index: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         sequence_number: Option<u64>,
@@ -580,6 +580,39 @@ mod tests {
             panic!("expected output_text delta event");
         };
         assert_eq!(delta, "Hi");
+    }
+
+    #[test]
+    fn response_stream_event_models_text_delta_logprobs_without_bytes() {
+        let event: ResponseStreamEvent = serde_json::from_value(json!({
+            "type": "response.output_text.delta",
+            "item_id": "msg_123",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Hi",
+            "logprobs": [{
+                "token": "Hi",
+                "logprob": -0.1,
+                "top_logprobs": [
+                    { "token": "Hi", "logprob": -0.1 },
+                    {}
+                ]
+            }]
+        }))
+        .expect("text delta event should deserialize");
+
+        let ResponseStreamEvent::Known(KnownResponseStreamEvent::ResponseOutputTextDelta {
+            logprobs: Some(logprobs),
+            ..
+        }) = event
+        else {
+            panic!("expected output_text delta event");
+        };
+
+        assert_eq!(logprobs[0].token, "Hi");
+        let top_logprobs = logprobs[0].top_logprobs.as_ref().expect("top logprobs");
+        assert_eq!(top_logprobs[0].token.as_deref(), Some("Hi"));
+        assert!(top_logprobs[1].token.is_none());
     }
 
     #[test]
