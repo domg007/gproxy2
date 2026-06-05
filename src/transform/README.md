@@ -6,6 +6,8 @@ provider wire models only.
 ## Rules
 
 - Organize transforms by `Operation` / `OperationGroup`, not provider family.
+- When an `OperationGroup` has distinct methods such as list/get, split those
+  methods into subdirectories before provider-pair files.
 - Keep transforms pairwise. Do not introduce a unified IR.
 - Same-kind passthrough bypasses this layer.
 - Pair files own real provider field differences.

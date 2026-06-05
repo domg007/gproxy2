@@ -7,12 +7,10 @@ use crate::{
     transform::TransformError,
 };
 
-pub mod claude_to_gemini;
-pub mod claude_to_openai;
-pub mod gemini_to_claude;
-pub mod gemini_to_openai;
-pub mod openai_to_claude;
-pub mod openai_to_gemini;
+pub mod get;
+pub mod list;
+
+mod model;
 
 pub(super) const DEFAULT_CREATED_AT: &str = "1970-01-01T00:00:00Z";
 pub(super) const DEFAULT_OPENAI_OWNED_BY: &str = "unknown";
