@@ -9,6 +9,8 @@ pub enum OpenAiModelId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpenAiModelIdKnown {
+    #[serde(rename = "gpt-5.5")]
+    Gpt55,
     #[serde(rename = "gpt-5.4")]
     Gpt54,
     #[serde(rename = "gpt-5.4-mini")]
@@ -19,6 +21,8 @@ pub enum OpenAiModelIdKnown {
     Gpt54Mini20260317,
     #[serde(rename = "gpt-5.4-nano-2026-03-17")]
     Gpt54Nano20260317,
+    #[serde(rename = "gpt-5.3-codex-spark")]
+    Gpt53CodexSpark,
     #[serde(rename = "gpt-5.3-chat-latest")]
     Gpt53ChatLatest,
     #[serde(rename = "gpt-5.2")]
