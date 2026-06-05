@@ -31,7 +31,6 @@ pub use tools::*;
 pub use types::*;
 pub use usage::*;
 
-pub type AnthropicBeta = String;
 pub type JsonObject = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
