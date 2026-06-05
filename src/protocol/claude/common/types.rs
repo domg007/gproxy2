@@ -36,11 +36,7 @@ extensible_string_enum!(ClaudeModel, ClaudeModelKnown {
     ClaudeSonnet4520250929 => "claude-sonnet-4-5-20250929", ClaudeOpus41 => "claude-opus-4-1",
     ClaudeOpus4120250805 => "claude-opus-4-1-20250805", ClaudeOpus40 => "claude-opus-4-0",
     ClaudeOpus420250514 => "claude-opus-4-20250514", ClaudeSonnet40 => "claude-sonnet-4-0",
-    ClaudeSonnet420250514 => "claude-sonnet-4-20250514", Claude37SonnetLatest => "claude-3-7-sonnet-latest",
-    Claude37Sonnet20250219 => "claude-3-7-sonnet-20250219", Claude35HaikuLatest => "claude-3-5-haiku-latest",
-    Claude35Haiku20241022 => "claude-3-5-haiku-20241022", Claude4Sonnet20250514 => "claude-4-sonnet-20250514",
-    Claude4Opus20250514 => "claude-4-opus-20250514", Claude3OpusLatest => "claude-3-opus-latest",
-    Claude3Opus20240229 => "claude-3-opus-20240229", Claude3Haiku20240307 => "claude-3-haiku-20240307",
+    ClaudeSonnet420250514 => "claude-sonnet-4-20250514", Claude3Haiku20240307 => "claude-3-haiku-20240307",
 });
 
 extensible_string_enum!(AnthropicBeta, AnthropicBetaKnown {
@@ -70,8 +66,6 @@ extensible_string_enum!(AnthropicBeta, AnthropicBetaKnown {
     ManagedAgents20260401 => "managed-agents-2026-04-01",
     CacheDiagnosis20260407 => "cache-diagnosis-2026-04-07",
     ThinkingTokenCount20260513 => "thinking-token-count-2026-05-13",
-    Compact20260112 => "compact-2026-01-12",
-    TaskBudgets20260313 => "task-budgets-2026-03-13",
 });
 
 extensible_string_enum!(MessageRole, MessageRoleKnown { User => "user", Assistant => "assistant", System => "system" });
