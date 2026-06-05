@@ -214,8 +214,7 @@ pub struct ResponseUsage {
     pub total_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_tokens_details: Option<ResponseInputTokensDetails>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_tokens_details: Option<ResponseOutputTokensDetails>,
+    pub output_tokens_details: ResponseOutputTokensDetails,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }
@@ -375,6 +374,28 @@ mod tests {
             "id": "resp_123",
             "created_at": 1,
             "object": "response"
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn response_usage_requires_output_token_details_but_allows_absent_input_details() {
+        let usage: ResponseUsage = serde_json::from_value(json!({
+            "input_tokens": 37,
+            "output_tokens": 11,
+            "output_tokens_details": { "reasoning_tokens": 0 },
+            "total_tokens": 48
+        }))
+        .expect("usage without input token details should deserialize");
+
+        assert!(usage.input_tokens_details.is_none());
+        assert_eq!(usage.output_tokens_details.reasoning_tokens, 0);
+
+        let result = serde_json::from_value::<ResponseUsage>(json!({
+            "input_tokens": 37,
+            "output_tokens": 11,
+            "total_tokens": 48
         }));
 
         assert!(result.is_err());
