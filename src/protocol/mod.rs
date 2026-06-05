@@ -5,4 +5,7 @@ pub mod gemini;
 pub mod openai;
 pub mod operation;
 
-pub use operation::{Endpoint, HttpMethod, Operation, OperationGroup, Provider};
+pub use operation::{
+    ContentGenerationKind, Endpoint, HttpMethod, Operation, OperationGroup, OperationKey,
+    OperationKind, Provider,
+};

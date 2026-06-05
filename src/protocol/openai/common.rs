@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::protocol::operation::{Operation, OperationGroup};
+use crate::protocol::operation::OperationKey;
 
 pub type Extra = BTreeMap<String, Value>;
 pub type JsonSchema = BTreeMap<String, Value>;
@@ -12,8 +12,7 @@ pub type OpenAiModelId = String;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiWireModel<TRequest, TResponse> {
-    pub operation_group: OperationGroup,
-    pub operation: Operation,
+    pub operation_key: OperationKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request: Option<TRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]

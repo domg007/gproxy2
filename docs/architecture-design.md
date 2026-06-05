@@ -258,8 +258,8 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
 
 **B2. 供应商级规则(全部独立表,结构化、可逐行编辑/审计;均含 `provider_id` · `sort_order` · `enabled`)**
-- `routing_rules`:`operation` · `protocol`(入站)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_protocol?` — 唯一约束 `(provider_id, operation, protocol)`
-- `rewrite_rules`(JSON 字段操作):`path`(点路径)· `action`(set/remove)· `value_json?`(set 时)· `filter_model_pattern?` · `filter_operations?` · `filter_protocols?`
+- `routing_rules`:`operation` · `kind`(入站 wire kind;内容生成是 `open_ai_responses`/`open_ai_chat_completions`/`claude_messages`/`gemini_generate_content`,非内容生成是 `open_ai`/`claude`/`gemini`)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_kind?` — 唯一约束 `(provider_id, operation, kind)`
+- `rewrite_rules`(JSON 字段操作):`path`(点路径)· `action`(set/remove)· `value_json?`(set 时)· `filter_model_pattern?` · `filter_operation_keys?`
 - `sanitize_rules`(正文正则替换):`pattern`(正则)· `replacement`
 - `cache_breakpoints`(Claude 缓存):`target` · `position` · `index` · `ttl` *(magic-string 触发器是内置常量,非配置)*
 - `beta_headers`:`token`(`anthropic-beta` 能力标志,如 `oauth-2025-04-20`)
@@ -274,7 +274,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `user_file_permissions`:`user_id` · `provider_id`
 
 **D. 用量 / 日志(只持久化)**
-- `usages`(明细,append):`at` · `route_name?` · `provider_id?` · `credential_id?` · `user_id?` · `user_key_id?` · `operation` · `protocol` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
+- `usages`(明细,append):`at` · `route_name?` · `provider_id?` · `credential_id?` · `user_id?` · `user_key_id?` · `operation` · `kind` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
 - `usage_rollups`(看板源):`granularity`(hour/day/week/month)· `bucket_start` · 维度(`provider_id?` / `user_id?` / `route_name?` / `model?`)· 指标(`requests` / `input_tokens` / `output_tokens` / `cost`)。每请求 `add_usage_rollup` 累加
 - `downstream_requests` / `upstream_requests`:抓包日志(受 enable 开关),沿用 v1 结构(下行 path/query,上行 url/latency)
 
