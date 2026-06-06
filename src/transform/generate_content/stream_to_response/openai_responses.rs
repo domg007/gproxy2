@@ -230,7 +230,7 @@ impl ResponseCollector {
                 ..
             } => {
                 let state = self.output_state(output_index);
-                state.function_call.id.get_or_insert(item_id);
+                state.function_call.item_id.get_or_insert(item_id);
                 state.function_call.arguments.push_str(&delta);
             }
             openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDone {
@@ -241,7 +241,7 @@ impl ResponseCollector {
                 ..
             } => {
                 let state = self.output_state(output_index);
-                state.function_call.id.get_or_insert(item_id);
+                state.function_call.item_id.get_or_insert(item_id);
                 state.function_call.name = Some(name);
                 state.function_call.done_arguments = Some(arguments);
             }
@@ -252,7 +252,7 @@ impl ResponseCollector {
                 ..
             } => {
                 let state = self.output_state(output_index);
-                state.custom_tool_call.id.get_or_insert(item_id);
+                state.custom_tool_call.item_id.get_or_insert(item_id);
                 state.custom_tool_call.input.push_str(&delta);
             }
             openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDone {
@@ -262,7 +262,7 @@ impl ResponseCollector {
                 ..
             } => {
                 let state = self.output_state(output_index);
-                state.custom_tool_call.id.get_or_insert(item_id);
+                state.custom_tool_call.item_id.get_or_insert(item_id);
                 state.custom_tool_call.done_input = Some(input);
             }
             openai::KnownResponseStreamEvent::ResponseCodeInterpreterCallCodeDelta {
@@ -396,7 +396,7 @@ impl OutputState {
                 self.function_call.arguments = arguments;
                 self.function_call.call_id = Some(call_id);
                 self.function_call.name = Some(name);
-                self.function_call.id = id;
+                self.function_call.item_id = id;
                 self.function_call.namespace = namespace;
                 self.function_call.status = status;
             }
@@ -411,7 +411,7 @@ impl OutputState {
                 self.custom_tool_call.call_id = Some(call_id);
                 self.custom_tool_call.input = input;
                 self.custom_tool_call.name = Some(name);
-                self.custom_tool_call.id = id;
+                self.custom_tool_call.item_id = id;
                 self.custom_tool_call.namespace = namespace;
             }
             openai::ResponseItem::Typed(openai::TypedResponseItem::Reasoning {
@@ -727,7 +727,7 @@ impl ReasoningState {
 
 struct FunctionCallState {
     index: u32,
-    id: Option<String>,
+    item_id: Option<String>,
     call_id: Option<String>,
     name: Option<String>,
     namespace: Option<String>,
@@ -740,7 +740,7 @@ impl FunctionCallState {
     fn new(index: u32) -> Self {
         Self {
             index,
-            id: None,
+            item_id: None,
             call_id: None,
             name: None,
             namespace: None,
@@ -752,6 +752,7 @@ impl FunctionCallState {
 
     fn has_content(&self) -> bool {
         self.call_id.is_some()
+            || self.item_id.is_some()
             || self.name.is_some()
             || !self.arguments.is_empty()
             || self.done_arguments.is_some()
@@ -760,12 +761,9 @@ impl FunctionCallState {
     fn finish(self) -> openai::ResponseItem {
         openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
             arguments: self.done_arguments.unwrap_or(self.arguments),
-            call_id: self
-                .call_id
-                .or_else(|| self.id.clone())
-                .unwrap_or_else(|| format!("call_{}", self.index)),
+            call_id: fallback_call_id(self.index, self.call_id, self.item_id.as_deref()),
             name: self.name.unwrap_or_default(),
-            id: self.id,
+            id: self.item_id,
             namespace: self.namespace,
             status: self
                 .status
@@ -777,7 +775,7 @@ impl FunctionCallState {
 
 struct CustomToolCallState {
     index: u32,
-    id: Option<String>,
+    item_id: Option<String>,
     call_id: Option<String>,
     name: Option<String>,
     namespace: Option<String>,
@@ -789,7 +787,7 @@ impl CustomToolCallState {
     fn new(index: u32) -> Self {
         Self {
             index,
-            id: None,
+            item_id: None,
             call_id: None,
             name: None,
             namespace: None,
@@ -800,6 +798,7 @@ impl CustomToolCallState {
 
     fn has_content(&self) -> bool {
         self.call_id.is_some()
+            || self.item_id.is_some()
             || self.name.is_some()
             || !self.input.is_empty()
             || self.done_input.is_some()
@@ -807,13 +806,10 @@ impl CustomToolCallState {
 
     fn finish(self) -> openai::ResponseItem {
         openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
-            call_id: self
-                .call_id
-                .or_else(|| self.id.clone())
-                .unwrap_or_else(|| format!("call_{}", self.index)),
+            call_id: fallback_call_id(self.index, self.call_id, self.item_id.as_deref()),
             input: self.done_input.unwrap_or(self.input),
             name: self.name.unwrap_or_default(),
-            id: self.id,
+            id: self.item_id,
             namespace: self.namespace,
             extra: Default::default(),
         })
@@ -1115,6 +1111,26 @@ fn output_text(output: &[openai::ResponseOutputItem]) -> Option<String> {
 
 fn non_empty(value: String) -> Option<String> {
     (!value.is_empty()).then_some(value)
+}
+
+fn fallback_call_id(index: u32, call_id: Option<String>, item_id: Option<&str>) -> String {
+    if let Some(call_id) = call_id {
+        return call_id;
+    }
+
+    if let Some(item_id) = item_id {
+        if item_id.starts_with("call_") || item_id.starts_with("toolu_") {
+            return item_id.to_owned();
+        }
+
+        if let Some(suffix) = item_id.strip_prefix("fc_")
+            && !suffix.is_empty()
+        {
+            return format!("call_{suffix}");
+        }
+    }
+
+    format!("call_{index}")
 }
 
 fn empty_response() -> openai::ResponseObject {
