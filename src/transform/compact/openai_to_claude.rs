@@ -313,6 +313,48 @@ fn typed_item_to_claude_message(item: openai::TypedResponseItem) -> Option<claud
                 ),
             )],
         ),
+        openai::TypedResponseItem::LocalShellCall {
+            action, call_id, ..
+        } => (
+            claude::MessageRole::Known(claude::MessageRoleKnown::Assistant),
+            vec![claude::ContentBlockParam::ServerToolUse(
+                server_tool_use_block(
+                    call_id,
+                    serializable_to_json_object(&action),
+                    claude::ServerToolUseNameKnown::BashCodeExecution,
+                ),
+            )],
+        ),
+        openai::TypedResponseItem::ShellCall {
+            action,
+            call_id,
+            environment: None,
+            ..
+        } => (
+            claude::MessageRole::Known(claude::MessageRoleKnown::Assistant),
+            vec![claude::ContentBlockParam::ServerToolUse(
+                server_tool_use_block(
+                    call_id,
+                    serializable_to_json_object(&action),
+                    claude::ServerToolUseNameKnown::BashCodeExecution,
+                ),
+            )],
+        ),
+        openai::TypedResponseItem::ShellCall {
+            action,
+            call_id,
+            environment: Some(environment),
+            ..
+        } => (
+            claude::MessageRole::Known(claude::MessageRoleKnown::Assistant),
+            vec![claude::ContentBlockParam::ServerToolUse(
+                server_tool_use_block(
+                    call_id,
+                    shell_input(action, environment),
+                    claude::ServerToolUseNameKnown::BashCodeExecution,
+                ),
+            )],
+        ),
         openai::TypedResponseItem::FunctionCallOutput {
             call_id, output, ..
         }
@@ -607,6 +649,18 @@ fn code_interpreter_input(code: Option<String>, container_id: String) -> claude:
     input
 }
 
+fn shell_input(
+    action: openai::ShellAction,
+    environment: openai::ShellEnvironment,
+) -> claude::JsonObject {
+    let mut input = serializable_to_json_object(&action);
+    input.insert(
+        "environment".to_owned(),
+        serde_json::to_value(environment).unwrap_or(serde_json::Value::Null),
+    );
+    input
+}
+
 fn openai_previous_response_id_to_claude(
     previous_response_id: Option<String>,
 ) -> Option<claude::DiagnosticsParam> {
@@ -692,6 +746,41 @@ fn compact_item_to_claude_content(item: openai::CompactResponseItem) -> Vec<clau
                 id,
                 code_interpreter_input(code, container_id),
                 claude::ServerToolUseNameKnown::CodeExecution,
+            ),
+        )],
+        openai::CompactResponseItem::Typed(openai::TypedResponseItem::LocalShellCall {
+            action,
+            call_id,
+            ..
+        }) => vec![claude::ContentBlock::ServerToolUse(
+            response_server_tool_use_block(
+                call_id,
+                serializable_to_json_object(&action),
+                claude::ServerToolUseNameKnown::BashCodeExecution,
+            ),
+        )],
+        openai::CompactResponseItem::Typed(openai::TypedResponseItem::ShellCall {
+            action,
+            call_id,
+            environment: None,
+            ..
+        }) => vec![claude::ContentBlock::ServerToolUse(
+            response_server_tool_use_block(
+                call_id,
+                serializable_to_json_object(&action),
+                claude::ServerToolUseNameKnown::BashCodeExecution,
+            ),
+        )],
+        openai::CompactResponseItem::Typed(openai::TypedResponseItem::ShellCall {
+            action,
+            call_id,
+            environment: Some(environment),
+            ..
+        }) => vec![claude::ContentBlock::ServerToolUse(
+            response_server_tool_use_block(
+                call_id,
+                shell_input(action, environment),
+                claude::ServerToolUseNameKnown::BashCodeExecution,
             ),
         )],
         openai::CompactResponseItem::Typed(openai::TypedResponseItem::McpCall {
