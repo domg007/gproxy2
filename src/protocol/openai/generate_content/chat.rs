@@ -7,7 +7,7 @@ use super::chat_stream::ChatCompletionChunk;
 use super::chat_tail::{
     ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs, ChatFileRef,
     ChatWebSearchOptions, CompletionUsage, CustomToolCall, ImageUrl, InputAudio, PredictionContent,
-    ReasoningDetail, StreamOptions,
+    StreamOptions,
 };
 
 pub type ChatCompletionWireModel = OpenAiWireModel<ChatCompletionRequest, ChatCompletionResponse>;
@@ -129,9 +129,7 @@ pub enum ChatCompletionMessageParam {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        reasoning: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reasoning_details: Option<Vec<ReasoningDetail>>,
+        reasoning_content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         refusal: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,9 +342,7 @@ pub struct ChatMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_details: Option<Vec<ReasoningDetail>>,
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ChatToolCall>>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]

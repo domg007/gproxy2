@@ -135,50 +135,6 @@ pub struct ChatAudio {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ReasoningDetail {
-    #[serde(rename = "reasoning.encrypted")]
-    Encrypted {
-        data: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        format: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        index: Option<u32>,
-        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-        extra: Extra,
-    },
-    #[serde(rename = "reasoning.summary")]
-    Summary {
-        summary: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        format: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        index: Option<u32>,
-        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-        extra: Extra,
-    },
-    #[serde(rename = "reasoning.text")]
-    Text {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        text: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        format: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        index: Option<u32>,
-        #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
-        extra: Extra,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompletionUsage {
     pub completion_tokens: u32,
     pub prompt_tokens: u32,

@@ -49,8 +49,6 @@ pub fn request(
                 effort: Some(effort),
                 summary: None,
                 generate_summary: None,
-                enabled: None,
-                max_tokens: None,
                 extra: Default::default(),
             }),
         safety_identifier: input.safety_identifier,

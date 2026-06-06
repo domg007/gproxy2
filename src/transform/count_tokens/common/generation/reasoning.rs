@@ -29,8 +29,6 @@ pub(in crate::transform::count_tokens) fn claude_generation_to_openai_reasoning(
         effort: Some(effort),
         summary: None,
         generate_summary: None,
-        enabled: None,
-        max_tokens: None,
         extra: Default::default(),
     })
 }
@@ -52,8 +50,6 @@ pub(in crate::transform::count_tokens) fn gemini_generation_to_openai_reasoning(
         effort: Some(effort),
         summary: None,
         generate_summary: None,
-        enabled: None,
-        max_tokens: None,
         extra: Default::default(),
     })
 }

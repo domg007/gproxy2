@@ -53,8 +53,6 @@ fn claude_content_to_compact_output(
                         }]),
                         encrypted_content: None,
                         status: Some(openai::ResponseItemLifecycleStatus::Completed),
-                        format: None,
-                        signature: None,
                         extra: Default::default(),
                     },
                 ));
@@ -67,8 +65,6 @@ fn claude_content_to_compact_output(
                         content: None,
                         encrypted_content: Some(block.data),
                         status: Some(openai::ResponseItemLifecycleStatus::Completed),
-                        format: None,
-                        signature: None,
                         extra: Default::default(),
                     },
                 ));
