@@ -9,7 +9,7 @@ pub fn request(
     input: gemini::CountTokensRequest,
     _: &TransformContext,
 ) -> Result<openai::ResponseInputTokensRequest, TransformError> {
-    let request = split_gemini_request(input);
+    let request = common::split_gemini_count_token_request(input);
 
     Ok(openai::ResponseInputTokensRequest {
         conversation: None,
@@ -41,45 +41,5 @@ pub fn response(
             .unwrap_or_default(),
         object: openai::ResponseInputTokensObjectType::ResponseInputTokens,
         extra: Default::default(),
-    }
-}
-
-struct GeminiCountTokenParts {
-    model: Option<String>,
-    contents: Vec<gemini::Content>,
-    system_instruction: Option<gemini::Content>,
-    tools: Vec<gemini::Tool>,
-    tool_config: Option<gemini::ToolConfig>,
-    generation_config: Option<gemini::GenerationConfig>,
-}
-
-fn split_gemini_request(input: gemini::CountTokensRequest) -> GeminiCountTokenParts {
-    let mut model = input.model;
-    let mut contents = input.contents;
-    let mut system_instruction = None;
-    let mut tools = Vec::new();
-    let mut tool_config = None;
-    let mut generation_config = None;
-
-    if let Some(request) = input.generate_content_request {
-        if model.is_none() {
-            model = request.model;
-        }
-        if contents.is_empty() {
-            contents = request.contents;
-        }
-        system_instruction = request.system_instruction;
-        tools = request.tools;
-        tool_config = request.tool_config;
-        generation_config = request.generation_config;
-    }
-
-    GeminiCountTokenParts {
-        model,
-        contents,
-        system_instruction,
-        tools,
-        tool_config,
-        generation_config,
     }
 }

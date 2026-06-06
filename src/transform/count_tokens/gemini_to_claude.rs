@@ -9,22 +9,31 @@ pub fn request(
     input: gemini::CountTokensRequest,
     _: &TransformContext,
 ) -> Result<claude::CountTokensRequestBody, TransformError> {
-    let (model, contents, system_instruction) = split_gemini_request(input);
+    let request = common::split_gemini_count_token_request(input);
+    let tool_parts = common::gemini_tools_to_claude(request.tools);
 
     Ok(claude::CountTokensRequestBody {
-        model: common::gemini_model_string(model).into(),
-        messages: common::text_to_claude_messages(common::gemini_contents_to_text(contents)),
+        model: common::gemini_model_string(request.model).into(),
+        messages: common::text_to_claude_messages(common::gemini_contents_to_text(
+            request.contents,
+        )),
         cache_control: None,
         context_management: None,
         diagnostics: None,
-        mcp_servers: None,
-        output_config: None,
-        output_format: None,
-        speed: None,
-        system: common::text_to_claude_system(system_instruction.map(common::gemini_content_text)),
-        thinking: None,
-        tool_choice: None,
-        tools: None,
+        mcp_servers: tool_parts.mcp_servers,
+        output_config: common::gemini_generation_to_claude_output_config(
+            request.generation_config.as_ref(),
+        ),
+        output_format: common::gemini_generation_to_claude_output_format(
+            request.generation_config.as_ref(),
+        ),
+        speed: common::gemini_service_tier_to_claude_speed(request.service_tier),
+        system: common::text_to_claude_system(
+            request.system_instruction.map(common::gemini_content_text),
+        ),
+        thinking: common::gemini_generation_to_claude_thinking(request.generation_config.as_ref()),
+        tool_choice: common::gemini_tool_config_to_claude(request.tool_config),
+        tools: tool_parts.tools,
         extra: Default::default(),
     })
 }
@@ -46,28 +55,4 @@ pub fn response(
         }),
         extra: Default::default(),
     }
-}
-
-fn split_gemini_request(
-    input: gemini::CountTokensRequest,
-) -> (
-    Option<String>,
-    Vec<gemini::Content>,
-    Option<gemini::Content>,
-) {
-    let mut model = input.model;
-    let mut contents = input.contents;
-    let mut system_instruction = None;
-
-    if let Some(request) = input.generate_content_request {
-        if model.is_none() {
-            model = request.model;
-        }
-        if contents.is_empty() {
-            contents = request.contents;
-        }
-        system_instruction = request.system_instruction;
-    }
-
-    (model, contents, system_instruction)
 }
