@@ -114,9 +114,9 @@ fn content_block_start_to_response(
             output_index,
             openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                 arguments: json_object_to_arguments(block.input),
-                call_id: block.id.clone(),
+                call_id: common::response_call_id(&block.id),
                 name: block.name,
-                id: Some(block.id),
+                id: Some(common::response_function_call_item_id(&block.id)),
                 namespace: None,
                 status: Some(openai::ResponseItemLifecycleStatus::InProgress),
                 extra: Default::default(),
@@ -126,9 +126,9 @@ fn content_block_start_to_response(
             output_index,
             openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                 arguments: json_object_to_arguments(block.input),
-                call_id: block.id.clone(),
+                call_id: common::response_call_id(&block.id),
                 name: block.name,
-                id: Some(block.id),
+                id: Some(common::response_function_call_item_id(&block.id)),
                 namespace: Some(block.server_name),
                 status: Some(openai::ResponseItemLifecycleStatus::InProgress),
                 extra: Default::default(),
@@ -153,7 +153,7 @@ fn event_delta_to_response(index: u64, delta: claude::EventDelta) -> openai::Res
             claude::KnownEventDelta::InputJson { partial_json, .. } => known(
                 openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
                     delta: partial_json,
-                    item_id: call_id(output_index),
+                    item_id: common::indexed_response_function_call_item_id(output_index),
                     output_index,
                     sequence_number: None,
                     extra: Default::default(),
@@ -337,10 +337,6 @@ fn message_id(index: u32) -> String {
 
 fn reasoning_id(index: u32) -> String {
     format!("reasoning_{index}")
-}
-
-fn call_id(index: u32) -> String {
-    format!("call_{index}")
 }
 
 fn index_to_u32(index: u64) -> u32 {

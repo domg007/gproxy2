@@ -81,11 +81,7 @@ fn chat_chunk_to_response_event(input: openai::ChatCompletionChunk) -> openai::R
             return known(
                 openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
                     delta: arguments,
-                    item_id: function_call
-                        .name
-                        .as_deref()
-                        .map(legacy_function_call_id)
-                        .unwrap_or_else(|| "call_function".to_owned()),
+                    item_id: common::indexed_response_function_call_item_id(index),
                     output_index: index,
                     sequence_number: None,
                     extra: Default::default(),
@@ -93,13 +89,14 @@ fn chat_chunk_to_response_event(input: openai::ChatCompletionChunk) -> openai::R
             );
         }
         if let Some(name) = function_call.name.filter(|value| !value.is_empty()) {
+            let call_id = common::indexed_response_call_id(index);
             return output_item_added(
                 index,
                 openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                     arguments: String::new(),
-                    call_id: legacy_function_call_id(&name),
+                    call_id,
                     name,
-                    id: None,
+                    id: Some(common::indexed_response_function_call_item_id(index)),
                     namespace: None,
                     status: Some(openai::ResponseItemLifecycleStatus::InProgress),
                     extra: Default::default(),
@@ -126,11 +123,7 @@ fn chat_chunk_to_response_event(input: openai::ChatCompletionChunk) -> openai::R
 fn tool_delta_to_response_event(call: openai::ChatToolCallDelta) -> openai::ResponseStreamEvent {
     let output_index = call.index;
     if let Some(function) = call.function {
-        let item_id = call
-            .id
-            .clone()
-            .or_else(|| function.name.as_deref().map(legacy_function_call_id))
-            .unwrap_or_else(|| format!("call_{output_index}"));
+        let (call_id, item_id) = response_function_ids(call.id.as_deref(), output_index);
         if let Some(arguments) = function.arguments.filter(|value| !value.is_empty()) {
             return known(
                 openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
@@ -147,7 +140,7 @@ fn tool_delta_to_response_event(call: openai::ChatToolCallDelta) -> openai::Resp
                 output_index,
                 openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                     arguments: String::new(),
-                    call_id: item_id.clone(),
+                    call_id,
                     name,
                     id: Some(item_id),
                     namespace: None,
@@ -159,7 +152,12 @@ fn tool_delta_to_response_event(call: openai::ChatToolCallDelta) -> openai::Resp
     }
 
     if let Some(custom) = call.custom {
-        let item_id = call.id.unwrap_or_else(|| format!("call_{output_index}"));
+        let call_id = call
+            .id
+            .as_deref()
+            .map(common::response_call_id)
+            .unwrap_or_else(|| common::indexed_response_call_id(output_index));
+        let item_id = format!("ctc_{output_index}");
         if let Some(input) = custom.input.filter(|value| !value.is_empty()) {
             return known(
                 openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDelta {
@@ -175,10 +173,10 @@ fn tool_delta_to_response_event(call: openai::ChatToolCallDelta) -> openai::Resp
             return output_item_added(
                 output_index,
                 openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
-                    call_id: item_id.clone(),
+                    call_id,
                     input: String::new(),
                     name,
-                    id: Some(item_id),
+                    id: None,
                     namespace: None,
                     extra: Default::default(),
                 }),
@@ -306,8 +304,21 @@ fn reasoning_item_id(index: u32) -> String {
     format!("reasoning_{index}")
 }
 
-fn legacy_function_call_id(name: &str) -> String {
-    format!("call_{name}")
+fn response_function_ids(chat_call_id: Option<&str>, output_index: u32) -> (String, String) {
+    chat_call_id.map_or_else(
+        || {
+            (
+                common::indexed_response_call_id(output_index),
+                common::indexed_response_function_call_item_id(output_index),
+            )
+        },
+        |id| {
+            (
+                common::response_call_id(id),
+                common::response_function_call_item_id(id),
+            )
+        },
+    )
 }
 
 fn known(event: openai::KnownResponseStreamEvent) -> openai::ResponseStreamEvent {

@@ -47,8 +47,16 @@ fn known_event_to_gemini(
             arguments,
             item_id,
             name,
+            output_index,
             ..
-        } => function_call_chunk(Some(item_id), name, arguments_to_json_map(arguments)),
+        } => function_call_chunk(
+            Some(common::fallback_response_call_id(
+                output_index,
+                Some(&item_id),
+            )),
+            name,
+            arguments_to_json_map(arguments),
+        ),
         openai::KnownResponseStreamEvent::Error { .. } => finish_chunk(
             gemini::FinishReason::Known(gemini::FinishReasonKnown::Safety),
             None,

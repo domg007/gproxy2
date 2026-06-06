@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::protocol::openai;
 
+use super::super::common;
 use super::tools::{
     ResponseToolOutputKind, chat_tool_call_to_response_item,
     chat_tool_call_to_response_item_and_output_kind, legacy_function_call_id,
@@ -26,7 +27,7 @@ pub(super) fn chat_messages_to_response_items(
 fn chat_message_to_response_items(
     index: usize,
     message: openai::ChatCompletionMessageParam,
-    tool_outputs: &mut BTreeMap<String, ResponseToolOutputKind>,
+    tool_outputs: &mut BTreeMap<String, (String, ResponseToolOutputKind)>,
 ) -> Vec<openai::ResponseItem> {
     match message {
         openai::ChatCompletionMessageParam::Developer { content, .. } => vec![easy_input(
@@ -64,17 +65,15 @@ fn chat_message_to_response_items(
                 ));
             }
             if let Some(function_call) = function_call {
-                tool_outputs.insert(
-                    legacy_function_call_id(&function_call.name),
-                    ResponseToolOutputKind::Function,
-                );
+                let call_id = legacy_function_call_id(&function_call.name);
+                tool_outputs.insert(call_id.clone(), (call_id, ResponseToolOutputKind::Function));
                 items.push(legacy_function_call_to_response_item(function_call));
             }
             if let Some(tool_calls) = tool_calls {
                 for call in tool_calls {
-                    let (item, call_id, kind) =
+                    let (item, original_call_id, response_call_id, kind) =
                         chat_tool_call_to_response_item_and_output_kind(call);
-                    tool_outputs.insert(call_id, kind);
+                    tool_outputs.insert(original_call_id, (response_call_id, kind));
                     items.push(item);
                 }
             }
@@ -91,13 +90,15 @@ fn chat_message_to_response_items(
             tool_call_id,
             ..
         } => {
-            let kind = tool_outputs
-                .get(&tool_call_id)
-                .copied()
-                .unwrap_or(ResponseToolOutputKind::Function);
+            let kind = tool_outputs.get(&tool_call_id).cloned().unwrap_or_else(|| {
+                (
+                    common::response_call_id(&tool_call_id),
+                    ResponseToolOutputKind::Function,
+                )
+            });
             vec![tool_output_item(
-                kind,
-                tool_call_id,
+                kind.1,
+                kind.0,
                 openai::ResponseOutput::Text(chat_text_content_to_text(content)),
             )]
         }

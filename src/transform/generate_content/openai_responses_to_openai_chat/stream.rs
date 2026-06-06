@@ -72,46 +72,58 @@ fn known_event_to_chat(event: openai::KnownResponseStreamEvent) -> openai::ChatC
             item_id,
             output_index,
             ..
-        } => chat_tool_delta(
-            item_id.clone(),
-            output_index,
-            common::chat_function_tool_delta(output_index, Some(item_id), None, Some(delta)),
-            None,
-        ),
+        } => {
+            let call_id = common::fallback_response_call_id(output_index, Some(&item_id));
+            chat_tool_delta(
+                call_id.clone(),
+                output_index,
+                common::chat_function_tool_delta(output_index, Some(call_id), None, Some(delta)),
+                None,
+            )
+        }
         openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDone {
             arguments: _,
             item_id,
             name,
             output_index,
             ..
-        } => chat_tool_delta(
-            item_id.clone(),
-            output_index,
-            common::chat_function_tool_delta(output_index, Some(item_id), Some(name), None),
-            None,
-        ),
+        } => {
+            let call_id = common::fallback_response_call_id(output_index, Some(&item_id));
+            chat_tool_delta(
+                call_id.clone(),
+                output_index,
+                common::chat_function_tool_delta(output_index, Some(call_id), Some(name), None),
+                None,
+            )
+        }
         openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDelta {
             delta,
             item_id,
             output_index,
             ..
-        } => chat_tool_delta(
-            item_id.clone(),
-            output_index,
-            common::chat_custom_tool_delta(output_index, Some(item_id), None, Some(delta)),
-            None,
-        ),
+        } => {
+            let call_id = common::fallback_response_call_id(output_index, Some(&item_id));
+            chat_tool_delta(
+                call_id.clone(),
+                output_index,
+                common::chat_custom_tool_delta(output_index, Some(call_id), None, Some(delta)),
+                None,
+            )
+        }
         openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDone {
             input: _,
             item_id,
             output_index,
             ..
-        } => chat_tool_delta(
-            item_id.clone(),
-            output_index,
-            common::chat_custom_tool_delta(output_index, Some(item_id), None, None),
-            None,
-        ),
+        } => {
+            let call_id = common::fallback_response_call_id(output_index, Some(&item_id));
+            chat_tool_delta(
+                call_id.clone(),
+                output_index,
+                common::chat_custom_tool_delta(output_index, Some(call_id), None, None),
+                None,
+            )
+        }
         openai::KnownResponseStreamEvent::Error { .. } => common::chat_finish_chunk(
             "resp_error".to_owned(),
             common::default_openai_model(),

@@ -112,9 +112,20 @@ fn part_to_response_event(
             }
         }
         gemini::PartData::FunctionCall { function_call } => {
-            let call_id = function_call
-                .id
-                .unwrap_or_else(|| format!("call_{output_index}"));
+            let (call_id, item_id) = function_call.id.as_deref().map_or_else(
+                || {
+                    (
+                        common::indexed_response_call_id(output_index),
+                        common::indexed_response_function_call_item_id(output_index),
+                    )
+                },
+                |id| {
+                    (
+                        common::response_call_id(id),
+                        common::response_function_call_item_id(id),
+                    )
+                },
+            );
             Some(known(
                 openai::KnownResponseStreamEvent::ResponseOutputItemAdded {
                     item: Box::new(openai::ResponseOutputItem(openai::ResponseItem::Typed(
@@ -125,7 +136,7 @@ fn part_to_response_event(
                                 .unwrap_or_default(),
                             call_id: call_id.clone(),
                             name: function_call.name,
-                            id: Some(call_id),
+                            id: Some(item_id),
                             namespace: None,
                             status: Some(openai::ResponseItemLifecycleStatus::Completed),
                             extra: Default::default(),

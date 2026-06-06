@@ -1114,23 +1114,7 @@ fn non_empty(value: String) -> Option<String> {
 }
 
 fn fallback_call_id(index: u32, call_id: Option<String>, item_id: Option<&str>) -> String {
-    if let Some(call_id) = call_id {
-        return call_id;
-    }
-
-    if let Some(item_id) = item_id {
-        if item_id.starts_with("call_") || item_id.starts_with("toolu_") {
-            return item_id.to_owned();
-        }
-
-        if let Some(suffix) = item_id.strip_prefix("fc_")
-            && !suffix.is_empty()
-        {
-            return format!("call_{suffix}");
-        }
-    }
-
-    format!("call_{index}")
+    call_id.unwrap_or_else(|| common::fallback_response_call_id(index, item_id))
 }
 
 fn empty_response() -> openai::ResponseObject {

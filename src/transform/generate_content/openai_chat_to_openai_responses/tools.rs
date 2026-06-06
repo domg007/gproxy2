@@ -1,5 +1,7 @@
 use crate::protocol::openai;
 
+use super::super::common;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum ResponseToolOutputKind {
     Function,
@@ -45,30 +47,32 @@ pub(super) fn chat_tool_call_to_response_item(call: openai::ChatToolCall) -> ope
 
 pub(super) fn chat_tool_call_to_response_item_and_output_kind(
     call: openai::ChatToolCall,
-) -> (openai::ResponseItem, String, ResponseToolOutputKind) {
+) -> (openai::ResponseItem, String, String, ResponseToolOutputKind) {
     match call {
         openai::ChatToolCall::Function { id, function, .. } => {
+            let call_id = common::response_call_id(&id);
             let item = openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                 arguments: function.arguments,
-                call_id: id.clone(),
+                call_id: call_id.clone(),
                 name: function.name,
-                id: Some(id.clone()),
+                id: Some(common::response_function_call_item_id(&id)),
                 namespace: None,
                 status: Some(openai::ResponseItemLifecycleStatus::Completed),
                 extra: Default::default(),
             });
-            (item, id, ResponseToolOutputKind::Function)
+            (item, id, call_id, ResponseToolOutputKind::Function)
         }
         openai::ChatToolCall::Custom { id, custom, .. } => {
+            let call_id = common::response_call_id(&id);
             let item = openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
-                call_id: id.clone(),
+                call_id: call_id.clone(),
                 input: custom.input,
                 name: custom.name,
-                id: Some(id.clone()),
+                id: None,
                 namespace: None,
                 extra: Default::default(),
             });
-            (item, id, ResponseToolOutputKind::Custom)
+            (item, id, call_id, ResponseToolOutputKind::Custom)
         }
     }
 }
@@ -110,7 +114,7 @@ pub(super) fn legacy_function_call_to_response_item(
         arguments: call.arguments,
         call_id: call_id.clone(),
         name: call.name,
-        id: Some(call_id),
+        id: Some(common::response_function_call_item_id(&call_id)),
         namespace: None,
         status: Some(openai::ResponseItemLifecycleStatus::Completed),
         extra: Default::default(),
