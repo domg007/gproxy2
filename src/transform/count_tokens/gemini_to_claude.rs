@@ -16,6 +16,7 @@ pub fn request(
         messages: common::text_to_claude_messages(common::gemini_contents_to_text(contents)),
         cache_control: None,
         context_management: None,
+        diagnostics: None,
         mcp_servers: None,
         output_config: None,
         output_format: None,

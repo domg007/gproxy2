@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    AnthropicBetaHeaders, CacheControl, ClaudeModel, ContextManagementConfig, JsonObject,
-    JsonSchemaFormat, McpServer, MessageParam, OutputConfig, Speed, SystemPrompt, ThinkingConfig,
-    Tool, ToolChoice,
+    AnthropicBetaHeaders, CacheControl, ClaudeModel, ContextManagementConfig, DiagnosticsParam,
+    JsonObject, JsonSchemaFormat, McpServer, MessageParam, OutputConfig, Speed, SystemPrompt,
+    ThinkingConfig, Tool, ToolChoice,
 };
 
 pub type CountTokensRequestHeaders = AnthropicBetaHeaders;
@@ -18,6 +18,8 @@ pub struct CountTokensRequestBody {
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_management: Option<ContextManagementConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<DiagnosticsParam>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_servers: Option<Vec<McpServer>>,
     #[serde(skip_serializing_if = "Option::is_none")]

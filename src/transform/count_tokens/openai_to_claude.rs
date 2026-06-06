@@ -23,6 +23,7 @@ pub fn request(
         messages: common::text_to_claude_messages(common::openai_input_to_text(input.input)),
         cache_control: None,
         context_management: None,
+        diagnostics: common::openai_previous_response_id_to_claude(input.previous_response_id),
         mcp_servers,
         output_config,
         output_format,

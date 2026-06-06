@@ -12,6 +12,7 @@ pub fn request(
     let tool_choice = input.tool_choice;
     let output_config = input.output_config;
     let output_format = input.output_format;
+    let previous_response_id = common::claude_previous_message_id_to_openai(input.diagnostics);
 
     Ok(openai::ResponseInputTokensRequest {
         conversation: None,
@@ -20,7 +21,7 @@ pub fn request(
         model: Some(common::claude_model_string(&input.model).into()),
         parallel_tool_calls: common::claude_parallel_tool_calls(tool_choice.as_ref()),
         personality: None,
-        previous_response_id: None,
+        previous_response_id,
         reasoning: common::claude_generation_to_openai_reasoning(
             input.thinking,
             output_config.as_ref(),
