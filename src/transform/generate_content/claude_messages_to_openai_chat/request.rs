@@ -26,6 +26,8 @@ pub fn request(
                         openai::ChatCompletionMessageParam::Assistant {
                             content: Some(openai::ChatAssistantContent::Text(text)),
                             audio: None,
+                            reasoning_content: None,
+                            reasoning_details: None,
                             function_call: None,
                             name: None,
                             refusal: None,
@@ -121,6 +123,9 @@ pub fn request(
                 | claude::OutputEffort::Unknown(_) => openai::Verbosity::High,
             })
         }),
+        thinking: None,
+        thinking_config: None,
+        cached_content: None,
         web_search_options: None,
         extra: Default::default(),
     })

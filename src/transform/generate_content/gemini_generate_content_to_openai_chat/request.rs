@@ -9,6 +9,7 @@ pub fn request(
     input: gemini::GenerateContentRequest,
     _: &TransformContext,
 ) -> Result<openai::ChatCompletionRequest, TransformError> {
+    let cached_content = input.cached_content;
     let mut messages = Vec::new();
     if let Some(system_instruction) = input.system_instruction {
         let text = gemini_content_to_text(system_instruction);
@@ -60,7 +61,7 @@ pub fn request(
         presence_penalty: generation_config
             .as_ref()
             .and_then(|config| config.presence_penalty),
-        prompt_cache_key: input.cached_content,
+        prompt_cache_key: None,
         prompt_cache_retention: None,
         reasoning_effort: common::gemini_thinking_to_openai(
             generation_config
@@ -94,6 +95,13 @@ pub fn request(
         top_p: generation_config.as_ref().and_then(|config| config.top_p),
         user: None,
         verbosity: None,
+        thinking: None,
+        thinking_config: common::gemini_thinking_to_chat(
+            generation_config
+                .as_ref()
+                .and_then(|config| config.thinking_config.as_ref()),
+        ),
+        cached_content,
         web_search_options: None,
         extra: Default::default(),
     })

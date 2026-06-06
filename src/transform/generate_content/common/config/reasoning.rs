@@ -20,6 +20,34 @@ pub(in crate::transform::generate_content) fn openai_reasoning_to_claude(
     }
 }
 
+pub(in crate::transform::generate_content) fn chat_thinking_to_claude(
+    thinking: Option<openai::ChatClaudeThinkingConfig>,
+) -> Option<claude::ThinkingConfig> {
+    match thinking? {
+        openai::ChatClaudeThinkingConfig::Enabled(config) => {
+            Some(claude::ThinkingConfig::Enabled(claude::ThinkingEnabled {
+                budget_tokens: config.budget_tokens,
+                type_: claude::ThinkingEnabledType::Enabled,
+                display: None,
+                extra: Default::default(),
+            }))
+        }
+        openai::ChatClaudeThinkingConfig::Disabled(_) => {
+            Some(claude::ThinkingConfig::Disabled(claude::ThinkingDisabled {
+                type_: claude::ThinkingDisabledType::Disabled,
+                extra: Default::default(),
+            }))
+        }
+        openai::ChatClaudeThinkingConfig::Adaptive(_) => {
+            Some(claude::ThinkingConfig::Adaptive(claude::ThinkingAdaptive {
+                type_: claude::ThinkingAdaptiveType::Adaptive,
+                display: None,
+                extra: Default::default(),
+            }))
+        }
+    }
+}
+
 pub(in crate::transform::generate_content) fn claude_thinking_to_openai(
     thinking: Option<claude::ThinkingConfig>,
 ) -> Option<openai::ReasoningEffort> {
@@ -30,6 +58,62 @@ pub(in crate::transform::generate_content) fn claude_thinking_to_openai(
         }
         claude::ThinkingConfig::Unknown(_) => None,
     }
+}
+
+pub(in crate::transform::generate_content) fn gemini_thinking_to_chat(
+    thinking: Option<&gemini::ThinkingConfig>,
+) -> Option<openai::ChatGeminiThinkingConfig> {
+    let thinking = thinking?;
+    Some(openai::ChatGeminiThinkingConfig {
+        include_thoughts: thinking.include_thoughts,
+        thinking_budget: thinking.thinking_budget,
+        thinking_level: thinking
+            .thinking_level
+            .as_ref()
+            .and_then(|level| match level {
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Minimal) => {
+                    Some(openai::ChatGeminiThinkingLevel::Minimal)
+                }
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Low) => {
+                    Some(openai::ChatGeminiThinkingLevel::Low)
+                }
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Medium) => {
+                    Some(openai::ChatGeminiThinkingLevel::Medium)
+                }
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::High) => {
+                    Some(openai::ChatGeminiThinkingLevel::High)
+                }
+                gemini::ThinkingLevel::Known(
+                    gemini::ThinkingLevelKnown::ThinkingLevelUnspecified,
+                )
+                | gemini::ThinkingLevel::Unknown(_) => None,
+            }),
+    })
+}
+
+pub(in crate::transform::generate_content) fn chat_thinking_to_gemini(
+    thinking: Option<openai::ChatGeminiThinkingConfig>,
+) -> Option<gemini::ThinkingConfig> {
+    let thinking = thinking?;
+    Some(gemini::ThinkingConfig {
+        include_thoughts: thinking.include_thoughts,
+        thinking_budget: thinking.thinking_budget,
+        thinking_level: thinking.thinking_level.map(|level| match level {
+            openai::ChatGeminiThinkingLevel::Minimal => {
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Minimal)
+            }
+            openai::ChatGeminiThinkingLevel::Low => {
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Low)
+            }
+            openai::ChatGeminiThinkingLevel::Medium => {
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::Medium)
+            }
+            openai::ChatGeminiThinkingLevel::High => {
+                gemini::ThinkingLevel::Known(gemini::ThinkingLevelKnown::High)
+            }
+        }),
+        extra: Default::default(),
+    })
 }
 
 pub(in crate::transform::generate_content) fn openai_reasoning_to_gemini(

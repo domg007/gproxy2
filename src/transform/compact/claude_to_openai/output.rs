@@ -44,7 +44,7 @@ fn claude_content_to_compact_output(
             claude::ContentBlock::Thinking(block) => {
                 output.push(openai::CompactResponseItem::Typed(
                     openai::TypedResponseItem::Reasoning {
-                        id: block.signature,
+                        id: block.signature.clone(),
                         summary: Vec::new(),
                         content: Some(vec![openai::ResponseReasoningTextPart {
                             text: block.thinking,
@@ -52,6 +52,7 @@ fn claude_content_to_compact_output(
                             extra: Default::default(),
                         }]),
                         encrypted_content: None,
+                        signature: Some(block.signature),
                         status: Some(openai::ResponseItemLifecycleStatus::Completed),
                         extra: Default::default(),
                     },
@@ -64,6 +65,7 @@ fn claude_content_to_compact_output(
                         summary: Vec::new(),
                         content: None,
                         encrypted_content: Some(block.data),
+                        signature: None,
                         status: Some(openai::ResponseItemLifecycleStatus::Completed),
                         extra: Default::default(),
                     },

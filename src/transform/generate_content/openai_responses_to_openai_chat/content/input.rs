@@ -71,6 +71,8 @@ fn easy_message_to_chat_message(
                     easy_input_content_to_text(message.content),
                 )),
                 audio: None,
+                reasoning_content: None,
+                reasoning_details: None,
                 function_call: None,
                 name: None,
                 refusal: None,
@@ -151,6 +153,8 @@ fn output_message_to_chat_param(
     Some(openai::ChatCompletionMessageParam::Assistant {
         content: (!parts.is_empty()).then_some(openai::ChatAssistantContent::Parts(parts)),
         audio: None,
+        reasoning_content: None,
+        reasoning_details: None,
         function_call: None,
         name: None,
         refusal,
@@ -171,6 +175,8 @@ fn typed_item_to_chat_message(
         } => Some(openai::ChatCompletionMessageParam::Assistant {
             content: None,
             audio: None,
+            reasoning_content: None,
+            reasoning_details: None,
             function_call: None,
             name: None,
             refusal: None,
@@ -187,6 +193,8 @@ fn typed_item_to_chat_message(
         } => Some(openai::ChatCompletionMessageParam::Assistant {
             content: None,
             audio: None,
+            reasoning_content: None,
+            reasoning_details: None,
             function_call: None,
             name: None,
             refusal: None,
@@ -203,9 +211,86 @@ fn typed_item_to_chat_message(
             tool_call_id: call_id,
             extra: Default::default(),
         }),
-        openai::TypedResponseItem::Reasoning { .. } => None,
+        reasoning @ openai::TypedResponseItem::Reasoning { .. } => {
+            reasoning_item_to_chat_message(reasoning)
+        }
         _ => None,
     }
+}
+
+fn reasoning_item_to_chat_message(
+    item: openai::TypedResponseItem,
+) -> Option<openai::ChatCompletionMessageParam> {
+    let openai::TypedResponseItem::Reasoning {
+        id,
+        summary,
+        content,
+        encrypted_content,
+        signature,
+        ..
+    } = item
+    else {
+        return None;
+    };
+    let mut reasoning_parts = Vec::new();
+    let mut reasoning_details = Vec::new();
+    let mut index = 0u64;
+
+    if let Some(content) = content {
+        for part in content {
+            if part.text.is_empty() {
+                continue;
+            }
+            reasoning_parts.push(part.text.clone());
+            reasoning_details.push(openai::ChatReasoningDetail {
+                type_: openai::ChatReasoningDetailType::Text,
+                id: Some(id.clone()),
+                data: None,
+                text: Some(part.text),
+                signature: signature.clone(),
+                index: Some(index),
+            });
+            index += 1;
+        }
+    }
+
+    for part in summary {
+        if part.text.is_empty() {
+            continue;
+        }
+        reasoning_details.push(openai::ChatReasoningDetail {
+            type_: openai::ChatReasoningDetailType::Summary,
+            id: Some(id.clone()),
+            data: None,
+            text: Some(part.text),
+            signature: signature.clone(),
+            index: Some(index),
+        });
+        index += 1;
+    }
+
+    if let Some(data) = encrypted_content.filter(|value| !value.is_empty()) {
+        reasoning_details.push(openai::ChatReasoningDetail {
+            type_: openai::ChatReasoningDetailType::Encrypted,
+            id: Some(id),
+            data: Some(data),
+            text: None,
+            signature,
+            index: Some(index),
+        });
+    }
+
+    Some(openai::ChatCompletionMessageParam::Assistant {
+        content: None,
+        audio: None,
+        reasoning_content: (!reasoning_parts.is_empty()).then(|| reasoning_parts.join("\n")),
+        reasoning_details: (!reasoning_details.is_empty()).then_some(reasoning_details),
+        function_call: None,
+        name: None,
+        refusal: None,
+        tool_calls: None,
+        extra: Default::default(),
+    })
 }
 
 fn response_input_parts_to_chat_content(

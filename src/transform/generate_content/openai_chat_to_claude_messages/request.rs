@@ -54,11 +54,17 @@ pub fn request(
                 content,
                 function_call,
                 refusal,
+                reasoning_content,
+                reasoning_details,
                 tool_calls,
                 ..
             } => {
                 seen_non_system = true;
                 let mut blocks = Vec::new();
+                blocks.extend(reasoning_to_claude_blocks(
+                    reasoning_content,
+                    reasoning_details,
+                ));
                 if let Some(content) = content {
                     blocks.extend(chat_assistant_content_to_claude_blocks(content));
                 }
@@ -162,7 +168,8 @@ pub fn request(
         stream: input.stream,
         system: system_prompt(system_blocks),
         temperature: input.temperature,
-        thinking: common::openai_reasoning_to_claude(input.reasoning_effort),
+        thinking: common::chat_thinking_to_claude(input.thinking)
+            .or_else(|| common::openai_reasoning_to_claude(input.reasoning_effort)),
         tool_choice: chat_tool_choice_to_claude(input.tool_choice, input.parallel_tool_calls),
         tools: if tools.is_empty() { None } else { Some(tools) },
         top_k: None,
@@ -170,6 +177,67 @@ pub fn request(
         user_profile_id: None,
         extra: Default::default(),
     })
+}
+
+fn reasoning_to_claude_blocks(
+    reasoning_content: Option<String>,
+    reasoning_details: Option<Vec<openai::ChatReasoningDetail>>,
+) -> Vec<claude::ContentBlockParam> {
+    let content_signature = reasoning_details
+        .as_ref()
+        .and_then(|details| details.iter().find_map(reasoning_detail_signature));
+    let mut blocks = Vec::new();
+
+    if let (Some(thinking), Some(signature)) = (
+        reasoning_content.filter(|value| !value.is_empty()),
+        content_signature,
+    ) {
+        blocks.push(claude::ContentBlockParam::Thinking(claude::ThinkingBlock {
+            signature,
+            thinking,
+            type_: claude::ThinkingBlockType::Thinking,
+        }));
+    }
+
+    if let Some(reasoning_details) = reasoning_details {
+        for detail in reasoning_details {
+            match detail.type_ {
+                openai::ChatReasoningDetailType::Text
+                | openai::ChatReasoningDetailType::Summary => {
+                    let signature = reasoning_detail_signature(&detail);
+                    if let (Some(text), Some(signature)) =
+                        (detail.text.filter(|value| !value.is_empty()), signature)
+                    {
+                        blocks.push(claude::ContentBlockParam::Thinking(claude::ThinkingBlock {
+                            signature,
+                            thinking: text,
+                            type_: claude::ThinkingBlockType::Thinking,
+                        }));
+                    }
+                }
+                openai::ChatReasoningDetailType::Encrypted => {
+                    if let Some(data) = detail.data.filter(|value| !value.is_empty()) {
+                        blocks.push(claude::ContentBlockParam::RedactedThinking(
+                            claude::RedactedThinkingBlock {
+                                data,
+                                type_: claude::RedactedThinkingBlockType::RedactedThinking,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    blocks
+}
+
+fn reasoning_detail_signature(detail: &openai::ChatReasoningDetail) -> Option<String> {
+    detail
+        .signature
+        .clone()
+        .or_else(|| detail.id.clone())
+        .filter(|value| !value.is_empty())
 }
 
 fn chat_output_config(

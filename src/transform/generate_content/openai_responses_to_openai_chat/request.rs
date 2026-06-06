@@ -73,6 +73,9 @@ pub fn request(
         top_p: input.top_p,
         user: input.user,
         verbosity,
+        thinking: None,
+        thinking_config: None,
+        cached_content: None,
         web_search_options: tools.web_search_options,
         extra: Default::default(),
     })

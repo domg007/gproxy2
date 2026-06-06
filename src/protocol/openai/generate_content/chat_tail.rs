@@ -6,6 +6,111 @@ use super::super::common::*;
 use super::chat::ChatTextContent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatClaudeThinkingConfig {
+    Enabled(ChatClaudeThinkingEnabled),
+    Disabled(ChatClaudeThinkingDisabled),
+    Adaptive(ChatClaudeThinkingAdaptive),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatClaudeThinkingEnabled {
+    pub budget_tokens: u64,
+    #[serde(rename = "type")]
+    pub type_: ChatClaudeThinkingEnabledType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatClaudeThinkingEnabledType {
+    #[serde(rename = "enabled")]
+    Enabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatClaudeThinkingDisabled {
+    #[serde(rename = "type")]
+    pub type_: ChatClaudeThinkingDisabledType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatClaudeThinkingDisabledType {
+    #[serde(rename = "disabled")]
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatClaudeThinkingAdaptive {
+    #[serde(rename = "type")]
+    pub type_: ChatClaudeThinkingAdaptiveType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatClaudeThinkingAdaptiveType {
+    #[serde(rename = "adaptive")]
+    Adaptive,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ChatGeminiThinkingConfig {
+    #[serde(
+        rename = "include_thoughts",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub include_thoughts: Option<bool>,
+    #[serde(
+        rename = "thinking_budget",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thinking_budget: Option<i32>,
+    #[serde(
+        rename = "thinking_level",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thinking_level: Option<ChatGeminiThinkingLevel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatGeminiThinkingLevel {
+    #[serde(rename = "minimal")]
+    Minimal,
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "high")]
+    High,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatReasoningDetail {
+    #[serde(rename = "type")]
+    pub type_: ChatReasoningDetailType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChatReasoningDetailType {
+    #[serde(rename = "reasoning.encrypted")]
+    Encrypted,
+    #[serde(rename = "reasoning.summary")]
+    Summary,
+    #[serde(rename = "reasoning.text")]
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageUrl {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]

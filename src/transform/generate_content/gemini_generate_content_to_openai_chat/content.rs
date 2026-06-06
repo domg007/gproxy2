@@ -56,6 +56,8 @@ pub(super) fn gemini_content_to_text(content: gemini::Content) -> String {
 pub(super) fn gemini_content_to_chat_message(content: gemini::Content) -> openai::ChatMessage {
     let openai::ChatCompletionMessageParam::Assistant {
         content,
+        reasoning_content,
+        reasoning_details,
         tool_calls,
         ..
     } = gemini_content_to_assistant_param(content)
@@ -63,6 +65,8 @@ pub(super) fn gemini_content_to_chat_message(content: gemini::Content) -> openai
         return openai::ChatMessage {
             role: openai::ChatCompletionMessageRole::Assistant,
             content: Some(String::new()),
+            reasoning_content: None,
+            reasoning_details: None,
             refusal: None,
             annotations: None,
             audio: None,
@@ -75,6 +79,8 @@ pub(super) fn gemini_content_to_chat_message(content: gemini::Content) -> openai
     openai::ChatMessage {
         role: openai::ChatCompletionMessageRole::Assistant,
         content: content.map(chat_assistant_content_to_text),
+        reasoning_content,
+        reasoning_details,
         refusal: None,
         annotations: None,
         audio: None,
@@ -88,10 +94,24 @@ fn gemini_content_to_assistant_param(
     content: gemini::Content,
 ) -> openai::ChatCompletionMessageParam {
     let mut text_parts = Vec::new();
+    let mut reasoning_parts = Vec::new();
+    let mut reasoning_details = Vec::new();
+    let mut reasoning_index = 0u64;
     let mut tool_calls = Vec::new();
 
     for part in content.parts {
         match part.data {
+            Some(gemini::PartData::Text { text })
+                if part.thought == Some(true) && !text.is_empty() =>
+            {
+                reasoning_parts.push(text.clone());
+                reasoning_details.push(gemini_thought_detail(
+                    reasoning_index,
+                    part.thought_signature,
+                    text,
+                ));
+                reasoning_index += 1;
+            }
             Some(gemini::PartData::Text { text }) => text_parts.push(text),
             Some(gemini::PartData::FunctionCall { function_call }) => {
                 tool_calls.push(openai::ChatToolCall::Function {
@@ -129,11 +149,32 @@ fn gemini_content_to_assistant_param(
         content: (!text_parts.is_empty())
             .then(|| openai::ChatAssistantContent::Text(text_parts.join("\n"))),
         audio: None,
+        reasoning_content: (!reasoning_parts.is_empty()).then(|| reasoning_parts.join("\n")),
+        reasoning_details: (!reasoning_details.is_empty()).then_some(reasoning_details),
         function_call: None,
         name: None,
         refusal: None,
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
+    }
+}
+
+fn gemini_thought_detail(
+    index: u64,
+    signature: Option<String>,
+    text: String,
+) -> openai::ChatReasoningDetail {
+    let id = signature
+        .clone()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("gemini_thought_{index}"));
+    openai::ChatReasoningDetail {
+        type_: openai::ChatReasoningDetailType::Text,
+        id: Some(id),
+        data: None,
+        text: Some(text),
+        signature,
+        index: Some(index),
     }
 }
 

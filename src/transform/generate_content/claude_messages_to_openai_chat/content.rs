@@ -128,12 +128,27 @@ pub(super) fn claude_blocks_to_assistant_message(
     blocks: Vec<claude::ContentBlockParam>,
 ) -> openai::ChatCompletionMessageParam {
     let mut text_parts = Vec::new();
+    let mut reasoning_parts = Vec::new();
+    let mut reasoning_details = Vec::new();
+    let mut reasoning_index = 0u64;
     let mut tool_calls = Vec::new();
 
     for block in blocks {
         match block {
             claude::ContentBlockParam::Text(block) => text_parts.push(block.text),
-            claude::ContentBlockParam::Thinking(block) => text_parts.push(block.thinking),
+            claude::ContentBlockParam::Thinking(block) if !block.thinking.is_empty() => {
+                reasoning_parts.push(block.thinking.clone());
+                reasoning_details.push(reasoning_text_detail(
+                    reasoning_index,
+                    block.signature,
+                    block.thinking,
+                ));
+                reasoning_index += 1;
+            }
+            claude::ContentBlockParam::RedactedThinking(block) if !block.data.is_empty() => {
+                reasoning_details.push(reasoning_encrypted_detail(reasoning_index, block.data));
+                reasoning_index += 1;
+            }
             claude::ContentBlockParam::ToolUse(block) => {
                 tool_calls.push(claude_tool_use_to_chat_tool_call(block));
             }
@@ -172,6 +187,8 @@ pub(super) fn claude_blocks_to_assistant_message(
         content: (!text_parts.is_empty())
             .then(|| openai::ChatAssistantContent::Text(text_parts.join("\n"))),
         audio: None,
+        reasoning_content: (!reasoning_parts.is_empty()).then(|| reasoning_parts.join("\n")),
+        reasoning_details: (!reasoning_details.is_empty()).then_some(reasoning_details),
         function_call: None,
         name: None,
         refusal: None,
@@ -184,12 +201,27 @@ pub(super) fn claude_response_blocks_to_chat_message(
     blocks: Vec<claude::ContentBlock>,
 ) -> openai::ChatMessage {
     let mut text_parts = Vec::new();
+    let mut reasoning_parts = Vec::new();
+    let mut reasoning_details = Vec::new();
+    let mut reasoning_index = 0u64;
     let mut tool_calls = Vec::new();
 
     for block in blocks {
         match block {
             claude::ContentBlock::Text(block) => text_parts.push(block.text),
-            claude::ContentBlock::Thinking(block) => text_parts.push(block.thinking),
+            claude::ContentBlock::Thinking(block) if !block.thinking.is_empty() => {
+                reasoning_parts.push(block.thinking.clone());
+                reasoning_details.push(reasoning_text_detail(
+                    reasoning_index,
+                    block.signature,
+                    block.thinking,
+                ));
+                reasoning_index += 1;
+            }
+            claude::ContentBlock::RedactedThinking(block) if !block.data.is_empty() => {
+                reasoning_details.push(reasoning_encrypted_detail(reasoning_index, block.data));
+                reasoning_index += 1;
+            }
             claude::ContentBlock::ToolUse(block) => {
                 tool_calls.push(claude_response_tool_use_to_chat_tool_call(block));
             }
@@ -227,12 +259,40 @@ pub(super) fn claude_response_blocks_to_chat_message(
     openai::ChatMessage {
         role: openai::ChatCompletionMessageRole::Assistant,
         content: (!text_parts.is_empty()).then(|| text_parts.join("\n")),
+        reasoning_content: (!reasoning_parts.is_empty()).then(|| reasoning_parts.join("\n")),
+        reasoning_details: (!reasoning_details.is_empty()).then_some(reasoning_details),
         refusal: None,
         annotations: None,
         audio: None,
         function_call: None,
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
+    }
+}
+
+fn reasoning_text_detail(
+    index: u64,
+    signature: String,
+    text: String,
+) -> openai::ChatReasoningDetail {
+    openai::ChatReasoningDetail {
+        type_: openai::ChatReasoningDetailType::Text,
+        id: Some(format!("reasoning_{index}")),
+        data: None,
+        text: Some(text),
+        signature: Some(signature),
+        index: Some(index),
+    }
+}
+
+fn reasoning_encrypted_detail(index: u64, data: String) -> openai::ChatReasoningDetail {
+    openai::ChatReasoningDetail {
+        type_: openai::ChatReasoningDetailType::Encrypted,
+        id: Some(format!("redacted_reasoning_{index}")),
+        data: Some(data),
+        text: None,
+        signature: None,
+        index: Some(index),
     }
 }
 

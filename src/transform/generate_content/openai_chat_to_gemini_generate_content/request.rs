@@ -16,6 +16,7 @@ pub fn request(
         input.stop,
         max_output_tokens,
         input.response_format,
+        input.thinking_config,
         input.reasoning_effort,
         input.n,
         input.temperature,
@@ -43,7 +44,7 @@ pub fn request(
         safety_settings: Vec::new(),
         system_instruction,
         generation_config,
-        cached_content: input.prompt_cache_key,
+        cached_content: input.cached_content.or(input.prompt_cache_key),
         service_tier: common::openai_service_tier_to_gemini(input.service_tier),
         store: input.store,
         extra: Default::default(),
@@ -55,6 +56,7 @@ fn generation_config(
     stop: Option<openai::StringOrList>,
     max_output_tokens: Option<u32>,
     response_format: Option<openai::ChatResponseFormat>,
+    chat_thinking: Option<openai::ChatGeminiThinkingConfig>,
     reasoning_effort: Option<openai::ReasoningEffort>,
     candidate_count: Option<u32>,
     temperature: Option<f64>,
@@ -78,7 +80,8 @@ fn generation_config(
         frequency_penalty,
         response_logprobs: logprobs,
         logprobs: top_logprobs.map(u32_to_i32),
-        thinking_config: common::openai_reasoning_to_gemini(reasoning_effort),
+        thinking_config: common::chat_thinking_to_gemini(chat_thinking)
+            .or_else(|| common::openai_reasoning_to_gemini(reasoning_effort)),
         ..Default::default()
     };
 
