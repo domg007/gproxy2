@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::super::common::*;
 use super::chat_stream::ChatCompletionChunk;
 use super::chat_tail::{
-    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs,
-    ChatClaudeThinkingConfig, ChatFileRef, ChatGeminiThinkingConfig, ChatReasoningDetail,
+    ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs, ChatFileRef,
     ChatWebSearchOptions, CompletionUsage, CustomToolCall, ImageUrl, InputAudio, PredictionContent,
     StreamOptions,
 };
@@ -86,12 +85,6 @@ pub struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verbosity: Option<Verbosity>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<ChatClaudeThinkingConfig>,
-    #[serde(rename = "thinking_config", skip_serializing_if = "Option::is_none")]
-    pub thinking_config: Option<ChatGeminiThinkingConfig>,
-    #[serde(rename = "cached_content", skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_options: Option<ChatWebSearchOptions>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
@@ -99,7 +92,6 @@ pub struct ChatCompletionRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role")]
-#[allow(clippy::large_enum_variant)]
 pub enum ChatCompletionMessageParam {
     #[serde(rename = "developer")]
     Developer {
@@ -131,10 +123,6 @@ pub enum ChatCompletionMessageParam {
         content: Option<ChatAssistantContent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         audio: Option<ChatAudioRef>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reasoning_content: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reasoning_details: Option<Vec<ChatReasoningDetail>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         function_call: Option<FunctionCall>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,10 +330,6 @@ pub struct ChatMessage {
     pub role: ChatCompletionMessageRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_details: Option<Vec<ChatReasoningDetail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

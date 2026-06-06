@@ -46,17 +46,11 @@ pub(super) fn chat_messages_to_gemini(
                 content,
                 function_call,
                 refusal,
-                reasoning_content,
-                reasoning_details,
                 tool_calls,
                 ..
             } => {
                 seen_non_system = true;
                 let mut parts = Vec::new();
-                parts.extend(chat_reasoning_to_gemini_parts(
-                    reasoning_content,
-                    reasoning_details,
-                ));
                 if let Some(content) = content {
                     parts.extend(chat_assistant_content_to_gemini_parts(content));
                 }
@@ -145,55 +139,6 @@ pub(super) fn text_content_to_gemini_content(
         parts: vec![text_part(text)],
         role,
         extra: Default::default(),
-    }
-}
-
-fn chat_reasoning_to_gemini_parts(
-    reasoning_content: Option<String>,
-    reasoning_details: Option<Vec<openai::ChatReasoningDetail>>,
-) -> Vec<gemini::Part> {
-    let signature = reasoning_details
-        .as_ref()
-        .and_then(|details| details.iter().find_map(reasoning_detail_signature));
-    let mut parts = Vec::new();
-
-    if let Some(text) = reasoning_content.filter(|value| !value.is_empty()) {
-        parts.push(thought_part(text, signature));
-        return parts;
-    }
-
-    if let Some(reasoning_details) = reasoning_details {
-        for detail in reasoning_details {
-            match detail.type_ {
-                openai::ChatReasoningDetailType::Text
-                | openai::ChatReasoningDetailType::Summary => {
-                    let signature = reasoning_detail_signature(&detail);
-                    if let Some(text) = detail.text.filter(|value| !value.is_empty()) {
-                        parts.push(thought_part(text, signature));
-                    }
-                }
-                openai::ChatReasoningDetailType::Encrypted => {}
-            }
-        }
-    }
-
-    parts
-}
-
-fn reasoning_detail_signature(detail: &openai::ChatReasoningDetail) -> Option<String> {
-    detail
-        .signature
-        .clone()
-        .or_else(|| detail.id.clone())
-        .filter(|value| !value.is_empty())
-}
-
-fn thought_part(text: String, signature: Option<String>) -> gemini::Part {
-    gemini::Part {
-        thought: Some(true),
-        thought_signature: signature,
-        data: Some(gemini::PartData::Text { text }),
-        ..Default::default()
     }
 }
 

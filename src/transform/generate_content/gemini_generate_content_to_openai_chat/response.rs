@@ -49,8 +49,6 @@ fn empty_assistant_message() -> openai::ChatMessage {
     openai::ChatMessage {
         role: openai::ChatCompletionMessageRole::Assistant,
         content: Some(String::new()),
-        reasoning_content: None,
-        reasoning_details: None,
         refusal: None,
         annotations: None,
         audio: None,

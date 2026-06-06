@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::super::common::*;
-use super::chat_tail::{ChatChoiceLogprobs, ChatReasoningDetail, CompletionUsage};
+use super::chat_tail::{ChatChoiceLogprobs, CompletionUsage};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatCompletionChunk {
@@ -39,10 +39,6 @@ pub struct ChatDelta {
     pub role: Option<ChatDeltaRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_details: Option<Vec<ChatReasoningDetail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
