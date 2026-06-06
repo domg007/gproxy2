@@ -63,9 +63,8 @@ pub fn resolve(
     }
 
     match source.operation {
-        Operation::GenerateContent | Operation::StreamGenerateContent => {
-            resolve_content_generation(source, target)
-        }
+        Operation::GenerateContent => resolve_content_generation(source, target),
+        Operation::StreamGenerateContent => Err(TransformError::unsupported_pair(source, target)),
         Operation::CountTokens => resolve_provider_pair(source, target, count_tokens_pair),
         Operation::ListModels | Operation::GetModel => {
             resolve_provider_pair(source, target, models_pair)

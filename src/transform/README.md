@@ -33,6 +33,10 @@ pub fn stream_event(input: SourceStreamEvent, ctx: &TransformContext) -> Result<
 
 Only define functions that exist for that operation pair.
 
+`StreamGenerateContent` is intentionally not resolved yet. Stream conversion
+needs state across events for content block indexes, tool call identity, and
+usage finalization; do not route it through request/response-only pair modules.
+
 If a pair grows past roughly 400-500 lines, split only that pair into:
 
 ```text
