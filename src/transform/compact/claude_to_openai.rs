@@ -51,7 +51,7 @@ pub fn response(
         id: input.id.clone(),
         created_at: 0,
         object: openai::ResponseCompactionObjectType::ResponseCompaction,
-        output: claude_content_to_compact_output(input.id, input.content),
+        output: claude_content_to_compact_output(input.id, input.content, &input.stop_reason),
         usage: claude_usage_to_openai(input.usage),
         extra: Default::default(),
     }
@@ -100,7 +100,7 @@ fn claude_message_to_openai_items(message: claude::MessageParam) -> Vec<openai::
             for block in blocks {
                 match claude_request_block_to_openai(block) {
                     ClaudeRequestBlockItem::MessagePart(part) => message_parts.push(part),
-                    ClaudeRequestBlockItem::Typed(item) => items.push(item),
+                    ClaudeRequestBlockItem::Item(item) => items.push(item),
                     ClaudeRequestBlockItem::None => {}
                 }
             }
@@ -124,7 +124,7 @@ fn claude_message_to_openai_items(message: claude::MessageParam) -> Vec<openai::
 
 enum ClaudeRequestBlockItem {
     MessagePart(openai::ResponseInputContentPart),
-    Typed(openai::ResponseItem),
+    Item(openai::ResponseItem),
     None,
 }
 
@@ -157,7 +157,7 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                 .map(ClaudeRequestBlockItem::MessagePart)
                 .unwrap_or(ClaudeRequestBlockItem::None)
         }
-        claude::ContentBlockParam::ToolUse(block) => ClaudeRequestBlockItem::Typed(
+        claude::ContentBlockParam::ToolUse(block) => ClaudeRequestBlockItem::Item(
             openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                 arguments: json_object_to_string(&block.input),
                 call_id: block.id.clone(),
@@ -168,17 +168,11 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                 extra: Default::default(),
             }),
         ),
-        claude::ContentBlockParam::ToolResult(block) => ClaudeRequestBlockItem::Typed(
-            openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCallOutput {
-                call_id: block.tool_use_id,
-                output: tool_result_content_to_openai(block.content),
-                id: None,
-                status: Some(openai::ResponseItemLifecycleStatus::Completed),
-                created_by: None,
-                extra: Default::default(),
-            }),
+        claude::ContentBlockParam::ToolResult(block) => function_call_output_item(
+            block.tool_use_id,
+            tool_result_content_to_openai(block.content),
         ),
-        claude::ContentBlockParam::Thinking(block) => ClaudeRequestBlockItem::Typed(
+        claude::ContentBlockParam::Thinking(block) => ClaudeRequestBlockItem::Item(
             openai::ResponseItem::Typed(openai::TypedResponseItem::Reasoning {
                 id: block.signature,
                 summary: Vec::new(),
@@ -192,7 +186,7 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                 extra: Default::default(),
             }),
         ),
-        claude::ContentBlockParam::RedactedThinking(block) => ClaudeRequestBlockItem::Typed(
+        claude::ContentBlockParam::RedactedThinking(block) => ClaudeRequestBlockItem::Item(
             openai::ResponseItem::Typed(openai::TypedResponseItem::Reasoning {
                 id: DEFAULT_REASONING_ID.to_owned(),
                 summary: Vec::new(),
@@ -216,7 +210,7 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                     })
                     .unwrap_or(ClaudeRequestBlockItem::None);
             };
-            ClaudeRequestBlockItem::Typed(openai::ResponseItem::Typed(
+            ClaudeRequestBlockItem::Item(openai::ResponseItem::Typed(
                 openai::TypedResponseItem::Compaction {
                     encrypted_content,
                     id: None,
@@ -225,7 +219,31 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                 },
             ))
         }
-        claude::ContentBlockParam::McpToolUse(block) => ClaudeRequestBlockItem::Typed(
+        claude::ContentBlockParam::ServerToolUse(block) => {
+            server_tool_use_item(block.id, block.input, block.name)
+        }
+        claude::ContentBlockParam::WebSearchToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::WebFetchToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::AdvisorToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::CodeExecutionToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::BashCodeExecutionToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::TextEditorCodeExecutionToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::ToolSearchToolResult(block) => {
+            function_call_output_item(block.tool_use_id, server_tool_result_output(&block.content))
+        }
+        claude::ContentBlockParam::McpToolUse(block) => ClaudeRequestBlockItem::Item(
             openai::ResponseItem::Typed(openai::TypedResponseItem::McpCall {
                 id: block.id,
                 arguments: json_object_to_string(&block.input),
@@ -238,15 +256,16 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
                 extra: Default::default(),
             }),
         ),
+        claude::ContentBlockParam::McpToolResult(block) => function_call_output_item(
+            block.tool_use_id,
+            openai::ResponseOutput::Text(mcp_tool_result_content_to_text(block.content)),
+        ),
         claude::ContentBlockParam::MidConversationSystem(block) => {
             let text = join_text(block.content.into_iter().map(|block| block.text));
             if text.is_empty() {
                 ClaudeRequestBlockItem::None
             } else {
-                ClaudeRequestBlockItem::MessagePart(openai::ResponseInputContentPart::InputText {
-                    text,
-                    extra: Default::default(),
-                })
+                ClaudeRequestBlockItem::Item(system_to_openai_item(text))
             }
         }
         _ => ClaudeRequestBlockItem::None,
@@ -256,6 +275,7 @@ fn claude_request_block_to_openai(block: claude::ContentBlockParam) -> ClaudeReq
 fn claude_content_to_compact_output(
     id: String,
     content: Vec<claude::ContentBlock>,
+    stop_reason: &claude::StopReason,
 ) -> Vec<openai::CompactResponseItem> {
     let mut message_parts = Vec::new();
     let mut output = Vec::new();
@@ -312,6 +332,55 @@ fn claude_content_to_compact_output(
                     },
                 ));
             }
+            claude::ContentBlock::ServerToolUse(block) => {
+                output.push(compact_server_tool_use_item(
+                    block.id,
+                    block.input,
+                    block.name,
+                ));
+            }
+            claude::ContentBlock::WebSearchToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::WebFetchToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::AdvisorToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::CodeExecutionToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::BashCodeExecutionToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::TextEditorCodeExecutionToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
+            claude::ContentBlock::ToolSearchToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    server_tool_result_output(&block.content),
+                ));
+            }
             claude::ContentBlock::McpToolUse(block) => {
                 output.push(openai::CompactResponseItem::Typed(
                     openai::TypedResponseItem::McpCall {
@@ -325,6 +394,14 @@ fn claude_content_to_compact_output(
                         status: Some(openai::ResponseMcpCallStatus::Completed),
                         extra: Default::default(),
                     },
+                ));
+            }
+            claude::ContentBlock::McpToolResult(block) => {
+                output.push(compact_function_call_output_item(
+                    block.tool_use_id,
+                    openai::ResponseOutput::Text(response_mcp_tool_result_content_to_text(
+                        block.content,
+                    )),
                 ));
             }
             claude::ContentBlock::Compaction(block) => {
@@ -358,7 +435,7 @@ fn claude_content_to_compact_output(
                 type_: openai::ResponseMessageItemType::Message,
                 content: message_parts,
                 role: openai::CompactMessageRole::Assistant,
-                status: openai::ResponseItemLifecycleStatus::Completed,
+                status: compact_message_status(stop_reason),
                 phase: None,
                 extra: Default::default(),
             }),
@@ -366,6 +443,17 @@ fn claude_content_to_compact_output(
     }
 
     output
+}
+
+fn compact_message_status(stop_reason: &claude::StopReason) -> openai::ResponseItemLifecycleStatus {
+    match stop_reason {
+        claude::StopReason::Known(claude::StopReasonKnown::MaxTokens)
+        | claude::StopReason::Known(claude::StopReasonKnown::Refusal)
+        | claude::StopReason::Known(claude::StopReasonKnown::ModelContextWindowExceeded) => {
+            openai::ResponseItemLifecycleStatus::Incomplete
+        }
+        _ => openai::ResponseItemLifecycleStatus::Completed,
+    }
 }
 
 fn claude_previous_message_id_to_openai(
@@ -467,6 +555,70 @@ fn json_object_to_string(object: &claude::JsonObject) -> String {
     serde_json::to_string(object).unwrap_or_else(|_| "{}".to_owned())
 }
 
+fn server_tool_use_item(
+    id: String,
+    input: claude::JsonObject,
+    name: claude::ServerToolUseName,
+) -> ClaudeRequestBlockItem {
+    ClaudeRequestBlockItem::Item(openai::ResponseItem::Typed(
+        openai::TypedResponseItem::FunctionCall {
+            arguments: json_object_to_string(&input),
+            call_id: id.clone(),
+            name: server_tool_name_to_string(&name),
+            id: Some(id),
+            namespace: None,
+            status: Some(openai::ResponseItemLifecycleStatus::Completed),
+            extra: Default::default(),
+        },
+    ))
+}
+
+fn function_call_output_item(
+    call_id: String,
+    output: openai::ResponseOutput,
+) -> ClaudeRequestBlockItem {
+    ClaudeRequestBlockItem::Item(openai::ResponseItem::Typed(
+        openai::TypedResponseItem::FunctionCallOutput {
+            call_id,
+            output,
+            id: None,
+            status: Some(openai::ResponseItemLifecycleStatus::Completed),
+            created_by: None,
+            extra: Default::default(),
+        },
+    ))
+}
+
+fn compact_server_tool_use_item(
+    id: String,
+    input: claude::JsonObject,
+    name: claude::ServerToolUseName,
+) -> openai::CompactResponseItem {
+    openai::CompactResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
+        arguments: json_object_to_string(&input),
+        call_id: id.clone(),
+        name: server_tool_name_to_string(&name),
+        id: Some(id),
+        namespace: None,
+        status: Some(openai::ResponseItemLifecycleStatus::Completed),
+        extra: Default::default(),
+    })
+}
+
+fn compact_function_call_output_item(
+    call_id: String,
+    output: openai::ResponseOutput,
+) -> openai::CompactResponseItem {
+    openai::CompactResponseItem::Typed(openai::TypedResponseItem::FunctionCallOutput {
+        call_id,
+        output,
+        id: None,
+        status: Some(openai::ResponseItemLifecycleStatus::Completed),
+        created_by: None,
+        extra: Default::default(),
+    })
+}
+
 fn tool_result_content_to_openai(
     content: Option<claude::ToolResultContent>,
 ) -> openai::ResponseOutput {
@@ -483,6 +635,31 @@ fn tool_result_content_to_openai(
             openai::ResponseOutput::Text(value.to_string())
         }
         None => openai::ResponseOutput::Text(String::new()),
+    }
+}
+
+fn server_tool_result_output<T: serde::Serialize>(content: &T) -> openai::ResponseOutput {
+    openai::ResponseOutput::Text(serde_json::to_string(content).unwrap_or_else(|_| String::new()))
+}
+
+fn mcp_tool_result_content_to_text(content: Option<claude::McpToolResultContent>) -> String {
+    match content {
+        Some(claude::McpToolResultContent::String(text)) => text,
+        Some(claude::McpToolResultContent::Array(blocks)) => {
+            join_text(blocks.into_iter().map(|block| block.text))
+        }
+        None => String::new(),
+    }
+}
+
+fn response_mcp_tool_result_content_to_text(
+    content: claude::ResponseMcpToolResultContent,
+) -> String {
+    match content {
+        claude::ResponseMcpToolResultContent::String(text) => text,
+        claude::ResponseMcpToolResultContent::Array(blocks) => {
+            join_text(blocks.into_iter().map(|block| block.text))
+        }
     }
 }
 
@@ -586,6 +763,16 @@ fn pdf_media_type(media_type: claude::PdfMediaType) -> &'static str {
     match media_type {
         claude::PdfMediaType::ApplicationPdf => "application/pdf",
     }
+}
+
+fn server_tool_name_to_string(name: &claude::ServerToolUseName) -> String {
+    let Ok(value) = serde_json::to_value(name) else {
+        return DEFAULT_MODEL.to_owned();
+    };
+    value
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| DEFAULT_MODEL.to_owned())
 }
 
 fn claude_usage_to_openai(usage: claude::Usage) -> openai::ResponseUsage {

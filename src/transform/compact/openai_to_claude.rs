@@ -288,6 +288,31 @@ fn typed_item_to_claude_message(item: openai::TypedResponseItem) -> Option<claud
                 caller: None,
             })],
         ),
+        openai::TypedResponseItem::WebSearchCall { id, action, .. } => (
+            claude::MessageRole::Known(claude::MessageRoleKnown::Assistant),
+            vec![claude::ContentBlockParam::ServerToolUse(
+                server_tool_use_block(
+                    id,
+                    serializable_to_json_object(&action),
+                    claude::ServerToolUseNameKnown::WebSearch,
+                ),
+            )],
+        ),
+        openai::TypedResponseItem::CodeInterpreterCall {
+            id,
+            code,
+            container_id,
+            ..
+        } => (
+            claude::MessageRole::Known(claude::MessageRoleKnown::Assistant),
+            vec![claude::ContentBlockParam::ServerToolUse(
+                server_tool_use_block(
+                    id,
+                    code_interpreter_input(code, container_id),
+                    claude::ServerToolUseNameKnown::CodeExecution,
+                ),
+            )],
+        ),
         openai::TypedResponseItem::FunctionCallOutput {
             call_id, output, ..
         }
@@ -495,6 +520,36 @@ fn tool_output_part_to_claude(
     }
 }
 
+fn server_tool_use_block(
+    id: String,
+    input: claude::JsonObject,
+    name: claude::ServerToolUseNameKnown,
+) -> claude::ServerToolUseBlock {
+    claude::ServerToolUseBlock {
+        id,
+        input,
+        name: claude::ServerToolUseName::Known(name),
+        type_: claude::ServerToolUseBlockType::ServerToolUse,
+        cache_control: None,
+        caller: None,
+    }
+}
+
+fn response_server_tool_use_block(
+    id: String,
+    input: claude::JsonObject,
+    name: claude::ServerToolUseNameKnown,
+) -> claude::ResponseServerToolUseBlock {
+    claude::ResponseServerToolUseBlock {
+        id,
+        input,
+        name: claude::ServerToolUseName::Known(name),
+        type_: claude::ServerToolUseBlockType::ServerToolUse,
+        caller: None,
+        extra: Default::default(),
+    }
+}
+
 fn mcp_result_block(
     tool_use_id: String,
     output: Option<String>,
@@ -532,6 +587,24 @@ fn value_to_json_object(value: serde_json::Value) -> claude::JsonObject {
             object
         }
     }
+}
+
+fn serializable_to_json_object<T: serde::Serialize>(value: &T) -> claude::JsonObject {
+    serde_json::to_value(value)
+        .map(value_to_json_object)
+        .unwrap_or_default()
+}
+
+fn code_interpreter_input(code: Option<String>, container_id: String) -> claude::JsonObject {
+    let mut input = claude::JsonObject::new();
+    if let Some(code) = code {
+        input.insert("code".to_owned(), serde_json::Value::String(code));
+    }
+    input.insert(
+        "container_id".to_owned(),
+        serde_json::Value::String(container_id),
+    );
+    input
 }
 
 fn openai_previous_response_id_to_claude(
@@ -597,6 +670,29 @@ fn compact_item_to_claude_content(item: openai::CompactResponseItem) -> Vec<clau
                 caller: None,
                 extra: Default::default(),
             },
+        )],
+        openai::CompactResponseItem::Typed(openai::TypedResponseItem::WebSearchCall {
+            id,
+            action,
+            ..
+        }) => vec![claude::ContentBlock::ServerToolUse(
+            response_server_tool_use_block(
+                id,
+                serializable_to_json_object(&action),
+                claude::ServerToolUseNameKnown::WebSearch,
+            ),
+        )],
+        openai::CompactResponseItem::Typed(openai::TypedResponseItem::CodeInterpreterCall {
+            id,
+            code,
+            container_id,
+            ..
+        }) => vec![claude::ContentBlock::ServerToolUse(
+            response_server_tool_use_block(
+                id,
+                code_interpreter_input(code, container_id),
+                claude::ServerToolUseNameKnown::CodeExecution,
+            ),
         )],
         openai::CompactResponseItem::Typed(openai::TypedResponseItem::McpCall {
             id,
