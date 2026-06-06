@@ -20,15 +20,6 @@ strict_string_enum!(ReasoningSummary {
     Detailed => "detailed",
 });
 
-extensible_string_enum!(OpenRouterReasoningFormat, OpenRouterReasoningFormatKnown {
-    Unknown => "unknown",
-    OpenAiResponsesV1 => "openai-responses-v1",
-    AzureOpenAiResponsesV1 => "azure-openai-responses-v1",
-    XaiResponsesV1 => "xai-responses-v1",
-    AnthropicClaudeV1 => "anthropic-claude-v1",
-    GoogleGeminiV1 => "google-gemini-v1",
-});
-
 strict_string_enum!(ServiceTier {
     Auto => "auto",
     Default => "default",
