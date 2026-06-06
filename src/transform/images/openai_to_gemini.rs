@@ -1,1 +1,0 @@
-//! OpenAI -> Gemini image transforms.
