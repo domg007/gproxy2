@@ -67,7 +67,7 @@ pub(super) fn claude_tool_choice_to_gemini(
 }
 
 fn claude_schema_to_value(schema: claude::JsonSchema) -> Value {
-    let mut object = schema.extra;
+    let mut object = serde_json::Map::new();
     object.insert("type".to_owned(), Value::String("object".to_owned()));
     if !schema.properties.is_empty() {
         object.insert(
@@ -81,5 +81,5 @@ fn claude_schema_to_value(schema: claude::JsonSchema) -> Value {
             Value::Array(schema.required.into_iter().map(Value::String).collect()),
         );
     }
-    Value::Object(object.into_iter().collect())
+    Value::Object(object)
 }

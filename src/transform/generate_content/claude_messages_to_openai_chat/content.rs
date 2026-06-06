@@ -244,9 +244,10 @@ fn flush_user_parts(
         return;
     }
     let content = if parts.len() == 1 {
-        match parts.pop().expect("single part exists") {
-            openai::ChatContentPart::Text { text, .. } => openai::ChatContent::Text(text),
-            part => openai::ChatContent::Parts(vec![part]),
+        match parts.pop() {
+            Some(openai::ChatContentPart::Text { text, .. }) => openai::ChatContent::Text(text),
+            Some(part) => openai::ChatContent::Parts(vec![part]),
+            None => return,
         }
     } else {
         openai::ChatContent::Parts(std::mem::take(parts))

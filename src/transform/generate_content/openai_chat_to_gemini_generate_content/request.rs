@@ -10,7 +10,7 @@ pub fn request(
     _: &TransformContext,
 ) -> Result<gemini::GenerateContentRequest, TransformError> {
     let max_output_tokens =
-        common::merge_openai_max_tokens(input.max_completion_tokens, input.max_tokens)?;
+        common::merge_openai_max_tokens(input.max_completion_tokens, input.max_tokens);
     let (contents, system_instruction) = chat_messages_to_gemini(input.messages);
     let generation_config = generation_config(
         input.stop,

@@ -162,7 +162,7 @@ fn openai_schema_to_claude(parameters: Option<openai::JsonSchema>) -> claude::Js
         type_: claude::JsonSchemaObjectType::Known(claude::JsonSchemaObjectTypeKnown::Object),
         properties,
         required,
-        extra: parameters,
+        extra: Default::default(),
     }
 }
 

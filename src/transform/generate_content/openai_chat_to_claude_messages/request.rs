@@ -120,10 +120,9 @@ pub fn request(
         }
     }
 
-    let max_tokens =
-        common::merge_openai_max_tokens(input.max_completion_tokens, input.max_tokens)?
-            .map(u64::from)
-            .unwrap_or(common::DEFAULT_CLAUDE_MAX_TOKENS);
+    let max_tokens = common::merge_openai_max_tokens(input.max_completion_tokens, input.max_tokens)
+        .map(u64::from)
+        .unwrap_or(common::DEFAULT_CLAUDE_MAX_TOKENS);
     let output_config = chat_output_config(input.response_format, input.verbosity);
     let metadata = input
         .user

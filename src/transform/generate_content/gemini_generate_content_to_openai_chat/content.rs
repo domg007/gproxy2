@@ -149,9 +149,10 @@ fn gemini_content_to_user_message(
         return None;
     }
     let content = if parts.len() == 1 {
-        match parts.into_iter().next().expect("single part exists") {
-            openai::ChatContentPart::Text { text, .. } => openai::ChatContent::Text(text),
-            part => openai::ChatContent::Parts(vec![part]),
+        match parts.into_iter().next() {
+            Some(openai::ChatContentPart::Text { text, .. }) => openai::ChatContent::Text(text),
+            Some(part) => openai::ChatContent::Parts(vec![part]),
+            None => return None,
         }
     } else {
         openai::ChatContent::Parts(parts)

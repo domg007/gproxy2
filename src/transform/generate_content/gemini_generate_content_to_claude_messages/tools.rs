@@ -99,7 +99,7 @@ fn value_to_claude_schema(value: Value) -> Option<claude::JsonSchema> {
         type_: claude::JsonSchemaObjectType::Known(claude::JsonSchemaObjectTypeKnown::Object),
         properties,
         required,
-        extra: map.into_iter().collect(),
+        extra: Default::default(),
     })
 }
 

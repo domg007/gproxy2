@@ -66,7 +66,7 @@ pub(super) fn claude_tools_to_chat(tools: Vec<claude::Tool>) -> Vec<openai::Chat
 }
 
 fn claude_schema_to_openai(schema: claude::JsonSchema) -> openai::JsonSchema {
-    let mut parameters = schema.extra;
+    let mut parameters = openai::JsonSchema::default();
     parameters.insert("type".to_owned(), Value::String("object".to_owned()));
     if !schema.properties.is_empty() {
         parameters.insert(
