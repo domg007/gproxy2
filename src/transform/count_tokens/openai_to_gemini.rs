@@ -23,6 +23,7 @@ pub fn request(
     let tools = common::openai_tools_to_gemini(input.tools);
     let tool_config = common::openai_tool_config_to_gemini(input.tool_choice);
     let generation_config = common::openai_generation_config_to_gemini(input.reasoning, input.text);
+    let service_tier = common::openai_service_tier_to_gemini(input.service_tier);
 
     Ok(gemini::CountTokensRequest {
         model: Some(model.clone()),
@@ -36,7 +37,7 @@ pub fn request(
             system_instruction,
             generation_config,
             cached_content: None,
-            service_tier: None,
+            service_tier,
             store: None,
             extra: Default::default(),
         }),

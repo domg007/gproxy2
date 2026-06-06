@@ -27,7 +27,7 @@ pub fn request(
         mcp_servers,
         output_config,
         output_format,
-        service_tier: None,
+        service_tier: common::openai_service_tier_to_claude(input.service_tier),
         speed: None,
         system: common::text_to_claude_system(input.instructions),
         thinking: common::openai_reasoning_to_claude(input.reasoning),

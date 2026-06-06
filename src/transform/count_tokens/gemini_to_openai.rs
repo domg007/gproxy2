@@ -22,6 +22,7 @@ pub fn request(
         reasoning: common::gemini_generation_to_openai_reasoning(
             request.generation_config.as_ref(),
         ),
+        service_tier: common::gemini_service_tier_to_openai(request.service_tier),
         text: common::gemini_generation_to_openai_text(request.generation_config.as_ref()),
         tool_choice: common::gemini_tool_config_to_openai(request.tool_config),
         tools: common::gemini_tools_to_openai(request.tools),

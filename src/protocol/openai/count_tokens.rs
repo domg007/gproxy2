@@ -29,6 +29,8 @@ pub struct ResponseInputTokensRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TextConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ResponseToolChoice>,
