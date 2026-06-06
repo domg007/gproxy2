@@ -19,6 +19,7 @@ pub fn request(
     input: openai::CompactResponseRequestBody,
     _: &TransformContext,
 ) -> Result<claude::CreateMessageRequestBody, TransformError> {
+    #[allow(deprecated)]
     Ok(claude::CreateMessageRequestBody {
         model: claude::ClaudeModel::Unknown(model_to_string(&input.model)),
         messages: openai_input_to_claude_messages(input.input),

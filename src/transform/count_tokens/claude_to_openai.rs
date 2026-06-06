@@ -11,6 +11,7 @@ pub fn request(
 ) -> Result<openai::ResponseInputTokensRequest, TransformError> {
     let tool_choice = input.tool_choice;
     let output_config = input.output_config;
+    #[allow(deprecated)]
     let output_format = input.output_format;
     let previous_response_id = common::claude_previous_message_id_to_openai(input.diagnostics);
 

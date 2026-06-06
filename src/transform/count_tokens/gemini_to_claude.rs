@@ -12,6 +12,7 @@ pub fn request(
     let request = common::split_gemini_count_token_request(input);
     let tool_parts = common::gemini_tools_to_claude(request.tools);
 
+    #[allow(deprecated)]
     Ok(claude::CountTokensRequestBody {
         model: common::gemini_model_string(request.model).into(),
         messages: common::text_to_claude_messages(common::gemini_contents_to_text(

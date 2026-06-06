@@ -18,6 +18,7 @@ pub fn request(
     let tool_choice =
         common::openai_tool_choice_to_claude(input.tool_choice, input.parallel_tool_calls);
 
+    #[allow(deprecated)]
     Ok(claude::CountTokensRequestBody {
         model: common::openai_model_string(input.model).into(),
         messages: common::text_to_claude_messages(common::openai_input_to_text(input.input)),

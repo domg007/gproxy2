@@ -21,6 +21,7 @@ pub fn request(
     let tool_config = common::claude_tool_config_to_gemini(input.tool_choice);
     let generation_config = common::claude_generation_config_to_gemini(
         input.output_config,
+        #[allow(deprecated)]
         input.output_format,
         input.thinking,
     );

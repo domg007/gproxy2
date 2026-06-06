@@ -37,6 +37,8 @@ pub struct CreateMessageRequestBody {
     pub metadata: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_config: Option<OutputConfig>,
+    /// Deprecated. Use `output_config.format` instead.
+    #[deprecated(note = "use output_config.format instead")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<JsonSchemaFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
