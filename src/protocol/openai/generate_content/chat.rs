@@ -6,8 +6,8 @@ use super::super::common::*;
 use super::chat_stream::ChatCompletionChunk;
 use super::chat_tail::{
     ChatAnnotation, ChatAudio, ChatAudioParam, ChatAudioRef, ChatChoiceLogprobs, ChatFileRef,
-    ChatWebSearchOptions, CompletionUsage, CustomToolCall, ImageUrl, InputAudio, PredictionContent,
-    StreamOptions,
+    ChatWebSearchOptions, CompletionUsage, CustomToolCall, ImageUrl, InputAudio,
+    OpenRouterReasoningDetail, PredictionContent, StreamOptions,
 };
 
 pub type ChatCompletionWireModel = OpenAiWireModel<ChatCompletionRequest, ChatCompletionResponse>;
@@ -92,6 +92,7 @@ pub struct ChatCompletionRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role")]
+#[allow(clippy::large_enum_variant)]
 pub enum ChatCompletionMessageParam {
     #[serde(rename = "developer")]
     Developer {
@@ -127,6 +128,10 @@ pub enum ChatCompletionMessageParam {
         function_call: Option<FunctionCall>,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reasoning: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reasoning_details: Option<Vec<OpenRouterReasoningDetail>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         refusal: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,6 +343,10 @@ pub struct ChatMessage {
     pub audio: Option<ChatAudio>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_details: Option<Vec<OpenRouterReasoningDetail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ChatToolCall>>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]

@@ -391,6 +391,10 @@ pub enum TypedResponseItem {
         encrypted_content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         status: Option<ResponseItemLifecycleStatus>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<OpenRouterReasoningFormat>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },

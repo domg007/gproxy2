@@ -74,6 +74,8 @@ pub(in crate::transform::generate_content::openai_responses_to_openai_chat) fn r
         annotations: (!annotations.is_empty()).then_some(annotations),
         audio: None,
         function_call: None,
+        reasoning: None,
+        reasoning_details: None,
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
     }

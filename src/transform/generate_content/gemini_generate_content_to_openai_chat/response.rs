@@ -53,6 +53,8 @@ fn empty_assistant_message() -> openai::ChatMessage {
         annotations: None,
         audio: None,
         function_call: None,
+        reasoning: None,
+        reasoning_details: None,
         tool_calls: None,
         extra: Default::default(),
     }

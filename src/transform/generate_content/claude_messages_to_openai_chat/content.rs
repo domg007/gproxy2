@@ -174,6 +174,8 @@ pub(super) fn claude_blocks_to_assistant_message(
         audio: None,
         function_call: None,
         name: None,
+        reasoning: None,
+        reasoning_details: None,
         refusal: None,
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
@@ -231,6 +233,8 @@ pub(super) fn claude_response_blocks_to_chat_message(
         annotations: None,
         audio: None,
         function_call: None,
+        reasoning: None,
+        reasoning_details: None,
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
     }

@@ -82,6 +82,10 @@ pub struct ReasoningConfig {
     pub summary: Option<ReasoningSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_summary: Option<ReasoningSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
 }

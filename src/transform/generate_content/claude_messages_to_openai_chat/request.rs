@@ -28,6 +28,8 @@ pub fn request(
                             audio: None,
                             function_call: None,
                             name: None,
+                            reasoning: None,
+                            reasoning_details: None,
                             refusal: None,
                             tool_calls: None,
                             extra: Default::default(),
