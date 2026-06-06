@@ -33,9 +33,10 @@ pub fn stream_event(input: SourceStreamEvent, ctx: &TransformContext) -> Result<
 
 Only define functions that exist for that operation pair.
 
-`StreamGenerateContent` is intentionally not resolved yet. Stream conversion
-needs state across events for content block indexes, tool call identity, and
-usage finalization; do not route it through request/response-only pair modules.
+`StreamGenerateContent` resolves through the same content-generation pair matrix
+as non-stream generation. Current `stream_event` functions are single-event,
+stateless conversions; any cross-event aggregation for block indexes, tool call
+identity, or final usage belongs in the runtime stream adapter.
 
 If a pair grows past roughly 400-500 lines, split only that pair into:
 

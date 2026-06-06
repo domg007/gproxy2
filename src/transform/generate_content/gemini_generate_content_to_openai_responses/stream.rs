@@ -1,0 +1,254 @@
+use crate::protocol::{gemini, openai};
+use crate::transform::{TransformContext, TransformError};
+
+use super::super::common;
+
+pub fn stream_event(
+    input: gemini::StreamGenerateContentChunk,
+    ctx: &TransformContext,
+) -> Result<openai::ResponseStreamEvent, TransformError> {
+    let _ = ctx;
+    Ok(gemini_chunk_to_response(input))
+}
+
+fn gemini_chunk_to_response(input: gemini::GenerateContentResponse) -> openai::ResponseStreamEvent {
+    let id = input.response_id.unwrap_or_default();
+    let model = input
+        .model_version
+        .unwrap_or_else(|| common::DEFAULT_OPENAI_MODEL.to_owned())
+        .into();
+    let usage = input.usage_metadata.map(common::gemini_usage_to_completion);
+    let blocked = input
+        .prompt_feedback
+        .as_ref()
+        .and_then(|feedback| feedback.block_reason.as_ref())
+        .is_some();
+
+    if input.candidates.is_empty() {
+        return if blocked {
+            response_lifecycle_event(
+                id,
+                model,
+                usage,
+                openai::ResponseStatus::Incomplete,
+                Some(openai::IncompleteDetails {
+                    reason: Some(openai::IncompleteReason::ContentFilter),
+                    extra: Default::default(),
+                }),
+            )
+        } else {
+            response_lifecycle_event(id, model, usage, openai::ResponseStatus::InProgress, None)
+        };
+    }
+
+    let mut candidates = input.candidates.into_iter();
+    let Some(candidate) = candidates.next() else {
+        return response_lifecycle_event(
+            id,
+            model,
+            usage,
+            openai::ResponseStatus::InProgress,
+            None,
+        );
+    };
+    let output_index = candidate
+        .index
+        .map(|index| u32::try_from(index).unwrap_or_default())
+        .unwrap_or_default();
+
+    if let Some(content) = candidate.content
+        && let Some(event) = gemini_content_to_response_event(content, output_index)
+    {
+        return event;
+    }
+
+    if let Some(finish_reason) = candidate.finish_reason {
+        let (status, incomplete_details) = response_status_from_gemini_finish(finish_reason);
+        return response_lifecycle_event(id, model, usage, status, incomplete_details);
+    }
+
+    response_lifecycle_event(id, model, usage, openai::ResponseStatus::InProgress, None)
+}
+
+fn gemini_content_to_response_event(
+    content: gemini::Content,
+    output_index: u32,
+) -> Option<openai::ResponseStreamEvent> {
+    content
+        .parts
+        .into_iter()
+        .find_map(|part| part_to_response_event(part, output_index))
+}
+
+fn part_to_response_event(
+    part: gemini::Part,
+    output_index: u32,
+) -> Option<openai::ResponseStreamEvent> {
+    match part.data? {
+        gemini::PartData::Text { text } => {
+            if part.thought.unwrap_or(false) {
+                Some(known(
+                    openai::KnownResponseStreamEvent::ResponseReasoningTextDelta {
+                        content_index: 0,
+                        delta: text,
+                        item_id: reasoning_id(output_index),
+                        output_index,
+                        sequence_number: None,
+                        extra: Default::default(),
+                    },
+                ))
+            } else {
+                Some(known(
+                    openai::KnownResponseStreamEvent::ResponseOutputTextDelta {
+                        content_index: 0,
+                        delta: text,
+                        item_id: message_id(output_index),
+                        logprobs: None,
+                        output_index,
+                        sequence_number: None,
+                        extra: Default::default(),
+                    },
+                ))
+            }
+        }
+        gemini::PartData::FunctionCall { function_call } => {
+            let call_id = function_call
+                .id
+                .unwrap_or_else(|| format!("call_{output_index}"));
+            Some(known(
+                openai::KnownResponseStreamEvent::ResponseOutputItemAdded {
+                    item: Box::new(openai::ResponseOutputItem(openai::ResponseItem::Typed(
+                        openai::TypedResponseItem::FunctionCall {
+                            arguments: function_call
+                                .args
+                                .map(|args| serde_json::to_string(&args).unwrap_or_default())
+                                .unwrap_or_default(),
+                            call_id: call_id.clone(),
+                            name: function_call.name,
+                            id: Some(call_id),
+                            namespace: None,
+                            status: Some(openai::ResponseItemLifecycleStatus::Completed),
+                            extra: Default::default(),
+                        },
+                    ))),
+                    output_index,
+                    sequence_number: None,
+                    extra: Default::default(),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn response_lifecycle_event(
+    id: String,
+    model: openai::OpenAiModelId,
+    usage: Option<openai::CompletionUsage>,
+    status: openai::ResponseStatus,
+    incomplete_details: Option<openai::IncompleteDetails>,
+) -> openai::ResponseStreamEvent {
+    let event_status = status.clone();
+    let response = Box::new(openai::ResponseObject {
+        id,
+        created_at: 0,
+        background: None,
+        completed_at: matches!(status, openai::ResponseStatus::Completed).then_some(0),
+        conversation: None,
+        error: None,
+        incomplete_details,
+        instructions: None,
+        max_output_tokens: None,
+        max_tool_calls: None,
+        metadata: None,
+        model: Some(model),
+        moderation: None,
+        object: openai::ResponseObjectType::Response,
+        output: Vec::new(),
+        output_text: None,
+        parallel_tool_calls: None,
+        prompt: None,
+        prompt_cache_key: None,
+        prompt_cache_retention: None,
+        previous_response_id: None,
+        reasoning: None,
+        safety_identifier: None,
+        service_tier: None,
+        status: Some(status),
+        store: None,
+        temperature: None,
+        text: None,
+        tool_choice: None,
+        tools: None,
+        top_logprobs: None,
+        top_p: None,
+        truncation: None,
+        usage: common::completion_usage_to_response(usage),
+        user: None,
+        extra: Default::default(),
+    });
+
+    match event_status {
+        openai::ResponseStatus::Completed => {
+            known(openai::KnownResponseStreamEvent::ResponseCompleted {
+                response,
+                sequence_number: None,
+                extra: Default::default(),
+            })
+        }
+        openai::ResponseStatus::Incomplete => {
+            known(openai::KnownResponseStreamEvent::ResponseIncomplete {
+                response,
+                sequence_number: None,
+                extra: Default::default(),
+            })
+        }
+        _ => known(openai::KnownResponseStreamEvent::ResponseInProgress {
+            response,
+            sequence_number: None,
+            extra: Default::default(),
+        }),
+    }
+}
+
+fn response_status_from_gemini_finish(
+    reason: gemini::FinishReason,
+) -> (openai::ResponseStatus, Option<openai::IncompleteDetails>) {
+    match reason {
+        gemini::FinishReason::Known(gemini::FinishReasonKnown::MaxTokens) => (
+            openai::ResponseStatus::Incomplete,
+            Some(openai::IncompleteDetails {
+                reason: Some(openai::IncompleteReason::MaxOutputTokens),
+                extra: Default::default(),
+            }),
+        ),
+        gemini::FinishReason::Known(
+            gemini::FinishReasonKnown::Safety
+            | gemini::FinishReasonKnown::Recitation
+            | gemini::FinishReasonKnown::Blocklist
+            | gemini::FinishReasonKnown::ProhibitedContent
+            | gemini::FinishReasonKnown::Spii
+            | gemini::FinishReasonKnown::ImageSafety
+            | gemini::FinishReasonKnown::ImageProhibitedContent,
+        ) => (
+            openai::ResponseStatus::Incomplete,
+            Some(openai::IncompleteDetails {
+                reason: Some(openai::IncompleteReason::ContentFilter),
+                extra: Default::default(),
+            }),
+        ),
+        _ => (openai::ResponseStatus::Completed, None),
+    }
+}
+
+fn message_id(index: u32) -> String {
+    format!("msg_{index}")
+}
+
+fn reasoning_id(index: u32) -> String {
+    format!("reasoning_{index}")
+}
+
+fn known(event: openai::KnownResponseStreamEvent) -> openai::ResponseStreamEvent {
+    openai::ResponseStreamEvent::Known(event)
+}
