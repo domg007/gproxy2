@@ -92,13 +92,17 @@ pub(in crate::transform::count_tokens) fn claude_generation_config_to_gemini(
     non_empty_generation_config(config)
 }
 
-pub(in crate::transform::count_tokens) fn claude_speed_to_gemini_service_tier(
-    speed: Option<claude::Speed>,
+pub(in crate::transform::count_tokens) fn claude_service_tier_to_gemini(
+    service_tier: Option<claude::RequestServiceTier>,
 ) -> Option<gemini::ServiceTier> {
-    let tier = match speed? {
-        claude::Speed::Known(claude::SpeedKnown::Standard) => gemini::ServiceTierKnown::Standard,
-        claude::Speed::Known(claude::SpeedKnown::Fast) => gemini::ServiceTierKnown::Priority,
-        claude::Speed::Unknown(_) => gemini::ServiceTierKnown::Standard,
+    let tier = match service_tier? {
+        claude::RequestServiceTier::Known(claude::RequestServiceTierKnown::Auto) => {
+            gemini::ServiceTierKnown::Unspecified
+        }
+        claude::RequestServiceTier::Known(claude::RequestServiceTierKnown::StandardOnly) => {
+            gemini::ServiceTierKnown::Standard
+        }
+        claude::RequestServiceTier::Unknown(_) => gemini::ServiceTierKnown::Standard,
     };
     Some(gemini::ServiceTier::Known(tier))
 }
@@ -384,17 +388,21 @@ fn gemini_thinking_to_claude_output_effort(
     Some(claude::OutputEffort::Known(effort))
 }
 
-pub(in crate::transform::count_tokens) fn gemini_service_tier_to_claude_speed(
+pub(in crate::transform::count_tokens) fn gemini_service_tier_to_claude(
     service_tier: Option<gemini::ServiceTier>,
-) -> Option<claude::Speed> {
-    let speed = match service_tier? {
-        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Priority)
-        | gemini::ServiceTier::Known(gemini::ServiceTierKnown::Flex) => claude::SpeedKnown::Fast,
-        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Standard)
-        | gemini::ServiceTier::Known(gemini::ServiceTierKnown::Unspecified)
-        | gemini::ServiceTier::Unknown(_) => claude::SpeedKnown::Standard,
+) -> Option<claude::RequestServiceTier> {
+    let service_tier = match service_tier? {
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Standard) => {
+            claude::RequestServiceTierKnown::StandardOnly
+        }
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Flex)
+        | gemini::ServiceTier::Known(gemini::ServiceTierKnown::Priority)
+        | gemini::ServiceTier::Known(gemini::ServiceTierKnown::Unspecified) => {
+            claude::RequestServiceTierKnown::Auto
+        }
+        gemini::ServiceTier::Unknown(_) => claude::RequestServiceTierKnown::StandardOnly,
     };
-    Some(claude::Speed::Known(speed))
+    Some(claude::RequestServiceTier::Known(service_tier))
 }
 
 pub(in crate::transform::count_tokens) fn openai_reasoning_to_claude(

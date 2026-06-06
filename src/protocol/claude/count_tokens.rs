@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use super::common::{
     AnthropicBetaHeaders, CacheControl, ClaudeModel, ContextManagementConfig, DiagnosticsParam,
-    JsonObject, JsonSchemaFormat, McpServer, MessageParam, OutputConfig, Speed, SystemPrompt,
-    ThinkingConfig, Tool, ToolChoice,
+    JsonObject, JsonSchemaFormat, McpServer, MessageParam, OutputConfig, RequestServiceTier, Speed,
+    SystemPrompt, ThinkingConfig, Tool, ToolChoice,
 };
 
 pub type CountTokensRequestHeaders = AnthropicBetaHeaders;
@@ -26,6 +26,8 @@ pub struct CountTokensRequestBody {
     pub output_config: Option<OutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<JsonSchemaFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<RequestServiceTier>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<Speed>,
     #[serde(skip_serializing_if = "Option::is_none")]

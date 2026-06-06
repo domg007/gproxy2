@@ -27,7 +27,8 @@ pub fn request(
         output_format: common::gemini_generation_to_claude_output_format(
             request.generation_config.as_ref(),
         ),
-        speed: common::gemini_service_tier_to_claude_speed(request.service_tier),
+        service_tier: common::gemini_service_tier_to_claude(request.service_tier),
+        speed: None,
         system: common::text_to_claude_system(
             request.system_instruction.map(common::gemini_content_text),
         ),
