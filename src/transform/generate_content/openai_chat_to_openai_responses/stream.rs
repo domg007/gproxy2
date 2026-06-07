@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::protocol::openai;
 use crate::transform::{TransformContext, TransformError};
 
@@ -6,192 +8,296 @@ use super::usage::chat_usage_to_response;
 
 pub fn stream_event(
     input: openai::ChatCompletionChunk,
-    _: &TransformContext,
+    ctx: &TransformContext,
 ) -> Result<openai::ResponseStreamEvent, TransformError> {
-    Ok(chat_chunk_to_response_event(input))
+    let mut transform = StreamTransform::default();
+    let mut output = transform.push(input, ctx)?;
+    Ok(output
+        .drain(..)
+        .next()
+        .unwrap_or_else(default_response_in_progress))
 }
 
-fn chat_chunk_to_response_event(input: openai::ChatCompletionChunk) -> openai::ResponseStreamEvent {
-    let id = input.id;
-    let created = input.created;
-    let model = input.model;
-    let usage = input.usage;
+#[derive(Default)]
+pub struct StreamTransform {
+    tool_calls: BTreeMap<u32, ResponseToolState>,
+}
 
-    let Some(choice) = input.choices.into_iter().next() else {
-        return response_lifecycle_event(
-            id,
-            created,
-            model,
-            usage,
-            openai::ResponseStatus::Completed,
-            None,
-        );
-    };
-
-    let index = choice.index;
-    let finish_reason = choice.finish_reason;
-    let delta = choice.delta;
-
-    if let Some(content) = delta.content.filter(|value| !value.is_empty()) {
-        return known(openai::KnownResponseStreamEvent::ResponseOutputTextDelta {
-            content_index: 0,
-            delta: content,
-            item_id: message_item_id(index),
-            logprobs: None,
-            output_index: index,
-            sequence_number: None,
-            extra: Default::default(),
-        });
+impl StreamTransform {
+    pub fn push(
+        &mut self,
+        input: openai::ChatCompletionChunk,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(self.chat_chunk_to_response_events(input))
     }
 
-    if let Some(reasoning) = delta.reasoning_content.filter(|value| !value.is_empty()) {
-        return known(
-            openai::KnownResponseStreamEvent::ResponseReasoningTextDelta {
-                content_index: 0,
-                delta: reasoning,
-                item_id: reasoning_item_id(index),
-                output_index: index,
-                sequence_number: None,
-                extra: Default::default(),
-            },
-        );
+    pub fn finish(
+        &mut self,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(Vec::new())
     }
 
-    if let Some(refusal) = delta.refusal.filter(|value| !value.is_empty()) {
-        return known(openai::KnownResponseStreamEvent::ResponseRefusalDelta {
-            content_index: 0,
-            delta: refusal,
-            item_id: message_item_id(index),
-            output_index: index,
-            sequence_number: None,
-            extra: Default::default(),
-        });
+    fn chat_chunk_to_response_events(
+        &mut self,
+        input: openai::ChatCompletionChunk,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        let id = input.id;
+        let created = input.created;
+        let model = input.model;
+        let usage = input.usage;
+
+        if input.choices.is_empty() {
+            return vec![response_lifecycle_event(
+                id,
+                created,
+                model,
+                usage,
+                openai::ResponseStatus::Completed,
+                None,
+            )];
+        }
+
+        let mut output = Vec::new();
+        let mut finish_reason = None;
+        for choice in input.choices {
+            let (events, reason) = self.choice_to_response_events(choice);
+            output.extend(events);
+            finish_reason = finish_reason.or(reason);
+        }
+
+        if let Some(reason) = finish_reason {
+            let (status, incomplete) = response_status_from_finish(reason);
+            output.push(response_lifecycle_event(
+                id, created, model, usage, status, incomplete,
+            ));
+        } else if output.is_empty() {
+            output.push(response_lifecycle_event(
+                id,
+                created,
+                model,
+                usage,
+                openai::ResponseStatus::InProgress,
+                None,
+            ));
+        }
+
+        output
     }
 
-    if let Some(event) = delta
-        .tool_calls
-        .and_then(|tool_calls| tool_calls.into_iter().next())
-        .map(tool_delta_to_response_event)
-    {
-        return event;
-    }
+    fn choice_to_response_events(
+        &mut self,
+        choice: openai::ChatChunkChoice,
+    ) -> (
+        Vec<openai::ResponseStreamEvent>,
+        Option<openai::ChatFinishReason>,
+    ) {
+        let index = choice.index;
+        let finish_reason = choice.finish_reason;
+        let delta = choice.delta;
+        let mut output = Vec::new();
 
-    if let Some(function_call) = delta.function_call {
-        if let Some(arguments) = function_call.arguments.filter(|value| !value.is_empty()) {
-            return known(
-                openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
-                    delta: arguments,
-                    item_id: common::indexed_response_function_call_item_id(index),
+        if let Some(content) = delta.content.filter(|value| !value.is_empty()) {
+            output.push(known(
+                openai::KnownResponseStreamEvent::ResponseOutputTextDelta {
+                    content_index: 0,
+                    delta: content,
+                    item_id: message_item_id(index),
+                    logprobs: None,
                     output_index: index,
                     sequence_number: None,
                     extra: Default::default(),
                 },
-            );
+            ));
         }
+
+        if let Some(reasoning) = delta.reasoning_content.filter(|value| !value.is_empty()) {
+            output.push(known(
+                openai::KnownResponseStreamEvent::ResponseReasoningTextDelta {
+                    content_index: 0,
+                    delta: reasoning,
+                    item_id: reasoning_item_id(index),
+                    output_index: index,
+                    sequence_number: None,
+                    extra: Default::default(),
+                },
+            ));
+        }
+
+        if let Some(refusal) = delta.refusal.filter(|value| !value.is_empty()) {
+            output.push(known(
+                openai::KnownResponseStreamEvent::ResponseRefusalDelta {
+                    content_index: 0,
+                    delta: refusal,
+                    item_id: message_item_id(index),
+                    output_index: index,
+                    sequence_number: None,
+                    extra: Default::default(),
+                },
+            ));
+        }
+
+        if let Some(tool_calls) = delta.tool_calls {
+            for call in tool_calls {
+                output.extend(self.tool_delta_to_response_events(call));
+            }
+        }
+
+        if let Some(function_call) = delta.function_call {
+            output.extend(self.legacy_function_delta_to_response_events(index, function_call));
+        }
+
+        (output, finish_reason)
+    }
+
+    fn legacy_function_delta_to_response_events(
+        &mut self,
+        output_index: u32,
+        function_call: openai::FunctionCallDelta,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        let state = self.function_state(None, output_index);
+        let mut output = Vec::new();
+
         if let Some(name) = function_call.name.filter(|value| !value.is_empty()) {
-            let call_id = common::indexed_response_call_id(index);
-            return output_item_added(
-                index,
+            output.push(output_item_added(
+                output_index,
                 openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
                     arguments: String::new(),
-                    call_id,
+                    call_id: state.call_id.clone(),
                     name,
-                    id: Some(common::indexed_response_function_call_item_id(index)),
+                    id: Some(state.item_id.clone()),
                     namespace: None,
                     status: Some(openai::ResponseItemLifecycleStatus::InProgress),
                     extra: Default::default(),
                 }),
-            );
+            ));
         }
-    }
 
-    if let Some(reason) = finish_reason {
-        let (status, incomplete) = response_status_from_finish(reason);
-        return response_lifecycle_event(id, created, model, usage, status, incomplete);
-    }
-
-    response_lifecycle_event(
-        id,
-        created,
-        model,
-        usage,
-        openai::ResponseStatus::InProgress,
-        None,
-    )
-}
-
-fn tool_delta_to_response_event(call: openai::ChatToolCallDelta) -> openai::ResponseStreamEvent {
-    let output_index = call.index;
-    if let Some(function) = call.function {
-        let (call_id, item_id) = response_function_ids(call.id.as_deref(), output_index);
-        if let Some(arguments) = function.arguments.filter(|value| !value.is_empty()) {
-            return known(
+        if let Some(arguments) = function_call.arguments.filter(|value| !value.is_empty()) {
+            output.push(known(
                 openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
                     delta: arguments,
-                    item_id,
+                    item_id: state.item_id,
                     output_index,
                     sequence_number: None,
                     extra: Default::default(),
                 },
-            );
+            ));
         }
-        if let Some(name) = function.name.filter(|value| !value.is_empty()) {
-            return output_item_added(
-                output_index,
-                openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
-                    arguments: String::new(),
-                    call_id,
-                    name,
-                    id: Some(item_id),
-                    namespace: None,
-                    status: Some(openai::ResponseItemLifecycleStatus::InProgress),
-                    extra: Default::default(),
-                }),
-            );
-        }
+
+        output
     }
 
-    if let Some(custom) = call.custom {
-        let call_id = call
-            .id
-            .as_deref()
+    fn tool_delta_to_response_events(
+        &mut self,
+        call: openai::ChatToolCallDelta,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        let output_index = call.index;
+        if let Some(function) = call.function {
+            let state = self.function_state(call.id.as_deref(), output_index);
+            let mut output = Vec::new();
+
+            if let Some(name) = function.name.filter(|value| !value.is_empty()) {
+                output.push(output_item_added(
+                    output_index,
+                    openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
+                        arguments: String::new(),
+                        call_id: state.call_id.clone(),
+                        name,
+                        id: Some(state.item_id.clone()),
+                        namespace: None,
+                        status: Some(openai::ResponseItemLifecycleStatus::InProgress),
+                        extra: Default::default(),
+                    }),
+                ));
+            }
+
+            if let Some(arguments) = function.arguments.filter(|value| !value.is_empty()) {
+                output.push(known(
+                    openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
+                        delta: arguments,
+                        item_id: state.item_id,
+                        output_index,
+                        sequence_number: None,
+                        extra: Default::default(),
+                    },
+                ));
+            }
+
+            return output;
+        }
+
+        if let Some(custom) = call.custom {
+            let state = self.custom_state(call.id.as_deref(), output_index);
+            let mut output = Vec::new();
+
+            if let Some(name) = custom.name.filter(|value| !value.is_empty()) {
+                output.push(output_item_added(
+                    output_index,
+                    openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
+                        call_id: state.call_id.clone(),
+                        input: String::new(),
+                        name,
+                        id: None,
+                        namespace: None,
+                        extra: Default::default(),
+                    }),
+                ));
+            }
+
+            if let Some(input) = custom.input.filter(|value| !value.is_empty()) {
+                output.push(known(
+                    openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDelta {
+                        delta: input,
+                        item_id: state.item_id,
+                        output_index,
+                        sequence_number: None,
+                        extra: Default::default(),
+                    },
+                ));
+            }
+
+            return output;
+        }
+
+        Vec::new()
+    }
+
+    fn function_state(
+        &mut self,
+        chat_call_id: Option<&str>,
+        output_index: u32,
+    ) -> ResponseToolState {
+        if let Some(state) = self.tool_calls.get(&output_index) {
+            return state.clone();
+        }
+        let (call_id, item_id) = response_function_ids(chat_call_id, output_index);
+        let state = ResponseToolState { call_id, item_id };
+        self.tool_calls.insert(output_index, state.clone());
+        state
+    }
+
+    fn custom_state(&mut self, chat_call_id: Option<&str>, output_index: u32) -> ResponseToolState {
+        if let Some(state) = self.tool_calls.get(&output_index) {
+            return state.clone();
+        }
+        let call_id = chat_call_id
             .map(common::response_call_id)
             .unwrap_or_else(|| common::indexed_response_call_id(output_index));
-        let item_id = format!("ctc_{output_index}");
-        if let Some(input) = custom.input.filter(|value| !value.is_empty()) {
-            return known(
-                openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDelta {
-                    delta: input,
-                    item_id,
-                    output_index,
-                    sequence_number: None,
-                    extra: Default::default(),
-                },
-            );
-        }
-        if let Some(name) = custom.name.filter(|value| !value.is_empty()) {
-            return output_item_added(
-                output_index,
-                openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
-                    call_id,
-                    input: String::new(),
-                    name,
-                    id: None,
-                    namespace: None,
-                    extra: Default::default(),
-                }),
-            );
-        }
+        let state = ResponseToolState {
+            call_id,
+            item_id: format!("ctc_{output_index}"),
+        };
+        self.tool_calls.insert(output_index, state.clone());
+        state
     }
+}
 
-    response_lifecycle_event(
-        "resp_tool_delta".to_owned(),
-        0,
-        common::default_openai_model(),
-        None,
-        openai::ResponseStatus::InProgress,
-        None,
-    )
+#[derive(Clone)]
+struct ResponseToolState {
+    call_id: String,
+    item_id: String,
 }
 
 fn output_item_added(output_index: u32, item: openai::ResponseItem) -> openai::ResponseStreamEvent {
@@ -323,4 +429,15 @@ fn response_function_ids(chat_call_id: Option<&str>, output_index: u32) -> (Stri
 
 fn known(event: openai::KnownResponseStreamEvent) -> openai::ResponseStreamEvent {
     openai::ResponseStreamEvent::Known(event)
+}
+
+fn default_response_in_progress() -> openai::ResponseStreamEvent {
+    response_lifecycle_event(
+        String::new(),
+        0,
+        common::default_openai_model(),
+        None,
+        openai::ResponseStatus::InProgress,
+        None,
+    )
 }

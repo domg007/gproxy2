@@ -7,28 +7,49 @@ pub fn stream_event(
     input: openai::ResponseStreamEvent,
     ctx: &TransformContext,
 ) -> Result<claude::StreamEvent, TransformError> {
-    let _ = ctx;
-    Ok(match input {
-        openai::ResponseStreamEvent::Known(event) => known_event_to_claude(event),
-        openai::ResponseStreamEvent::Unknown(_) => ping(),
-    })
+    let mut transform = StreamTransform;
+    let mut output = transform.push(input, ctx)?;
+    Ok(output.drain(..).next().unwrap_or_else(ping))
 }
 
-fn known_event_to_claude(event: openai::KnownResponseStreamEvent) -> claude::StreamEvent {
+#[derive(Default)]
+pub struct StreamTransform;
+
+impl StreamTransform {
+    pub fn push(
+        &mut self,
+        input: openai::ResponseStreamEvent,
+        _: &TransformContext,
+    ) -> Result<Vec<claude::StreamEvent>, TransformError> {
+        Ok(match input {
+            openai::ResponseStreamEvent::Known(event) => known_event_to_claude(event),
+            openai::ResponseStreamEvent::Unknown(_) => Vec::new(),
+        })
+    }
+
+    pub fn finish(
+        &mut self,
+        _: &TransformContext,
+    ) -> Result<Vec<claude::StreamEvent>, TransformError> {
+        Ok(Vec::new())
+    }
+}
+
+fn known_event_to_claude(event: openai::KnownResponseStreamEvent) -> Vec<claude::StreamEvent> {
     match event {
         openai::KnownResponseStreamEvent::ResponseCreated { response, .. } => {
-            message_start_from_response(*response)
+            vec![message_start_from_response(*response)]
         }
         openai::KnownResponseStreamEvent::ResponseCompleted { response, .. }
         | openai::KnownResponseStreamEvent::ResponseFailed { response, .. }
         | openai::KnownResponseStreamEvent::ResponseIncomplete { response, .. } => {
-            message_delta_from_response(*response)
+            vec![message_delta_from_response(*response)]
         }
         openai::KnownResponseStreamEvent::ResponseOutputItemAdded {
             item, output_index, ..
         } => output_item_added_to_claude(*item, output_index),
         openai::KnownResponseStreamEvent::ResponseOutputItemDone { output_index, .. } => {
-            content_block_stop(u64::from(output_index))
+            vec![content_block_stop(u64::from(output_index))]
         }
         openai::KnownResponseStreamEvent::ResponseContentPartAdded {
             content_index,
@@ -39,23 +60,23 @@ fn known_event_to_claude(event: openai::KnownResponseStreamEvent) -> claude::Str
             content_index,
             part,
             ..
-        } => content_part_to_claude(content_index, part),
+        } => vec![content_part_to_claude(content_index, part)],
         openai::KnownResponseStreamEvent::ResponseOutputTextDelta {
             content_index,
             delta,
             ..
-        } => content_delta(u64::from(content_index), text_delta(delta)),
+        } => vec![content_delta(u64::from(content_index), text_delta(delta))],
         openai::KnownResponseStreamEvent::ResponseAudioTranscriptDelta { delta, .. } => {
-            content_delta(0, text_delta(delta))
+            vec![content_delta(0, text_delta(delta))]
         }
         openai::KnownResponseStreamEvent::ResponseRefusalDelta {
             content_index,
             delta,
             ..
-        } => content_delta(u64::from(content_index), text_delta(delta)),
+        } => vec![content_delta(u64::from(content_index), text_delta(delta))],
         openai::KnownResponseStreamEvent::ResponseReasoningSummaryTextDelta { delta, .. }
         | openai::KnownResponseStreamEvent::ResponseReasoningTextDelta { delta, .. } => {
-            content_delta(0, thinking_delta(delta))
+            vec![content_delta(0, thinking_delta(delta))]
         }
         openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
             delta,
@@ -66,25 +87,31 @@ fn known_event_to_claude(event: openai::KnownResponseStreamEvent) -> claude::Str
             delta,
             output_index,
             ..
-        } => content_delta(u64::from(output_index), input_json_delta(delta)),
+        } => vec![content_delta(
+            u64::from(output_index),
+            input_json_delta(delta),
+        )],
         openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDone {
+            arguments,
             output_index,
             ..
-        }
-        | openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDone {
-            output_index, ..
-        } => content_block_stop(u64::from(output_index)),
+        } => done_input_to_claude(output_index, arguments),
+        openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDone {
+            input,
+            output_index,
+            ..
+        } => done_input_to_claude(output_index, input),
         openai::KnownResponseStreamEvent::Error { code, message, .. } => {
-            known(claude::KnownStreamEvent::Error {
+            vec![known(claude::KnownStreamEvent::Error {
                 error: claude::StreamError {
                     type_: code,
                     message,
                     extra: Default::default(),
                 },
                 extra: Default::default(),
-            })
+            })]
         }
-        _ => ping(),
+        _ => Vec::new(),
     }
 }
 
@@ -130,32 +157,43 @@ fn message_delta_from_response(response: openai::ResponseObject) -> claude::Stre
 fn output_item_added_to_claude(
     item: openai::ResponseOutputItem,
     output_index: u32,
-) -> claude::StreamEvent {
+) -> Vec<claude::StreamEvent> {
     match item.0 {
         openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
             call_id,
             name,
+            arguments,
             ..
         })
         | openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
             call_id,
             name,
+            input: arguments,
             ..
-        }) => known(claude::KnownStreamEvent::ContentBlockStart {
-            index: u64::from(output_index),
-            content_block: Box::new(claude::ContentBlock::ToolUse(
-                claude::ResponseToolUseBlock {
-                    id: call_id,
-                    input: Default::default(),
-                    name,
-                    type_: claude::ToolUseBlockType::ToolUse,
-                    caller: None,
-                    extra: Default::default(),
-                },
-            )),
-            extra: Default::default(),
-        }),
-        _ => ping(),
+        }) => {
+            let mut events = vec![known(claude::KnownStreamEvent::ContentBlockStart {
+                index: u64::from(output_index),
+                content_block: Box::new(claude::ContentBlock::ToolUse(
+                    claude::ResponseToolUseBlock {
+                        id: call_id,
+                        input: Default::default(),
+                        name,
+                        type_: claude::ToolUseBlockType::ToolUse,
+                        caller: None,
+                        extra: Default::default(),
+                    },
+                )),
+                extra: Default::default(),
+            })];
+            if !arguments.is_empty() {
+                events.push(content_delta(
+                    u64::from(output_index),
+                    input_json_delta(arguments),
+                ));
+            }
+            events
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -252,6 +290,18 @@ fn input_json_delta(partial_json: String) -> claude::KnownEventDelta {
         partial_json,
         extra: Default::default(),
     }
+}
+
+fn done_input_to_claude(output_index: u32, input: String) -> Vec<claude::StreamEvent> {
+    let mut events = Vec::new();
+    if !input.is_empty() {
+        events.push(content_delta(
+            u64::from(output_index),
+            input_json_delta(input),
+        ));
+    }
+    events.push(content_block_stop(u64::from(output_index)));
+    events
 }
 
 fn ping() -> claude::StreamEvent {

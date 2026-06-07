@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::protocol::{claude, openai};
 use crate::transform::{TransformContext, TransformError};
 
@@ -7,64 +9,183 @@ pub fn stream_event(
     input: claude::StreamEvent,
     ctx: &TransformContext,
 ) -> Result<openai::ResponseStreamEvent, TransformError> {
-    let _ = ctx;
-    Ok(match input {
-        claude::StreamEvent::Known(event) => known_event_to_response(*event),
-        claude::StreamEvent::Unknown(_) => response_in_progress(
-            "claude_event".to_owned(),
-            common::default_openai_model(),
-            None,
-        ),
-    })
+    let mut transform = StreamTransform::default();
+    let mut output = transform.push(input, ctx)?;
+    Ok(output
+        .drain(..)
+        .next()
+        .unwrap_or_else(default_response_in_progress))
 }
 
-fn known_event_to_response(event: claude::KnownStreamEvent) -> openai::ResponseStreamEvent {
-    match event {
-        claude::KnownStreamEvent::MessageStart { message, .. } => response_created(*message),
-        claude::KnownStreamEvent::ContentBlockStart {
-            index,
-            content_block,
-            ..
-        } => content_block_start_to_response(index, *content_block),
-        claude::KnownStreamEvent::ContentBlockDelta { index, delta, .. } => {
-            event_delta_to_response(index, *delta)
-        }
-        claude::KnownStreamEvent::MessageDelta { delta, usage, .. } => {
-            let delta = *delta;
-            let usage = common::claude_usage_to_completion_option(usage);
-            let (status, incomplete_details) = delta
-                .stop_reason
-                .map(response_status_from_claude_stop)
-                .unwrap_or((openai::ResponseStatus::InProgress, None));
-            response_lifecycle_event(
+#[derive(Default)]
+pub struct StreamTransform {
+    item_ids: BTreeMap<u32, String>,
+}
+
+impl StreamTransform {
+    pub fn push(
+        &mut self,
+        input: claude::StreamEvent,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(match input {
+            claude::StreamEvent::Known(event) => self.known_event_to_response(*event),
+            claude::StreamEvent::Unknown(_) => Vec::new(),
+        })
+    }
+
+    pub fn finish(
+        &mut self,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(Vec::new())
+    }
+
+    fn known_event_to_response(
+        &mut self,
+        event: claude::KnownStreamEvent,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        match event {
+            claude::KnownStreamEvent::MessageStart { message, .. } => {
+                vec![response_created(*message)]
+            }
+            claude::KnownStreamEvent::ContentBlockStart {
+                index,
+                content_block,
+                ..
+            } => self.content_block_start_to_response(index, *content_block),
+            claude::KnownStreamEvent::ContentBlockDelta { index, delta, .. } => {
+                self.event_delta_to_response(index, *delta)
+            }
+            claude::KnownStreamEvent::MessageDelta { delta, usage, .. } => {
+                let delta = *delta;
+                let usage = common::claude_usage_to_completion_option(usage);
+                let (status, incomplete_details) = delta
+                    .stop_reason
+                    .map(response_status_from_claude_stop)
+                    .unwrap_or((openai::ResponseStatus::InProgress, None));
+                vec![response_lifecycle_event(
+                    "claude_msg".to_owned(),
+                    common::default_openai_model(),
+                    usage,
+                    status,
+                    incomplete_details,
+                )]
+            }
+            claude::KnownStreamEvent::MessageStop { .. } => vec![response_lifecycle_event(
                 "claude_msg".to_owned(),
                 common::default_openai_model(),
-                usage,
-                status,
-                incomplete_details,
-            )
+                None,
+                openai::ResponseStatus::Completed,
+                None,
+            )],
+            claude::KnownStreamEvent::Error { error, .. } => {
+                vec![known(openai::KnownResponseStreamEvent::Error {
+                    code: error.type_,
+                    message: error.message,
+                    param: String::new(),
+                    sequence_number: None,
+                    extra: Default::default(),
+                })]
+            }
+            _ => Vec::new(),
         }
-        claude::KnownStreamEvent::MessageStop { .. } => response_lifecycle_event(
-            "claude_msg".to_owned(),
-            common::default_openai_model(),
-            None,
-            openai::ResponseStatus::Completed,
-            None,
-        ),
-        claude::KnownStreamEvent::Error { error, .. } => {
-            known(openai::KnownResponseStreamEvent::Error {
-                code: error.type_,
-                message: error.message,
-                param: String::new(),
-                sequence_number: None,
-                extra: Default::default(),
-            })
+    }
+
+    fn content_block_start_to_response(
+        &mut self,
+        index: u64,
+        block: claude::ContentBlock,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        let output_index = index_to_u32(index);
+        match block {
+            claude::ContentBlock::Text(block) => {
+                if block.text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![output_text_delta(output_index, block.text)]
+                }
+            }
+            claude::ContentBlock::Thinking(block) => {
+                if block.thinking.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![reasoning_text_delta(output_index, block.thinking)]
+                }
+            }
+            claude::ContentBlock::ToolUse(block) => {
+                let item_id = common::response_function_call_item_id(&block.id);
+                self.item_ids.insert(output_index, item_id.clone());
+                vec![output_item_added(
+                    output_index,
+                    openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
+                        arguments: json_object_to_arguments(block.input),
+                        call_id: common::response_call_id(&block.id),
+                        name: block.name,
+                        id: Some(item_id),
+                        namespace: None,
+                        status: Some(openai::ResponseItemLifecycleStatus::InProgress),
+                        extra: Default::default(),
+                    }),
+                )]
+            }
+            claude::ContentBlock::McpToolUse(block) => {
+                let item_id = common::response_function_call_item_id(&block.id);
+                self.item_ids.insert(output_index, item_id.clone());
+                vec![output_item_added(
+                    output_index,
+                    openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
+                        arguments: json_object_to_arguments(block.input),
+                        call_id: common::response_call_id(&block.id),
+                        name: block.name,
+                        id: Some(item_id),
+                        namespace: Some(block.server_name),
+                        status: Some(openai::ResponseItemLifecycleStatus::InProgress),
+                        extra: Default::default(),
+                    }),
+                )]
+            }
+            _ => Vec::new(),
         }
-        _ => response_in_progress(
-            "claude_event".to_owned(),
-            common::default_openai_model(),
-            None,
-        ),
+    }
+
+    fn event_delta_to_response(
+        &self,
+        index: u64,
+        delta: claude::EventDelta,
+    ) -> Vec<openai::ResponseStreamEvent> {
+        let output_index = index_to_u32(index);
+        match delta {
+            claude::EventDelta::Known(delta) => match *delta {
+                claude::KnownEventDelta::Text { text, .. } => {
+                    vec![output_text_delta(output_index, text)]
+                }
+                claude::KnownEventDelta::Thinking { thinking, .. } => {
+                    vec![reasoning_text_delta(output_index, thinking)]
+                }
+                claude::KnownEventDelta::InputJson { partial_json, .. } => vec![known(
+                    openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
+                        delta: partial_json,
+                        item_id: self.item_id_for_index(output_index),
+                        output_index,
+                        sequence_number: None,
+                        extra: Default::default(),
+                    },
+                )],
+                claude::KnownEventDelta::Compaction { content, .. } => {
+                    vec![output_text_delta(output_index, content)]
+                }
+                _ => Vec::new(),
+            },
+            claude::EventDelta::Unknown(_) => Vec::new(),
+        }
+    }
+
+    fn item_id_for_index(&self, output_index: u32) -> String {
+        self.item_ids
+            .get(&output_index)
+            .cloned()
+            .unwrap_or_else(|| common::indexed_response_function_call_item_id(output_index))
     }
 }
 
@@ -80,100 +201,6 @@ fn response_created(message: claude::CreateMessageStartBody) -> openai::Response
         sequence_number: None,
         extra: Default::default(),
     })
-}
-
-fn content_block_start_to_response(
-    index: u64,
-    block: claude::ContentBlock,
-) -> openai::ResponseStreamEvent {
-    let output_index = index_to_u32(index);
-    match block {
-        claude::ContentBlock::Text(block) => {
-            if block.text.is_empty() {
-                response_in_progress(
-                    "claude_text".to_owned(),
-                    common::default_openai_model(),
-                    None,
-                )
-            } else {
-                output_text_delta(output_index, block.text)
-            }
-        }
-        claude::ContentBlock::Thinking(block) => {
-            if block.thinking.is_empty() {
-                response_in_progress(
-                    "claude_thinking".to_owned(),
-                    common::default_openai_model(),
-                    None,
-                )
-            } else {
-                reasoning_text_delta(output_index, block.thinking)
-            }
-        }
-        claude::ContentBlock::ToolUse(block) => output_item_added(
-            output_index,
-            openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
-                arguments: json_object_to_arguments(block.input),
-                call_id: common::response_call_id(&block.id),
-                name: block.name,
-                id: Some(common::response_function_call_item_id(&block.id)),
-                namespace: None,
-                status: Some(openai::ResponseItemLifecycleStatus::InProgress),
-                extra: Default::default(),
-            }),
-        ),
-        claude::ContentBlock::McpToolUse(block) => output_item_added(
-            output_index,
-            openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
-                arguments: json_object_to_arguments(block.input),
-                call_id: common::response_call_id(&block.id),
-                name: block.name,
-                id: Some(common::response_function_call_item_id(&block.id)),
-                namespace: Some(block.server_name),
-                status: Some(openai::ResponseItemLifecycleStatus::InProgress),
-                extra: Default::default(),
-            }),
-        ),
-        _ => response_in_progress(
-            "claude_block".to_owned(),
-            common::default_openai_model(),
-            None,
-        ),
-    }
-}
-
-fn event_delta_to_response(index: u64, delta: claude::EventDelta) -> openai::ResponseStreamEvent {
-    let output_index = index_to_u32(index);
-    match delta {
-        claude::EventDelta::Known(delta) => match *delta {
-            claude::KnownEventDelta::Text { text, .. } => output_text_delta(output_index, text),
-            claude::KnownEventDelta::Thinking { thinking, .. } => {
-                reasoning_text_delta(output_index, thinking)
-            }
-            claude::KnownEventDelta::InputJson { partial_json, .. } => known(
-                openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
-                    delta: partial_json,
-                    item_id: common::indexed_response_function_call_item_id(output_index),
-                    output_index,
-                    sequence_number: None,
-                    extra: Default::default(),
-                },
-            ),
-            claude::KnownEventDelta::Compaction { content, .. } => {
-                output_text_delta(output_index, content)
-            }
-            _ => response_in_progress(
-                "claude_delta".to_owned(),
-                common::default_openai_model(),
-                None,
-            ),
-        },
-        claude::EventDelta::Unknown(_) => response_in_progress(
-            "claude_delta".to_owned(),
-            common::default_openai_model(),
-            None,
-        ),
-    }
 }
 
 fn output_text_delta(output_index: u32, text: String) -> openai::ResponseStreamEvent {
@@ -345,4 +372,12 @@ fn index_to_u32(index: u64) -> u32 {
 
 fn known(event: openai::KnownResponseStreamEvent) -> openai::ResponseStreamEvent {
     openai::ResponseStreamEvent::Known(event)
+}
+
+fn default_response_in_progress() -> openai::ResponseStreamEvent {
+    response_in_progress(
+        "claude_event".to_owned(),
+        common::default_openai_model(),
+        None,
+    )
 }

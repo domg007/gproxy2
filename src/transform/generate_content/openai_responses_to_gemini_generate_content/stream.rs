@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::protocol::{gemini, openai};
 use crate::transform::{TransformContext, TransformError};
 
@@ -7,80 +9,198 @@ pub fn stream_event(
     input: openai::ResponseStreamEvent,
     ctx: &TransformContext,
 ) -> Result<gemini::StreamGenerateContentChunk, TransformError> {
-    let _ = ctx;
-    Ok(match input {
-        openai::ResponseStreamEvent::Known(event) => known_event_to_gemini(event),
-        openai::ResponseStreamEvent::Unknown(_) => empty_chunk(),
-    })
+    let mut transform = StreamTransform::default();
+    let mut output = transform.push(input, ctx)?;
+    Ok(output.drain(..).next().unwrap_or_else(empty_chunk))
 }
 
-fn known_event_to_gemini(
-    event: openai::KnownResponseStreamEvent,
-) -> gemini::GenerateContentResponse {
-    match event {
-        openai::KnownResponseStreamEvent::ResponseCreated { response, .. }
-        | openai::KnownResponseStreamEvent::ResponseInProgress { response, .. }
-        | openai::KnownResponseStreamEvent::ResponseQueued { response, .. } => {
-            chunk_from_response(*response, None)
-        }
-        openai::KnownResponseStreamEvent::ResponseCompleted { response, .. }
-        | openai::KnownResponseStreamEvent::ResponseFailed { response, .. }
-        | openai::KnownResponseStreamEvent::ResponseIncomplete { response, .. } => {
-            let finish_reason = Some(response_finish_reason(&response));
-            chunk_from_response(*response, finish_reason)
-        }
-        openai::KnownResponseStreamEvent::ResponseOutputTextDelta { delta, .. }
-        | openai::KnownResponseStreamEvent::ResponseAudioTranscriptDelta { delta, .. } => {
-            text_chunk(delta, false, None)
-        }
-        openai::KnownResponseStreamEvent::ResponseRefusalDelta { delta, .. } => {
-            text_chunk(delta, false, Some(gemini::FinishReasonKnown::Safety))
-        }
-        openai::KnownResponseStreamEvent::ResponseReasoningSummaryTextDelta { delta, .. }
-        | openai::KnownResponseStreamEvent::ResponseReasoningTextDelta { delta, .. } => {
-            text_chunk(delta, true, None)
-        }
-        openai::KnownResponseStreamEvent::ResponseOutputItemAdded { item, .. } => {
-            response_item_to_gemini(*item)
-        }
-        openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDone {
-            arguments,
-            item_id,
-            name,
-            output_index,
-            ..
-        } => function_call_chunk(
-            Some(common::fallback_response_call_id(
+#[derive(Default)]
+pub struct StreamTransform {
+    tool_calls: BTreeMap<String, ToolCallState>,
+}
+
+impl StreamTransform {
+    pub fn push(
+        &mut self,
+        input: openai::ResponseStreamEvent,
+        _: &TransformContext,
+    ) -> Result<Vec<gemini::StreamGenerateContentChunk>, TransformError> {
+        Ok(match input {
+            openai::ResponseStreamEvent::Known(event) => self.known_event_to_gemini(event),
+            openai::ResponseStreamEvent::Unknown(_) => Vec::new(),
+        })
+    }
+
+    pub fn finish(
+        &mut self,
+        _: &TransformContext,
+    ) -> Result<Vec<gemini::StreamGenerateContentChunk>, TransformError> {
+        Ok(Vec::new())
+    }
+
+    fn known_event_to_gemini(
+        &mut self,
+        event: openai::KnownResponseStreamEvent,
+    ) -> Vec<gemini::GenerateContentResponse> {
+        match event {
+            openai::KnownResponseStreamEvent::ResponseCreated { response, .. }
+            | openai::KnownResponseStreamEvent::ResponseInProgress { response, .. }
+            | openai::KnownResponseStreamEvent::ResponseQueued { response, .. } => {
+                vec![chunk_from_response(*response, None)]
+            }
+            openai::KnownResponseStreamEvent::ResponseCompleted { response, .. }
+            | openai::KnownResponseStreamEvent::ResponseFailed { response, .. }
+            | openai::KnownResponseStreamEvent::ResponseIncomplete { response, .. } => {
+                let finish_reason = Some(response_finish_reason(&response));
+                vec![chunk_from_response(*response, finish_reason)]
+            }
+            openai::KnownResponseStreamEvent::ResponseOutputTextDelta { delta, .. }
+            | openai::KnownResponseStreamEvent::ResponseAudioTranscriptDelta { delta, .. } => {
+                vec![text_chunk(delta, false, None)]
+            }
+            openai::KnownResponseStreamEvent::ResponseRefusalDelta { delta, .. } => {
+                vec![text_chunk(
+                    delta,
+                    false,
+                    Some(gemini::FinishReasonKnown::Safety),
+                )]
+            }
+            openai::KnownResponseStreamEvent::ResponseReasoningSummaryTextDelta {
+                delta, ..
+            }
+            | openai::KnownResponseStreamEvent::ResponseReasoningTextDelta { delta, .. } => {
+                vec![text_chunk(delta, true, None)]
+            }
+            openai::KnownResponseStreamEvent::ResponseOutputItemAdded { item, .. } => {
+                self.response_item_to_gemini(*item).into_iter().collect()
+            }
+            openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDelta {
+                delta,
+                item_id,
+                ..
+            }
+            | openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDelta {
+                delta,
+                item_id,
+                ..
+            } => self
+                .tool_calls
+                .get(&item_id)
+                .map(|state| {
+                    function_call_chunk(
+                        Some(state.call_id.clone()),
+                        state.name.clone(),
+                        arguments_to_json_map(delta),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            openai::KnownResponseStreamEvent::ResponseFunctionCallArgumentsDone {
+                arguments,
+                item_id,
+                name,
                 output_index,
-                Some(&item_id),
-            )),
-            name,
-            arguments_to_json_map(arguments),
-        ),
-        openai::KnownResponseStreamEvent::Error { .. } => finish_chunk(
-            gemini::FinishReason::Known(gemini::FinishReasonKnown::Safety),
-            None,
-        ),
-        _ => empty_chunk(),
+                ..
+            } => {
+                let state =
+                    self.tool_calls
+                        .get(&item_id)
+                        .cloned()
+                        .unwrap_or_else(|| ToolCallState {
+                            call_id: common::fallback_response_call_id(
+                                output_index,
+                                Some(&item_id),
+                            ),
+                            name,
+                        });
+                vec![function_call_chunk(
+                    Some(state.call_id),
+                    state.name,
+                    arguments_to_json_map(arguments),
+                )]
+            }
+            openai::KnownResponseStreamEvent::ResponseCustomToolCallInputDone {
+                input,
+                item_id,
+                ..
+            } => self
+                .tool_calls
+                .get(&item_id)
+                .map(|state| {
+                    function_call_chunk(
+                        Some(state.call_id.clone()),
+                        state.name.clone(),
+                        arguments_to_json_map(input),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            openai::KnownResponseStreamEvent::Error { .. } => vec![finish_chunk(
+                gemini::FinishReason::Known(gemini::FinishReasonKnown::Safety),
+                None,
+            )],
+            _ => Vec::new(),
+        }
+    }
+
+    fn response_item_to_gemini(
+        &mut self,
+        item: openai::ResponseOutputItem,
+    ) -> Option<gemini::GenerateContentResponse> {
+        match item.0 {
+            openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
+                call_id,
+                name,
+                arguments,
+                id,
+                ..
+            }) => {
+                if let Some(item_id) = id {
+                    self.tool_calls.insert(
+                        item_id,
+                        ToolCallState {
+                            call_id: call_id.clone(),
+                            name: name.clone(),
+                        },
+                    );
+                }
+                Some(function_call_chunk(
+                    Some(call_id),
+                    name,
+                    arguments_to_json_map(arguments),
+                ))
+            }
+            openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
+                call_id,
+                name,
+                input,
+                id,
+                ..
+            }) => {
+                if let Some(item_id) = id {
+                    self.tool_calls.insert(
+                        item_id,
+                        ToolCallState {
+                            call_id: call_id.clone(),
+                            name: name.clone(),
+                        },
+                    );
+                }
+                Some(function_call_chunk(
+                    Some(call_id),
+                    name,
+                    arguments_to_json_map(input),
+                ))
+            }
+            _ => None,
+        }
     }
 }
 
-fn response_item_to_gemini(item: openai::ResponseOutputItem) -> gemini::GenerateContentResponse {
-    match item.0 {
-        openai::ResponseItem::Typed(openai::TypedResponseItem::FunctionCall {
-            call_id,
-            name,
-            arguments,
-            ..
-        }) => function_call_chunk(Some(call_id), name, arguments_to_json_map(arguments)),
-        openai::ResponseItem::Typed(openai::TypedResponseItem::CustomToolCall {
-            call_id,
-            name,
-            input,
-            ..
-        }) => function_call_chunk(Some(call_id), name, arguments_to_json_map(input)),
-        _ => empty_chunk(),
-    }
+#[derive(Clone)]
+struct ToolCallState {
+    call_id: String,
+    name: String,
 }
 
 fn text_chunk(

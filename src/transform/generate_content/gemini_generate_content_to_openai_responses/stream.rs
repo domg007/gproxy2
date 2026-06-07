@@ -7,11 +7,37 @@ pub fn stream_event(
     input: gemini::StreamGenerateContentChunk,
     ctx: &TransformContext,
 ) -> Result<openai::ResponseStreamEvent, TransformError> {
-    let _ = ctx;
-    Ok(gemini_chunk_to_response(input))
+    let mut transform = StreamTransform;
+    let mut output = transform.push(input, ctx)?;
+    Ok(output
+        .drain(..)
+        .next()
+        .unwrap_or_else(default_response_in_progress))
 }
 
-fn gemini_chunk_to_response(input: gemini::GenerateContentResponse) -> openai::ResponseStreamEvent {
+#[derive(Default)]
+pub struct StreamTransform;
+
+impl StreamTransform {
+    pub fn push(
+        &mut self,
+        input: gemini::StreamGenerateContentChunk,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(gemini_chunk_to_response_events(input))
+    }
+
+    pub fn finish(
+        &mut self,
+        _: &TransformContext,
+    ) -> Result<Vec<openai::ResponseStreamEvent>, TransformError> {
+        Ok(Vec::new())
+    }
+}
+
+fn gemini_chunk_to_response_events(
+    input: gemini::GenerateContentResponse,
+) -> Vec<openai::ResponseStreamEvent> {
     let id = input.response_id.unwrap_or_default();
     let model = input
         .model_version
@@ -25,7 +51,7 @@ fn gemini_chunk_to_response(input: gemini::GenerateContentResponse) -> openai::R
         .is_some();
 
     if input.candidates.is_empty() {
-        return if blocked {
+        return vec![if blocked {
             response_lifecycle_event(
                 id,
                 model,
@@ -38,46 +64,54 @@ fn gemini_chunk_to_response(input: gemini::GenerateContentResponse) -> openai::R
             )
         } else {
             response_lifecycle_event(id, model, usage, openai::ResponseStatus::InProgress, None)
-        };
+        }];
     }
 
-    let mut candidates = input.candidates.into_iter();
-    let Some(candidate) = candidates.next() else {
-        return response_lifecycle_event(
+    let mut output = Vec::new();
+    for (fallback_index, candidate) in input.candidates.into_iter().enumerate() {
+        let output_index = candidate
+            .index
+            .map(|index| u32::try_from(index).unwrap_or_default())
+            .unwrap_or_else(|| u32::try_from(fallback_index).unwrap_or_default());
+
+        if let Some(content) = candidate.content {
+            output.extend(gemini_content_to_response_events(content, output_index));
+        }
+
+        if let Some(finish_reason) = candidate.finish_reason {
+            let (status, incomplete_details) = response_status_from_gemini_finish(finish_reason);
+            output.push(response_lifecycle_event(
+                id.clone(),
+                model.clone(),
+                usage.clone(),
+                status,
+                incomplete_details,
+            ));
+        }
+    }
+
+    if output.is_empty() {
+        output.push(response_lifecycle_event(
             id,
             model,
             usage,
             openai::ResponseStatus::InProgress,
             None,
-        );
-    };
-    let output_index = candidate
-        .index
-        .map(|index| u32::try_from(index).unwrap_or_default())
-        .unwrap_or_default();
-
-    if let Some(content) = candidate.content
-        && let Some(event) = gemini_content_to_response_event(content, output_index)
-    {
-        return event;
+        ));
     }
 
-    if let Some(finish_reason) = candidate.finish_reason {
-        let (status, incomplete_details) = response_status_from_gemini_finish(finish_reason);
-        return response_lifecycle_event(id, model, usage, status, incomplete_details);
-    }
-
-    response_lifecycle_event(id, model, usage, openai::ResponseStatus::InProgress, None)
+    output
 }
 
-fn gemini_content_to_response_event(
+fn gemini_content_to_response_events(
     content: gemini::Content,
     output_index: u32,
-) -> Option<openai::ResponseStreamEvent> {
+) -> Vec<openai::ResponseStreamEvent> {
     content
         .parts
         .into_iter()
-        .find_map(|part| part_to_response_event(part, output_index))
+        .filter_map(|part| part_to_response_event(part, output_index))
+        .collect()
 }
 
 fn part_to_response_event(
@@ -262,4 +296,14 @@ fn reasoning_id(index: u32) -> String {
 
 fn known(event: openai::KnownResponseStreamEvent) -> openai::ResponseStreamEvent {
     openai::ResponseStreamEvent::Known(event)
+}
+
+fn default_response_in_progress() -> openai::ResponseStreamEvent {
+    response_lifecycle_event(
+        String::new(),
+        common::default_openai_model(),
+        None,
+        openai::ResponseStatus::InProgress,
+        None,
+    )
 }
