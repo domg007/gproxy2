@@ -174,7 +174,7 @@ src/
 
 **`PersistenceBackend`(trait)** —— typed、按域分组的方法(`upsert_provider`、
 `get_route_by_name`、`find_key_by_digest`、`add_cost_used`、`append_usage`、
-`add_usage_rollup`、`query_usage`、`put_file` …)。**一个 trait**,不拆成细粒度
+`add_usage_rollup`、`query_usage` …)。**一个 trait**,不拆成细粒度
 子 trait;`db` 与 `file` 各实现一遍。
 
 - **`db` 实现**用 SeaORM(sqlite/mysql/postgres)。**SeaORM 仅是该实现的内部细节**,
@@ -266,7 +266,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `sanitize_rules`(正文正则替换):`pattern`(正则)· `replacement`
 - `cache_breakpoints`(Claude 缓存):`target` · `position` · `index` · `ttl` *(magic-string 触发器是内置常量,非配置)*
 - `beta_headers`:`token`(`anthropic-beta` 能力标志,如 `oauth-2025-04-20`)
-- `preludes`:`text`(注入首个 system 块的前导文本;v1 单条,v2 支持按 `sort_order` 多条)
+- `preludes_system`:`text`(注入首个 system 块的前导文本;v1 单条,v2 支持按 `sort_order` 多条)
 
 **C. 组织 / 用户 / 鉴权 / 权限 / 限额**
 
@@ -279,7 +279,6 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `route_permissions`:`scope` · `scope_id` · `route_pattern`(glob,作用在 route 名上)— 用户**有效权限 = 自身 ∪ team ∪ org 的并集**
 - `rate_limits`:`scope` · `scope_id` · `route_pattern` · `rpm?` · `rpd?` · `total_tokens?` — 三级**逐级预检**,任一级超限即拒
 - `quotas`:`scope` · `scope_id`(唯一 `(scope, scope_id)`)· `quota_total` · `cost_used`(对账后持久值)— 每请求成本**同时累加到 user/team/org 三级**;预检三级均需通过(最严格者拦截)
-- `file_permissions`:`scope` · `scope_id` · `provider_id`
 
 **D. 用量 / 日志(只持久化)**
 - `usages`(明细,append):`request_id` · `at` · `route_name?` · `provider_id?` · `credential_id?` · `org_id?` · `team_id?` · `user_id?` · `user_key_id?` · `operation` · `kind` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
@@ -302,9 +301,10 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
   - `GPROXY_CORS_ORIGINS?` · `GPROXY_MAX_BODY_BYTES?` · `GPROXY_MAX_INFLIGHT?` · `GPROXY_ADMIN_IP_ALLOWLIST?` · `GPROXY_TRUSTED_PROXY_CIDRS?`(入站防护,见 §16;命名最终以实现为准)
 - `instance_settings`(运行时可改,存持久层,按 `instance_name` 每实例一行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `disable_log_redaction?`(默认 false,debug 排障用,关脱敏时日志打告警,见 §14.3)· `update_channel?`。host/port/dsn/redis/master_key 是 bootstrap,不进此表。
 
-**F. 文件**
-- `files`:`provider_id` · `file_id` · `filename` · `mime_type` · `size_bytes` · `downloadable?` · `raw_json`(元数据)
-- blob 内容随当前 `PersistenceBackend` 实现存储(`file` 落磁盘 / `db` 落库)
+> **不做 Files API 代理**:Operation 体系不含文件管理操作;内联文件引用(content 里的
+> `file_id` / image source / document source)照常透传,provider file_id 在 scoped 模式下原样转发。
+> 若将来要代理 provider Files API,再连同文件 operation + `files`/`file_permissions` 表一次性补齐
+> (届时按"file_id→(provider,credential) 映射"优先设计)。
 
 ## 9. Console 技术栈
 
@@ -467,4 +467,5 @@ Vercel/Cloudflare =
 - 多级配额(user/team/org)三级计数器同步累加,见 §7.2 / §8-C。
 
 > **本轮未纳入(留作干净加法)**:管理审计日志(`audit_logs`)、日志/用量数据保留与清理、
-> per-provider 并发上限、PII 正文脱敏、云 KMS 实现、native rustls、主动健康探活。
+> per-provider 并发上限、PII 正文脱敏、云 KMS 实现、native rustls、主动健康探活、
+> Files API 代理(及 `files`/`file_permissions` 表)。
