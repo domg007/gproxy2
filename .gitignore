@@ -57,3 +57,6 @@ deploy/eopages/gproxy/edge-functions/_lib/
 .edgeone/
 deploy/eopages/**/.edgeone/
 deploy/eopages/**/.env
+
+# ── Local sample projects
+samples/
