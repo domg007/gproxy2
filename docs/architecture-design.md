@@ -120,23 +120,25 @@ src/
 
 ```
 入站
+ → 生成 request_id(ULID,贯穿全程,见 §15)
  → auth(API key)
  → classify(协议 + 操作类型)
  → extract model
  → preprocess(别名解析 / 名称归一化 → 规范 route 名)
  → route(route 名 → 后端池)
- → permission + ratelimit + quota 预检
+ → permission + ratelimit + quota 预检(配额先扣估算,见 §17)
  → balance(选 member + 选凭证)
  → transform(若入站协议 ≠ provider 协议)
  → channel 发出
  → [失败 / 429?] retry/failover 回到 balance 选下一个
- → 计费 + 用量落账
+ → 计费 + 用量落账(以 request_id 幂等,仅成功计费;对账,见 §17)
  → 响应(passthrough 或回转协议)
 ```
 
 - 每步是职责单一、可测的纯函数 / 小服务。
 - `preprocess` / `route` / `balance` 是 v2 新增的三个独立步骤,正是 v1 缺失、导致做不了负载均衡的地方。
 - **同协议 passthrough**:`balance` 选中的后端协议 == 入站协议时,直接 passthrough,完全不进 transform(保住 minimal-parsing 快路径)。
+- **横切关切**:request_id / 可观测性见 §15,安全(密钥/鉴权/脱敏/TLS)见 §14,优雅停机/过载/入站防护见 §16,计费幂等见 §17。
 
 ## 6. 协议转换层去臃肿
 
@@ -255,7 +257,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 
 **B. 供应商 / 凭证**
 - `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url 及各 channel 标量开关)· `credential_strategy` · `enabled` —— **不再有任何 rules 的 JSON 列**,全部提成下列独立表
-- `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(加密)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `enabled`
+- `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(**信封加密**,存 `{kek_id, wrapped_dek, nonce, ciphertext}`,见 §14.1)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `enabled`
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
 
 **B2. 供应商级规则(全部独立表,结构化、可逐行编辑/审计;均含 `provider_id` · `sort_order` · `enabled`)**
@@ -280,9 +282,9 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `file_permissions`:`scope` · `scope_id` · `provider_id`
 
 **D. 用量 / 日志(只持久化)**
-- `usages`(明细,append):`at` · `route_name?` · `provider_id?` · `credential_id?` · `org_id?` · `team_id?` · `user_id?` · `user_key_id?` · `operation` · `kind` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
+- `usages`(明细,append):`request_id` · `at` · `route_name?` · `provider_id?` · `credential_id?` · `org_id?` · `team_id?` · `user_id?` · `user_key_id?` · `operation` · `kind` · `model?` · `input/output_tokens` · `cache_read/creation_tokens`(+5min/1h)· `cost`
 - `usage_rollups`(看板源):`granularity`(hour/day/week/month)· `bucket_start` · 维度(`provider_id?` / `org_id?` / `team_id?` / `user_id?` / `route_name?` / `model?`)· 指标(`requests` / `input_tokens` / `output_tokens` / `cost`)。每请求 `add_usage_rollup` 累加
-- `downstream_requests` / `upstream_requests`:抓包日志(受 enable 开关),沿用 v1 结构(下行 path/query,上行 url/latency)
+- `downstream_requests` / `upstream_requests`:抓包日志(受 enable 开关),沿用 v1 结构(下行 path/query,上行 url/latency),各含 `request_id` 串联三处日志。正文按 §14.3 脱敏
 
 **E. 设置(启动)**
 - **无配置文件**:启动**只靠环境变量 + CLI 参数**(clap `env=`,每参数同时读 env)。无 `gproxy.toml`。
@@ -295,7 +297,10 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
     upstream proxy;可选)
   - `--host` / `GPROXY_HOST`(默认 `127.0.0.1`)· `--port` / `GPROXY_PORT`(默认 `8787`)
   - `--instance-name` / `GPROXY_INSTANCE_NAME`(默认 `default`)
-- `instance_settings`(运行时可改,存持久层,按 `instance_name` 每实例一行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `update_channel?`。host/port/dsn/redis 是 bootstrap,不进此表。
+  - `GPROXY_MASTER_KEY`(本地 KEK,base64 32B;凭证信封加密用,见 §14.1)
+  - `OTEL_EXPORTER_OTLP_ENDPOINT?`(可选,给定即开启 trace 导出,见 §15)
+  - `GPROXY_CORS_ORIGINS?` · `GPROXY_MAX_BODY_BYTES?` · `GPROXY_MAX_INFLIGHT?` · `GPROXY_ADMIN_IP_ALLOWLIST?` · `GPROXY_TRUSTED_PROXY_CIDRS?`(入站防护,见 §16;命名最终以实现为准)
+- `instance_settings`(运行时可改,存持久层,按 `instance_name` 每实例一行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `disable_log_redaction?`(默认 false,debug 排障用,关脱敏时日志打告警,见 §14.3)· `update_channel?`。host/port/dsn/redis/master_key 是 bootstrap,不进此表。
 
 **F. 文件**
 - `files`:`provider_id` · `file_id` · `filename` · `mime_type` · `size_bytes` · `downloadable?` · `raw_json`(元数据)
@@ -384,3 +389,82 @@ Vercel/Cloudflare =
 (`pipeline / protocol / route / balance / backends`)不依赖 axum。
 
 **节奏**:native 主线优先;edge 已打通存储层(compile),后续做 wasm AppState + 入口 + 部署产物。
+
+## 14. 安全
+
+> 企业级横切关切。本节决策已锁定;实现按 phase 推进(见 §10),抽象先立、云接入作干净加法。
+
+### 14.1 凭证密钥——信封加密
+- 抽象 `SecretCipher`(`seal(plaintext) -> sealed` / `open(sealed) -> plaintext`)。
+- **信封加密**:每条密钥随机生成 **DEK**,用 AEAD(`AES-256-GCM` 或 `XChaCha20-Poly1305`,
+  RustCrypto,wasm 可编译)加密正文;**KEK** 包住 DEK。
+- KEK 由 `Kms` trait 提供:**默认本地实现 = env `GPROXY_MASTER_KEY` 作 KEK**;云 KMS
+  (AWS/GCP KMS、Vault)作后续 trait 实现,是干净加法。
+- `credentials.secret_json` 存信封结构 `{kek_id, wrapped_dek, nonce, ciphertext}`;`kek_id`
+  即密钥版本,支持轮换(惰性重封 / 批量重封)。
+- 域代码只调 `SecretCipher`,永不直接碰算法 / KMS SDK。
+
+### 14.2 管理端鉴权
+- 口令 hash:**argon2id**(RustCrypto,wasm 兼容)。
+- 会话:**服务端不透明 session token 存 cache**(可吊销,带 TTL),优于 JWT(免吊销难题);
+  会话状态走 §7.2 的 redis(native)/ libsql|upstash(edge)。
+- Console 用 httpOnly + Secure + SameSite cookie 携带 session。
+- 用户 API key 仍走 `user_keys` 的 `api_key_digest`(不变);管理端登录是独立通道。
+
+### 14.3 日志正文脱敏
+- 开 `enable_*_log_body` 抓正文时,**强制剥离 Authorization / api-key 等密钥头与已知密钥字段**
+  (不可配,默认就做)。本期**不做 PII 正则**(邮箱/卡号),留作以后可选。
+- **debug 可关**:`instance_settings.disable_log_redaction`(默认 false);关闭脱敏时每条日志打
+  **醒目告警**,提示正文含敏感信息。
+
+### 14.4 入站 TLS 边界
+- native **只服务 HTTP**,TLS 由**前置 LB / ingress 终结**;edge 由平台终结。
+- native 内置 rustls(直服务 HTTPS)以后再评估,本期不做。
+
+## 15. 可观测性
+
+### 15.1 request_id(请求关联 ID)
+- 入站即生成 **ULID** `request_id`,贯穿整个 pipeline、tracing span、全部日志。
+- **写入 `usages` / `downstream_requests` / `upstream_requests`**(§8 已加列),串联三处日志。
+- 响应回 `x-gproxy-request-id`;客户端带来的 `x-request-id` **单独记录、不直接信任**(自身始终另生成)。
+
+### 15.2 tracing
+- 结构化 `tracing`:每请求一根根 span,带 `request_id` / route / provider / operation / kind。
+- **OTLP 导出可选**(env `OTEL_EXPORTER_OTLP_ENDPOINT`,给定即开)。OTLP-over-HTTP 在 edge 经 fetch 可用。
+
+### 15.3 metrics
+- **Prometheus `/metrics`** 文本端点:请求量、延迟直方图、错误率、上游延迟、in-flight gauge、
+  熔断态、凭证健康等。
+- **native 适用;edge serverless 无常驻进程可被抓取 → 跳过**(后续可评估 push gateway)。
+
+## 16. 韧性与入站防护
+
+### 16.1 优雅停机 / 排空
+- SIGTERM/SIGINT:停收新请求 → 限时排空 in-flight → 退出(`axum::serve().with_graceful_shutdown`,
+  tokio signal 已在依赖)。**native-only**;edge 生命周期归平台。
+
+### 16.2 过载保护
+- 全局**最大在途**上限 + load-shed → 503(tower 层)。per-provider 并发上限留作 provider 设置以后加。
+
+### 16.3 健康探测
+- **只被动**:失败冷却 + member/凭证熔断(§3.3);**不做主动周期探活**(避免对 LLM 上游白烧钱)。
+  `credential_statuses` 仍作审计快照落点。
+
+### 16.4 入站防护
+- **CORS**(可配允许源,给 Console/浏览器)。
+- **请求体大小上限**(可配;LLM 请求大,默认放宽但有界)。
+- **管理端 IP allowlist**;`X-Forwarded-For` 仅信任可配的前置代理 CIDR。
+- 配置项见 §8-E 的 `GPROXY_CORS_ORIGINS` / `GPROXY_MAX_BODY_BYTES` / `GPROXY_MAX_INFLIGHT` /
+  `GPROXY_ADMIN_IP_ALLOWLIST` / `GPROXY_TRUSTED_PROXY_CIDRS`。
+
+## 17. 计费与配额(幂等)
+
+- **幂等键 = `request_id`**:同一请求只计一次;failover 的失败尝试**不计费**,只对**成功那次**按其真实
+  usage 计。`usages` append 与 rollup 累加均按 request_id 幂等。
+- **配额先扣 → 对账**:预检阶段先扣**估算**(§7.2"cache 先扣"),响应后按实际 usage **对账多退少补**。
+- **流式预扣 = 消息总长度的 1/2**(初始 token 估算);流结束按最终 usage 事件对账;**中途中断、
+  拿不到最终 usage 时,按本地已产出累计兜底**并打标记。**非流式按实际**。
+- 多级配额(user/team/org)三级计数器同步累加,见 §7.2 / §8-C。
+
+> **本轮未纳入(留作干净加法)**:管理审计日志(`audit_logs`)、日志/用量数据保留与清理、
+> per-provider 并发上限、PII 正文脱敏、云 KMS 实现、native rustls、主动健康探活。
