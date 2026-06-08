@@ -174,7 +174,9 @@ src/
 | §8-B2 规则 | 归属 |
 |------|------|
 | `routing_rules`(passthrough/transform_to/local/unsupported) | **transform-dispatch**(决定要不要转、转成啥),不在 process |
-| `preludes`、`cache_breakpoints`、`rewrite_rules`、`sanitize_rules`、`beta_headers` | **process 层**,按固定顺序作用(prelude → cache_breakpoints → rewrite(JSON path)→ sanitize(正文正则)→ beta_headers(头));带 `filter_model_pattern` / `filter_operation_keys` 的规则按当前请求匹配 |
+| `rule_sets` → `rules`(prelude / cache_breakpoint / rewrite / sanitize / beta_header),经 `provider_rule_sets` 挂到 provider | **process 层**,按固定顺序作用(prelude → cache_breakpoint → rewrite(JSON path)→ sanitize(正文正则)→ beta_header(头)) |
+
+**规则解析**:选定 provider → 取其 `enabled` 的 `provider_rule_sets`(按 `sort_order`)→ 各 set 内 `enabled` 的 `rules`(按 `sort_order`)→ 用 `filter_model_pattern`(匹配**去前缀后的 model**)与 `filter_operation_keys`(匹配当前 operation)过滤 → 按 `kind` 作用。
 
 效果:**channel 层退化为纯接入**——只做 auth 注入 + endpoint/method + 传输能力声明,交给
 `UpstreamClient` 发;规则改写完全不进 channel。
@@ -324,13 +326,13 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(**信封加密**,存 `{kek_id, wrapped_dek, nonce, ciphertext}`,见 §14.1)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `proxy_url?`(覆盖 provider 默认出站代理,见 §7.4;edge 忽略)· `enabled`
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
 
-**B2. 供应商级规则(全部独立表,结构化、可逐行编辑/审计;均含 `provider_id` · `sort_order` · `enabled`)**
-- `routing_rules`:`operation` · `kind`(入站 wire kind;内容生成是 `open_ai_responses`/`open_ai_chat_completions`/`claude_messages`/`gemini_generate_content`,非内容生成是 `open_ai`/`claude`/`gemini`)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_kind?` — 唯一约束 `(provider_id, operation, kind)`
-- `rewrite_rules`(JSON 字段操作):`path`(点路径)· `action`(set/remove)· `value_json?`(set 时)· `filter_model_pattern?` · `filter_operation_keys?`
-- `sanitize_rules`(正文正则替换):`pattern`(正则)· `replacement`
-- `cache_breakpoints`(Claude 缓存):`target` · `position` · `index` · `ttl` *(magic-string 触发器是内置常量,非配置)*
-- `beta_headers`:`token`(`anthropic-beta` 能力标志,如 `oauth-2025-04-20`)
-- `preludes_system`:`text`(注入首个 system 块的前导文本;v1 单条,v2 支持按 `sort_order` 多条)
+**B2. 供应商级规则**
+- `routing_rules`(**transform-dispatch 决策,非请求改写,仍按 provider 配置**;含 `provider_id` · `sort_order` · `enabled`):`operation` · `kind`(入站 wire kind;内容生成是 `open_ai_responses`/`open_ai_chat_completions`/`claude_messages`/`gemini_generate_content`,非内容生成是 `open_ai`/`claude`/`gemini`)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_kind?` — 唯一约束 `(provider_id, operation, kind)`
+
+请求改写规则(prelude / cache_breakpoint / rewrite / sanitize / beta_header)**不再 provider-scoped**,而是归入**可复用的 rule-set 模型**,再通过 `provider_rule_sets` 挂到 provider:
+- `rule_sets`(可复用的命名规则集):`name`(唯一)· `enabled` · `description?`
+- `rules`(规则集内的单条规则;含 `rule_set_id` · `sort_order` · `enabled`):`kind`(`prelude_system`/`cache_breakpoint`/`rewrite`/`sanitize`/`beta_header`)· `config_json`(按 `kind` 存各自字段:`rewrite`={path,action,value_json?}、`sanitize`={pattern,replacement}、`cache_breakpoint`={target,position,index,ttl}、`beta_header`={token}、`prelude_system`={text};校验下放到 process 层)· `filter_model_pattern?` · `filter_operation_keys?`
+- `provider_rule_sets`(M:N 挂载;含 `provider_id` · `rule_set_id` · `sort_order` · `enabled`):把一个 `rule_set` 附到 provider,按 `sort_order` 生效;删 provider 只摘挂载,不删共享的 `rule_sets`
 
 **C. 组织 / 用户 / 鉴权 / 权限 / 限额**
 
