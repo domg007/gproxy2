@@ -31,8 +31,10 @@ pub enum TransformPair {
     GeminiToClaudeModels,
     OpenAiToGeminiEmbeddings,
     GeminiToOpenAiEmbeddings,
-    OpenAiToGeminiImages,
-    GeminiToOpenAiImages,
+    OpenAiCreateImageToGemini,
+    GeminiToOpenAiCreateImage,
+    OpenAiEditImageToGemini,
+    GeminiToOpenAiEditImage,
     OpenAiToClaudeCompact,
     ClaudeToOpenAiCompact,
     OpenAiResponsesToOpenAiCompact,
@@ -63,9 +65,13 @@ pub fn resolve(
     if source == target {
         return Err(TransformError::unsupported_pair(source, target));
     }
-    // Compaction is the only sanctioned cross-operation route (compact <-> a
-    // generate-content payload); Claude/Gemini/Chat have no compact endpoint.
+    // Compaction and image generation are the sanctioned cross-operation routes:
+    // OpenAI has dedicated compact/image endpoints, while the other providers
+    // service them through generate-content.
     if let Some(pair) = resolve_compaction(source, target) {
+        return Ok(pair);
+    }
+    if let Some(pair) = resolve_image_generation(source, target) {
         return Ok(pair);
     }
     if source.operation != target.operation {
@@ -81,15 +87,13 @@ pub fn resolve(
             resolve_provider_pair(source, target, models_pair)
         }
         Operation::CreateEmbedding => resolve_provider_pair(source, target, embeddings_pair),
-        Operation::CreateImage | Operation::EditImage => {
-            resolve_provider_pair(source, target, images_pair)
-        }
-        // Compaction is never a same-operation route: OpenAI is the only provider
-        // with a dedicated compact endpoint, and every compact <-> provider
-        // conversion is handled cross-operation by `resolve_compaction`.
-        Operation::CompactContent | Operation::CreateConversation => {
-            Err(TransformError::unsupported_pair(source, target))
-        }
+        // Compaction and image generation are never same-operation routes: OpenAI
+        // is the only provider with dedicated compact/image endpoints, and every
+        // such conversion is handled cross-operation above.
+        Operation::CompactContent
+        | Operation::CreateImage
+        | Operation::EditImage
+        | Operation::CreateConversation => Err(TransformError::unsupported_pair(source, target)),
     }
 }
 
@@ -194,12 +198,38 @@ fn embeddings_pair(source: Provider, target: Provider) -> Option<TransformPair> 
     }
 }
 
-fn images_pair(source: Provider, target: Provider) -> Option<TransformPair> {
-    match (source, target) {
-        (Provider::OpenAi, Provider::Gemini) => Some(TransformPair::OpenAiToGeminiImages),
-        (Provider::Gemini, Provider::OpenAi) => Some(TransformPair::GeminiToOpenAiImages),
-        _ => None,
+/// Resolve cross-operation image-generation routes. OpenAI has dedicated
+/// create/edit-image endpoints; Gemini services them through generate-content
+/// (image response modality), so it has no image operation of its own.
+fn resolve_image_generation(source: OperationKey, target: OperationKey) -> Option<TransformPair> {
+    use ContentGenerationKind as Kind;
+    use OperationKind as OK;
+
+    // OpenAI create/edit image -> Gemini generate-content.
+    if let (OK::Provider(Provider::OpenAi), OK::ContentGeneration(Kind::GeminiGenerateContent)) =
+        (source.kind, target.kind)
+        && target.operation.is_content_generation()
+    {
+        return match source.operation {
+            Operation::CreateImage => Some(TransformPair::OpenAiCreateImageToGemini),
+            Operation::EditImage => Some(TransformPair::OpenAiEditImageToGemini),
+            _ => None,
+        };
     }
+
+    // Gemini generate-content -> OpenAI create/edit image.
+    if let (OK::ContentGeneration(Kind::GeminiGenerateContent), OK::Provider(Provider::OpenAi)) =
+        (source.kind, target.kind)
+        && source.operation.is_content_generation()
+    {
+        return match target.operation {
+            Operation::CreateImage => Some(TransformPair::GeminiToOpenAiCreateImage),
+            Operation::EditImage => Some(TransformPair::GeminiToOpenAiEditImage),
+            _ => None,
+        };
+    }
+
+    None
 }
 
 /// Resolve cross-operation compaction routes. Compaction is the only sanctioned
