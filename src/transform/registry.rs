@@ -35,6 +35,11 @@ pub enum TransformPair {
     GeminiToOpenAiImages,
     OpenAiToClaudeCompact,
     ClaudeToOpenAiCompact,
+    OpenAiResponsesToOpenAiCompact,
+    OpenAiCompactToGemini,
+    GeminiToOpenAiCompact,
+    OpenAiCompactToOpenAiChat,
+    OpenAiChatToOpenAiCompact,
 }
 
 /// Resolve operation keys to a concrete pair module.
@@ -58,6 +63,11 @@ pub fn resolve(
     if source == target {
         return Err(TransformError::unsupported_pair(source, target));
     }
+    // Compaction is the only sanctioned cross-operation route (compact <-> a
+    // generate-content payload); Claude/Gemini/Chat have no compact endpoint.
+    if let Some(pair) = resolve_compaction(source, target) {
+        return Ok(pair);
+    }
     if source.operation != target.operation {
         return Err(TransformError::unsupported_pair(source, target));
     }
@@ -74,8 +84,12 @@ pub fn resolve(
         Operation::CreateImage | Operation::EditImage => {
             resolve_provider_pair(source, target, images_pair)
         }
-        Operation::CompactContent => resolve_provider_pair(source, target, compact_pair),
-        Operation::CreateConversation => Err(TransformError::unsupported_pair(source, target)),
+        // Compaction is never a same-operation route: OpenAI is the only provider
+        // with a dedicated compact endpoint, and every compact <-> provider
+        // conversion is handled cross-operation by `resolve_compaction`.
+        Operation::CompactContent | Operation::CreateConversation => {
+            Err(TransformError::unsupported_pair(source, target))
+        }
     }
 }
 
@@ -188,12 +202,42 @@ fn images_pair(source: Provider, target: Provider) -> Option<TransformPair> {
     }
 }
 
-fn compact_pair(source: Provider, target: Provider) -> Option<TransformPair> {
-    match (source, target) {
-        (Provider::OpenAi, Provider::Claude) => Some(TransformPair::OpenAiToClaudeCompact),
-        (Provider::Claude, Provider::OpenAi) => Some(TransformPair::ClaudeToOpenAiCompact),
-        _ => None,
+/// Resolve cross-operation compaction routes. Compaction is the only sanctioned
+/// cross-operation conversion: a generate-content payload folded into an OpenAI
+/// compact payload, or an OpenAI compact payload serviced by a generate-content
+/// upstream.
+fn resolve_compaction(source: OperationKey, target: OperationKey) -> Option<TransformPair> {
+    use ContentGenerationKind as Kind;
+    use OperationKind as OK;
+
+    // content-generation -> OpenAI compact.
+    if let (OK::ContentGeneration(kind), Operation::CompactContent, OK::Provider(Provider::OpenAi)) =
+        (source.kind, target.operation, target.kind)
+        && source.operation.is_content_generation()
+    {
+        return match kind {
+            Kind::OpenAiResponses => Some(TransformPair::OpenAiResponsesToOpenAiCompact),
+            Kind::GeminiGenerateContent => Some(TransformPair::GeminiToOpenAiCompact),
+            Kind::OpenAiChatCompletions => Some(TransformPair::OpenAiChatToOpenAiCompact),
+            Kind::ClaudeMessages => Some(TransformPair::ClaudeToOpenAiCompact),
+        };
     }
+
+    // OpenAI compact -> content-generation.
+    if let (OK::Provider(Provider::OpenAi), Operation::CompactContent) =
+        (source.kind, source.operation)
+        && let OK::ContentGeneration(kind) = target.kind
+        && target.operation.is_content_generation()
+    {
+        return match kind {
+            Kind::GeminiGenerateContent => Some(TransformPair::OpenAiCompactToGemini),
+            Kind::OpenAiChatCompletions => Some(TransformPair::OpenAiCompactToOpenAiChat),
+            Kind::ClaudeMessages => Some(TransformPair::OpenAiToClaudeCompact),
+            Kind::OpenAiResponses => None,
+        };
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy)]
