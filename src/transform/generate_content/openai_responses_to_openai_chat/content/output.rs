@@ -12,6 +12,7 @@ pub(in crate::transform::generate_content::openai_responses_to_openai_chat) fn r
     let mut refusal = None;
     let mut annotations = Vec::new();
     let mut tool_calls = Vec::new();
+    let mut reasoning_parts = Vec::new();
 
     for item in items {
         match item.0 {
@@ -56,7 +57,16 @@ pub(in crate::transform::generate_content::openai_responses_to_openai_chat) fn r
             }) => {
                 tool_calls.push(custom_call_to_chat_tool_call(call_id, name, input));
             }
-            openai::ResponseItem::Typed(openai::TypedResponseItem::Reasoning { .. }) => {}
+            openai::ResponseItem::Typed(openai::TypedResponseItem::Reasoning {
+                summary,
+                content,
+                ..
+            }) => {
+                // Mirror the streaming path, which surfaces both reasoning
+                // summary and reasoning text as chat `reasoning_content`.
+                reasoning_parts.extend(summary.into_iter().map(|part| part.text));
+                reasoning_parts.extend(content.into_iter().flatten().map(|part| part.text));
+            }
             _ => {}
         }
     }
@@ -74,10 +84,19 @@ pub(in crate::transform::generate_content::openai_responses_to_openai_chat) fn r
         annotations: (!annotations.is_empty()).then_some(annotations),
         audio: None,
         function_call: None,
-        reasoning_content: None,
+        reasoning_content: non_empty_joined(reasoning_parts),
         tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
         extra: Default::default(),
     }
+}
+
+fn non_empty_joined(parts: Vec<String>) -> Option<String> {
+    let joined = parts
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!joined.is_empty()).then_some(joined)
 }
 
 fn response_annotation_to_chat_annotation(
