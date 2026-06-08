@@ -1,0 +1,173 @@
+//! Usage / logs records (§8-D): per-request usage, rollups, and raw
+//! downstream/upstream request logs. All tables are append/accumulate only;
+//! retention is deferred.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// A per-request usage row (one logical proxied request, §8-D).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    pub id: i64,
+    pub request_id: String,
+    /// Unix seconds.
+    pub at: i64,
+    pub route_name: Option<String>,
+    pub provider_id: Option<i64>,
+    pub credential_id: Option<i64>,
+    pub org_id: Option<i64>,
+    pub team_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub user_key_id: Option<i64>,
+    pub operation: String,
+    pub kind: String,
+    pub model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_5m_tokens: i64,
+    pub cache_creation_1h_tokens: i64,
+    pub cost: f64,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds.
+    pub updated_at: i64,
+}
+
+/// Append input for a usage row (append-only; no id).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageInput {
+    pub request_id: String,
+    pub at: i64,
+    pub route_name: Option<String>,
+    pub provider_id: Option<i64>,
+    pub credential_id: Option<i64>,
+    pub org_id: Option<i64>,
+    pub team_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub user_key_id: Option<i64>,
+    pub operation: String,
+    pub kind: String,
+    pub model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_5m_tokens: i64,
+    pub cache_creation_1h_tokens: i64,
+    pub cost: f64,
+}
+
+/// An aggregated usage bucket for one `(granularity, bucket_start, dimensions)`
+/// tuple (§8-D). Metrics are accumulated across requests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageRollup {
+    pub id: i64,
+    /// `hour` | `day` | ... (free-form granularity label).
+    pub granularity: String,
+    /// Unix seconds at the start of the bucket.
+    pub bucket_start: i64,
+    pub provider_id: Option<i64>,
+    pub org_id: Option<i64>,
+    pub team_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub route_name: Option<String>,
+    pub model: Option<String>,
+    pub requests: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost: f64,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds.
+    pub updated_at: i64,
+}
+
+/// Accumulate input for a rollup bucket: dimension fields locate (or create)
+/// the bucket; the metric fields are added as deltas. No id (accumulate-only).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageRollupInput {
+    pub granularity: String,
+    pub bucket_start: i64,
+    pub provider_id: Option<i64>,
+    pub org_id: Option<i64>,
+    pub team_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub route_name: Option<String>,
+    pub model: Option<String>,
+    pub requests: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost: f64,
+}
+
+/// A raw downstream (client → proxy) request log entry (§8-D).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownstreamRequest {
+    pub id: i64,
+    pub request_id: String,
+    /// Unix seconds.
+    pub at: i64,
+    pub method: String,
+    pub path: String,
+    pub query: Option<String>,
+    pub status: i64,
+    #[serde(default)]
+    pub headers_json: Option<Value>,
+    pub body: Option<String>,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds.
+    pub updated_at: i64,
+}
+
+/// Append input for a downstream request log entry (append-only; no id).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownstreamRequestInput {
+    pub request_id: String,
+    pub at: i64,
+    pub method: String,
+    pub path: String,
+    pub query: Option<String>,
+    pub status: i64,
+    #[serde(default)]
+    pub headers_json: Option<Value>,
+    pub body: Option<String>,
+}
+
+/// A raw upstream (proxy → provider) request log entry (§8-D).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpstreamRequest {
+    pub id: i64,
+    pub request_id: String,
+    /// Unix seconds.
+    pub at: i64,
+    pub provider_id: Option<i64>,
+    pub credential_id: Option<i64>,
+    pub url: String,
+    pub method: String,
+    pub status: i64,
+    pub latency_ms: i64,
+    #[serde(default)]
+    pub headers_json: Option<Value>,
+    pub body: Option<String>,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds.
+    pub updated_at: i64,
+}
+
+/// Append input for an upstream request log entry (append-only; no id).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpstreamRequestInput {
+    pub request_id: String,
+    pub at: i64,
+    pub provider_id: Option<i64>,
+    pub credential_id: Option<i64>,
+    pub url: String,
+    pub method: String,
+    pub status: i64,
+    pub latency_ms: i64,
+    #[serde(default)]
+    pub headers_json: Option<Value>,
+    pub body: Option<String>,
+}
