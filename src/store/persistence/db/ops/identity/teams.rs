@@ -1,0 +1,110 @@
+//! Team ops for the `db` backend. Unique per `(org_id, name)`.
+
+use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+
+use crate::store::persistence::records::{Team, TeamInput};
+
+use crate::store::persistence::db::entities::identity::team;
+
+fn to_record(m: team::Model) -> Team {
+    Team {
+        id: m.id,
+        org_id: m.org_id,
+        name: m.name,
+        enabled: m.enabled,
+        created_at: m.created_at,
+        updated_at: m.updated_at,
+    }
+}
+
+pub async fn list(conn: &DatabaseConnection, org_id: i64) -> anyhow::Result<Vec<Team>> {
+    Ok(team::Entity::find()
+        .filter(team::Column::OrgId.eq(org_id))
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(to_record)
+        .collect())
+}
+
+pub async fn get(conn: &DatabaseConnection, id: i64) -> anyhow::Result<Option<Team>> {
+    Ok(team::Entity::find_by_id(id).one(conn).await?.map(to_record))
+}
+
+pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Result<Team> {
+    let now = crate::store::persistence::db::ops::now_secs();
+
+    // Enforce uniqueness on (org_id, name).
+    if let Some(existing) = team::Entity::find()
+        .filter(team::Column::OrgId.eq(input.org_id))
+        .filter(team::Column::Name.eq(input.name.clone()))
+        .one(conn)
+        .await?
+        && Some(existing.id) != input.id
+    {
+        anyhow::bail!(
+            "team name already exists in org {}: {}",
+            input.org_id,
+            input.name
+        );
+    }
+
+    let model = match input.id {
+        Some(id) => {
+            let existing = team::Entity::find_by_id(id)
+                .one(conn)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("team not found: {id}"))?;
+            let mut am: team::ActiveModel = existing.into();
+            am.org_id = Set(input.org_id);
+            am.name = Set(input.name);
+            am.enabled = Set(input.enabled);
+            am.updated_at = Set(now);
+            am.update(conn).await?
+        }
+        None => {
+            team::ActiveModel {
+                id: NotSet,
+                org_id: Set(input.org_id),
+                name: Set(input.name),
+                enabled: Set(input.enabled),
+                created_at: Set(now),
+                updated_at: Set(now),
+            }
+            .insert(conn)
+            .await?
+        }
+    };
+
+    Ok(to_record(model))
+}
+
+pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
+    // cascade: detach members and drop scope-bound rows for this team.
+    super::users::clear_team(conn, id).await?;
+    super::route_permissions::delete_by_scope(conn, "team", id).await?;
+    super::rate_limits::delete_by_scope(conn, "team", id).await?;
+    super::quotas::delete_by_scope(conn, "team", id).await?;
+
+    let res = team::Entity::delete_by_id(id).exec(conn).await?;
+    Ok(res.rows_affected > 0)
+}
+
+pub async fn delete_by_org(conn: &DatabaseConnection, org_id: i64) -> anyhow::Result<()> {
+    let teams = team::Entity::find()
+        .filter(team::Column::OrgId.eq(org_id))
+        .all(conn)
+        .await?;
+    for t in teams {
+        super::users::clear_team(conn, t.id).await?;
+        super::route_permissions::delete_by_scope(conn, "team", t.id).await?;
+        super::rate_limits::delete_by_scope(conn, "team", t.id).await?;
+        super::quotas::delete_by_scope(conn, "team", t.id).await?;
+    }
+    team::Entity::delete_many()
+        .filter(team::Column::OrgId.eq(org_id))
+        .exec(conn)
+        .await?;
+    Ok(())
+}
