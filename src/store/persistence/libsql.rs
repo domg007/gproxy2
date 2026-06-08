@@ -9,6 +9,7 @@
 use crate::store::libsql::LibsqlClient;
 
 use super::PersistenceBackend;
+use super::records::{Provider, ProviderInput};
 
 /// Edge persistence backend backed by a Turso/libSQL database via Hrana HTTP.
 pub struct LibsqlPersistence {
@@ -39,6 +40,29 @@ impl PersistenceBackend for LibsqlPersistence {
             .await
             .map(|_| ())
             .map_err(|e| anyhow::anyhow!("libsql health failed: {e}"))
+    }
+
+    // TODO(edge): implement entity ops as hand-written SQLite SQL over the Hrana
+    // client. Deferred to the edge AppState/entry phase (§10.8); the trait stays
+    // coherent for the wasm build via these stubs.
+    async fn list_providers(&self) -> anyhow::Result<Vec<Provider>> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn get_provider(&self, _id: i64) -> anyhow::Result<Option<Provider>> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn get_provider_by_name(&self, _name: &str) -> anyhow::Result<Option<Provider>> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn upsert_provider(&self, _input: ProviderInput) -> anyhow::Result<Provider> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn delete_provider(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql provider ops not implemented yet")
     }
 }
 
