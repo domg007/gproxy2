@@ -23,13 +23,12 @@ pub use file::FilePersistence;
 pub use libsql::LibsqlPersistence;
 
 use records::{
-    Alias, AliasInput, BetaHeader, BetaHeaderInput, CacheBreakpoint, CacheBreakpointInput,
-    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, DownstreamRequest,
-    DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org, OrgInput, PreludeSystem,
-    PreludeSystemInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, Quota,
-    QuotaInput, RateLimit, RateLimitInput, RewriteRule, RewriteRuleInput, Route, RouteInput,
+    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
+    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
+    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
+    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, SanitizeRule, SanitizeRuleInput, Team, TeamInput, UpstreamRequest,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
     UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
     UserKey, UserKeyInput,
 };
@@ -159,84 +158,54 @@ pub trait PersistenceBackend: Send + Sync {
     /// Delete a routing rule by id.
     async fn delete_routing_rule(&self, id: i64) -> anyhow::Result<bool>;
 
-    // ── rewrite rules (§8-B) ─────────────────────────────────────────────────
+    // ── rule sets (§8-B2) ────────────────────────────────────────────────────
 
-    /// List a provider's rewrite rules.
-    async fn list_rewrite_rules(&self, provider_id: i64) -> anyhow::Result<Vec<RewriteRule>>;
+    /// List all reusable rule sets.
+    async fn list_rule_sets(&self) -> anyhow::Result<Vec<RuleSet>>;
 
-    /// Fetch a rewrite rule by id.
-    async fn get_rewrite_rule(&self, id: i64) -> anyhow::Result<Option<RewriteRule>>;
+    /// Fetch a rule set by id.
+    async fn get_rule_set(&self, id: i64) -> anyhow::Result<Option<RuleSet>>;
 
-    /// Insert or update a rewrite rule.
-    async fn upsert_rewrite_rule(&self, input: RewriteRuleInput) -> anyhow::Result<RewriteRule>;
+    /// Fetch a rule set by its unique name.
+    async fn get_rule_set_by_name(&self, name: &str) -> anyhow::Result<Option<RuleSet>>;
 
-    /// Delete a rewrite rule by id.
-    async fn delete_rewrite_rule(&self, id: i64) -> anyhow::Result<bool>;
+    /// Insert or update a rule set (unique `name`).
+    async fn upsert_rule_set(&self, input: RuleSetInput) -> anyhow::Result<RuleSet>;
 
-    // ── sanitize rules (§8-B) ────────────────────────────────────────────────
+    /// Delete a rule set by id; cascades to its rules and its provider
+    /// attachments (the shared rule set's providers are untouched).
+    async fn delete_rule_set(&self, id: i64) -> anyhow::Result<bool>;
 
-    /// List a provider's sanitize rules.
-    async fn list_sanitize_rules(&self, provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>>;
+    // ── rules (§8-B2) ────────────────────────────────────────────────────────
 
-    /// Fetch a sanitize rule by id.
-    async fn get_sanitize_rule(&self, id: i64) -> anyhow::Result<Option<SanitizeRule>>;
+    /// List a rule set's rules.
+    async fn list_rules(&self, rule_set_id: i64) -> anyhow::Result<Vec<Rule>>;
 
-    /// Insert or update a sanitize rule.
-    async fn upsert_sanitize_rule(&self, input: SanitizeRuleInput) -> anyhow::Result<SanitizeRule>;
+    /// Fetch a rule by id.
+    async fn get_rule(&self, id: i64) -> anyhow::Result<Option<Rule>>;
 
-    /// Delete a sanitize rule by id.
-    async fn delete_sanitize_rule(&self, id: i64) -> anyhow::Result<bool>;
+    /// Insert or update a rule.
+    async fn upsert_rule(&self, input: RuleInput) -> anyhow::Result<Rule>;
 
-    // ── cache breakpoints (§8-B) ─────────────────────────────────────────────
+    /// Delete a rule by id.
+    async fn delete_rule(&self, id: i64) -> anyhow::Result<bool>;
 
-    /// List a provider's cache breakpoints.
-    async fn list_cache_breakpoints(
+    // ── provider rule sets (§8-B2) ───────────────────────────────────────────
+
+    /// List a provider's rule-set attachments.
+    async fn list_provider_rule_sets(
         &self,
         provider_id: i64,
-    ) -> anyhow::Result<Vec<CacheBreakpoint>>;
+    ) -> anyhow::Result<Vec<ProviderRuleSet>>;
 
-    /// Fetch a cache breakpoint by id.
-    async fn get_cache_breakpoint(&self, id: i64) -> anyhow::Result<Option<CacheBreakpoint>>;
-
-    /// Insert or update a cache breakpoint.
-    async fn upsert_cache_breakpoint(
+    /// Insert or update a provider ↔ rule-set attachment.
+    async fn upsert_provider_rule_set(
         &self,
-        input: CacheBreakpointInput,
-    ) -> anyhow::Result<CacheBreakpoint>;
+        input: ProviderRuleSetInput,
+    ) -> anyhow::Result<ProviderRuleSet>;
 
-    /// Delete a cache breakpoint by id.
-    async fn delete_cache_breakpoint(&self, id: i64) -> anyhow::Result<bool>;
-
-    // ── beta headers (§8-B) ──────────────────────────────────────────────────
-
-    /// List a provider's beta headers.
-    async fn list_beta_headers(&self, provider_id: i64) -> anyhow::Result<Vec<BetaHeader>>;
-
-    /// Fetch a beta header by id.
-    async fn get_beta_header(&self, id: i64) -> anyhow::Result<Option<BetaHeader>>;
-
-    /// Insert or update a beta header.
-    async fn upsert_beta_header(&self, input: BetaHeaderInput) -> anyhow::Result<BetaHeader>;
-
-    /// Delete a beta header by id.
-    async fn delete_beta_header(&self, id: i64) -> anyhow::Result<bool>;
-
-    // ── system preludes (§8-B) ───────────────────────────────────────────────
-
-    /// List a provider's system preludes.
-    async fn list_preludes_system(&self, provider_id: i64) -> anyhow::Result<Vec<PreludeSystem>>;
-
-    /// Fetch a system prelude by id.
-    async fn get_prelude_system(&self, id: i64) -> anyhow::Result<Option<PreludeSystem>>;
-
-    /// Insert or update a system prelude.
-    async fn upsert_prelude_system(
-        &self,
-        input: PreludeSystemInput,
-    ) -> anyhow::Result<PreludeSystem>;
-
-    /// Delete a system prelude by id.
-    async fn delete_prelude_system(&self, id: i64) -> anyhow::Result<bool>;
+    /// Delete a provider rule-set attachment by id.
+    async fn delete_provider_rule_set(&self, id: i64) -> anyhow::Result<bool>;
 
     // ── orgs (§8-C) ─────────────────────────────────────────────────────────
 

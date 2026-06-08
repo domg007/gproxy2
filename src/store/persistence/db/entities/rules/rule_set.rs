@@ -1,16 +1,16 @@
-//! `beta_headers` table SeaORM entity.
+//! `rule_sets` table SeaORM entity. A reusable, named set of mutation rules.
 
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "beta_headers")]
+#[sea_orm(table_name = "rule_sets")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub provider_id: i64,
-    pub token: String,
-    pub sort_order: i64,
+    #[sea_orm(unique)]
+    pub name: String,
     pub enabled: bool,
+    pub description: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

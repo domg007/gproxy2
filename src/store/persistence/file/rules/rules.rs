@@ -1,35 +1,35 @@
-//! File-backend sanitize-rule ops over `sanitize_rules.json`.
+//! File-backend rule ops over `rules.json`.
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{SanitizeRule, SanitizeRuleInput};
+use crate::store::persistence::records::{Rule, RuleInput};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
-    root.join("sanitize_rules.json")
+    root.join("rules.json")
 }
 
-pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>> {
-    Ok(table::load::<SanitizeRule>(&path(root))
+pub(crate) async fn list(root: &Path, rule_set_id: i64) -> anyhow::Result<Vec<Rule>> {
+    Ok(table::load::<Rule>(&path(root))
         .await?
         .rows
         .into_iter()
-        .filter(|r| r.provider_id == provider_id)
+        .filter(|r| r.rule_set_id == rule_set_id)
         .collect())
 }
 
-pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<SanitizeRule>> {
-    Ok(table::load::<SanitizeRule>(&path(root))
+pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Rule>> {
+    Ok(table::load::<Rule>(&path(root))
         .await?
         .rows
         .into_iter()
         .find(|r| r.id == id))
 }
 
-pub(crate) async fn upsert(root: &Path, input: SanitizeRuleInput) -> anyhow::Result<SanitizeRule> {
+pub(crate) async fn upsert(root: &Path, input: RuleInput) -> anyhow::Result<Rule> {
     let file = path(root);
-    let mut t = table::load::<SanitizeRule>(&file).await?;
+    let mut t = table::load::<Rule>(&file).await?;
     let now = now_secs();
 
     let stored = match input.id {
@@ -38,10 +38,12 @@ pub(crate) async fn upsert(root: &Path, input: SanitizeRuleInput) -> anyhow::Res
                 .rows
                 .iter_mut()
                 .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("sanitize rule not found: {id}"))?;
-            row.provider_id = input.provider_id;
-            row.pattern = input.pattern;
-            row.replacement = input.replacement;
+                .ok_or_else(|| anyhow::anyhow!("rule not found: {id}"))?;
+            row.rule_set_id = input.rule_set_id;
+            row.kind = input.kind;
+            row.config_json = input.config_json;
+            row.filter_model_pattern = input.filter_model_pattern;
+            row.filter_operation_keys = input.filter_operation_keys;
             row.sort_order = input.sort_order;
             row.enabled = input.enabled;
             row.updated_at = now;
@@ -50,11 +52,13 @@ pub(crate) async fn upsert(root: &Path, input: SanitizeRuleInput) -> anyhow::Res
         None => {
             let id = t.next_id;
             t.next_id += 1;
-            let rule = SanitizeRule {
+            let rule = Rule {
                 id,
-                provider_id: input.provider_id,
-                pattern: input.pattern,
-                replacement: input.replacement,
+                rule_set_id: input.rule_set_id,
+                kind: input.kind,
+                config_json: input.config_json,
+                filter_model_pattern: input.filter_model_pattern,
+                filter_operation_keys: input.filter_operation_keys,
                 sort_order: input.sort_order,
                 enabled: input.enabled,
                 created_at: now,
@@ -71,7 +75,7 @@ pub(crate) async fn upsert(root: &Path, input: SanitizeRuleInput) -> anyhow::Res
 
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
-    let mut t = table::load::<SanitizeRule>(&file).await?;
+    let mut t = table::load::<Rule>(&file).await?;
     let before = t.rows.len();
     t.rows.retain(|r| r.id != id);
     let removed = t.rows.len() != before;
@@ -81,11 +85,11 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(crate) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_rule_set(root: &Path, rule_set_id: i64) -> anyhow::Result<()> {
     let file = path(root);
-    let mut t = table::load::<SanitizeRule>(&file).await?;
+    let mut t = table::load::<Rule>(&file).await?;
     let before = t.rows.len();
-    t.rows.retain(|r| r.provider_id != provider_id);
+    t.rows.retain(|r| r.rule_set_id != rule_set_id);
     if t.rows.len() != before {
         table::store(&file, &t).await?;
     }

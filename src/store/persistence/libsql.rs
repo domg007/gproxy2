@@ -10,13 +10,12 @@ use crate::store::libsql::LibsqlClient;
 
 use super::PersistenceBackend;
 use super::records::{
-    Alias, AliasInput, BetaHeader, BetaHeaderInput, CacheBreakpoint, CacheBreakpointInput,
-    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, DownstreamRequest,
-    DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org, OrgInput, PreludeSystem,
-    PreludeSystemInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, Quota,
-    QuotaInput, RateLimit, RateLimitInput, RewriteRule, RewriteRuleInput, Route, RouteInput,
+    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
+    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
+    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
+    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, SanitizeRule, SanitizeRuleInput, Team, TeamInput, UpstreamRequest,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
     UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
     UserKey, UserKeyInput,
 };
@@ -188,95 +187,57 @@ impl PersistenceBackend for LibsqlPersistence {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn list_rewrite_rules(&self, _provider_id: i64) -> anyhow::Result<Vec<RewriteRule>> {
+    async fn list_rule_sets(&self) -> anyhow::Result<Vec<RuleSet>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn get_rewrite_rule(&self, _id: i64) -> anyhow::Result<Option<RewriteRule>> {
+    async fn get_rule_set(&self, _id: i64) -> anyhow::Result<Option<RuleSet>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn upsert_rewrite_rule(&self, _input: RewriteRuleInput) -> anyhow::Result<RewriteRule> {
+    async fn get_rule_set_by_name(&self, _name: &str) -> anyhow::Result<Option<RuleSet>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn delete_rewrite_rule(&self, _id: i64) -> anyhow::Result<bool> {
+    async fn upsert_rule_set(&self, _input: RuleSetInput) -> anyhow::Result<RuleSet> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn list_sanitize_rules(&self, _provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>> {
+    async fn delete_rule_set(&self, _id: i64) -> anyhow::Result<bool> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn get_sanitize_rule(&self, _id: i64) -> anyhow::Result<Option<SanitizeRule>> {
+    async fn list_rules(&self, _rule_set_id: i64) -> anyhow::Result<Vec<Rule>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn upsert_sanitize_rule(
-        &self,
-        _input: SanitizeRuleInput,
-    ) -> anyhow::Result<SanitizeRule> {
+    async fn get_rule(&self, _id: i64) -> anyhow::Result<Option<Rule>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn delete_sanitize_rule(&self, _id: i64) -> anyhow::Result<bool> {
+    async fn upsert_rule(&self, _input: RuleInput) -> anyhow::Result<Rule> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn list_cache_breakpoints(
+    async fn delete_rule(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_provider_rule_sets(
         &self,
         _provider_id: i64,
-    ) -> anyhow::Result<Vec<CacheBreakpoint>> {
+    ) -> anyhow::Result<Vec<ProviderRuleSet>> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn get_cache_breakpoint(&self, _id: i64) -> anyhow::Result<Option<CacheBreakpoint>> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn upsert_cache_breakpoint(
+    async fn upsert_provider_rule_set(
         &self,
-        _input: CacheBreakpointInput,
-    ) -> anyhow::Result<CacheBreakpoint> {
+        _input: ProviderRuleSetInput,
+    ) -> anyhow::Result<ProviderRuleSet> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 
-    async fn delete_cache_breakpoint(&self, _id: i64) -> anyhow::Result<bool> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn list_beta_headers(&self, _provider_id: i64) -> anyhow::Result<Vec<BetaHeader>> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn get_beta_header(&self, _id: i64) -> anyhow::Result<Option<BetaHeader>> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn upsert_beta_header(&self, _input: BetaHeaderInput) -> anyhow::Result<BetaHeader> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn delete_beta_header(&self, _id: i64) -> anyhow::Result<bool> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn list_preludes_system(&self, _provider_id: i64) -> anyhow::Result<Vec<PreludeSystem>> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn get_prelude_system(&self, _id: i64) -> anyhow::Result<Option<PreludeSystem>> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn upsert_prelude_system(
-        &self,
-        _input: PreludeSystemInput,
-    ) -> anyhow::Result<PreludeSystem> {
-        anyhow::bail!("libsql rules ops not implemented yet")
-    }
-
-    async fn delete_prelude_system(&self, _id: i64) -> anyhow::Result<bool> {
+    async fn delete_provider_rule_set(&self, _id: i64) -> anyhow::Result<bool> {
         anyhow::bail!("libsql rules ops not implemented yet")
     }
 

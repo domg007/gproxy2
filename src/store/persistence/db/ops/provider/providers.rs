@@ -110,12 +110,7 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
 
     // §8-B2 rules cascade.
     crate::store::persistence::db::ops::rules::routing_rules::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::rules::rewrite_rules::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::rules::sanitize_rules::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::rules::cache_breakpoints::delete_by_provider(conn, id)
-        .await?;
-    crate::store::persistence::db::ops::rules::beta_headers::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::rules::preludes_system::delete_by_provider(conn, id)
+    crate::store::persistence::db::ops::rules::provider_rule_sets::delete_by_provider(conn, id)
         .await?;
 
     let res = provider::Entity::delete_by_id(id).exec(conn).await?;

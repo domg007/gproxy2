@@ -1,18 +1,17 @@
-//! `rewrite_rules` table SeaORM entity. `value_json` / `filter_operation_keys`
-//! stored as text.
+//! `rules` table SeaORM entity. One mutation rule within a [`super::rule_set`].
+//! `config_json` / `filter_operation_keys` stored as text.
 
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "rewrite_rules")]
+#[sea_orm(table_name = "rules")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub provider_id: i64,
-    pub path: String,
-    pub action: String,
-    #[sea_orm(column_type = "Text", nullable)]
-    pub value_json: Option<String>,
+    pub rule_set_id: i64,
+    pub kind: String,
+    #[sea_orm(column_type = "Text")]
+    pub config_json: String,
     pub filter_model_pattern: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub filter_operation_keys: Option<String>,

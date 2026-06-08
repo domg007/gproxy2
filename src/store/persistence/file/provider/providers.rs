@@ -93,11 +93,8 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
 
     // §8-B2 rules cascade.
     crate::store::persistence::file::rules::routing_rules::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::rewrite_rules::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::sanitize_rules::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::cache_breakpoints::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::beta_headers::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::preludes_system::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::provider_rule_sets::delete_by_provider(root, id)
+        .await?;
 
     let file = path(root);
     let mut t = table::load::<Provider>(&file).await?;

@@ -7,9 +7,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema};
 use super::entities::identity::{org, quota, rate_limit, route_permission, team, user, user_key};
 use super::entities::provider::{credential, credential_status, provider};
 use super::entities::routing::{alias, provider_model, route, route_member};
-use super::entities::rules::{
-    beta_header, cache_breakpoint, prelude_system, rewrite_rule, routing_rule, sanitize_rule,
-};
+use super::entities::rules::{provider_rule_set, routing_rule, rule, rule_set};
 use super::entities::settings::instance_setting;
 use super::entities::usage::{downstream_request, upstream_request, usage, usage_rollup};
 
@@ -27,11 +25,9 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
 
     // §8-B2 rules
     create_table(conn, &schema, routing_rule::Entity).await?;
-    create_table(conn, &schema, rewrite_rule::Entity).await?;
-    create_table(conn, &schema, sanitize_rule::Entity).await?;
-    create_table(conn, &schema, cache_breakpoint::Entity).await?;
-    create_table(conn, &schema, beta_header::Entity).await?;
-    create_table(conn, &schema, prelude_system::Entity).await?;
+    create_table(conn, &schema, rule_set::Entity).await?;
+    create_table(conn, &schema, rule::Entity).await?;
+    create_table(conn, &schema, provider_rule_set::Entity).await?;
 
     // §8-C identity
     create_table(conn, &schema, org::Entity).await?;

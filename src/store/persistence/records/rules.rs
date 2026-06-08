@@ -1,6 +1,6 @@
-//! Provider-scoped rule records (§8-B): routing, rewrite, sanitize, cache
-//! breakpoints, beta headers, and system preludes. All are scoped to one
-//! provider and carry `sort_order` + `enabled`.
+//! Rule records (§8-B2): the keep-as-is `routing_rules` transform-dispatch
+//! decision, plus the reusable rule-set model (`rule_sets` → `rules`) attached
+//! to providers via `provider_rule_sets`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,15 +38,38 @@ pub struct RoutingRuleInput {
     pub enabled: bool,
 }
 
-/// A per-provider request/response rewrite rule applied at a JSON path.
+/// A reusable, named set of mutation rules, attachable to many providers via
+/// `provider_rule_sets`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RewriteRule {
+pub struct RuleSet {
     pub id: i64,
-    pub provider_id: i64,
-    pub path: String,
-    pub action: String,
-    #[serde(default)]
-    pub value_json: Option<Value>,
+    pub name: String,
+    pub enabled: bool,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Upsert input for a rule set (unique `name`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuleSetInput {
+    pub id: Option<i64>,
+    pub name: String,
+    pub enabled: bool,
+    pub description: Option<String>,
+}
+
+/// One mutation rule within a [`RuleSet`]. `config_json` carries the
+/// kind-specific fields (validated at the process layer, not here):
+/// `rewrite`={path,action,value_json?}, `sanitize`={pattern,replacement},
+/// `cache_breakpoint`={target,position,index,ttl}, `beta_header`={token},
+/// `prelude_system`={text}.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Rule {
+    pub id: i64,
+    pub rule_set_id: i64,
+    pub kind: String,
+    pub config_json: Value,
     pub filter_model_pattern: Option<String>,
     #[serde(default)]
     pub filter_operation_keys: Option<Value>,
@@ -56,15 +79,13 @@ pub struct RewriteRule {
     pub updated_at: i64,
 }
 
-/// Upsert input for a rewrite rule.
+/// Upsert input for a rule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RewriteRuleInput {
+pub struct RuleInput {
     pub id: Option<i64>,
-    pub provider_id: i64,
-    pub path: String,
-    pub action: String,
-    #[serde(default)]
-    pub value_json: Option<Value>,
+    pub rule_set_id: i64,
+    pub kind: String,
+    pub config_json: Value,
     pub filter_model_pattern: Option<String>,
     #[serde(default)]
     pub filter_operation_keys: Option<Value>,
@@ -72,98 +93,24 @@ pub struct RewriteRuleInput {
     pub enabled: bool,
 }
 
-/// A per-provider sanitize rule (regex `pattern` → `replacement`).
+/// An M:N attachment of a [`RuleSet`] to a provider, applied in `sort_order`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SanitizeRule {
+pub struct ProviderRuleSet {
     pub id: i64,
     pub provider_id: i64,
-    pub pattern: String,
-    pub replacement: String,
+    pub rule_set_id: i64,
     pub sort_order: i64,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-/// Upsert input for a sanitize rule.
+/// Upsert input for a provider ↔ rule-set attachment.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SanitizeRuleInput {
+pub struct ProviderRuleSetInput {
     pub id: Option<i64>,
     pub provider_id: i64,
-    pub pattern: String,
-    pub replacement: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-}
-
-/// A per-provider prompt-cache breakpoint marker.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheBreakpoint {
-    pub id: i64,
-    pub provider_id: i64,
-    pub target: String,
-    pub position: String,
-    pub index: i64,
-    pub ttl: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-/// Upsert input for a cache breakpoint.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheBreakpointInput {
-    pub id: Option<i64>,
-    pub provider_id: i64,
-    pub target: String,
-    pub position: String,
-    pub index: i64,
-    pub ttl: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-}
-
-/// A per-provider beta header token to inject.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BetaHeader {
-    pub id: i64,
-    pub provider_id: i64,
-    pub token: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-/// Upsert input for a beta header.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BetaHeaderInput {
-    pub id: Option<i64>,
-    pub provider_id: i64,
-    pub token: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-}
-
-/// A per-provider system prelude snippet prepended to the system prompt.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PreludeSystem {
-    pub id: i64,
-    pub provider_id: i64,
-    pub text: String,
-    pub sort_order: i64,
-    pub enabled: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-/// Upsert input for a system prelude.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PreludeSystemInput {
-    pub id: Option<i64>,
-    pub provider_id: i64,
-    pub text: String,
+    pub rule_set_id: i64,
     pub sort_order: i64,
     pub enabled: bool,
 }

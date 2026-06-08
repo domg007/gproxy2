@@ -1,17 +1,18 @@
-//! File-backend rewrite-rule ops over `rewrite_rules.json`.
+//! File-backend provider ↔ rule-set attachment ops over
+//! `provider_rule_sets.json`.
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{RewriteRule, RewriteRuleInput};
+use crate::store::persistence::records::{ProviderRuleSet, ProviderRuleSetInput};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
-    root.join("rewrite_rules.json")
+    root.join("provider_rule_sets.json")
 }
 
-pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<RewriteRule>> {
-    Ok(table::load::<RewriteRule>(&path(root))
+pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<ProviderRuleSet>> {
+    Ok(table::load::<ProviderRuleSet>(&path(root))
         .await?
         .rows
         .into_iter()
@@ -19,17 +20,12 @@ pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<Re
         .collect())
 }
 
-pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<RewriteRule>> {
-    Ok(table::load::<RewriteRule>(&path(root))
-        .await?
-        .rows
-        .into_iter()
-        .find(|r| r.id == id))
-}
-
-pub(crate) async fn upsert(root: &Path, input: RewriteRuleInput) -> anyhow::Result<RewriteRule> {
+pub(crate) async fn upsert(
+    root: &Path,
+    input: ProviderRuleSetInput,
+) -> anyhow::Result<ProviderRuleSet> {
     let file = path(root);
-    let mut t = table::load::<RewriteRule>(&file).await?;
+    let mut t = table::load::<ProviderRuleSet>(&file).await?;
     let now = now_secs();
 
     let stored = match input.id {
@@ -38,13 +34,9 @@ pub(crate) async fn upsert(root: &Path, input: RewriteRuleInput) -> anyhow::Resu
                 .rows
                 .iter_mut()
                 .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("rewrite rule not found: {id}"))?;
+                .ok_or_else(|| anyhow::anyhow!("provider rule set not found: {id}"))?;
             row.provider_id = input.provider_id;
-            row.path = input.path;
-            row.action = input.action;
-            row.value_json = input.value_json;
-            row.filter_model_pattern = input.filter_model_pattern;
-            row.filter_operation_keys = input.filter_operation_keys;
+            row.rule_set_id = input.rule_set_id;
             row.sort_order = input.sort_order;
             row.enabled = input.enabled;
             row.updated_at = now;
@@ -53,21 +45,17 @@ pub(crate) async fn upsert(root: &Path, input: RewriteRuleInput) -> anyhow::Resu
         None => {
             let id = t.next_id;
             t.next_id += 1;
-            let rule = RewriteRule {
+            let attach = ProviderRuleSet {
                 id,
                 provider_id: input.provider_id,
-                path: input.path,
-                action: input.action,
-                value_json: input.value_json,
-                filter_model_pattern: input.filter_model_pattern,
-                filter_operation_keys: input.filter_operation_keys,
+                rule_set_id: input.rule_set_id,
                 sort_order: input.sort_order,
                 enabled: input.enabled,
                 created_at: now,
                 updated_at: now,
             };
-            t.rows.push(rule.clone());
-            rule
+            t.rows.push(attach.clone());
+            attach
         }
     };
 
@@ -77,7 +65,7 @@ pub(crate) async fn upsert(root: &Path, input: RewriteRuleInput) -> anyhow::Resu
 
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
-    let mut t = table::load::<RewriteRule>(&file).await?;
+    let mut t = table::load::<ProviderRuleSet>(&file).await?;
     let before = t.rows.len();
     t.rows.retain(|r| r.id != id);
     let removed = t.rows.len() != before;
@@ -89,9 +77,20 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
 
 pub(crate) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
     let file = path(root);
-    let mut t = table::load::<RewriteRule>(&file).await?;
+    let mut t = table::load::<ProviderRuleSet>(&file).await?;
     let before = t.rows.len();
     t.rows.retain(|r| r.provider_id != provider_id);
+    if t.rows.len() != before {
+        table::store(&file, &t).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn delete_by_rule_set(root: &Path, rule_set_id: i64) -> anyhow::Result<()> {
+    let file = path(root);
+    let mut t = table::load::<ProviderRuleSet>(&file).await?;
+    let before = t.rows.len();
+    t.rows.retain(|r| r.rule_set_id != rule_set_id);
     if t.rows.len() != before {
         table::store(&file, &t).await?;
     }

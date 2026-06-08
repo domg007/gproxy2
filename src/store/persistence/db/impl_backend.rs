@@ -6,13 +6,12 @@ use super::DbPersistence;
 use super::ops;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
-    Alias, AliasInput, BetaHeader, BetaHeaderInput, CacheBreakpoint, CacheBreakpointInput,
-    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, DownstreamRequest,
-    DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org, OrgInput, PreludeSystem,
-    PreludeSystemInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, Quota,
-    QuotaInput, RateLimit, RateLimitInput, RewriteRule, RewriteRuleInput, Route, RouteInput,
+    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
+    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
+    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
+    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, SanitizeRule, SanitizeRuleInput, Team, TeamInput, UpstreamRequest,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
     UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
     UserKey, UserKeyInput,
 };
@@ -163,93 +162,58 @@ impl PersistenceBackend for DbPersistence {
         ops::rules::routing_rules::delete(&self.conn, id).await
     }
 
-    async fn list_rewrite_rules(&self, provider_id: i64) -> anyhow::Result<Vec<RewriteRule>> {
-        ops::rules::rewrite_rules::list(&self.conn, provider_id).await
+    async fn list_rule_sets(&self) -> anyhow::Result<Vec<RuleSet>> {
+        ops::rules::rule_sets::list(&self.conn).await
     }
 
-    async fn get_rewrite_rule(&self, id: i64) -> anyhow::Result<Option<RewriteRule>> {
-        ops::rules::rewrite_rules::get(&self.conn, id).await
+    async fn get_rule_set(&self, id: i64) -> anyhow::Result<Option<RuleSet>> {
+        ops::rules::rule_sets::get(&self.conn, id).await
     }
 
-    async fn upsert_rewrite_rule(&self, input: RewriteRuleInput) -> anyhow::Result<RewriteRule> {
-        ops::rules::rewrite_rules::upsert(&self.conn, input).await
+    async fn get_rule_set_by_name(&self, name: &str) -> anyhow::Result<Option<RuleSet>> {
+        ops::rules::rule_sets::get_by_name(&self.conn, name).await
     }
 
-    async fn delete_rewrite_rule(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::rewrite_rules::delete(&self.conn, id).await
+    async fn upsert_rule_set(&self, input: RuleSetInput) -> anyhow::Result<RuleSet> {
+        ops::rules::rule_sets::upsert(&self.conn, input).await
     }
 
-    async fn list_sanitize_rules(&self, provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>> {
-        ops::rules::sanitize_rules::list(&self.conn, provider_id).await
+    async fn delete_rule_set(&self, id: i64) -> anyhow::Result<bool> {
+        ops::rules::rule_sets::delete(&self.conn, id).await
     }
 
-    async fn get_sanitize_rule(&self, id: i64) -> anyhow::Result<Option<SanitizeRule>> {
-        ops::rules::sanitize_rules::get(&self.conn, id).await
+    async fn list_rules(&self, rule_set_id: i64) -> anyhow::Result<Vec<Rule>> {
+        ops::rules::rules::list(&self.conn, rule_set_id).await
     }
 
-    async fn upsert_sanitize_rule(&self, input: SanitizeRuleInput) -> anyhow::Result<SanitizeRule> {
-        ops::rules::sanitize_rules::upsert(&self.conn, input).await
+    async fn get_rule(&self, id: i64) -> anyhow::Result<Option<Rule>> {
+        ops::rules::rules::get(&self.conn, id).await
     }
 
-    async fn delete_sanitize_rule(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::sanitize_rules::delete(&self.conn, id).await
+    async fn upsert_rule(&self, input: RuleInput) -> anyhow::Result<Rule> {
+        ops::rules::rules::upsert(&self.conn, input).await
     }
 
-    async fn list_cache_breakpoints(
+    async fn delete_rule(&self, id: i64) -> anyhow::Result<bool> {
+        ops::rules::rules::delete(&self.conn, id).await
+    }
+
+    async fn list_provider_rule_sets(
         &self,
         provider_id: i64,
-    ) -> anyhow::Result<Vec<CacheBreakpoint>> {
-        ops::rules::cache_breakpoints::list(&self.conn, provider_id).await
+    ) -> anyhow::Result<Vec<ProviderRuleSet>> {
+        ops::rules::provider_rule_sets::list(&self.conn, provider_id).await
     }
 
-    async fn get_cache_breakpoint(&self, id: i64) -> anyhow::Result<Option<CacheBreakpoint>> {
-        ops::rules::cache_breakpoints::get(&self.conn, id).await
-    }
-
-    async fn upsert_cache_breakpoint(
+    async fn upsert_provider_rule_set(
         &self,
-        input: CacheBreakpointInput,
-    ) -> anyhow::Result<CacheBreakpoint> {
-        ops::rules::cache_breakpoints::upsert(&self.conn, input).await
+        input: ProviderRuleSetInput,
+    ) -> anyhow::Result<ProviderRuleSet> {
+        ops::rules::provider_rule_sets::upsert(&self.conn, input).await
     }
 
-    async fn delete_cache_breakpoint(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::cache_breakpoints::delete(&self.conn, id).await
-    }
-
-    async fn list_beta_headers(&self, provider_id: i64) -> anyhow::Result<Vec<BetaHeader>> {
-        ops::rules::beta_headers::list(&self.conn, provider_id).await
-    }
-
-    async fn get_beta_header(&self, id: i64) -> anyhow::Result<Option<BetaHeader>> {
-        ops::rules::beta_headers::get(&self.conn, id).await
-    }
-
-    async fn upsert_beta_header(&self, input: BetaHeaderInput) -> anyhow::Result<BetaHeader> {
-        ops::rules::beta_headers::upsert(&self.conn, input).await
-    }
-
-    async fn delete_beta_header(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::beta_headers::delete(&self.conn, id).await
-    }
-
-    async fn list_preludes_system(&self, provider_id: i64) -> anyhow::Result<Vec<PreludeSystem>> {
-        ops::rules::preludes_system::list(&self.conn, provider_id).await
-    }
-
-    async fn get_prelude_system(&self, id: i64) -> anyhow::Result<Option<PreludeSystem>> {
-        ops::rules::preludes_system::get(&self.conn, id).await
-    }
-
-    async fn upsert_prelude_system(
-        &self,
-        input: PreludeSystemInput,
-    ) -> anyhow::Result<PreludeSystem> {
-        ops::rules::preludes_system::upsert(&self.conn, input).await
-    }
-
-    async fn delete_prelude_system(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::preludes_system::delete(&self.conn, id).await
+    async fn delete_provider_rule_set(&self, id: i64) -> anyhow::Result<bool> {
+        ops::rules::provider_rule_sets::delete(&self.conn, id).await
     }
 
     async fn list_orgs(&self) -> anyhow::Result<Vec<Org>> {

@@ -1,17 +1,17 @@
-//! Beta-header ops for the `db` backend.
+//! Provider ↔ rule-set attachment ops for the `db` backend.
 
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{BetaHeader, BetaHeaderInput};
+use crate::store::persistence::records::{ProviderRuleSet, ProviderRuleSetInput};
 
-use crate::store::persistence::db::entities::rules::beta_header;
+use crate::store::persistence::db::entities::rules::provider_rule_set;
 
-fn to_record(m: beta_header::Model) -> BetaHeader {
-    BetaHeader {
+fn to_record(m: provider_rule_set::Model) -> ProviderRuleSet {
+    ProviderRuleSet {
         id: m.id,
         provider_id: m.provider_id,
-        token: m.token,
+        rule_set_id: m.rule_set_id,
         sort_order: m.sort_order,
         enabled: m.enabled,
         created_at: m.created_at,
@@ -19,9 +19,12 @@ fn to_record(m: beta_header::Model) -> BetaHeader {
     }
 }
 
-pub async fn list(conn: &DatabaseConnection, provider_id: i64) -> anyhow::Result<Vec<BetaHeader>> {
-    Ok(beta_header::Entity::find()
-        .filter(beta_header::Column::ProviderId.eq(provider_id))
+pub async fn list(
+    conn: &DatabaseConnection,
+    provider_id: i64,
+) -> anyhow::Result<Vec<ProviderRuleSet>> {
+    Ok(provider_rule_set::Entity::find()
+        .filter(provider_rule_set::Column::ProviderId.eq(provider_id))
         .all(conn)
         .await?
         .into_iter()
@@ -29,38 +32,31 @@ pub async fn list(conn: &DatabaseConnection, provider_id: i64) -> anyhow::Result
         .collect())
 }
 
-pub async fn get(conn: &DatabaseConnection, id: i64) -> anyhow::Result<Option<BetaHeader>> {
-    Ok(beta_header::Entity::find_by_id(id)
-        .one(conn)
-        .await?
-        .map(to_record))
-}
-
 pub async fn upsert(
     conn: &DatabaseConnection,
-    input: BetaHeaderInput,
-) -> anyhow::Result<BetaHeader> {
+    input: ProviderRuleSetInput,
+) -> anyhow::Result<ProviderRuleSet> {
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
         Some(id) => {
-            let existing = beta_header::Entity::find_by_id(id)
+            let existing = provider_rule_set::Entity::find_by_id(id)
                 .one(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("beta header not found: {id}"))?;
-            let mut am: beta_header::ActiveModel = existing.into();
+                .ok_or_else(|| anyhow::anyhow!("provider rule set not found: {id}"))?;
+            let mut am: provider_rule_set::ActiveModel = existing.into();
             am.provider_id = Set(input.provider_id);
-            am.token = Set(input.token);
+            am.rule_set_id = Set(input.rule_set_id);
             am.sort_order = Set(input.sort_order);
             am.enabled = Set(input.enabled);
             am.updated_at = Set(now);
             am.update(conn).await?
         }
         None => {
-            beta_header::ActiveModel {
+            provider_rule_set::ActiveModel {
                 id: NotSet,
                 provider_id: Set(input.provider_id),
-                token: Set(input.token),
+                rule_set_id: Set(input.rule_set_id),
                 sort_order: Set(input.sort_order),
                 enabled: Set(input.enabled),
                 created_at: Set(now),
@@ -75,13 +71,23 @@ pub async fn upsert(
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
-    let res = beta_header::Entity::delete_by_id(id).exec(conn).await?;
+    let res = provider_rule_set::Entity::delete_by_id(id)
+        .exec(conn)
+        .await?;
     Ok(res.rows_affected > 0)
 }
 
 pub async fn delete_by_provider(conn: &DatabaseConnection, provider_id: i64) -> anyhow::Result<()> {
-    beta_header::Entity::delete_many()
-        .filter(beta_header::Column::ProviderId.eq(provider_id))
+    provider_rule_set::Entity::delete_many()
+        .filter(provider_rule_set::Column::ProviderId.eq(provider_id))
+        .exec(conn)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_by_rule_set(conn: &DatabaseConnection, rule_set_id: i64) -> anyhow::Result<()> {
+    provider_rule_set::Entity::delete_many()
+        .filter(provider_rule_set::Column::RuleSetId.eq(rule_set_id))
         .exec(conn)
         .await?;
     Ok(())
