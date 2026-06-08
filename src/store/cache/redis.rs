@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use redis::AsyncCommands;
 
-use super::CacheBackend;
+use super::{CacheBackend, InvalidationHandler};
 
 /// Redis-backed cache. Requires a running Redis server.
 ///
@@ -115,6 +115,11 @@ impl CacheBackend for RedisCache {
                 0
             })
     }
+
+    // TODO(multi-instance): real Redis PUBLISH / SUBSCRIBE for config invalidation.
+    async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+
+    async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
 }
 
 #[cfg(test)]

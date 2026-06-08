@@ -35,6 +35,16 @@ pub use libsql::LibsqlCache;
 #[cfg(target_arch = "wasm32")]
 pub use upstash::UpstashCache;
 
+/// Handler invoked for each message received on a subscribed channel.
+///
+/// Boxed to keep [`CacheBackend`] object-safe. `Send + Sync` on native; unbounded
+/// on wasm (single-threaded edge runtimes).
+#[cfg(not(target_arch = "wasm32"))]
+pub type InvalidationHandler = Box<dyn Fn(Vec<u8>) + Send + Sync>;
+/// Handler invoked for each message received on a subscribed channel.
+#[cfg(target_arch = "wasm32")]
+pub type InvalidationHandler = Box<dyn Fn(Vec<u8>)>;
+
 /// A pluggable cache backend.
 ///
 /// Native impls: [`MemoryCache`] (in-process) and [`RedisCache`] (Redis-backed).
@@ -63,4 +73,15 @@ pub trait CacheBackend: Send + Sync {
 
     /// Remove `key` if present.
     async fn delete(&self, key: &str);
+
+    /// Publish an invalidation `payload` to `channel` for other instances.
+    ///
+    /// Single-instance backends (memory) and edge runtimes are no-ops. Real
+    /// cross-instance pub/sub lands in the multi-instance phase.
+    async fn publish(&self, channel: &str, payload: &[u8]);
+
+    /// Subscribe to `channel`, invoking `handler` for each future message until
+    /// the backend connection drops. memory/edge are no-ops (single instance
+    /// needs no cross-instance invalidation). Lands in the multi-instance phase.
+    async fn subscribe(&self, channel: &str, handler: InvalidationHandler);
 }

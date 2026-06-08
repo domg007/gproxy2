@@ -25,8 +25,8 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
 
-use super::CacheBackend;
 use super::b64;
+use super::{CacheBackend, InvalidationHandler};
 
 /// Edge cache backend backed by Upstash Redis REST.
 pub struct UpstashCache {
@@ -141,6 +141,11 @@ impl CacheBackend for UpstashCache {
         }
         new_val
     }
+
+    // Edge isolates re-read config frequently; cross-instance pub/sub not needed (§13).
+    async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+
+    async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use dashmap::DashMap;
 
-use super::CacheBackend;
+use super::{CacheBackend, InvalidationHandler};
 
 struct Entry {
     data: Vec<u8>,
@@ -82,6 +82,11 @@ impl CacheBackend for MemoryCache {
     async fn delete(&self, key: &str) {
         self.map.remove(key);
     }
+
+    // Single instance: no cross-instance invalidation needed.
+    async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+
+    async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
 }
 
 #[cfg(test)]

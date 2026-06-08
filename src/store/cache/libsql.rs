@@ -35,8 +35,8 @@ use serde_json::Value;
 
 use crate::store::libsql::{LibsqlClient, arg_blob, arg_integer, arg_null, arg_text};
 
-use super::CacheBackend;
 use super::b64;
+use super::{CacheBackend, InvalidationHandler};
 
 /// Edge cache backend backed by a libSQL/Turso kv table.
 pub struct LibsqlCache {
@@ -147,6 +147,11 @@ impl CacheBackend for LibsqlCache {
             }
         }
     }
+
+    // Edge isolates re-read config frequently; cross-instance pub/sub not needed (§13).
+    async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+
+    async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
 }
 
 fn hrana_value_to_bytes(v: &Value) -> Option<Vec<u8>> {
