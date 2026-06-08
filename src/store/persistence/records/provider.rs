@@ -18,6 +18,11 @@ pub struct Provider {
     pub settings_json: Value,
     /// Credential pool strategy: `round_robin` | `sticky` (§3.3).
     pub credential_strategy: String,
+    /// TLS-emulation fingerprint config (structured JSON: profile + overrides
+    /// such as JA3/cipher/extensions) used when the emulation transport is
+    /// available (§7.4); `None` = no emulation.
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
     /// Unix seconds.
     pub created_at: i64,
@@ -35,6 +40,8 @@ pub struct ProviderInput {
     pub label: Option<String>,
     pub settings_json: Value,
     pub credential_strategy: String,
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
 }
 

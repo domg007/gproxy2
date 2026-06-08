@@ -15,6 +15,10 @@ fn to_record(m: provider::Model) -> anyhow::Result<Provider> {
         label: m.label,
         settings_json: serde_json::from_str(&m.settings_json)?,
         credential_strategy: m.credential_strategy,
+        tls_fingerprint: m
+            .tls_fingerprint
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?,
         enabled: m.enabled,
         created_at: m.created_at,
         updated_at: m.updated_at,
@@ -53,6 +57,10 @@ pub async fn get_by_name(
 pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::Result<Provider> {
     let now = super::now_secs();
     let settings = serde_json::to_string(&input.settings_json)?;
+    let tls = input
+        .tls_fingerprint
+        .map(|v| serde_json::to_string(&v))
+        .transpose()?;
 
     let model = match input.id {
         Some(id) => {
@@ -66,6 +74,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
             am.label = Set(input.label);
             am.settings_json = Set(settings);
             am.credential_strategy = Set(input.credential_strategy);
+            am.tls_fingerprint = Set(tls);
             am.enabled = Set(input.enabled);
             am.updated_at = Set(now);
             am.update(conn).await?
@@ -78,6 +87,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
                 label: Set(input.label),
                 settings_json: Set(settings),
                 credential_strategy: Set(input.credential_strategy),
+                tls_fingerprint: Set(tls),
                 enabled: Set(input.enabled),
                 created_at: Set(now),
                 updated_at: Set(now),

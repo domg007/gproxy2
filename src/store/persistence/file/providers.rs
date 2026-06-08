@@ -54,6 +54,7 @@ pub(super) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<
             row.label = input.label;
             row.settings_json = input.settings_json;
             row.credential_strategy = input.credential_strategy;
+            row.tls_fingerprint = input.tls_fingerprint;
             row.enabled = input.enabled;
             row.updated_at = now;
             row.clone()
@@ -68,6 +69,7 @@ pub(super) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<
                 label: input.label,
                 settings_json: input.settings_json,
                 credential_strategy: input.credential_strategy,
+                tls_fingerprint: input.tls_fingerprint,
                 enabled: input.enabled,
                 created_at: now,
                 updated_at: now,

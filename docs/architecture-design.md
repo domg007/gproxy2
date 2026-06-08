@@ -305,7 +305,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `provider_models`:`provider_id` · `model_id` · `display_name?` · `pricing_json?` · `enabled`
 
 **B. 供应商 / 凭证**
-- `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url、各 channel 标量开关、**默认出站 `proxy_url?`**、**熔断阈值**`circuit_breaker?`{连续失败数或错误率 + 冷却时长},见 §3.2/§7.4)· `credential_strategy`(`round_robin`/`sticky`,sticky key 见 §3.3)· `enabled` —— **不再有任何 rules 的 JSON 列**,全部提成下列独立表
+- `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url、各 channel 标量开关、**默认出站 `proxy_url?`**、**熔断阈值**`circuit_breaker?`{连续失败数或错误率 + 冷却时长},见 §3.2/§7.4)· `credential_strategy`(`round_robin`/`sticky`,sticky key 见 §3.3)· `tls_fingerprint?`(**JSON**,TLS 伪装指纹配置;§7.4 伪装传输可用时生效,空=不伪装)· `enabled` —— **不再有任何 rules 的 JSON 列**,全部提成下列独立表
 - `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(**信封加密**,存 `{kek_id, wrapped_dek, nonce, ciphertext}`,见 §14.1)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `proxy_url?`(覆盖 provider 默认出站代理,见 §7.4;edge 忽略)· `enabled`
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
 
