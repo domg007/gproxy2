@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Provider, ProviderInput};
 
-use super::super::entities::provider;
+use crate::store::persistence::db::entities::provider::provider;
 
 fn to_record(m: provider::Model) -> anyhow::Result<Provider> {
     Ok(Provider {
@@ -55,7 +55,7 @@ pub async fn get_by_name(
 }
 
 pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::Result<Provider> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
     let settings = serde_json::to_string(&input.settings_json)?;
     let tls = input
         .tls_fingerprint
@@ -105,7 +105,18 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
         super::credential_statuses::delete_by_credential(conn, cred.id).await?;
     }
     super::credentials::delete_by_provider(conn, id).await?;
-    super::provider_models::delete_by_provider(conn, id).await?;
+    crate::store::persistence::db::ops::routing::provider_models::delete_by_provider(conn, id)
+        .await?;
+
+    // §8-B2 rules cascade.
+    crate::store::persistence::db::ops::rules::routing_rules::delete_by_provider(conn, id).await?;
+    crate::store::persistence::db::ops::rules::rewrite_rules::delete_by_provider(conn, id).await?;
+    crate::store::persistence::db::ops::rules::sanitize_rules::delete_by_provider(conn, id).await?;
+    crate::store::persistence::db::ops::rules::cache_breakpoints::delete_by_provider(conn, id)
+        .await?;
+    crate::store::persistence::db::ops::rules::beta_headers::delete_by_provider(conn, id).await?;
+    crate::store::persistence::db::ops::rules::preludes_system::delete_by_provider(conn, id)
+        .await?;
 
     let res = provider::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)

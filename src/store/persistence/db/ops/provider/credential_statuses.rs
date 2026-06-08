@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{CredentialStatus, CredentialStatusInput};
 
-use super::super::entities::credential_status;
+use crate::store::persistence::db::entities::provider::credential_status;
 
 fn to_record(m: credential_status::Model) -> anyhow::Result<CredentialStatus> {
     Ok(CredentialStatus {
@@ -41,7 +41,7 @@ pub async fn upsert(
     conn: &DatabaseConnection,
     input: CredentialStatusInput,
 ) -> anyhow::Result<CredentialStatus> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
     let health = input
         .health_json
         .map(|v| serde_json::to_string(&v))

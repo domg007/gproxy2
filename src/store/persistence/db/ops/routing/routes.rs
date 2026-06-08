@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Route, RouteInput};
 
-use super::super::entities::route;
+use crate::store::persistence::db::entities::routing::route;
 
 fn to_record(m: route::Model) -> Route {
     Route {
@@ -44,7 +44,7 @@ pub async fn get_by_name(conn: &DatabaseConnection, name: &str) -> anyhow::Resul
 }
 
 pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Result<Route> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
         Some(id) => {

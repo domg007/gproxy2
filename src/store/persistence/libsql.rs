@@ -10,9 +10,15 @@ use crate::store::libsql::LibsqlClient;
 
 use super::PersistenceBackend;
 use super::records::{
-    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
-    Provider, ProviderInput, ProviderModel, ProviderModelInput, Route, RouteInput, RouteMember,
-    RouteMemberInput,
+    Alias, AliasInput, BetaHeader, BetaHeaderInput, CacheBreakpoint, CacheBreakpointInput,
+    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, DownstreamRequest,
+    DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org, OrgInput, PreludeSystem,
+    PreludeSystemInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, Quota,
+    QuotaInput, RateLimit, RateLimitInput, RewriteRule, RewriteRuleInput, Route, RouteInput,
+    RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
+    RoutingRuleInput, SanitizeRule, SanitizeRuleInput, Team, TeamInput, UpstreamRequest,
+    UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
+    UserKey, UserKeyInput,
 };
 
 /// Edge persistence backend backed by a Turso/libSQL database via Hrana HTTP.
@@ -164,6 +170,304 @@ impl PersistenceBackend for LibsqlPersistence {
 
     async fn delete_provider_model(&self, _id: i64) -> anyhow::Result<bool> {
         anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn list_routing_rules(&self, _provider_id: i64) -> anyhow::Result<Vec<RoutingRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_routing_rule(&self, _id: i64) -> anyhow::Result<Option<RoutingRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_routing_rule(&self, _input: RoutingRuleInput) -> anyhow::Result<RoutingRule> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_routing_rule(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_rewrite_rules(&self, _provider_id: i64) -> anyhow::Result<Vec<RewriteRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_rewrite_rule(&self, _id: i64) -> anyhow::Result<Option<RewriteRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_rewrite_rule(&self, _input: RewriteRuleInput) -> anyhow::Result<RewriteRule> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_rewrite_rule(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_sanitize_rules(&self, _provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_sanitize_rule(&self, _id: i64) -> anyhow::Result<Option<SanitizeRule>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_sanitize_rule(
+        &self,
+        _input: SanitizeRuleInput,
+    ) -> anyhow::Result<SanitizeRule> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_sanitize_rule(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_cache_breakpoints(
+        &self,
+        _provider_id: i64,
+    ) -> anyhow::Result<Vec<CacheBreakpoint>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_cache_breakpoint(&self, _id: i64) -> anyhow::Result<Option<CacheBreakpoint>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_cache_breakpoint(
+        &self,
+        _input: CacheBreakpointInput,
+    ) -> anyhow::Result<CacheBreakpoint> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_cache_breakpoint(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_beta_headers(&self, _provider_id: i64) -> anyhow::Result<Vec<BetaHeader>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_beta_header(&self, _id: i64) -> anyhow::Result<Option<BetaHeader>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_beta_header(&self, _input: BetaHeaderInput) -> anyhow::Result<BetaHeader> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_beta_header(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_preludes_system(&self, _provider_id: i64) -> anyhow::Result<Vec<PreludeSystem>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn get_prelude_system(&self, _id: i64) -> anyhow::Result<Option<PreludeSystem>> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn upsert_prelude_system(
+        &self,
+        _input: PreludeSystemInput,
+    ) -> anyhow::Result<PreludeSystem> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn delete_prelude_system(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql rules ops not implemented yet")
+    }
+
+    async fn list_orgs(&self) -> anyhow::Result<Vec<Org>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_org(&self, _id: i64) -> anyhow::Result<Option<Org>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_org_by_name(&self, _name: &str) -> anyhow::Result<Option<Org>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_org(&self, _input: OrgInput) -> anyhow::Result<Org> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_org(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn list_teams(&self, _org_id: i64) -> anyhow::Result<Vec<Team>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_team(&self, _id: i64) -> anyhow::Result<Option<Team>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_team(&self, _input: TeamInput) -> anyhow::Result<Team> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_team(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn list_users(&self) -> anyhow::Result<Vec<User>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_user(&self, _id: i64) -> anyhow::Result<Option<User>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_user_by_name(&self, _name: &str) -> anyhow::Result<Option<User>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_user(&self, _input: UserInput) -> anyhow::Result<User> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_user(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn list_user_keys(&self, _user_id: i64) -> anyhow::Result<Vec<UserKey>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_user_key(&self, _id: i64) -> anyhow::Result<Option<UserKey>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn find_user_key_by_digest(&self, _digest: &str) -> anyhow::Result<Option<UserKey>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_user_key(&self, _input: UserKeyInput) -> anyhow::Result<UserKey> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_user_key(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn list_route_permissions(
+        &self,
+        _scope: &str,
+        _scope_id: i64,
+    ) -> anyhow::Result<Vec<RoutePermission>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_route_permission(
+        &self,
+        _input: RoutePermissionInput,
+    ) -> anyhow::Result<RoutePermission> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_route_permission(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn list_rate_limits(
+        &self,
+        _scope: &str,
+        _scope_id: i64,
+    ) -> anyhow::Result<Vec<RateLimit>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_rate_limit(&self, _input: RateLimitInput) -> anyhow::Result<RateLimit> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_rate_limit(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn get_quota(&self, _scope: &str, _scope_id: i64) -> anyhow::Result<Option<Quota>> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn upsert_quota(&self, _input: QuotaInput) -> anyhow::Result<Quota> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn delete_quota(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
+    async fn append_usage(&self, _input: UsageInput) -> anyhow::Result<Usage> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn list_usages(&self, _limit: u64) -> anyhow::Result<Vec<Usage>> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn add_usage_rollup(&self, _input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn list_usage_rollups(
+        &self,
+        _granularity: &str,
+        _from: i64,
+        _to: i64,
+    ) -> anyhow::Result<Vec<UsageRollup>> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn append_downstream_request(
+        &self,
+        _input: DownstreamRequestInput,
+    ) -> anyhow::Result<DownstreamRequest> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn list_downstream_requests(
+        &self,
+        _request_id: &str,
+    ) -> anyhow::Result<Vec<DownstreamRequest>> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn append_upstream_request(
+        &self,
+        _input: UpstreamRequestInput,
+    ) -> anyhow::Result<UpstreamRequest> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn list_upstream_requests(
+        &self,
+        _request_id: &str,
+    ) -> anyhow::Result<Vec<UpstreamRequest>> {
+        anyhow::bail!("libsql usage ops not implemented yet")
+    }
+
+    async fn list_instance_settings(&self) -> anyhow::Result<Vec<InstanceSettings>> {
+        anyhow::bail!("libsql instance settings ops not implemented yet")
+    }
+
+    async fn get_instance_settings(
+        &self,
+        _instance_name: &str,
+    ) -> anyhow::Result<Option<InstanceSettings>> {
+        anyhow::bail!("libsql instance settings ops not implemented yet")
+    }
+
+    async fn upsert_instance_settings(
+        &self,
+        _input: InstanceSettingsInput,
+    ) -> anyhow::Result<InstanceSettings> {
+        anyhow::bail!("libsql instance settings ops not implemented yet")
     }
 }
 

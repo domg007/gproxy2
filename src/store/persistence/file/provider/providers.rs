@@ -4,17 +4,17 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{Provider, ProviderInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("providers.json")
 }
 
-pub(super) async fn list(root: &Path) -> anyhow::Result<Vec<Provider>> {
+pub(crate) async fn list(root: &Path) -> anyhow::Result<Vec<Provider>> {
     Ok(table::load::<Provider>(&path(root)).await?.rows)
 }
 
-pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Provider>> {
+pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Provider>> {
     Ok(table::load::<Provider>(&path(root))
         .await?
         .rows
@@ -22,7 +22,7 @@ pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Provider>
         .find(|p| p.id == id))
 }
 
-pub(super) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Option<Provider>> {
+pub(crate) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Option<Provider>> {
     Ok(table::load::<Provider>(&path(root))
         .await?
         .rows
@@ -30,7 +30,7 @@ pub(super) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Optio
         .find(|p| p.name == name))
 }
 
-pub(super) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<Provider> {
+pub(crate) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<Provider> {
     let file = path(root);
     let mut t = table::load::<Provider>(&file).await?;
     let now = now_secs();
@@ -83,13 +83,21 @@ pub(super) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: this provider's credentials (and their statuses) and models.
     for cred in super::credentials::list(root, id).await? {
         super::credential_statuses::delete_by_credential(root, cred.id).await?;
     }
     super::credentials::delete_by_provider(root, id).await?;
-    super::provider_models::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::routing::provider_models::delete_by_provider(root, id).await?;
+
+    // §8-B2 rules cascade.
+    crate::store::persistence::file::rules::routing_rules::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::rewrite_rules::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::sanitize_rules::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::cache_breakpoints::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::beta_headers::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::rules::preludes_system::delete_by_provider(root, id).await?;
 
     let file = path(root);
     let mut t = table::load::<Provider>(&file).await?;

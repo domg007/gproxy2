@@ -4,17 +4,17 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{Route, RouteInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("routes.json")
 }
 
-pub(super) async fn list(root: &Path) -> anyhow::Result<Vec<Route>> {
+pub(crate) async fn list(root: &Path) -> anyhow::Result<Vec<Route>> {
     Ok(table::load::<Route>(&path(root)).await?.rows)
 }
 
-pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Route>> {
+pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Route>> {
     Ok(table::load::<Route>(&path(root))
         .await?
         .rows
@@ -22,7 +22,7 @@ pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Route>> {
         .find(|r| r.id == id))
 }
 
-pub(super) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Option<Route>> {
+pub(crate) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Option<Route>> {
     Ok(table::load::<Route>(&path(root))
         .await?
         .rows
@@ -30,7 +30,7 @@ pub(super) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Optio
         .find(|r| r.name == name))
 }
 
-pub(super) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Route> {
+pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Route> {
     let file = path(root);
     let mut t = table::load::<Route>(&file).await?;
     let now = now_secs();
@@ -76,7 +76,7 @@ pub(super) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: members and aliases of this route.
     super::route_members::delete_by_route(root, id).await?;
     super::aliases::delete_by_route(root, id).await?;

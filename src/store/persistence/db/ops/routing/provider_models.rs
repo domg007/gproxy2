@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{ProviderModel, ProviderModelInput};
 
-use super::super::entities::provider_model;
+use crate::store::persistence::db::entities::routing::provider_model;
 
 fn to_record(m: provider_model::Model) -> anyhow::Result<ProviderModel> {
     Ok(ProviderModel {
@@ -40,7 +40,7 @@ pub async fn upsert(
     conn: &DatabaseConnection,
     input: ProviderModelInput,
 ) -> anyhow::Result<ProviderModel> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
     let pricing = input
         .pricing_json
         .map(|v| serde_json::to_string(&v))

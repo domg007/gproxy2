@@ -1,0 +1,496 @@
+//! `PersistenceBackend` implementation for [`FilePersistence`].
+
+use async_trait::async_trait;
+
+use super::FilePersistence;
+use super::identity::{orgs, quotas, rate_limits, route_permissions, teams, user_keys, users};
+use super::provider::{credential_statuses, credentials, providers};
+use super::routing::{aliases, provider_models, route_members, routes};
+use super::rules::{
+    beta_headers, cache_breakpoints, preludes_system, rewrite_rules, routing_rules, sanitize_rules,
+};
+use super::settings::instance_settings;
+use super::usage::{downstream_requests, upstream_requests, usage_rollups, usages};
+use crate::store::persistence::PersistenceBackend;
+use crate::store::persistence::records::{
+    Alias, AliasInput, BetaHeader, BetaHeaderInput, CacheBreakpoint, CacheBreakpointInput,
+    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, DownstreamRequest,
+    DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org, OrgInput, PreludeSystem,
+    PreludeSystemInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, Quota,
+    QuotaInput, RateLimit, RateLimitInput, RewriteRule, RewriteRuleInput, Route, RouteInput,
+    RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
+    RoutingRuleInput, SanitizeRule, SanitizeRuleInput, Team, TeamInput, UpstreamRequest,
+    UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
+    UserKey, UserKeyInput,
+};
+
+#[async_trait]
+impl PersistenceBackend for FilePersistence {
+    fn kind(&self) -> &'static str {
+        "file"
+    }
+
+    async fn health(&self) -> anyhow::Result<()> {
+        let probe = self
+            .root
+            .join(format!(".gproxy_health_{}", std::process::id()));
+        tokio::fs::write(&probe, b"ok")
+            .await
+            .map_err(|e| anyhow::anyhow!("data dir is not writable: {e}"))?;
+        tokio::fs::remove_file(&probe).await.ok();
+        Ok(())
+    }
+
+    async fn list_providers(&self) -> anyhow::Result<Vec<Provider>> {
+        providers::list(&self.root).await
+    }
+
+    async fn get_provider(&self, id: i64) -> anyhow::Result<Option<Provider>> {
+        providers::get(&self.root, id).await
+    }
+
+    async fn get_provider_by_name(&self, name: &str) -> anyhow::Result<Option<Provider>> {
+        providers::get_by_name(&self.root, name).await
+    }
+
+    async fn upsert_provider(&self, input: ProviderInput) -> anyhow::Result<Provider> {
+        let _guard = self.write.lock().await;
+        providers::upsert(&self.root, input).await
+    }
+
+    async fn delete_provider(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        providers::delete(&self.root, id).await
+    }
+
+    async fn list_credentials(&self, provider_id: i64) -> anyhow::Result<Vec<Credential>> {
+        credentials::list(&self.root, provider_id).await
+    }
+
+    async fn get_credential(&self, id: i64) -> anyhow::Result<Option<Credential>> {
+        credentials::get(&self.root, id).await
+    }
+
+    async fn upsert_credential(&self, input: CredentialInput) -> anyhow::Result<Credential> {
+        let _guard = self.write.lock().await;
+        credentials::upsert(&self.root, input).await
+    }
+
+    async fn delete_credential(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        credentials::delete(&self.root, id).await
+    }
+
+    async fn list_credential_statuses(
+        &self,
+        credential_id: i64,
+    ) -> anyhow::Result<Vec<CredentialStatus>> {
+        credential_statuses::list(&self.root, credential_id).await
+    }
+
+    async fn upsert_credential_status(
+        &self,
+        input: CredentialStatusInput,
+    ) -> anyhow::Result<CredentialStatus> {
+        let _guard = self.write.lock().await;
+        credential_statuses::upsert(&self.root, input).await
+    }
+
+    async fn delete_credential_status(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        credential_statuses::delete(&self.root, id).await
+    }
+
+    async fn list_routes(&self) -> anyhow::Result<Vec<Route>> {
+        routes::list(&self.root).await
+    }
+
+    async fn get_route(&self, id: i64) -> anyhow::Result<Option<Route>> {
+        routes::get(&self.root, id).await
+    }
+
+    async fn get_route_by_name(&self, name: &str) -> anyhow::Result<Option<Route>> {
+        routes::get_by_name(&self.root, name).await
+    }
+
+    async fn upsert_route(&self, input: RouteInput) -> anyhow::Result<Route> {
+        let _guard = self.write.lock().await;
+        routes::upsert(&self.root, input).await
+    }
+
+    async fn delete_route(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        routes::delete(&self.root, id).await
+    }
+
+    async fn list_route_members(&self, route_id: i64) -> anyhow::Result<Vec<RouteMember>> {
+        route_members::list(&self.root, route_id).await
+    }
+
+    async fn upsert_route_member(&self, input: RouteMemberInput) -> anyhow::Result<RouteMember> {
+        let _guard = self.write.lock().await;
+        route_members::upsert(&self.root, input).await
+    }
+
+    async fn delete_route_member(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        route_members::delete(&self.root, id).await
+    }
+
+    async fn list_aliases(&self) -> anyhow::Result<Vec<Alias>> {
+        aliases::list(&self.root).await
+    }
+
+    async fn get_alias_by_name(&self, alias: &str) -> anyhow::Result<Option<Alias>> {
+        aliases::get_by_name(&self.root, alias).await
+    }
+
+    async fn upsert_alias(&self, input: AliasInput) -> anyhow::Result<Alias> {
+        let _guard = self.write.lock().await;
+        aliases::upsert(&self.root, input).await
+    }
+
+    async fn delete_alias(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        aliases::delete(&self.root, id).await
+    }
+
+    async fn list_provider_models(&self, provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
+        provider_models::list(&self.root, provider_id).await
+    }
+
+    async fn upsert_provider_model(
+        &self,
+        input: ProviderModelInput,
+    ) -> anyhow::Result<ProviderModel> {
+        let _guard = self.write.lock().await;
+        provider_models::upsert(&self.root, input).await
+    }
+
+    async fn delete_provider_model(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        provider_models::delete(&self.root, id).await
+    }
+
+    async fn list_routing_rules(&self, provider_id: i64) -> anyhow::Result<Vec<RoutingRule>> {
+        routing_rules::list(&self.root, provider_id).await
+    }
+
+    async fn get_routing_rule(&self, id: i64) -> anyhow::Result<Option<RoutingRule>> {
+        routing_rules::get(&self.root, id).await
+    }
+
+    async fn upsert_routing_rule(&self, input: RoutingRuleInput) -> anyhow::Result<RoutingRule> {
+        let _guard = self.write.lock().await;
+        routing_rules::upsert(&self.root, input).await
+    }
+
+    async fn delete_routing_rule(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        routing_rules::delete(&self.root, id).await
+    }
+
+    async fn list_rewrite_rules(&self, provider_id: i64) -> anyhow::Result<Vec<RewriteRule>> {
+        rewrite_rules::list(&self.root, provider_id).await
+    }
+
+    async fn get_rewrite_rule(&self, id: i64) -> anyhow::Result<Option<RewriteRule>> {
+        rewrite_rules::get(&self.root, id).await
+    }
+
+    async fn upsert_rewrite_rule(&self, input: RewriteRuleInput) -> anyhow::Result<RewriteRule> {
+        let _guard = self.write.lock().await;
+        rewrite_rules::upsert(&self.root, input).await
+    }
+
+    async fn delete_rewrite_rule(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        rewrite_rules::delete(&self.root, id).await
+    }
+
+    async fn list_sanitize_rules(&self, provider_id: i64) -> anyhow::Result<Vec<SanitizeRule>> {
+        sanitize_rules::list(&self.root, provider_id).await
+    }
+
+    async fn get_sanitize_rule(&self, id: i64) -> anyhow::Result<Option<SanitizeRule>> {
+        sanitize_rules::get(&self.root, id).await
+    }
+
+    async fn upsert_sanitize_rule(&self, input: SanitizeRuleInput) -> anyhow::Result<SanitizeRule> {
+        let _guard = self.write.lock().await;
+        sanitize_rules::upsert(&self.root, input).await
+    }
+
+    async fn delete_sanitize_rule(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        sanitize_rules::delete(&self.root, id).await
+    }
+
+    async fn list_cache_breakpoints(
+        &self,
+        provider_id: i64,
+    ) -> anyhow::Result<Vec<CacheBreakpoint>> {
+        cache_breakpoints::list(&self.root, provider_id).await
+    }
+
+    async fn get_cache_breakpoint(&self, id: i64) -> anyhow::Result<Option<CacheBreakpoint>> {
+        cache_breakpoints::get(&self.root, id).await
+    }
+
+    async fn upsert_cache_breakpoint(
+        &self,
+        input: CacheBreakpointInput,
+    ) -> anyhow::Result<CacheBreakpoint> {
+        let _guard = self.write.lock().await;
+        cache_breakpoints::upsert(&self.root, input).await
+    }
+
+    async fn delete_cache_breakpoint(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        cache_breakpoints::delete(&self.root, id).await
+    }
+
+    async fn list_beta_headers(&self, provider_id: i64) -> anyhow::Result<Vec<BetaHeader>> {
+        beta_headers::list(&self.root, provider_id).await
+    }
+
+    async fn get_beta_header(&self, id: i64) -> anyhow::Result<Option<BetaHeader>> {
+        beta_headers::get(&self.root, id).await
+    }
+
+    async fn upsert_beta_header(&self, input: BetaHeaderInput) -> anyhow::Result<BetaHeader> {
+        let _guard = self.write.lock().await;
+        beta_headers::upsert(&self.root, input).await
+    }
+
+    async fn delete_beta_header(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        beta_headers::delete(&self.root, id).await
+    }
+
+    async fn list_preludes_system(&self, provider_id: i64) -> anyhow::Result<Vec<PreludeSystem>> {
+        preludes_system::list(&self.root, provider_id).await
+    }
+
+    async fn get_prelude_system(&self, id: i64) -> anyhow::Result<Option<PreludeSystem>> {
+        preludes_system::get(&self.root, id).await
+    }
+
+    async fn upsert_prelude_system(
+        &self,
+        input: PreludeSystemInput,
+    ) -> anyhow::Result<PreludeSystem> {
+        let _guard = self.write.lock().await;
+        preludes_system::upsert(&self.root, input).await
+    }
+
+    async fn delete_prelude_system(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        preludes_system::delete(&self.root, id).await
+    }
+
+    async fn list_orgs(&self) -> anyhow::Result<Vec<Org>> {
+        orgs::list(&self.root).await
+    }
+
+    async fn get_org(&self, id: i64) -> anyhow::Result<Option<Org>> {
+        orgs::get(&self.root, id).await
+    }
+
+    async fn get_org_by_name(&self, name: &str) -> anyhow::Result<Option<Org>> {
+        orgs::get_by_name(&self.root, name).await
+    }
+
+    async fn upsert_org(&self, input: OrgInput) -> anyhow::Result<Org> {
+        let _guard = self.write.lock().await;
+        orgs::upsert(&self.root, input).await
+    }
+
+    async fn delete_org(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        orgs::delete(&self.root, id).await
+    }
+
+    async fn list_teams(&self, org_id: i64) -> anyhow::Result<Vec<Team>> {
+        teams::list(&self.root, org_id).await
+    }
+
+    async fn get_team(&self, id: i64) -> anyhow::Result<Option<Team>> {
+        teams::get(&self.root, id).await
+    }
+
+    async fn upsert_team(&self, input: TeamInput) -> anyhow::Result<Team> {
+        let _guard = self.write.lock().await;
+        teams::upsert(&self.root, input).await
+    }
+
+    async fn delete_team(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        teams::delete(&self.root, id).await
+    }
+
+    async fn list_users(&self) -> anyhow::Result<Vec<User>> {
+        users::list(&self.root).await
+    }
+
+    async fn get_user(&self, id: i64) -> anyhow::Result<Option<User>> {
+        users::get(&self.root, id).await
+    }
+
+    async fn get_user_by_name(&self, name: &str) -> anyhow::Result<Option<User>> {
+        users::get_by_name(&self.root, name).await
+    }
+
+    async fn upsert_user(&self, input: UserInput) -> anyhow::Result<User> {
+        let _guard = self.write.lock().await;
+        users::upsert(&self.root, input).await
+    }
+
+    async fn delete_user(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        users::delete(&self.root, id).await
+    }
+
+    async fn list_user_keys(&self, user_id: i64) -> anyhow::Result<Vec<UserKey>> {
+        user_keys::list(&self.root, user_id).await
+    }
+
+    async fn get_user_key(&self, id: i64) -> anyhow::Result<Option<UserKey>> {
+        user_keys::get(&self.root, id).await
+    }
+
+    async fn find_user_key_by_digest(&self, digest: &str) -> anyhow::Result<Option<UserKey>> {
+        user_keys::find_by_digest(&self.root, digest).await
+    }
+
+    async fn upsert_user_key(&self, input: UserKeyInput) -> anyhow::Result<UserKey> {
+        let _guard = self.write.lock().await;
+        user_keys::upsert(&self.root, input).await
+    }
+
+    async fn delete_user_key(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        user_keys::delete(&self.root, id).await
+    }
+
+    async fn list_route_permissions(
+        &self,
+        scope: &str,
+        scope_id: i64,
+    ) -> anyhow::Result<Vec<RoutePermission>> {
+        route_permissions::list(&self.root, scope, scope_id).await
+    }
+
+    async fn upsert_route_permission(
+        &self,
+        input: RoutePermissionInput,
+    ) -> anyhow::Result<RoutePermission> {
+        let _guard = self.write.lock().await;
+        route_permissions::upsert(&self.root, input).await
+    }
+
+    async fn delete_route_permission(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        route_permissions::delete(&self.root, id).await
+    }
+
+    async fn list_rate_limits(&self, scope: &str, scope_id: i64) -> anyhow::Result<Vec<RateLimit>> {
+        rate_limits::list(&self.root, scope, scope_id).await
+    }
+
+    async fn upsert_rate_limit(&self, input: RateLimitInput) -> anyhow::Result<RateLimit> {
+        let _guard = self.write.lock().await;
+        rate_limits::upsert(&self.root, input).await
+    }
+
+    async fn delete_rate_limit(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        rate_limits::delete(&self.root, id).await
+    }
+
+    async fn get_quota(&self, scope: &str, scope_id: i64) -> anyhow::Result<Option<Quota>> {
+        quotas::get(&self.root, scope, scope_id).await
+    }
+
+    async fn upsert_quota(&self, input: QuotaInput) -> anyhow::Result<Quota> {
+        let _guard = self.write.lock().await;
+        quotas::upsert(&self.root, input).await
+    }
+
+    async fn delete_quota(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        quotas::delete(&self.root, id).await
+    }
+
+    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Usage> {
+        let _guard = self.write.lock().await;
+        usages::append(&self.root, input).await
+    }
+
+    async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>> {
+        usages::list(&self.root, limit).await
+    }
+
+    async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
+        let _guard = self.write.lock().await;
+        usage_rollups::add(&self.root, input).await
+    }
+
+    async fn list_usage_rollups(
+        &self,
+        granularity: &str,
+        from: i64,
+        to: i64,
+    ) -> anyhow::Result<Vec<UsageRollup>> {
+        usage_rollups::list(&self.root, granularity, from, to).await
+    }
+
+    async fn append_downstream_request(
+        &self,
+        input: DownstreamRequestInput,
+    ) -> anyhow::Result<DownstreamRequest> {
+        let _guard = self.write.lock().await;
+        downstream_requests::append(&self.root, input).await
+    }
+
+    async fn list_downstream_requests(
+        &self,
+        request_id: &str,
+    ) -> anyhow::Result<Vec<DownstreamRequest>> {
+        downstream_requests::list(&self.root, request_id).await
+    }
+
+    async fn append_upstream_request(
+        &self,
+        input: UpstreamRequestInput,
+    ) -> anyhow::Result<UpstreamRequest> {
+        let _guard = self.write.lock().await;
+        upstream_requests::append(&self.root, input).await
+    }
+
+    async fn list_upstream_requests(
+        &self,
+        request_id: &str,
+    ) -> anyhow::Result<Vec<UpstreamRequest>> {
+        upstream_requests::list(&self.root, request_id).await
+    }
+
+    async fn list_instance_settings(&self) -> anyhow::Result<Vec<InstanceSettings>> {
+        instance_settings::list(&self.root).await
+    }
+
+    async fn get_instance_settings(
+        &self,
+        instance_name: &str,
+    ) -> anyhow::Result<Option<InstanceSettings>> {
+        instance_settings::get(&self.root, instance_name).await
+    }
+
+    async fn upsert_instance_settings(
+        &self,
+        input: InstanceSettingsInput,
+    ) -> anyhow::Result<InstanceSettings> {
+        let _guard = self.write.lock().await;
+        instance_settings::upsert(&self.root, input).await
+    }
+}

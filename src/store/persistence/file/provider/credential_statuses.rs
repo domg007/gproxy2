@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{CredentialStatus, CredentialStatusInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("credential_statuses.json")
 }
 
-pub(super) async fn list(root: &Path, credential_id: i64) -> anyhow::Result<Vec<CredentialStatus>> {
+pub(crate) async fn list(root: &Path, credential_id: i64) -> anyhow::Result<Vec<CredentialStatus>> {
     Ok(table::load::<CredentialStatus>(&path(root))
         .await?
         .rows
@@ -19,7 +19,7 @@ pub(super) async fn list(root: &Path, credential_id: i64) -> anyhow::Result<Vec<
         .collect())
 }
 
-pub(super) async fn upsert(
+pub(crate) async fn upsert(
     root: &Path,
     input: CredentialStatusInput,
 ) -> anyhow::Result<CredentialStatus> {
@@ -71,7 +71,7 @@ pub(super) async fn upsert(
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
     let mut t = table::load::<CredentialStatus>(&file).await?;
     let before = t.rows.len();
@@ -83,7 +83,7 @@ pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(super) async fn delete_by_credential(root: &Path, credential_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_credential(root: &Path, credential_id: i64) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<CredentialStatus>(&file).await?;
     let before = t.rows.len();

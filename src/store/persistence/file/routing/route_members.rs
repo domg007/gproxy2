@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{RouteMember, RouteMemberInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("route_members.json")
 }
 
-pub(super) async fn list(root: &Path, route_id: i64) -> anyhow::Result<Vec<RouteMember>> {
+pub(crate) async fn list(root: &Path, route_id: i64) -> anyhow::Result<Vec<RouteMember>> {
     Ok(table::load::<RouteMember>(&path(root))
         .await?
         .rows
@@ -19,7 +19,7 @@ pub(super) async fn list(root: &Path, route_id: i64) -> anyhow::Result<Vec<Route
         .collect())
 }
 
-pub(super) async fn upsert(root: &Path, input: RouteMemberInput) -> anyhow::Result<RouteMember> {
+pub(crate) async fn upsert(root: &Path, input: RouteMemberInput) -> anyhow::Result<RouteMember> {
     let file = path(root);
     let mut t = table::load::<RouteMember>(&file).await?;
     let now = now_secs();
@@ -63,7 +63,7 @@ pub(super) async fn upsert(root: &Path, input: RouteMemberInput) -> anyhow::Resu
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
     let mut t = table::load::<RouteMember>(&file).await?;
     let before = t.rows.len();
@@ -75,7 +75,7 @@ pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(super) async fn delete_by_route(root: &Path, route_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_route(root: &Path, route_id: i64) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<RouteMember>(&file).await?;
     let before = t.rows.len();

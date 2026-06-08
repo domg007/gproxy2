@@ -1,9 +1,8 @@
 //! SeaORM entity models (internal to the `db` backend).
 
-pub mod alias;
-pub mod credential;
-pub mod credential_status;
+pub mod identity;
 pub mod provider;
-pub mod provider_model;
-pub mod route;
-pub mod route_member;
+pub mod routing;
+pub mod rules;
+pub mod settings;
+pub mod usage;

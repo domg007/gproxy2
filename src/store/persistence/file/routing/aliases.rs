@@ -4,17 +4,17 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{Alias, AliasInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("aliases.json")
 }
 
-pub(super) async fn list(root: &Path) -> anyhow::Result<Vec<Alias>> {
+pub(crate) async fn list(root: &Path) -> anyhow::Result<Vec<Alias>> {
     Ok(table::load::<Alias>(&path(root)).await?.rows)
 }
 
-pub(super) async fn get_by_name(root: &Path, alias: &str) -> anyhow::Result<Option<Alias>> {
+pub(crate) async fn get_by_name(root: &Path, alias: &str) -> anyhow::Result<Option<Alias>> {
     Ok(table::load::<Alias>(&path(root))
         .await?
         .rows
@@ -22,7 +22,7 @@ pub(super) async fn get_by_name(root: &Path, alias: &str) -> anyhow::Result<Opti
         .find(|a| a.alias == alias))
 }
 
-pub(super) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Alias> {
+pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Alias> {
     let file = path(root);
     let mut t = table::load::<Alias>(&file).await?;
     let now = now_secs();
@@ -64,7 +64,7 @@ pub(super) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
     let mut t = table::load::<Alias>(&file).await?;
     let before = t.rows.len();
@@ -76,7 +76,7 @@ pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(super) async fn delete_by_route(root: &Path, route_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_route(root: &Path, route_id: i64) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<Alias>(&file).await?;
     let before = t.rows.len();

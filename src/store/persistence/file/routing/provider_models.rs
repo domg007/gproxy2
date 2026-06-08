@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{ProviderModel, ProviderModelInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("provider_models.json")
 }
 
-pub(super) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
+pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
     Ok(table::load::<ProviderModel>(&path(root))
         .await?
         .rows
@@ -19,7 +19,7 @@ pub(super) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<Pr
         .collect())
 }
 
-pub(super) async fn upsert(
+pub(crate) async fn upsert(
     root: &Path,
     input: ProviderModelInput,
 ) -> anyhow::Result<ProviderModel> {
@@ -64,7 +64,7 @@ pub(super) async fn upsert(
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     let file = path(root);
     let mut t = table::load::<ProviderModel>(&file).await?;
     let before = t.rows.len();
@@ -76,7 +76,7 @@ pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(super) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<ProviderModel>(&file).await?;
     let before = t.rows.len();

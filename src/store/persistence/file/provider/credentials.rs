@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use crate::store::persistence::records::{Credential, CredentialInput};
 
-use super::table::{self, now_secs};
+use crate::store::persistence::file::table::{self, now_secs};
 
 fn path(root: &Path) -> PathBuf {
     root.join("credentials.json")
 }
 
-pub(super) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<Credential>> {
+pub(crate) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<Credential>> {
     Ok(table::load::<Credential>(&path(root))
         .await?
         .rows
@@ -19,7 +19,7 @@ pub(super) async fn list(root: &Path, provider_id: i64) -> anyhow::Result<Vec<Cr
         .collect())
 }
 
-pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Credential>> {
+pub(crate) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Credential>> {
     Ok(table::load::<Credential>(&path(root))
         .await?
         .rows
@@ -27,7 +27,7 @@ pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Credentia
         .find(|c| c.id == id))
 }
 
-pub(super) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Result<Credential> {
+pub(crate) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Result<Credential> {
     let file = path(root);
     let mut t = table::load::<Credential>(&file).await?;
     let now = now_secs();
@@ -77,7 +77,7 @@ pub(super) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Resul
     Ok(stored)
 }
 
-pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: drop this credential's status snapshots first.
     super::credential_statuses::delete_by_credential(root, id).await?;
 
@@ -92,7 +92,7 @@ pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(super) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_provider(root: &Path, provider_id: i64) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<Credential>(&file).await?;
     let before = t.rows.len();

@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Credential, CredentialInput};
 
-use super::super::entities::credential;
+use crate::store::persistence::db::entities::provider::credential;
 
 fn to_record(m: credential::Model) -> anyhow::Result<Credential> {
     Ok(Credential {
@@ -46,7 +46,7 @@ pub async fn upsert(
     conn: &DatabaseConnection,
     input: CredentialInput,
 ) -> anyhow::Result<Credential> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
     let secret = serde_json::to_string(&input.secret_json)?;
 
     let model = match input.id {

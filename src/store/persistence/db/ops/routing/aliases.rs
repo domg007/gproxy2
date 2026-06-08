@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Alias, AliasInput};
 
-use super::super::entities::alias;
+use crate::store::persistence::db::entities::routing::alias;
 
 fn to_record(m: alias::Model) -> Alias {
     Alias {
@@ -35,7 +35,7 @@ pub async fn get_by_name(conn: &DatabaseConnection, value: &str) -> anyhow::Resu
 }
 
 pub async fn upsert(conn: &DatabaseConnection, input: AliasInput) -> anyhow::Result<Alias> {
-    let now = super::now_secs();
+    let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
         Some(id) => {
