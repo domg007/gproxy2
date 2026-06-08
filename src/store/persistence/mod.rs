@@ -4,22 +4,22 @@
 //! Edge (wasm32) impl: `libsql` (libSQL/Turso over Hrana HTTP).
 //! Domain code calls only trait methods.
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "persist-db"))]
 pub mod db;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "persist-file"))]
 pub mod file;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "persist-libsql"))]
 pub mod libsql;
 
 pub mod records;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "persist-db"))]
 pub use db::DbPersistence;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "persist-file"))]
 pub use file::FilePersistence;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "persist-libsql"))]
 pub use libsql::LibsqlPersistence;
 
 use records::{

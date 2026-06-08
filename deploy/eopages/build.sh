@@ -12,7 +12,7 @@
 # static-`?module`-import model that Vercel / Cloudflare require.
 #
 # Run from the crate root (/home/linhuan/gproxy/v2):
-#   cargo build --lib --target wasm32-unknown-unknown --release
+#   cargo build --lib --target wasm32-unknown-unknown --release --no-default-features --features edge
 #   bash deploy/eopages/build.sh
 set -euo pipefail
 

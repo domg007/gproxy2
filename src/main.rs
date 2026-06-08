@@ -9,9 +9,9 @@ use gproxy::config::{
     CacheConfig, PersistenceConfig, PersistenceKind, RuntimeConfig, UpstreamConfig,
 };
 use gproxy::http;
-use gproxy::http::client::{UpstreamClient, WreqClient};
-use gproxy::store::cache::{CacheBackend, MemoryCache, RedisCache};
-use gproxy::store::persistence::{DbPersistence, FilePersistence, PersistenceBackend};
+use gproxy::http::client::UpstreamClient;
+use gproxy::store::cache::CacheBackend;
+use gproxy::store::persistence::PersistenceBackend;
 
 #[derive(Parser)]
 #[command(name = "gproxy", version, about = "gproxy v2 LLM proxy")]
@@ -72,15 +72,25 @@ async fn main() -> anyhow::Result<()> {
     let bind = config.bind_addr()?;
 
     let cache: Arc<dyn CacheBackend> = match &config.cache {
+        #[cfg(feature = "cache-memory")]
         CacheConfig::Memory => {
             tracing::info!("cache backend: memory ready");
-            Arc::new(MemoryCache::new())
+            Arc::new(gproxy::store::cache::MemoryCache::new())
         }
+        #[cfg(not(feature = "cache-memory"))]
+        CacheConfig::Memory => {
+            anyhow::bail!("cache backend `memory` requires the `cache-memory` feature")
+        }
+        #[cfg(feature = "cache-redis")]
         CacheConfig::Redis { url } => {
-            let c = RedisCache::connect(url).await?;
+            let c = gproxy::store::cache::RedisCache::connect(url).await?;
             c.health().await?;
             tracing::info!("cache backend: redis ready");
             Arc::new(c)
+        }
+        #[cfg(not(feature = "cache-redis"))]
+        CacheConfig::Redis { .. } => {
+            anyhow::bail!("cache backend `redis` requires the `cache-redis` feature")
         }
         CacheConfig::Libsql { .. } | CacheConfig::Upstash { .. } => {
             anyhow::bail!("edge-only cache backend cannot be used by native server")
@@ -88,17 +98,33 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {
+        #[cfg(feature = "persist-file")]
         PersistenceConfig::File { data_dir } => {
-            Arc::new(FilePersistence::open(data_dir.clone()).await?)
+            Arc::new(gproxy::store::persistence::FilePersistence::open(data_dir.clone()).await?)
         }
-        PersistenceConfig::Db { dsn } => Arc::new(DbPersistence::connect(dsn).await?),
+        #[cfg(not(feature = "persist-file"))]
+        PersistenceConfig::File { .. } => {
+            anyhow::bail!("persistence backend `file` requires the `persist-file` feature")
+        }
+        #[cfg(feature = "persist-db")]
+        PersistenceConfig::Db { dsn } => {
+            Arc::new(gproxy::store::persistence::DbPersistence::connect(dsn).await?)
+        }
+        #[cfg(not(feature = "persist-db"))]
+        PersistenceConfig::Db { .. } => {
+            anyhow::bail!("persistence backend `db` requires the `persist-db` feature")
+        }
     };
     persistence.health().await?;
     tracing::info!("persistence backend: {} healthy", persistence.kind());
 
-    let upstream: Arc<dyn UpstreamClient> = Arc::new(WreqClient::with_proxy_url(
-        config.upstream.proxy_url.as_deref(),
-    )?);
+    #[cfg(not(feature = "upstream-wreq"))]
+    compile_error!("a native gproxy binary requires the `upstream-wreq` feature");
+    #[cfg(feature = "upstream-wreq")]
+    let upstream: Arc<dyn UpstreamClient> = Arc::new(
+        gproxy::http::client::WreqClient::with_proxy_url(config.upstream.proxy_url.as_deref())?,
+    );
+    #[cfg(feature = "upstream-wreq")]
     tracing::info!(
         "upstream transport: wreq ready{}",
         if config.upstream.proxy_url.is_some() {

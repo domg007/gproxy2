@@ -292,6 +292,21 @@ Router;`main` 才 `axum::serve(listener, router)`)。于是 native 用 `axum::se
 驱动、edge 用平台 fetch 适配器驱动**同一个 Router**,无需 `HttpServer` trait(与 §13
 "不搞通用可换宿主层"一致)。注意:edge 构建下 Router/handler 需满足 `?Send`(见 §13)。
 
+### 7.6 构建特性(Cargo features)—— 生产可裁剪
+
+后端/传输按 **Cargo feature** 分,生产只编译用到的,**重依赖(`redis`/`sea-orm`/`wreq`)设 `optional`**,
+由 feature 拉起。trait(`CacheBackend`/`PersistenceBackend`/`UpstreamClient`)与 `config` 枚举**不 gate**;
+只 gate 后端实现模块 + main.rs 装配(feature 关时对应分支返回运行时错误)。
+
+- 缓存:`cache-memory` / `cache-redis`;持久化:`persist-file` / `persist-db`;出站:`upstream-wreq`
+- 边缘(wasm,code-only gate):`cache-libsql` / `cache-upstash` / `persist-libsql` / `upstream-fetch`;
+  聚合 `edge`(边缘入口 `http::edge` 需整套 edge bundle)
+- `default = [cache-memory, persist-file, upstream-wreq]`(native 零额外重依赖基线)
+- 单机生产 = `cargo build --release`(默认即精简,**不含 redis/sea-orm**);
+  多实例 = `--features cache-redis,persist-db`;
+  开发 = `--all-features` 或 `--features full`;
+  边缘 = `--lib --no-default-features --features edge --target wasm32-...`
+
 ## 8. 数据模型(逻辑记录)
 
 v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**不考虑 v1 迁移兼容**),

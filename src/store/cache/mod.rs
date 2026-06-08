@@ -13,26 +13,32 @@
 
 use std::time::Duration;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "cache-memory"))]
 pub mod memory;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "cache-redis"))]
 pub mod redis;
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(
+    test,
+    all(
+        target_arch = "wasm32",
+        any(feature = "cache-libsql", feature = "cache-upstash")
+    )
+))]
 pub mod b64;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "cache-libsql"))]
 pub mod libsql;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "cache-upstash"))]
 pub mod upstash;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "cache-memory"))]
 pub use memory::MemoryCache;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "cache-redis"))]
 pub use redis::RedisCache;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "cache-libsql"))]
 pub use libsql::LibsqlCache;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "cache-upstash"))]
 pub use upstash::UpstashCache;
 
 /// Handler invoked for each message received on a subscribed channel.

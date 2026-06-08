@@ -30,7 +30,7 @@
 // The generated glue (_lib/gproxy.js + gproxy_bg.wasm + *.d.ts) is gitignored;
 // only this file + vercel.json are hand-written source. Build from the crate
 // root, then run vercel from deploy/vercel/:
-//   cargo build --lib --target wasm32-unknown-unknown --release
+//   cargo build --lib --target wasm32-unknown-unknown --release --no-default-features --features edge
 //   wasm-bindgen --target web --out-dir deploy/vercel/api/_lib \
 //     target/wasm32-unknown-unknown/release/gproxy.wasm
 

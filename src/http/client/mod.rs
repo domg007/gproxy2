@@ -21,12 +21,12 @@ pub trait UpstreamClient: Send + Sync {
     async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ClientError>;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod wreq;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 pub use wreq::WreqClient;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "upstream-fetch"))]
 mod fetch;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "upstream-fetch"))]
 pub use fetch::FetchClient;

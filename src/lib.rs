@@ -8,5 +8,11 @@ pub mod protocol;
 pub mod store;
 pub mod transform;
 
-#[cfg(target_arch = "wasm32")]
+// Edge self-test exercises all edge backends; gate on the full edge bundle.
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "persist-libsql",
+    feature = "cache-libsql",
+    feature = "cache-upstash"
+))]
 pub mod wasm_selftest;
