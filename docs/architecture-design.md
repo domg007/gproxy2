@@ -274,10 +274,14 @@ native 的 `WreqClient` 内部维护一个**按 `(proxy_url, 是否 TLS 伪装)`
 具体每渠道(及其各凭证模式)的能力在实现时由各 channel 自行声明,架构按能力自动降级,
 不靠预先把清单列全。
 
-**WebSocket 上游**:少数渠道走 WebSocket 而非 HTTP/SSE(如 Codex websockets、Gemini AI Studio 中继)。
-`UpstreamClient` 除 `send`(HTTP)外提供一个 **WS 通道变体**(建立会话、收发帧、心跳/存活)。native 由 wreq/底层
-WS 实现;edge 视平台 `WebSocket` 能力,不支持则该渠道在 edge 降级不可用。**作为渠道传输能力的一种**(与 TLS
-伪装并列),按能力声明 + 自动降级,不影响 HTTP 主路径。
+**WebSocket 上游(WS-out,代理作 WS 客户端连上游)**:少数渠道出站走 WebSocket 而非 HTTP/SSE(如 Codex websockets)。
+`UpstreamClient` 除 `send`(HTTP)外提供一个 **WS 双工帧管道**(connect/收发帧);**WS 消息协议归该 channel**
+(把 provider-native 请求包成帧、把流式帧解析回内部统一 stream 事件,transform/response 那套照常复用)。存活用
+ping/pong + read deadline(连接建立后唯一允许的超时)。**硬骨头是"WS over 伪装 TLS"**——若渠道需指纹伪装,
+握手也要走伪装栈,故 **WS-out 实现与 codex / TLS 伪装一并推后(§12),本期只留接缝**。edge 视平台 `WebSocket`
+能力,不支持则该渠道在 edge 降级。
+> **WS-relay**(代理作 WS 服务端、把请求隧道给持会话的客户端,如 Gemini AI Studio 那种)是**另一套入站子系统**,
+> 不属于 `UpstreamClient`;它持长连接、打破实例无状态、edge 扛不住 → **native-only 的可选子系统,本期不做**(见 §17)。
 
 ### 7.5 入站 HTTP:不自造抽象,靠 `tower::Service`
 
@@ -532,7 +536,8 @@ Vercel/Cloudflare =
 
 > **本轮未纳入(留作干净加法)**:管理审计日志(`audit_logs`)、日志/用量数据保留与清理、
 > per-provider 并发上限、PII 正文脱敏、云 KMS 实现、native rustls、主动健康探活、
-> Files API 代理(及 `files`/`file_permissions` 表)。
+> Files API 代理(及 `files`/`file_permissions` 表)、
+> WS-relay 入站隧道子系统(AI Studio 式,native-only、对多实例不友好;WS-out 见 §7.4 仍照建接缝)。
 
 ## 18. 配置导出 / 导入(迁移)
 
