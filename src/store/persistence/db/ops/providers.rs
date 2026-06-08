@@ -7,13 +7,6 @@ use crate::store::persistence::records::{Provider, ProviderInput};
 
 use super::super::entities::provider;
 
-fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 fn to_record(m: provider::Model) -> anyhow::Result<Provider> {
     Ok(Provider {
         id: m.id,
@@ -58,7 +51,7 @@ pub async fn get_by_name(
 }
 
 pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::Result<Provider> {
-    let now = now_secs();
+    let now = super::now_secs();
     let settings = serde_json::to_string(&input.settings_json)?;
 
     let model = match input.id {
@@ -97,6 +90,13 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
+    // cascade: this provider's credentials (and their statuses) and models.
+    for cred in super::credentials::list(conn, id).await? {
+        super::credential_statuses::delete_by_credential(conn, cred.id).await?;
+    }
+    super::credentials::delete_by_provider(conn, id).await?;
+    super::provider_models::delete_by_provider(conn, id).await?;
+
     let res = provider::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)
 }

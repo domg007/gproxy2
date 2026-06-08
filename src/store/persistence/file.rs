@@ -6,9 +6,19 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use super::PersistenceBackend;
-use super::records::{Provider, ProviderInput};
+use super::records::{
+    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
+    Provider, ProviderInput, ProviderModel, ProviderModelInput, Route, RouteInput, RouteMember,
+    RouteMemberInput,
+};
 
+mod aliases;
+mod credential_statuses;
+mod credentials;
+mod provider_models;
 mod providers;
+mod route_members;
+mod routes;
 mod table;
 
 /// Persistence backend backed by the local file system.
@@ -75,6 +85,115 @@ impl PersistenceBackend for FilePersistence {
     async fn delete_provider(&self, id: i64) -> anyhow::Result<bool> {
         let _guard = self.write.lock().await;
         providers::delete(&self.root, id).await
+    }
+
+    async fn list_credentials(&self, provider_id: i64) -> anyhow::Result<Vec<Credential>> {
+        credentials::list(&self.root, provider_id).await
+    }
+
+    async fn get_credential(&self, id: i64) -> anyhow::Result<Option<Credential>> {
+        credentials::get(&self.root, id).await
+    }
+
+    async fn upsert_credential(&self, input: CredentialInput) -> anyhow::Result<Credential> {
+        let _guard = self.write.lock().await;
+        credentials::upsert(&self.root, input).await
+    }
+
+    async fn delete_credential(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        credentials::delete(&self.root, id).await
+    }
+
+    async fn list_credential_statuses(
+        &self,
+        credential_id: i64,
+    ) -> anyhow::Result<Vec<CredentialStatus>> {
+        credential_statuses::list(&self.root, credential_id).await
+    }
+
+    async fn upsert_credential_status(
+        &self,
+        input: CredentialStatusInput,
+    ) -> anyhow::Result<CredentialStatus> {
+        let _guard = self.write.lock().await;
+        credential_statuses::upsert(&self.root, input).await
+    }
+
+    async fn delete_credential_status(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        credential_statuses::delete(&self.root, id).await
+    }
+
+    async fn list_routes(&self) -> anyhow::Result<Vec<Route>> {
+        routes::list(&self.root).await
+    }
+
+    async fn get_route(&self, id: i64) -> anyhow::Result<Option<Route>> {
+        routes::get(&self.root, id).await
+    }
+
+    async fn get_route_by_name(&self, name: &str) -> anyhow::Result<Option<Route>> {
+        routes::get_by_name(&self.root, name).await
+    }
+
+    async fn upsert_route(&self, input: RouteInput) -> anyhow::Result<Route> {
+        let _guard = self.write.lock().await;
+        routes::upsert(&self.root, input).await
+    }
+
+    async fn delete_route(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        routes::delete(&self.root, id).await
+    }
+
+    async fn list_route_members(&self, route_id: i64) -> anyhow::Result<Vec<RouteMember>> {
+        route_members::list(&self.root, route_id).await
+    }
+
+    async fn upsert_route_member(&self, input: RouteMemberInput) -> anyhow::Result<RouteMember> {
+        let _guard = self.write.lock().await;
+        route_members::upsert(&self.root, input).await
+    }
+
+    async fn delete_route_member(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        route_members::delete(&self.root, id).await
+    }
+
+    async fn list_aliases(&self) -> anyhow::Result<Vec<Alias>> {
+        aliases::list(&self.root).await
+    }
+
+    async fn get_alias_by_name(&self, alias: &str) -> anyhow::Result<Option<Alias>> {
+        aliases::get_by_name(&self.root, alias).await
+    }
+
+    async fn upsert_alias(&self, input: AliasInput) -> anyhow::Result<Alias> {
+        let _guard = self.write.lock().await;
+        aliases::upsert(&self.root, input).await
+    }
+
+    async fn delete_alias(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        aliases::delete(&self.root, id).await
+    }
+
+    async fn list_provider_models(&self, provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
+        provider_models::list(&self.root, provider_id).await
+    }
+
+    async fn upsert_provider_model(
+        &self,
+        input: ProviderModelInput,
+    ) -> anyhow::Result<ProviderModel> {
+        let _guard = self.write.lock().await;
+        provider_models::upsert(&self.root, input).await
+    }
+
+    async fn delete_provider_model(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        provider_models::delete(&self.root, id).await
     }
 }
 

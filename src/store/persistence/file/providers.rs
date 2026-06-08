@@ -82,6 +82,13 @@ pub(super) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<
 }
 
 pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+    // cascade: this provider's credentials (and their statuses) and models.
+    for cred in super::credentials::list(root, id).await? {
+        super::credential_statuses::delete_by_credential(root, cred.id).await?;
+    }
+    super::credentials::delete_by_provider(root, id).await?;
+    super::provider_models::delete_by_provider(root, id).await?;
+
     let file = path(root);
     let mut t = table::load::<Provider>(&file).await?;
     let before = t.rows.len();

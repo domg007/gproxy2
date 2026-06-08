@@ -9,7 +9,11 @@
 use crate::store::libsql::LibsqlClient;
 
 use super::PersistenceBackend;
-use super::records::{Provider, ProviderInput};
+use super::records::{
+    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
+    Provider, ProviderInput, ProviderModel, ProviderModelInput, Route, RouteInput, RouteMember,
+    RouteMemberInput,
+};
 
 /// Edge persistence backend backed by a Turso/libSQL database via Hrana HTTP.
 pub struct LibsqlPersistence {
@@ -62,6 +66,103 @@ impl PersistenceBackend for LibsqlPersistence {
     }
 
     async fn delete_provider(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn list_credentials(&self, _provider_id: i64) -> anyhow::Result<Vec<Credential>> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn get_credential(&self, _id: i64) -> anyhow::Result<Option<Credential>> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn upsert_credential(&self, _input: CredentialInput) -> anyhow::Result<Credential> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn delete_credential(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn list_credential_statuses(
+        &self,
+        _credential_id: i64,
+    ) -> anyhow::Result<Vec<CredentialStatus>> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn upsert_credential_status(
+        &self,
+        _input: CredentialStatusInput,
+    ) -> anyhow::Result<CredentialStatus> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn delete_credential_status(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql credential ops not implemented yet")
+    }
+
+    async fn list_routes(&self) -> anyhow::Result<Vec<Route>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn get_route(&self, _id: i64) -> anyhow::Result<Option<Route>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn get_route_by_name(&self, _name: &str) -> anyhow::Result<Option<Route>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn upsert_route(&self, _input: RouteInput) -> anyhow::Result<Route> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn delete_route(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn list_route_members(&self, _route_id: i64) -> anyhow::Result<Vec<RouteMember>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn upsert_route_member(&self, _input: RouteMemberInput) -> anyhow::Result<RouteMember> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn delete_route_member(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn list_aliases(&self) -> anyhow::Result<Vec<Alias>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn get_alias_by_name(&self, _alias: &str) -> anyhow::Result<Option<Alias>> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn upsert_alias(&self, _input: AliasInput) -> anyhow::Result<Alias> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn delete_alias(&self, _id: i64) -> anyhow::Result<bool> {
+        anyhow::bail!("libsql route ops not implemented yet")
+    }
+
+    async fn list_provider_models(&self, _provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn upsert_provider_model(
+        &self,
+        _input: ProviderModelInput,
+    ) -> anyhow::Result<ProviderModel> {
+        anyhow::bail!("libsql provider ops not implemented yet")
+    }
+
+    async fn delete_provider_model(&self, _id: i64) -> anyhow::Result<bool> {
         anyhow::bail!("libsql provider ops not implemented yet")
     }
 }

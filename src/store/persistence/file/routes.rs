@@ -1,0 +1,93 @@
+//! File-backend route ops over `routes.json`.
+
+use std::path::{Path, PathBuf};
+
+use crate::store::persistence::records::{Route, RouteInput};
+
+use super::table::{self, now_secs};
+
+fn path(root: &Path) -> PathBuf {
+    root.join("routes.json")
+}
+
+pub(super) async fn list(root: &Path) -> anyhow::Result<Vec<Route>> {
+    Ok(table::load::<Route>(&path(root)).await?.rows)
+}
+
+pub(super) async fn get(root: &Path, id: i64) -> anyhow::Result<Option<Route>> {
+    Ok(table::load::<Route>(&path(root))
+        .await?
+        .rows
+        .into_iter()
+        .find(|r| r.id == id))
+}
+
+pub(super) async fn get_by_name(root: &Path, name: &str) -> anyhow::Result<Option<Route>> {
+    Ok(table::load::<Route>(&path(root))
+        .await?
+        .rows
+        .into_iter()
+        .find(|r| r.name == name))
+}
+
+pub(super) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Route> {
+    let file = path(root);
+    let mut t = table::load::<Route>(&file).await?;
+    let now = now_secs();
+
+    if let Some(existing) = t.rows.iter().find(|r| r.name == input.name)
+        && Some(existing.id) != input.id
+    {
+        anyhow::bail!("route name already exists: {}", input.name);
+    }
+
+    let stored = match input.id {
+        Some(id) => {
+            let row = t
+                .rows
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("route not found: {id}"))?;
+            row.name = input.name;
+            row.strategy = input.strategy;
+            row.enabled = input.enabled;
+            row.description = input.description;
+            row.updated_at = now;
+            row.clone()
+        }
+        None => {
+            let id = t.next_id;
+            t.next_id += 1;
+            let route = Route {
+                id,
+                name: input.name,
+                strategy: input.strategy,
+                enabled: input.enabled,
+                description: input.description,
+                created_at: now,
+                updated_at: now,
+            };
+            t.rows.push(route.clone());
+            route
+        }
+    };
+
+    table::store(&file, &t).await?;
+    Ok(stored)
+}
+
+pub(super) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
+    // cascade: members and aliases of this route.
+    super::route_members::delete_by_route(root, id).await?;
+    super::aliases::delete_by_route(root, id).await?;
+
+    let file = path(root);
+    let mut t = table::load::<Route>(&file).await?;
+    let before = t.rows.len();
+    t.rows.retain(|r| r.id != id);
+    let removed = t.rows.len() != before;
+    if removed {
+        table::store(&file, &t).await?;
+    }
+    Ok(removed)
+}

@@ -37,3 +37,65 @@ pub struct ProviderInput {
     pub credential_strategy: String,
     pub enabled: bool,
 }
+
+/// A persisted upstream credential (one key in a provider's pool, §8-B).
+///
+/// `secret_json` is the **opaque envelope-encrypted** secret (§14.1); the
+/// persistence layer stores it verbatim — encryption/decryption is domain code.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Credential {
+    pub id: i64,
+    pub provider_id: i64,
+    pub name: Option<String>,
+    pub kind: String,
+    pub secret_json: Value,
+    pub weight: i64,
+    pub rpm_limit: Option<i64>,
+    pub tpm_limit: Option<i64>,
+    /// Per-credential outbound proxy override (§7.4); edge ignores.
+    pub proxy_url: Option<String>,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Upsert input for a credential.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CredentialInput {
+    pub id: Option<i64>,
+    pub provider_id: i64,
+    pub name: Option<String>,
+    pub kind: String,
+    pub secret_json: Value,
+    pub weight: i64,
+    pub rpm_limit: Option<i64>,
+    pub tpm_limit: Option<i64>,
+    pub proxy_url: Option<String>,
+    pub enabled: bool,
+}
+
+/// Audit snapshot of a credential's health for one channel (§8-B).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CredentialStatus {
+    pub id: i64,
+    pub credential_id: i64,
+    pub channel: String,
+    pub health_kind: String,
+    pub health_json: Option<Value>,
+    pub checked_at: Option<i64>,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Upsert input for a credential status (unique per `(credential_id, channel)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CredentialStatusInput {
+    pub id: Option<i64>,
+    pub credential_id: i64,
+    pub channel: String,
+    pub health_kind: String,
+    pub health_json: Option<Value>,
+    pub checked_at: Option<i64>,
+    pub last_error: Option<String>,
+}

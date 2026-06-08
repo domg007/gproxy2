@@ -5,5 +5,12 @@
 //! these types — never SeaORM entities.
 
 pub mod provider;
+pub mod routing;
 
-pub use provider::{Provider, ProviderInput};
+pub use provider::{
+    Credential, CredentialInput, CredentialStatus, CredentialStatusInput, Provider, ProviderInput,
+};
+pub use routing::{
+    Alias, AliasInput, ProviderModel, ProviderModelInput, Route, RouteInput, RouteMember,
+    RouteMemberInput,
+};
