@@ -179,6 +179,15 @@ src/
 效果:**channel 层退化为纯接入**——只做 auth 注入 + endpoint/method + 传输能力声明,交给
 `UpstreamClient` 发;规则改写完全不进 channel。
 
+### 6.2 reasoning 签名兼容(跨 provider)
+
+各家的"思考/推理"块带**不透明签名**:Claude thinking-block signature、OpenAI encrypted_content、
+Gemini thought signature。多轮对话里这些签名会随历史回传;当一个带 A 家签名的请求被路由到
+**另一账号 / 另一 provider** 时,签名可能不被接受。需要一层**签名兼容判定**:`DetectProvider`
+→ `preserve / drop / replace`(目标兼容则保留;不兼容则丢弃或替换为目标可接受的占位/旁路 sentinel)。
+配套一个**思考签名缓存**(按内容 hash + 模型族,短 TTL)避免重复签名。归属在 transform/process 边界,
+仅在**跨 provider 路由**时触发,同协议 passthrough 不涉及。
+
 ## 7. 分层存储 + 多实例
 
 存储层**只有两个 trait 抽象**(刻意避免 v1 那种按域细分的 backend trait 过度抽象),
@@ -264,6 +273,11 @@ native 的 `WreqClient` 内部维护一个**按 `(proxy_url, 是否 TLS 伪装)`
 
 具体每渠道(及其各凭证模式)的能力在实现时由各 channel 自行声明,架构按能力自动降级,
 不靠预先把清单列全。
+
+**WebSocket 上游**:少数渠道走 WebSocket 而非 HTTP/SSE(如 Codex websockets、Gemini AI Studio 中继)。
+`UpstreamClient` 除 `send`(HTTP)外提供一个 **WS 通道变体**(建立会话、收发帧、心跳/存活)。native 由 wreq/底层
+WS 实现;edge 视平台 `WebSocket` 能力,不支持则该渠道在 edge 降级不可用。**作为渠道传输能力的一种**(与 TLS
+伪装并列),按能力声明 + 自动降级,不影响 HTTP 主路径。
 
 ### 7.5 入站 HTTP:不自造抽象,靠 `tower::Service`
 
@@ -372,6 +386,9 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - v1 → v2 数据迁移的具体字段映射,待 v2 schema 定稿后单独成文。
 - 各 channel 的移植优先级排序。**`chatgpt` 渠道先不实现**(唯一刚需 TLS 伪装者,推后);
   其余渠道优先。`UpstreamClient` 接缝与能力标记仍照建,后续补 chatgpt 是干净加法。
+- **plugin 系统 + 可嵌入 SDK 是既定未来方向,但本期不做**:先把单 crate 做扎实,**不预埋
+  plugin/SDK 接缝**(过早抽象拖累核心);待 crate 稳定后再作为干净加法引入(自定义 provider /
+  translator / 鉴权插件等)。
 
 ## 13. 边缘 / WASM 支持
 
@@ -451,6 +468,22 @@ Vercel/Cloudflare =
 ### 14.4 入站 TLS 边界
 - native **只服务 HTTP**,TLS 由**前置 LB / ingress 终结**;edge 由平台终结。
 - native 内置 rustls(直服务 HTTPS)以后再评估,本期不做。
+
+### 14.5 凭证获取与 OAuth 刷新
+
+订阅账号(ChatGPT/Claude/Gemini 等)经 OAuth 接入,凭证生命周期是这类代理的立身之本。
+
+**获取(登录)——只走"回传 URL",不建本地回调服务器**:
+- 两步走 admin 操作:① `start`:服务端生成 **PKCE verifier + state**,存 cache(短 TTL,keyed by login-session),返回 auth URL;② `complete`:operator 在**自己机器**完成授权后,把跳转后的 callback URL(含 code/state)贴回,服务端用存的 verifier 换 token 入库。
+- **为什么不建回调服务器 + 自动开浏览器**:那套假设代理跑在有浏览器、localhost 可达的机器上;远程 VPS / 容器 / **边缘 serverless** 上不成立。回传 URL 流程**到处可用、天然 edge 兼容**(纯 HTTP 两步)、攻击面更小。
+- **可选 device flow**:对支持的 provider(如 Codex/Kimi)额外提供 device flow(显示 code + 轮询),同样无需回调服务器。
+
+**刷新——惰性按需 + 单飞锁**:
+- secret_json(信封加密)存 `{access_token, refresh_token, expires_at, ...}`。
+- 选中凭证时若 `now > expires_at - lead`(按 provider 设提前量)或上游返 **401** → 先刷新再用/重试。
+- **⚠️ 必须按凭证单飞**:许多 provider **每次刷新轮换 refresh_token**(旧的即失效);多实例/并发刷同一凭证会让落败方拿到作废 token → 凭证掉线。单实例用本地 mutex,**多实例用 redis 分布式锁**(锁 key = credential id)。
+- 刷新成功 → 新 token **用目标 KEK 重新信封加密写回 persistence** + `cache.publish` 广播失效(见 §7.2/§14.1);失败 → 标 credential `status=error` + 退避 + 上报 admin。
+- 可选:轻量后台预刷(持锁的某实例扫临近过期的凭证提前刷)消除"过期后首请求"的延迟尖刺。
 
 ## 15. 可观测性
 
