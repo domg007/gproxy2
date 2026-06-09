@@ -11,14 +11,29 @@ use http::HeaderMap;
 use crate::channel::http_util::HOP_BY_HOP;
 use crate::pipeline::context::RequestCtx;
 
-/// Inbound headers globally denied upstream regardless of channel: hop-by-hop,
-/// the caller's own credentials, cookies, and `Host` (the channel sets a fresh
-/// one from the upstream URI).
+/// Inbound headers globally denied upstream regardless of channel. A hard floor
+/// the per-channel allow-list cannot override:
+/// - hop-by-hop (`HOP_BY_HOP`);
+/// - the caller's own credentials + cookies;
+/// - `Host` (a fresh one is derived from the upstream URI);
+/// - front-proxy / client-network metadata (would leak the client IP and is
+///   meaningless upstream);
+/// - `accept-encoding` (compression is managed by the transport, which also
+///   matches the impersonated client; a forwarded value breaks auto-decompress
+///   and content-encoding stripping).
 fn is_denied_header(name: &str) -> bool {
     HOP_BY_HOP.contains(&name)
         || matches!(
             name,
-            "authorization" | "x-api-key" | "x-goog-api-key" | "api-key" | "cookie" | "host"
+            // caller credentials / cookies
+            "authorization" | "x-api-key" | "x-goog-api-key" | "api-key" | "cookie"
+            // host (re-derived from the upstream URI)
+            | "host"
+            // front-proxy / client-network metadata
+            | "via" | "forwarded" | "x-forwarded-for" | "x-forwarded-host"
+            | "x-forwarded-proto" | "x-real-ip"
+            // transport-managed compression
+            | "accept-encoding"
         )
 }
 
@@ -79,10 +94,16 @@ mod tests {
         h.insert("cookie", "s=1".parse().unwrap());
         h.insert(http::header::CONNECTION, "keep-alive".parse().unwrap());
         h.insert(http::header::HOST, "client".parse().unwrap());
+        h.insert("via", "1.1 Caddy".parse().unwrap());
+        h.insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
+        h.insert(http::header::ACCEPT_ENCODING, "gzip, br".parse().unwrap());
         h.insert(
             http::header::CONTENT_TYPE,
             "application/json".parse().unwrap(),
         );
+        // an SDK-fingerprint header survives the global floor (an impersonation
+        // channel's allow-list may forward it; the floor must not).
+        h.insert("x-stainless-lang", "js".parse().unwrap());
         let mut c = ctx(h, Some("key=secret&alt=sse"));
         apply_global_blacklist(&mut c);
 
@@ -91,11 +112,15 @@ mod tests {
         assert!(c.headers.get("cookie").is_none());
         assert!(c.headers.get(http::header::CONNECTION).is_none());
         assert!(c.headers.get(http::header::HOST).is_none());
-        // non-denied header survives (the channel allow-list decides it later)
+        assert!(c.headers.get("via").is_none());
+        assert!(c.headers.get("x-forwarded-for").is_none());
+        assert!(c.headers.get(http::header::ACCEPT_ENCODING).is_none());
+        // non-denied headers survive (the channel allow-list decides them later)
         assert_eq!(
             c.headers.get(http::header::CONTENT_TYPE).unwrap(),
             "application/json"
         );
+        assert_eq!(c.headers.get("x-stainless-lang").unwrap(), "js");
         // ?key= dropped, other params survive for the channel allow-list
         assert_eq!(c.query.as_deref(), Some("alt=sse"));
     }
