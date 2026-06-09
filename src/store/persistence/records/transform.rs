@@ -1,4 +1,4 @@
-//! Rule records (§8-B2): the keep-as-is `routing_rules` transform-dispatch
+//! Transform records (§8-B2): the keep-as-is `routing_rules` transform-dispatch
 //! decision, plus the reusable rule-set model (`rule_sets` → `rules`) attached
 //! to providers via `provider_rule_sets`.
 

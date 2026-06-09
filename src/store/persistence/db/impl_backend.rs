@@ -132,88 +132,88 @@ impl PersistenceBackend for DbPersistence {
     }
 
     async fn list_provider_models(&self, provider_id: i64) -> anyhow::Result<Vec<ProviderModel>> {
-        ops::routing::provider_models::list(&self.conn, provider_id).await
+        ops::provider::provider_models::list(&self.conn, provider_id).await
     }
 
     async fn upsert_provider_model(
         &self,
         input: ProviderModelInput,
     ) -> anyhow::Result<ProviderModel> {
-        ops::routing::provider_models::upsert(&self.conn, input).await
+        ops::provider::provider_models::upsert(&self.conn, input).await
     }
 
     async fn delete_provider_model(&self, id: i64) -> anyhow::Result<bool> {
-        ops::routing::provider_models::delete(&self.conn, id).await
+        ops::provider::provider_models::delete(&self.conn, id).await
     }
 
     async fn list_routing_rules(&self, provider_id: i64) -> anyhow::Result<Vec<RoutingRule>> {
-        ops::rules::routing_rules::list(&self.conn, provider_id).await
+        ops::transform::routing_rules::list(&self.conn, provider_id).await
     }
 
     async fn get_routing_rule(&self, id: i64) -> anyhow::Result<Option<RoutingRule>> {
-        ops::rules::routing_rules::get(&self.conn, id).await
+        ops::transform::routing_rules::get(&self.conn, id).await
     }
 
     async fn upsert_routing_rule(&self, input: RoutingRuleInput) -> anyhow::Result<RoutingRule> {
-        ops::rules::routing_rules::upsert(&self.conn, input).await
+        ops::transform::routing_rules::upsert(&self.conn, input).await
     }
 
     async fn delete_routing_rule(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::routing_rules::delete(&self.conn, id).await
+        ops::transform::routing_rules::delete(&self.conn, id).await
     }
 
     async fn list_rule_sets(&self) -> anyhow::Result<Vec<RuleSet>> {
-        ops::rules::rule_sets::list(&self.conn).await
+        ops::transform::rule_sets::list(&self.conn).await
     }
 
     async fn get_rule_set(&self, id: i64) -> anyhow::Result<Option<RuleSet>> {
-        ops::rules::rule_sets::get(&self.conn, id).await
+        ops::transform::rule_sets::get(&self.conn, id).await
     }
 
     async fn get_rule_set_by_name(&self, name: &str) -> anyhow::Result<Option<RuleSet>> {
-        ops::rules::rule_sets::get_by_name(&self.conn, name).await
+        ops::transform::rule_sets::get_by_name(&self.conn, name).await
     }
 
     async fn upsert_rule_set(&self, input: RuleSetInput) -> anyhow::Result<RuleSet> {
-        ops::rules::rule_sets::upsert(&self.conn, input).await
+        ops::transform::rule_sets::upsert(&self.conn, input).await
     }
 
     async fn delete_rule_set(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::rule_sets::delete(&self.conn, id).await
+        ops::transform::rule_sets::delete(&self.conn, id).await
     }
 
     async fn list_rules(&self, rule_set_id: i64) -> anyhow::Result<Vec<Rule>> {
-        ops::rules::rules::list(&self.conn, rule_set_id).await
+        ops::transform::rules::list(&self.conn, rule_set_id).await
     }
 
     async fn get_rule(&self, id: i64) -> anyhow::Result<Option<Rule>> {
-        ops::rules::rules::get(&self.conn, id).await
+        ops::transform::rules::get(&self.conn, id).await
     }
 
     async fn upsert_rule(&self, input: RuleInput) -> anyhow::Result<Rule> {
-        ops::rules::rules::upsert(&self.conn, input).await
+        ops::transform::rules::upsert(&self.conn, input).await
     }
 
     async fn delete_rule(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::rules::delete(&self.conn, id).await
+        ops::transform::rules::delete(&self.conn, id).await
     }
 
     async fn list_provider_rule_sets(
         &self,
         provider_id: i64,
     ) -> anyhow::Result<Vec<ProviderRuleSet>> {
-        ops::rules::provider_rule_sets::list(&self.conn, provider_id).await
+        ops::transform::provider_rule_sets::list(&self.conn, provider_id).await
     }
 
     async fn upsert_provider_rule_set(
         &self,
         input: ProviderRuleSetInput,
     ) -> anyhow::Result<ProviderRuleSet> {
-        ops::rules::provider_rule_sets::upsert(&self.conn, input).await
+        ops::transform::provider_rule_sets::upsert(&self.conn, input).await
     }
 
     async fn delete_provider_rule_set(&self, id: i64) -> anyhow::Result<bool> {
-        ops::rules::provider_rule_sets::delete(&self.conn, id).await
+        ops::transform::provider_rule_sets::delete(&self.conn, id).await
     }
 
     async fn list_orgs(&self) -> anyhow::Result<Vec<Org>> {
@@ -297,42 +297,42 @@ impl PersistenceBackend for DbPersistence {
         scope: &str,
         scope_id: i64,
     ) -> anyhow::Result<Vec<RoutePermission>> {
-        ops::identity::route_permissions::list(&self.conn, scope, scope_id).await
+        ops::authz::route_permissions::list(&self.conn, scope, scope_id).await
     }
 
     async fn upsert_route_permission(
         &self,
         input: RoutePermissionInput,
     ) -> anyhow::Result<RoutePermission> {
-        ops::identity::route_permissions::upsert(&self.conn, input).await
+        ops::authz::route_permissions::upsert(&self.conn, input).await
     }
 
     async fn delete_route_permission(&self, id: i64) -> anyhow::Result<bool> {
-        ops::identity::route_permissions::delete(&self.conn, id).await
+        ops::authz::route_permissions::delete(&self.conn, id).await
     }
 
     async fn list_rate_limits(&self, scope: &str, scope_id: i64) -> anyhow::Result<Vec<RateLimit>> {
-        ops::identity::rate_limits::list(&self.conn, scope, scope_id).await
+        ops::authz::rate_limits::list(&self.conn, scope, scope_id).await
     }
 
     async fn upsert_rate_limit(&self, input: RateLimitInput) -> anyhow::Result<RateLimit> {
-        ops::identity::rate_limits::upsert(&self.conn, input).await
+        ops::authz::rate_limits::upsert(&self.conn, input).await
     }
 
     async fn delete_rate_limit(&self, id: i64) -> anyhow::Result<bool> {
-        ops::identity::rate_limits::delete(&self.conn, id).await
+        ops::authz::rate_limits::delete(&self.conn, id).await
     }
 
     async fn get_quota(&self, scope: &str, scope_id: i64) -> anyhow::Result<Option<Quota>> {
-        ops::identity::quotas::get(&self.conn, scope, scope_id).await
+        ops::authz::quotas::get(&self.conn, scope, scope_id).await
     }
 
     async fn upsert_quota(&self, input: QuotaInput) -> anyhow::Result<Quota> {
-        ops::identity::quotas::upsert(&self.conn, input).await
+        ops::authz::quotas::upsert(&self.conn, input).await
     }
 
     async fn delete_quota(&self, id: i64) -> anyhow::Result<bool> {
-        ops::identity::quotas::delete(&self.conn, id).await
+        ops::authz::quotas::delete(&self.conn, id).await
     }
 
     async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Usage> {
@@ -360,28 +360,28 @@ impl PersistenceBackend for DbPersistence {
         &self,
         input: DownstreamRequestInput,
     ) -> anyhow::Result<DownstreamRequest> {
-        ops::usage::downstream_requests::append(&self.conn, input).await
+        ops::logs::downstream_requests::append(&self.conn, input).await
     }
 
     async fn list_downstream_requests(
         &self,
         request_id: &str,
     ) -> anyhow::Result<Vec<DownstreamRequest>> {
-        ops::usage::downstream_requests::list(&self.conn, request_id).await
+        ops::logs::downstream_requests::list(&self.conn, request_id).await
     }
 
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,
     ) -> anyhow::Result<UpstreamRequest> {
-        ops::usage::upstream_requests::append(&self.conn, input).await
+        ops::logs::upstream_requests::append(&self.conn, input).await
     }
 
     async fn list_upstream_requests(
         &self,
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
-        ops::usage::upstream_requests::list(&self.conn, request_id).await
+        ops::logs::upstream_requests::list(&self.conn, request_id).await
     }
 
     async fn list_instance_settings(&self) -> anyhow::Result<Vec<InstanceSettings>> {

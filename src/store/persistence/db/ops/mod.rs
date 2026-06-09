@@ -1,10 +1,12 @@
 //! Trait-method implementations for the `db` backend (SeaORM ↔ records).
 
+pub mod authz;
 pub mod identity;
+pub mod logs;
 pub mod provider;
 pub mod routing;
-pub mod rules;
 pub mod settings;
+pub mod transform;
 pub mod usage;
 
 pub(crate) fn now_secs() -> i64 {

@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{ProviderRuleSet, ProviderRuleSetInput};
 
-use crate::store::persistence::db::entities::rules::provider_rule_set;
+use crate::store::persistence::db::entities::transform::provider_rule_set;
 
 fn to_record(m: provider_rule_set::Model) -> ProviderRuleSet {
     ProviderRuleSet {

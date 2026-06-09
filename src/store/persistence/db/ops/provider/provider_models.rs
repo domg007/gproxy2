@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{ProviderModel, ProviderModelInput};
 
-use crate::store::persistence::db::entities::routing::provider_model;
+use crate::store::persistence::db::entities::provider::provider_model;
 
 fn to_record(m: provider_model::Model) -> anyhow::Result<ProviderModel> {
     Ok(ProviderModel {

@@ -6,7 +6,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Rule, RuleInput};
 
-use crate::store::persistence::db::entities::rules::rule;
+use crate::store::persistence::db::entities::transform::rule;
 
 fn to_record(m: rule::Model) -> anyhow::Result<Rule> {
     Ok(Rule {

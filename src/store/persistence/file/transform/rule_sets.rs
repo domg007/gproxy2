@@ -76,9 +76,8 @@ pub(crate) async fn upsert(root: &Path, input: RuleSetInput) -> anyhow::Result<R
 
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: this set's rules and its provider attachments (not the providers).
-    crate::store::persistence::file::rules::rules::delete_by_rule_set(root, id).await?;
-    crate::store::persistence::file::rules::provider_rule_sets::delete_by_rule_set(root, id)
-        .await?;
+    super::rules::delete_by_rule_set(root, id).await?;
+    super::provider_rule_sets::delete_by_rule_set(root, id).await?;
 
     let file = path(root);
     let mut t = table::load::<RuleSet>(&file).await?;

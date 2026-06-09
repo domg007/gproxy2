@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{RoutePermission, RoutePermissionInput};
 
-use crate::store::persistence::db::entities::identity::route_permission;
+use crate::store::persistence::db::entities::authz::route_permission;
 
 fn to_record(m: route_permission::Model) -> RoutePermission {
     RoutePermission {

@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{RoutingRule, RoutingRuleInput};
 
-use crate::store::persistence::db::entities::rules::routing_rule;
+use crate::store::persistence::db::entities::transform::routing_rule;
 
 fn to_record(m: routing_rule::Model) -> RoutingRule {
     RoutingRule {

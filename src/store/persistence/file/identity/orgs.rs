@@ -78,9 +78,10 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: teams, users (which cascade user_keys), and scope-bound rows.
     super::teams::delete_by_org(root, id).await?;
     super::users::delete_by_org(root, id).await?;
-    super::route_permissions::delete_by_scope(root, "org", id).await?;
-    super::rate_limits::delete_by_scope(root, "org", id).await?;
-    super::quotas::delete_by_scope(root, "org", id).await?;
+    crate::store::persistence::file::authz::route_permissions::delete_by_scope(root, "org", id)
+        .await?;
+    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "org", id).await?;
+    crate::store::persistence::file::authz::quotas::delete_by_scope(root, "org", id).await?;
 
     let file = path(root);
     let mut t = table::load::<Org>(&file).await?;

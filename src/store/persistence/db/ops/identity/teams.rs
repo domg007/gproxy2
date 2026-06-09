@@ -83,9 +83,11 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
     // cascade: detach members and drop scope-bound rows for this team.
     super::users::clear_team(conn, id).await?;
-    super::route_permissions::delete_by_scope(conn, "team", id).await?;
-    super::rate_limits::delete_by_scope(conn, "team", id).await?;
-    super::quotas::delete_by_scope(conn, "team", id).await?;
+    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(conn, "team", id)
+        .await?;
+    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "team", id)
+        .await?;
+    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "team", id).await?;
 
     let res = team::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)
@@ -98,9 +100,14 @@ pub async fn delete_by_org(conn: &DatabaseConnection, org_id: i64) -> anyhow::Re
         .await?;
     for t in teams {
         super::users::clear_team(conn, t.id).await?;
-        super::route_permissions::delete_by_scope(conn, "team", t.id).await?;
-        super::rate_limits::delete_by_scope(conn, "team", t.id).await?;
-        super::quotas::delete_by_scope(conn, "team", t.id).await?;
+        crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(
+            conn, "team", t.id,
+        )
+        .await?;
+        crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "team", t.id)
+            .await?;
+        crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "team", t.id)
+            .await?;
     }
     team::Entity::delete_many()
         .filter(team::Column::OrgId.eq(org_id))

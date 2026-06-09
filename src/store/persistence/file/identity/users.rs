@@ -83,9 +83,10 @@ pub(crate) async fn upsert(root: &Path, input: UserInput) -> anyhow::Result<User
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: keys and scope-bound permissions / rate limits / quotas.
     super::user_keys::delete_by_user(root, id).await?;
-    super::route_permissions::delete_by_scope(root, "user", id).await?;
-    super::rate_limits::delete_by_scope(root, "user", id).await?;
-    super::quotas::delete_by_scope(root, "user", id).await?;
+    crate::store::persistence::file::authz::route_permissions::delete_by_scope(root, "user", id)
+        .await?;
+    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "user", id).await?;
+    crate::store::persistence::file::authz::quotas::delete_by_scope(root, "user", id).await?;
 
     let file = path(root);
     let mut t = table::load::<User>(&file).await?;
@@ -109,9 +110,13 @@ pub(crate) async fn delete_by_org(root: &Path, org_id: i64) -> anyhow::Result<()
         .collect();
     for uid in &ids {
         super::user_keys::delete_by_user(root, *uid).await?;
-        super::route_permissions::delete_by_scope(root, "user", *uid).await?;
-        super::rate_limits::delete_by_scope(root, "user", *uid).await?;
-        super::quotas::delete_by_scope(root, "user", *uid).await?;
+        crate::store::persistence::file::authz::route_permissions::delete_by_scope(
+            root, "user", *uid,
+        )
+        .await?;
+        crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "user", *uid)
+            .await?;
+        crate::store::persistence::file::authz::quotas::delete_by_scope(root, "user", *uid).await?;
     }
 
     let file = path(root);

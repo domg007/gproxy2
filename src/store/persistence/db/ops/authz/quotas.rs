@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{Quota, QuotaInput};
 
-use crate::store::persistence::db::entities::identity::quota;
+use crate::store::persistence::db::entities::authz::quota;
 
 fn to_record(m: quota::Model) -> Quota {
     Quota {

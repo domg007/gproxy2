@@ -89,11 +89,11 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
         super::credential_statuses::delete_by_credential(root, cred.id).await?;
     }
     super::credentials::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::routing::provider_models::delete_by_provider(root, id).await?;
+    super::provider_models::delete_by_provider(root, id).await?;
 
     // §8-B2 rules cascade.
-    crate::store::persistence::file::rules::routing_rules::delete_by_provider(root, id).await?;
-    crate::store::persistence::file::rules::provider_rule_sets::delete_by_provider(root, id)
+    crate::store::persistence::file::transform::routing_rules::delete_by_provider(root, id).await?;
+    crate::store::persistence::file::transform::provider_rule_sets::delete_by_provider(root, id)
         .await?;
 
     let file = path(root);

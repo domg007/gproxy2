@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{RuleSet, RuleSetInput};
 
-use crate::store::persistence::db::entities::rules::rule_set;
+use crate::store::persistence::db::entities::transform::rule_set;
 
 fn to_record(m: rule_set::Model) -> RuleSet {
     RuleSet {
@@ -87,9 +87,8 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::R
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
     // cascade: this set's rules and its provider attachments (not the providers).
-    crate::store::persistence::db::ops::rules::rules::delete_by_rule_set(conn, id).await?;
-    crate::store::persistence::db::ops::rules::provider_rule_sets::delete_by_rule_set(conn, id)
-        .await?;
+    super::rules::delete_by_rule_set(conn, id).await?;
+    super::provider_rule_sets::delete_by_rule_set(conn, id).await?;
 
     let res = rule_set::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)

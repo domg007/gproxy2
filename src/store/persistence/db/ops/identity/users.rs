@@ -84,9 +84,11 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserInput) -> anyhow::Resu
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
     // cascade: keys and scope-bound permissions / rate limits / quotas.
     super::user_keys::delete_by_user(conn, id).await?;
-    super::route_permissions::delete_by_scope(conn, "user", id).await?;
-    super::rate_limits::delete_by_scope(conn, "user", id).await?;
-    super::quotas::delete_by_scope(conn, "user", id).await?;
+    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(conn, "user", id)
+        .await?;
+    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "user", id)
+        .await?;
+    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "user", id).await?;
 
     let res = user::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)
@@ -100,9 +102,14 @@ pub async fn delete_by_org(conn: &DatabaseConnection, org_id: i64) -> anyhow::Re
         .await?;
     for u in users {
         super::user_keys::delete_by_user(conn, u.id).await?;
-        super::route_permissions::delete_by_scope(conn, "user", u.id).await?;
-        super::rate_limits::delete_by_scope(conn, "user", u.id).await?;
-        super::quotas::delete_by_scope(conn, "user", u.id).await?;
+        crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(
+            conn, "user", u.id,
+        )
+        .await?;
+        crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "user", u.id)
+            .await?;
+        crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "user", u.id)
+            .await?;
     }
     user::Entity::delete_many()
         .filter(user::Column::OrgId.eq(org_id))

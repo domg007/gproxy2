@@ -4,12 +4,14 @@
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema};
 
-use super::entities::identity::{org, quota, rate_limit, route_permission, team, user, user_key};
-use super::entities::provider::{credential, credential_status, provider};
-use super::entities::routing::{alias, provider_model, route, route_member};
-use super::entities::rules::{provider_rule_set, routing_rule, rule, rule_set};
+use super::entities::authz::{quota, rate_limit, route_permission};
+use super::entities::identity::{org, team, user, user_key};
+use super::entities::logs::{downstream_request, upstream_request};
+use super::entities::provider::{credential, credential_status, provider, provider_model};
+use super::entities::routing::{alias, route, route_member};
 use super::entities::settings::instance_setting;
-use super::entities::usage::{downstream_request, upstream_request, usage, usage_rollup};
+use super::entities::transform::{provider_rule_set, routing_rule, rule, rule_set};
+use super::entities::usage::{usage, usage_rollup};
 
 pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let backend = conn.get_database_backend();

@@ -105,12 +105,12 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
         super::credential_statuses::delete_by_credential(conn, cred.id).await?;
     }
     super::credentials::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::routing::provider_models::delete_by_provider(conn, id)
-        .await?;
+    super::provider_models::delete_by_provider(conn, id).await?;
 
     // §8-B2 rules cascade.
-    crate::store::persistence::db::ops::rules::routing_rules::delete_by_provider(conn, id).await?;
-    crate::store::persistence::db::ops::rules::provider_rule_sets::delete_by_provider(conn, id)
+    crate::store::persistence::db::ops::transform::routing_rules::delete_by_provider(conn, id)
+        .await?;
+    crate::store::persistence::db::ops::transform::provider_rule_sets::delete_by_provider(conn, id)
         .await?;
 
     let res = provider::Entity::delete_by_id(id).exec(conn).await?;

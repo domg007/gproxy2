@@ -1,7 +1,6 @@
-//! Routing records (§8-A): routes, members, aliases, provider models.
+//! Routing records (§8-A): routes, members, aliases.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// A route — one logical model name backed by 1..N members (§3.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,28 +67,4 @@ pub struct AliasInput {
     pub id: Option<i64>,
     pub alias: String,
     pub route_id: i64,
-}
-
-/// A model exposed by a provider, with optional pricing (§8-A).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProviderModel {
-    pub id: i64,
-    pub provider_id: i64,
-    pub model_id: String,
-    pub display_name: Option<String>,
-    pub pricing_json: Option<Value>,
-    pub enabled: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-/// Upsert input for a provider model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProviderModelInput {
-    pub id: Option<i64>,
-    pub provider_id: i64,
-    pub model_id: String,
-    pub display_name: Option<String>,
-    pub pricing_json: Option<Value>,
-    pub enabled: bool,
 }

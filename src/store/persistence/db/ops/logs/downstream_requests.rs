@@ -1,23 +1,21 @@
-//! Upstream-request log ops for the `db` backend (append-only).
+//! Downstream-request log ops for the `db` backend (append-only).
 
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{UpstreamRequest, UpstreamRequestInput};
+use crate::store::persistence::records::{DownstreamRequest, DownstreamRequestInput};
 
-use crate::store::persistence::db::entities::usage::upstream_request;
+use crate::store::persistence::db::entities::logs::downstream_request;
 
-fn to_record(m: upstream_request::Model) -> anyhow::Result<UpstreamRequest> {
-    Ok(UpstreamRequest {
+fn to_record(m: downstream_request::Model) -> anyhow::Result<DownstreamRequest> {
+    Ok(DownstreamRequest {
         id: m.id,
         request_id: m.request_id,
         at: m.at,
-        provider_id: m.provider_id,
-        credential_id: m.credential_id,
-        url: m.url,
         method: m.method,
+        path: m.path,
+        query: m.query,
         status: m.status,
-        latency_ms: m.latency_ms,
         headers_json: m
             .headers_json
             .map(|s| serde_json::from_str(&s))
@@ -30,24 +28,22 @@ fn to_record(m: upstream_request::Model) -> anyhow::Result<UpstreamRequest> {
 
 pub async fn append(
     conn: &DatabaseConnection,
-    input: UpstreamRequestInput,
-) -> anyhow::Result<UpstreamRequest> {
+    input: DownstreamRequestInput,
+) -> anyhow::Result<DownstreamRequest> {
     let now = crate::store::persistence::db::ops::now_secs();
     let headers = input
         .headers_json
         .map(|v| serde_json::to_string(&v))
         .transpose()?;
 
-    let model = upstream_request::ActiveModel {
+    let model = downstream_request::ActiveModel {
         id: NotSet,
         request_id: Set(input.request_id),
         at: Set(input.at),
-        provider_id: Set(input.provider_id),
-        credential_id: Set(input.credential_id),
-        url: Set(input.url),
         method: Set(input.method),
+        path: Set(input.path),
+        query: Set(input.query),
         status: Set(input.status),
-        latency_ms: Set(input.latency_ms),
         headers_json: Set(headers),
         body: Set(input.body),
         created_at: Set(now),
@@ -62,9 +58,9 @@ pub async fn append(
 pub async fn list(
     conn: &DatabaseConnection,
     request_id: &str,
-) -> anyhow::Result<Vec<UpstreamRequest>> {
-    upstream_request::Entity::find()
-        .filter(upstream_request::Column::RequestId.eq(request_id))
+) -> anyhow::Result<Vec<DownstreamRequest>> {
+    downstream_request::Entity::find()
+        .filter(downstream_request::Column::RequestId.eq(request_id))
         .all(conn)
         .await?
         .into_iter()

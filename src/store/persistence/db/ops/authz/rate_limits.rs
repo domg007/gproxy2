@@ -5,7 +5,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Qu
 
 use crate::store::persistence::records::{RateLimit, RateLimitInput};
 
-use crate::store::persistence::db::entities::identity::rate_limit;
+use crate::store::persistence::db::entities::authz::rate_limit;
 
 fn to_record(m: rate_limit::Model) -> RateLimit {
     RateLimit {
