@@ -33,9 +33,6 @@ impl Channel for CustomChannel {
         let proto = auth::detect(ctx.path);
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key, proto)?;
-        Ok(PreparedRequest {
-            request: req,
-            proxy_url: None,
-        })
+        Ok(PreparedRequest::new(req))
     }
 }

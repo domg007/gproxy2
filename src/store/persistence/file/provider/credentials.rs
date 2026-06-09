@@ -47,6 +47,7 @@ pub(crate) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Resul
             row.rpm_limit = input.rpm_limit;
             row.tpm_limit = input.tpm_limit;
             row.proxy_url = input.proxy_url;
+            row.tls_fingerprint = input.tls_fingerprint;
             row.enabled = input.enabled;
             row.updated_at = now;
             row.clone()
@@ -64,6 +65,7 @@ pub(crate) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Resul
                 rpm_limit: input.rpm_limit,
                 tpm_limit: input.tpm_limit,
                 proxy_url: input.proxy_url,
+                tls_fingerprint: input.tls_fingerprint,
                 enabled: input.enabled,
                 created_at: now,
                 updated_at: now,

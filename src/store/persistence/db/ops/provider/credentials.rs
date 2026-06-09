@@ -18,6 +18,10 @@ fn to_record(m: credential::Model) -> anyhow::Result<Credential> {
         rpm_limit: m.rpm_limit,
         tpm_limit: m.tpm_limit,
         proxy_url: m.proxy_url,
+        tls_fingerprint: m
+            .tls_fingerprint
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?,
         enabled: m.enabled,
         created_at: m.created_at,
         updated_at: m.updated_at,
@@ -48,6 +52,10 @@ pub async fn upsert(
 ) -> anyhow::Result<Credential> {
     let now = crate::store::persistence::db::ops::now_secs();
     let secret = serde_json::to_string(&input.secret_json)?;
+    let tls = input
+        .tls_fingerprint
+        .map(|v| serde_json::to_string(&v))
+        .transpose()?;
 
     let model = match input.id {
         Some(id) => {
@@ -64,6 +72,7 @@ pub async fn upsert(
             am.rpm_limit = Set(input.rpm_limit);
             am.tpm_limit = Set(input.tpm_limit);
             am.proxy_url = Set(input.proxy_url);
+            am.tls_fingerprint = Set(tls);
             am.enabled = Set(input.enabled);
             am.updated_at = Set(now);
             am.update(conn).await?
@@ -79,6 +88,7 @@ pub async fn upsert(
                 rpm_limit: Set(input.rpm_limit),
                 tpm_limit: Set(input.tpm_limit),
                 proxy_url: Set(input.proxy_url),
+                tls_fingerprint: Set(tls),
                 enabled: Set(input.enabled),
                 created_at: Set(now),
                 updated_at: Set(now),

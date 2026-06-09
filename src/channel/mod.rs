@@ -9,6 +9,7 @@ pub mod disposition;
 pub mod http_util;
 pub mod prepared;
 pub mod registry;
+pub mod resolve;
 
 use std::sync::Arc;
 
@@ -101,8 +102,14 @@ pub trait Channel: Send + Sync {
         TransportKind::Http
     }
 
-    fn requires_tls_emulation(&self) -> bool {
-        false
+    /// The channel's default TLS-emulation fingerprint profile, or `None` for no
+    /// emulation. The EFFECTIVE fingerprint is `credential.tls_fingerprint`
+    /// falling back to this (see [`resolve::effective_tls_fingerprint`]). Plain
+    /// API channels return `None`; impersonation channels (claudecode, codex,
+    /// chatgpt) return their profile. The JSON shape is finalized when the
+    /// emulation transport lands (M7).
+    fn default_tls_fingerprint(&self) -> Option<Value> {
+        None
     }
 }
 

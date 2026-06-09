@@ -15,16 +15,11 @@ pub struct Provider {
     /// `ChannelRegistry`, e.g. `openai`, `claude_api`, `aistudio`, `custom`.
     pub channel: String,
     pub label: Option<String>,
-    /// Free-form settings: `base_url`, channel scalar toggles, default
-    /// `proxy_url`, `circuit_breaker`, etc. (see §7.4 / §3.2).
+    /// Free-form settings: `base_url`, channel scalar toggles, `circuit_breaker`,
+    /// etc. (see §7.4 / §3.2). Proxy is per-credential or global, not here.
     pub settings_json: Value,
     /// Credential pool strategy: `round_robin` | `sticky` (§3.3).
     pub credential_strategy: String,
-    /// TLS-emulation fingerprint config (structured JSON: profile + overrides
-    /// such as JA3/cipher/extensions) used when the emulation transport is
-    /// available (§7.4); `None` = no emulation.
-    #[serde(default)]
-    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
     /// Unix seconds.
     pub created_at: i64,
@@ -42,8 +37,6 @@ pub struct ProviderInput {
     pub label: Option<String>,
     pub settings_json: Value,
     pub credential_strategy: String,
-    #[serde(default)]
-    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
 }
 
@@ -61,8 +54,13 @@ pub struct Credential {
     pub weight: i64,
     pub rpm_limit: Option<i64>,
     pub tpm_limit: Option<i64>,
-    /// Per-credential outbound proxy override (§7.4); edge ignores.
+    /// Per-credential outbound proxy override; falls back to the global proxy
+    /// (§7.4). Edge ignores.
     pub proxy_url: Option<String>,
+    /// Per-credential TLS-emulation fingerprint override; falls back to the
+    /// channel's default (§7.4). `None` + channel default `None` = no emulation.
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -82,6 +80,7 @@ impl std::fmt::Debug for Credential {
             .field("rpm_limit", &self.rpm_limit)
             .field("tpm_limit", &self.tpm_limit)
             .field("proxy_url", &self.proxy_url)
+            .field("tls_fingerprint", &self.tls_fingerprint)
             .field("enabled", &self.enabled)
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
@@ -101,6 +100,8 @@ pub struct CredentialInput {
     pub rpm_limit: Option<i64>,
     pub tpm_limit: Option<i64>,
     pub proxy_url: Option<String>,
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
 }
 

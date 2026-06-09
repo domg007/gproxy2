@@ -34,9 +34,6 @@ impl Channel for AiStudioChannel {
         let uri = join_url(&base_url, ctx.path, query.as_deref())?;
         let headers = allow_headers(ctx.headers, DEFAULTS.forward_headers);
         let req = build_request(ctx.method, uri, headers, ctx.body)?;
-        Ok(PreparedRequest {
-            request: req,
-            proxy_url: None,
-        })
+        Ok(PreparedRequest::new(req))
     }
 }

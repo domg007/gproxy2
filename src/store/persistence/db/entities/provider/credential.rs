@@ -17,6 +17,8 @@ pub struct Model {
     pub rpm_limit: Option<i64>,
     pub tpm_limit: Option<i64>,
     pub proxy_url: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub tls_fingerprint: Option<String>,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,

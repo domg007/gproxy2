@@ -20,8 +20,10 @@ impl Channel for ClaudeCodeChannel {
         ContentGenerationKind::ClaudeMessages
     }
 
-    fn requires_tls_emulation(&self) -> bool {
-        true
+    fn default_tls_fingerprint(&self) -> Option<serde_json::Value> {
+        // Impersonation-by-default. Placeholder profile; the concrete JA3/preset
+        // shape lands with the emulation transport (M7).
+        Some(serde_json::json!({ "profile": "claude_cli" }))
     }
 
     fn prepare(&self, _ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {

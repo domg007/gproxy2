@@ -29,9 +29,6 @@ impl Channel for NvidiaChannel {
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key)?;
-        Ok(PreparedRequest {
-            request: req,
-            proxy_url: None,
-        })
+        Ok(PreparedRequest::new(req))
     }
 }
