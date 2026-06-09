@@ -1,24 +1,15 @@
 //! Startup-built `channel_id -> Arc<dyn Channel>` map (§6.3). No big match.
 //!
-//! **Adapter boundary = authentication mechanism.** Each channel manages its own
-//! auth (`Channel::prepare` injects it; `Channel::refresh` renews it per
-//! adapter). Vendors that differ only by base URL but share an auth + wire
-//! format collapse into ONE adapter, configured via `Provider.settings_json`:
-//! e.g. `openai_compatible` (Bearer api-key) serves OpenAI, OpenRouter,
-//! DeepSeek, Groq, NVIDIA, Vercel, and any custom OpenAI-compatible endpoint.
-//! Channels with a distinct auth scheme get their own self-managing adapter
-//! (`claude_api` = `x-api-key`; later: `gemini_api` = api-key; the OAuth /
-//! cookie / TLS-emulation channels — vertex, geminicli, claudecode, codex,
-//! chatgpt, antigravity, kiro — each as its own adapter). The set grows per
-//! channel as those auth schemes land (M7 / §12); M1 ships the two API-key
-//! adapters below.
+//! Each channel is a folder under [`crate::channel::bulletins`] that manages its
+//! own auth (`auth.rs`). The id (== `Provider.channel`) is the registry key.
+//! API-key channels are functional; OAuth/envelope channels are registered as
+//! stubs (their `prepare` errors until the M7 OAuth infra / M2 transforms land).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::channel::Channel;
-use crate::channel::claude_api::ClaudeApiChannel;
-use crate::channel::openai_compatible::OpenAiCompatChannel;
+use crate::channel::bulletins;
 
 /// Registry of channel adapters keyed by `Channel::id` (== `Provider.channel`).
 pub struct ChannelRegistry {
@@ -26,14 +17,11 @@ pub struct ChannelRegistry {
 }
 
 impl ChannelRegistry {
-    /// Build with the M1 channel set. Compiles on native AND wasm32 (the
-    /// channels are pure `http` + `serde_json` logic).
+    /// Build the full channel set. Pure `http` + `serde_json` logic; compiles on
+    /// native AND wasm32.
     pub fn with_builtin() -> Self {
         let mut map: HashMap<&'static str, Arc<dyn Channel>> = HashMap::new();
-        for ch in [
-            Arc::new(OpenAiCompatChannel) as Arc<dyn Channel>,
-            Arc::new(ClaudeApiChannel) as Arc<dyn Channel>,
-        ] {
+        for ch in builtin_channels() {
             map.insert(ch.id(), ch);
         }
         Self { map }
@@ -43,6 +31,31 @@ impl ChannelRegistry {
     pub fn get(&self, id: &str) -> Option<Arc<dyn Channel>> {
         self.map.get(id).cloned()
     }
+}
+
+/// All built-in channel adapters (API-key functional; OAuth/envelope = stubs).
+fn builtin_channels() -> Vec<Arc<dyn Channel>> {
+    vec![
+        // ── API-key (functional) ──
+        Arc::new(bulletins::openai::OpenAiChannel),
+        Arc::new(bulletins::openrouter::OpenRouterChannel),
+        Arc::new(bulletins::deepseek::DeepSeekChannel),
+        Arc::new(bulletins::groq::GroqChannel),
+        Arc::new(bulletins::nvidia::NvidiaChannel),
+        Arc::new(bulletins::vercel::VercelChannel),
+        Arc::new(bulletins::custom::CustomChannel),
+        Arc::new(bulletins::claude_api::ClaudeApiChannel),
+        Arc::new(bulletins::aistudio::AiStudioChannel),
+        Arc::new(bulletins::vertexexpress::VertexExpressChannel),
+        // ── OAuth / envelope (stubs: prepare errors until M7/M2) ──
+        Arc::new(bulletins::vertex::VertexChannel),
+        Arc::new(bulletins::geminicli::GeminiCliChannel),
+        Arc::new(bulletins::antigravity::AntigravityChannel),
+        Arc::new(bulletins::claudecode::ClaudeCodeChannel),
+        Arc::new(bulletins::codex::CodexChannel),
+        Arc::new(bulletins::kiro::KiroChannel),
+        Arc::new(bulletins::copilot_cli::CopilotCliChannel),
+    ]
 }
 
 impl Default for ChannelRegistry {

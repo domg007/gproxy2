@@ -4,10 +4,9 @@
 //! capability. It does **no** protocol transform and **no** rule rewriting
 //! (those are the transform/process layers) and never mutates the request body.
 
-pub mod claude_api;
+pub mod bulletins;
 pub mod disposition;
 pub mod http_util;
-pub mod openai_compatible;
 pub mod prepared;
 pub mod registry;
 
@@ -82,20 +81,6 @@ pub trait Channel: Send + Sync {
     /// M1 same-protocol: identity.
     fn normalize(&self, body: Bytes) -> Bytes {
         body
-    }
-
-    /// Inbound request headers (beyond the base `content-type`/`accept`) this
-    /// channel forwards upstream. Lowercase names. The forward set is a
-    /// channel-level allow-list: anything not listed here or in the base set is
-    /// dropped (client auth, cookies, SDK headers, …).
-    fn forward_headers(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    /// Inbound query parameters this channel forwards upstream. Everything else
-    /// (e.g. an inbound `?key=` used only for downstream auth) is dropped.
-    fn forward_query(&self) -> &'static [&'static str] {
-        &[]
     }
 
     /// Whether the credential must be refreshed before use. M1: never.

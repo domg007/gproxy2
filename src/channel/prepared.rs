@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 /// A fully-addressed, auth-injected upstream request ready for
 /// [`UpstreamClient::send`](crate::http::client::UpstreamClient::send).
+#[derive(Debug)]
 pub struct PreparedRequest {
     /// `request.uri()` MUST be absolute (scheme + authority + path + query) —
     /// wreq cannot route a relative URI (see [`http_util::join_url`]).

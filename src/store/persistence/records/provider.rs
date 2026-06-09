@@ -12,7 +12,7 @@ pub struct Provider {
     /// Unique provider name.
     pub name: String,
     /// Channel / adapter family — must equal a `Channel::id` in the
-    /// `ChannelRegistry`, e.g. `openai_compatible`, `claude_api`.
+    /// `ChannelRegistry`, e.g. `openai`, `claude_api`, `aistudio`, `custom`.
     pub channel: String,
     pub label: Option<String>,
     /// Free-form settings: `base_url`, channel scalar toggles, default
