@@ -1,7 +1,8 @@
 //! Effective proxy + TLS-fingerprint resolution (policy only).
 //!
 //! Layering:
-//! - **proxy**: per-credential override, else the global default.
+//! - **proxy**: per-credential override, else the channel default, else the
+//!   global default.
 //! - **TLS fingerprint**: per-credential override, else the channel's default.
 //!
 //! These compute the *effective* values; the transport that applies them — a
@@ -13,10 +14,16 @@ use serde_json::Value;
 use crate::channel::Channel;
 use crate::store::persistence::records::Credential;
 
-/// Effective outbound proxy: per-credential override, else the global default.
-pub fn effective_proxy(cred: &Credential, global: Option<&str>) -> Option<String> {
+/// Effective outbound proxy: per-credential override, else the channel default,
+/// else the global default.
+pub fn effective_proxy(
+    cred: &Credential,
+    channel: &dyn Channel,
+    global: Option<&str>,
+) -> Option<String> {
     cred.proxy_url
         .clone()
+        .or_else(|| channel.default_proxy().map(str::to_string))
         .or_else(|| global.map(str::to_string))
 }
 
@@ -53,18 +60,20 @@ mod tests {
     }
 
     #[test]
-    fn proxy_credential_overrides_global() {
+    fn proxy_credential_overrides_then_global() {
+        let oai = openai::OpenAiChannel;
+        // openai has no channel-default proxy → credential override, else global
         let c = cred(Some("http://cred:1"), None);
         assert_eq!(
-            effective_proxy(&c, Some("http://global:2")).as_deref(),
+            effective_proxy(&c, &oai, Some("http://global:2")).as_deref(),
             Some("http://cred:1")
         );
         let c = cred(None, None);
         assert_eq!(
-            effective_proxy(&c, Some("http://global:2")).as_deref(),
+            effective_proxy(&c, &oai, Some("http://global:2")).as_deref(),
             Some("http://global:2")
         );
-        assert_eq!(effective_proxy(&cred(None, None), None), None);
+        assert_eq!(effective_proxy(&cred(None, None), &oai, None), None);
     }
 
     #[test]

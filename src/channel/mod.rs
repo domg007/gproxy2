@@ -111,6 +111,13 @@ pub trait Channel: Send + Sync {
     fn default_tls_fingerprint(&self) -> Option<Value> {
         None
     }
+
+    /// The channel's default outbound proxy, or `None`. The EFFECTIVE proxy is
+    /// `credential.proxy_url` ?? this ?? the global default
+    /// (see [`resolve::effective_proxy`]).
+    fn default_proxy(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Errors raised while preparing an upstream request.

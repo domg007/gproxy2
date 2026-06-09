@@ -333,8 +333,8 @@ edge 初始化时装配 `FetchClient`,业务执行层只调 trait。
 **每凭证不同出站代理 / TLS 指纹**:wreq 的 proxy 与 impersonation 绑在 client 实例上、无法逐请求切换,所以
 native 的 `WreqClient` 内部维护一个**按 `(proxy_url, tls_fingerprint)` 缓存的 client 池**,
 发请求时按**选中凭证**解析出的 (proxy, 指纹) 选用对应 client(懒构建 + 复用)。解析(见 `channel::resolve`):
-**proxy = credential 覆盖,否则全局默认**(`--upstream-proxy-url` / `GPROXY_UPSTREAM_PROXY_URL`);
-**TLS 指纹 = credential 覆盖,否则渠道默认**(`Channel::default_tls_fingerprint`)。provider 级不再持有 proxy/指纹。
+**proxy = credential 覆盖 ?? 渠道默认(`Channel::default_proxy`)?? 全局默认**(`--upstream-proxy-url` / `GPROXY_UPSTREAM_PROXY_URL`);
+**TLS 指纹 = credential 覆盖 ?? 渠道默认(`Channel::default_tls_fingerprint`)**。provider 级不再持有 proxy/指纹。
 **edge 不支持本地 proxy / 伪装**,走平台 `fetch`,两者在 edge 忽略。
 
 **每个 channel 声明默认 TLS 指纹**(`default_tls_fingerprint() -> Option<…>`,纯 API 渠道为 `None`),且能力可细到**渠道的某种
@@ -394,7 +394,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 
 **B. 供应商 / 凭证**
 - `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url、各 channel 标量开关、**熔断阈值**`circuit_breaker?`{连续失败数或错误率 + 冷却时长},见 §3.2/§7.4)· `credential_strategy`(`round_robin`/`sticky`,sticky key 见 §3.3)· `enabled` —— **不再有任何 rules 的 JSON 列;proxy/TLS 指纹也不在 provider 级**(见下 credentials + §7.4),全部提成下列独立表
-- `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(**信封加密**,存 `{kek_id, wrapped_dek, nonce, ciphertext}`,见 §14.1)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `proxy_url?`(覆盖全局出站代理,见 §7.4;edge 忽略)· `tls_fingerprint?`(**JSON**,凭证级 TLS 伪装覆盖,缺省回退渠道默认 `Channel::default_tls_fingerprint`,见 §7.4)· `enabled`
+- `credentials`:`provider_id` · `name?` · `kind` · `secret_json`(**信封加密**,存 `{kek_id, wrapped_dek, nonce, ciphertext}`,见 §14.1)· `weight`(凭证池)· `rpm_limit?` · `tpm_limit?`(凭证级上游速率预算,空=不限;热路径用缓存计数,达额即跳过该 key,主动遵守上游每-key 限额)· `proxy_url?`(覆盖渠道默认 / 全局出站代理,见 §7.4;edge 忽略)· `tls_fingerprint?`(**JSON**,凭证级 TLS 伪装覆盖,缺省回退渠道默认 `Channel::default_tls_fingerprint`,见 §7.4)· `enabled`
 - `credential_statuses`:`credential_id` · `channel` · `health_kind` · `health_json?` · `checked_at?` · `last_error?` *(审计快照)*
 
 **B2. 供应商级规则**
