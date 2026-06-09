@@ -10,10 +10,6 @@ pub mod protocol;
 pub mod store;
 pub mod transform;
 
-// Bootstrap seeding is a native concern (edge does not seed).
-#[cfg(not(target_arch = "wasm32"))]
-pub mod seed;
-
 // Edge self-test exercises all edge backends; gate on the full edge bundle.
 #[cfg(all(
     target_arch = "wasm32",
