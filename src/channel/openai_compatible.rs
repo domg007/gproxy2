@@ -2,7 +2,7 @@
 
 use http::header::{AUTHORIZATION, HeaderValue};
 
-use crate::channel::http_util::{build_request, join_url, sanitize_headers};
+use crate::channel::http_util::{allow_headers, allow_query, build_request, join_url};
 use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
 use crate::protocol::ContentGenerationKind;
 
@@ -20,6 +20,10 @@ impl Channel for OpenAiCompatChannel {
         ContentGenerationKind::OpenAiChatCompletions
     }
 
+    fn forward_headers(&self) -> &'static [&'static str] {
+        &["openai-beta", "openai-organization", "openai-project"]
+    }
+
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
         let base_url = ctx
             .provider_settings
@@ -32,8 +36,9 @@ impl Channel for OpenAiCompatChannel {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ChannelError::InvalidCredential("missing api_key".into()))?;
 
-        let uri = join_url(base_url, ctx.path, ctx.query)?;
-        let headers = sanitize_headers(ctx.headers);
+        let query = allow_query(ctx.query, self.forward_query());
+        let uri = join_url(base_url, ctx.path, query.as_deref())?;
+        let headers = allow_headers(ctx.headers, self.forward_headers());
         let mut request = build_request(ctx.method, uri, headers, ctx.body)?;
 
         let auth = HeaderValue::from_str(&format!("Bearer {api_key}"))

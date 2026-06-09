@@ -8,7 +8,7 @@ use crate::app::AppState;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::outcome::ExecOutcome;
-use crate::pipeline::{auth, balance, classify, failover, preprocess, route};
+use crate::pipeline::{auth, balance, classify, failover, ingress, preprocess, route};
 
 /// Drive one request to an [`ExecOutcome`].
 pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
@@ -16,6 +16,11 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
 
     // auth (401 short-circuit before any upstream candidate is built)
     ctx.identity = Some(auth::authenticate(&cp, &ctx.headers, ctx.query.as_deref())?);
+
+    // Part 1 — global blacklist: strip caller creds / cookies / hop-by-hop once,
+    // centrally, after auth and before any channel sees the request (the
+    // per-channel allow-list runs later in Channel::prepare).
+    ingress::apply_global_blacklist(&mut ctx);
 
     // classify
     let classified = classify::classify(&ctx.method, &ctx.path, &ctx.body)?;

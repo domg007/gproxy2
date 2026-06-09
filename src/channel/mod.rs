@@ -84,6 +84,20 @@ pub trait Channel: Send + Sync {
         body
     }
 
+    /// Inbound request headers (beyond the base `content-type`/`accept`) this
+    /// channel forwards upstream. Lowercase names. The forward set is a
+    /// channel-level allow-list: anything not listed here or in the base set is
+    /// dropped (client auth, cookies, SDK headers, …).
+    fn forward_headers(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Inbound query parameters this channel forwards upstream. Everything else
+    /// (e.g. an inbound `?key=` used only for downstream auth) is dropped.
+    fn forward_query(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Whether the credential must be refreshed before use. M1: never.
     fn needs_refresh(&self, _cred: &Credential) -> bool {
         false

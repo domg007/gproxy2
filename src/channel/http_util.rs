@@ -1,17 +1,18 @@
-//! Shared HTTP plumbing for channels: absolute-URL join, header sanitize, and
-//! upstream request building.
+//! Shared HTTP plumbing for channels: absolute-URL join, inbound header/query
+//! allow-listing, and upstream request building.
 
 use bytes::Bytes;
-use http::header::{HOST, HeaderName};
+use http::header::HOST;
 use http::{HeaderMap, Method, Request, Uri};
 
 use crate::channel::ChannelError;
 
-/// Hop-by-hop headers (RFC 7230 §6.1) — stripped on BOTH ingress and egress.
+/// Hop-by-hop headers (RFC 7230 §6.1) — stripped from the upstream RESPONSE
+/// before relaying it to the client (egress), and reused by the pipeline's
+/// global inbound blacklist ([`crate::pipeline::ingress`]).
 ///
-/// TODO: this is a fixed list; it does not yet honor `Connection:`-token
-/// semantics (headers named in a `Connection` value should also be dropped).
-const HOP_BY_HOP: &[&str] = &[
+/// TODO: fixed list; does not yet honor `Connection:`-token semantics.
+pub(crate) const HOP_BY_HOP: &[&str] = &[
     "connection",
     "keep-alive",
     "proxy-authenticate",
@@ -23,34 +24,50 @@ const HOP_BY_HOP: &[&str] = &[
     "content-length",
 ];
 
-/// Inbound headers stripped before forwarding upstream: hop-by-hop, plus the
-/// client's own auth (the channel injects the credential's auth instead), the
-/// `Host` (a fresh one is derived from the absolute URI in [`build_request`]),
-/// and browser `cookie`s (no reason to relay them to an LLM upstream).
-fn is_stripped(name: &HeaderName) -> bool {
-    let n = name.as_str(); // HeaderName is already lowercase
-    HOP_BY_HOP.contains(&n)
-        || matches!(
-            n,
-            "host" | "authorization" | "x-api-key" | "x-goog-api-key" | "api-key" | "cookie"
-        )
-}
+/// Universal inbound headers forwarded upstream by every channel. Channels add
+/// their own protocol headers via `Channel::forward_headers` — the allow-list is
+/// channel-level, so `openai-*` only ride the OpenAI channel and `anthropic-beta`
+/// only Claude, rather than a blind union.
+const BASE_FORWARD_HEADERS: &[&str] = &["content-type", "accept"];
 
-/// Copy `src` minus hop-by-hop / Host / inbound-auth headers. Used for ingress
-/// (toward upstream); egress reuse drops the same hop-by-hop set.
-pub fn sanitize_headers(src: &HeaderMap) -> HeaderMap {
+/// Allow-list filter for INBOUND headers (client → upstream): keeps the base set
+/// plus the channel's `extra`; drops everything else (client auth, cookies,
+/// `Host`, hop-by-hop, user-agent, SDK headers). The channel injects the
+/// credential's auth and a fresh `Host` itself.
+///
+/// `extra` entries MUST be lowercase (compared against the lowercase `HeaderName`).
+pub fn allow_headers(src: &HeaderMap, extra: &[&str]) -> HeaderMap {
     let mut out = HeaderMap::with_capacity(src.len());
     for (name, value) in src.iter() {
-        if is_stripped(name) {
-            continue;
+        let n = name.as_str();
+        if BASE_FORWARD_HEADERS.contains(&n) || extra.contains(&n) {
+            out.append(name.clone(), value.clone());
         }
-        out.append(name.clone(), value.clone());
     }
     out
 }
 
+/// Allow-list filter for INBOUND query parameters: keeps only `key=value` pairs
+/// whose key is in the channel's `allowed` set (order preserved); drops the rest,
+/// including an inbound `?key=` used solely for downstream auth. `None` if empty.
+pub fn allow_query(query: Option<&str>, allowed: &[&str]) -> Option<String> {
+    let kept: Vec<&str> = query?
+        .split('&')
+        .filter(|pair| {
+            let key = pair.split('=').next().unwrap_or("");
+            !key.is_empty() && allowed.contains(&key)
+        })
+        .collect();
+    if kept.is_empty() {
+        None
+    } else {
+        Some(kept.join("&"))
+    }
+}
+
 /// Drop hop-by-hop headers from an upstream response before relaying to the
-/// client (egress). Keeps everything else (content-type, etc.).
+/// client (egress). Keeps everything else (content-type, rate-limit headers,
+/// etc.) — an allow-list here would discard useful provider headers.
 pub fn sanitize_response_headers(src: &HeaderMap) -> HeaderMap {
     let mut out = HeaderMap::with_capacity(src.len());
     for (name, value) in src.iter() {
@@ -141,25 +158,44 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_drops_auth_and_hop_by_hop() {
+    fn allow_headers_is_default_deny() {
         let mut h = HeaderMap::new();
         h.insert(
             http::header::AUTHORIZATION,
             "Bearer client".parse().unwrap(),
         );
-        h.insert(http::header::CONTENT_LENGTH, "10".parse().unwrap());
+        h.insert("x-api-key", "client".parse().unwrap());
+        h.insert("cookie", "sid=1".parse().unwrap());
+        h.insert(http::header::USER_AGENT, "sdk/1".parse().unwrap());
         h.insert(
             http::header::CONTENT_TYPE,
             "application/json".parse().unwrap(),
         );
-        h.insert("x-api-key", "client".parse().unwrap());
-        let out = sanitize_headers(&h);
-        assert!(out.get(http::header::AUTHORIZATION).is_none());
-        assert!(out.get("x-api-key").is_none());
-        assert!(out.get(http::header::CONTENT_LENGTH).is_none());
+        h.insert("anthropic-beta", "x".parse().unwrap());
+
+        let out = allow_headers(&h, &["anthropic-beta"]);
+        // base allow-listed
         assert_eq!(
             out.get(http::header::CONTENT_TYPE).unwrap(),
             "application/json"
         );
+        // channel extra allow-listed
+        assert_eq!(out.get("anthropic-beta").unwrap(), "x");
+        // everything else dropped
+        assert!(out.get(http::header::AUTHORIZATION).is_none());
+        assert!(out.get("x-api-key").is_none());
+        assert!(out.get("cookie").is_none());
+        assert!(out.get(http::header::USER_AGENT).is_none());
+    }
+
+    #[test]
+    fn allow_query_keeps_only_listed() {
+        // inbound ?key= (downstream auth) is dropped; channel-allowed alt kept
+        assert_eq!(
+            allow_query(Some("key=secret&alt=sse&x=1"), &["alt"]).as_deref(),
+            Some("alt=sse")
+        );
+        assert_eq!(allow_query(Some("key=secret"), &["alt"]), None);
+        assert_eq!(allow_query(None, &["alt"]), None);
     }
 }
