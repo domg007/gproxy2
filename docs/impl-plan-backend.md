@@ -53,6 +53,25 @@ on user, `label` on key); `Provider.channel: String`.
 - **D7 — `channel` → target `ContentGenerationKind` mapping pinned in M1** so the
   M2 `source_kind == target_kind` bypass predicate matches M1 passthrough.
 
+## Post-review amendments (M1)
+
+After M1 was implemented and adversarially reviewed, two product decisions
+superseded parts of §2 below:
+
+- **No seeding.** The `--seed` / `GPROXY_SEED` flag and `src/seed.rs` are
+  removed. There are **no built-in provider templates** either. All config
+  (providers, routes, credentials, users/keys) arrives via config import (M9) or
+  the admin API (M10); a fresh instance boots with an empty snapshot and serves
+  nothing until config is loaded. (The §2 "HOW CONFIG IS SEEDED" subsection and
+  the `scripts/smoke_m1.sh` it drove are obsolete; an e2e smoke returns once an
+  import/admin bootstrap exists.)
+- **Channel adapters are organized by AUTH mechanism, each self-managing.** The
+  adapter boundary is the auth scheme, not the vendor: `openai_compatible`
+  (Bearer api-key) serves all OpenAI-compatible vendors via `base_url` config;
+  channels with distinct auth get their own adapter (`claude_api` = `x-api-key`;
+  later `gemini_api`, and the OAuth/cookie/TLS channels each as their own,
+  per `src/channel/registry.rs`). M1 ships `openai_compatible` + `claude_api`.
+
 ---
 
 ## 1. Shared contracts
