@@ -101,23 +101,6 @@ pub trait Channel: Send + Sync {
     fn transport(&self) -> TransportKind {
         TransportKind::Http
     }
-
-    /// The channel's default TLS-emulation fingerprint profile, or `None` for no
-    /// emulation. The EFFECTIVE fingerprint is `credential.tls_fingerprint`
-    /// falling back to this (see [`resolve::effective_tls_fingerprint`]). Plain
-    /// API channels return `None`; impersonation channels (claudecode, codex,
-    /// chatgpt) return their profile. The JSON shape is finalized when the
-    /// emulation transport lands (M7).
-    fn default_tls_fingerprint(&self) -> Option<Value> {
-        None
-    }
-
-    /// The channel's default outbound proxy, or `None`. The EFFECTIVE proxy is
-    /// `credential.proxy_url` ?? this ?? the global default
-    /// (see [`resolve::effective_proxy`]).
-    fn default_proxy(&self) -> Option<&'static str> {
-        None
-    }
 }
 
 /// Errors raised while preparing an upstream request.

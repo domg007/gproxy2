@@ -29,6 +29,8 @@ async fn provider_round_trip() {
         label: Some("OpenAI".to_owned()),
         settings_json: json!({"base_url": "https://api.openai.com"}),
         credential_strategy: "round_robin".to_owned(),
+        proxy_url: None,
+        tls_fingerprint: None,
         enabled: true,
     };
     let created = fp.upsert_provider(input).await.expect("insert");
@@ -43,6 +45,8 @@ async fn provider_round_trip() {
             label: None,
             settings_json: json!({}),
             credential_strategy: "round_robin".to_owned(),
+            proxy_url: None,
+            tls_fingerprint: None,
             enabled: true,
         })
         .await
@@ -65,6 +69,8 @@ async fn provider_round_trip() {
             label: None,
             settings_json: json!({"base_url": "https://x"}),
             credential_strategy: "sticky".to_owned(),
+            proxy_url: None,
+            tls_fingerprint: None,
             enabled: false,
         })
         .await

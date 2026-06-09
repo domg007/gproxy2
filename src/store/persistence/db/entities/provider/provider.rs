@@ -15,6 +15,9 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub settings_json: String,
     pub credential_strategy: String,
+    pub proxy_url: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub tls_fingerprint: Option<String>,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,

@@ -16,10 +16,17 @@ pub struct Provider {
     pub channel: String,
     pub label: Option<String>,
     /// Free-form settings: `base_url`, channel scalar toggles, `circuit_breaker`,
-    /// etc. (see §7.4 / §3.2). Proxy is per-credential or global, not here.
+    /// etc. (see §7.4 / §3.2).
     pub settings_json: Value,
     /// Credential pool strategy: `round_robin` | `sticky` (§3.3).
     pub credential_strategy: String,
+    /// Provider-level default outbound proxy; `credential.proxy_url` overrides,
+    /// the global default is the final fallback (§7.4). Edge ignores.
+    pub proxy_url: Option<String>,
+    /// Provider-level default TLS-emulation fingerprint (JSON); overridden by
+    /// `credential.tls_fingerprint` (§7.4). `None` = no emulation.
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
     /// Unix seconds.
     pub created_at: i64,
@@ -37,6 +44,9 @@ pub struct ProviderInput {
     pub label: Option<String>,
     pub settings_json: Value,
     pub credential_strategy: String,
+    pub proxy_url: Option<String>,
+    #[serde(default)]
+    pub tls_fingerprint: Option<Value>,
     pub enabled: bool,
 }
 
