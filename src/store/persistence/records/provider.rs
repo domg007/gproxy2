@@ -11,7 +11,8 @@ pub struct Provider {
     pub id: i64,
     /// Unique provider name.
     pub name: String,
-    /// Channel / adapter family, e.g. `openai`, `claude`, `gemini`, `openrouter`.
+    /// Channel / adapter family — must equal a `Channel::id` in the
+    /// `ChannelRegistry`, e.g. `openai_compatible`, `claude_api`.
     pub channel: String,
     pub label: Option<String>,
     /// Free-form settings: `base_url`, channel scalar toggles, default
@@ -50,7 +51,7 @@ pub struct ProviderInput {
 ///
 /// `secret_json` is the **opaque envelope-encrypted** secret (§14.1); the
 /// persistence layer stores it verbatim — encryption/decryption is domain code.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Credential {
     pub id: i64,
     pub provider_id: i64,
@@ -65,6 +66,27 @@ pub struct Credential {
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+/// Redacts `secret_json` so a credential can never leak its plaintext secret
+/// into a debug log.
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credential")
+            .field("id", &self.id)
+            .field("provider_id", &self.provider_id)
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .field("secret_json", &"<redacted>")
+            .field("weight", &self.weight)
+            .field("rpm_limit", &self.rpm_limit)
+            .field("tpm_limit", &self.tpm_limit)
+            .field("proxy_url", &self.proxy_url)
+            .field("enabled", &self.enabled)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Upsert input for a credential.

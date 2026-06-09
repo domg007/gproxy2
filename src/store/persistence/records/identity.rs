@@ -73,7 +73,7 @@ pub struct UserInput {
 }
 
 /// An API key issued to a user (§8-C). `api_key_digest` is unique.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserKey {
     pub id: i64,
     pub user_id: i64,
@@ -83,6 +83,22 @@ pub struct UserKey {
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+/// Redacts the API-key ciphertext from debug output.
+impl std::fmt::Debug for UserKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UserKey")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("api_key_ciphertext", &"<redacted>")
+            .field("api_key_digest", &self.api_key_digest)
+            .field("label", &self.label)
+            .field("enabled", &self.enabled)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// Upsert input for a user key.

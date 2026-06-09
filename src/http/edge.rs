@@ -85,7 +85,23 @@ pub async fn init(
     });
 
     let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());
-    let _ = STATE.set(AppState::new(config, cache, persistence, upstream));
+
+    // M1: the libSQL backend ops are still stubs, so the control-plane snapshot
+    // starts empty here; building it from persistence lands in the edge phase
+    // once the libSQL ops are implemented.
+    let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(
+        crate::app::snapshot::ControlPlaneSnapshot::empty(1),
+    ));
+    let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
+
+    let _ = STATE.set(AppState::new(
+        config,
+        cache,
+        persistence,
+        upstream,
+        snapshot,
+        channels,
+    ));
     Ok(())
 }
 

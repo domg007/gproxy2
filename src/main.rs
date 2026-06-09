@@ -49,6 +49,19 @@ struct Cli {
     /// rows in the database; set distinct values across a multi-node fleet).
     #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
     instance_id: u64,
+
+    /// Seed a minimal bootstrap configuration on first run (idempotent — a
+    /// no-op if any provider already exists). Bare `--seed`, `--seed=1`, or
+    /// `GPROXY_SEED=1` all enable it.
+    #[arg(
+        long,
+        env = "GPROXY_SEED",
+        num_args = 0..=1,
+        default_value = "false",
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new(),
+    )]
+    seed: bool,
 }
 
 #[tokio::main]
@@ -134,7 +147,17 @@ async fn main() -> anyhow::Result<()> {
         }
     );
 
-    let state = AppState::new(config, cache, persistence, upstream);
+    if cli.seed {
+        gproxy::seed::seed_if_empty(persistence.as_ref()).await?;
+        tracing::info!("seed: bootstrap applied (or already present)");
+    }
+
+    let snapshot =
+        gproxy::app::snapshot::ControlPlaneSnapshot::build(persistence.as_ref(), 1).await?;
+    let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(snapshot));
+    let channels = Arc::new(gproxy::channel::registry::ChannelRegistry::with_builtin());
+
+    let state = AppState::new(config, cache, persistence, upstream, snapshot, channels);
     let app = http::server::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;

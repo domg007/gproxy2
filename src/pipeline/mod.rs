@@ -1,0 +1,20 @@
+//! Request lifecycle orchestration (§5, §6.3). Replaces v1's `engine.execute`
+//! god function with small, testable steps threaded by a [`RequestCtx`].
+
+pub mod auth;
+pub mod balance;
+pub mod classify;
+pub mod context;
+pub mod error;
+pub mod execute;
+pub mod failover;
+pub mod outcome;
+pub mod preprocess;
+pub mod route;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod stream;
+
+pub use context::{Candidate, Classified, RequestCtx, RoutingMode};
+pub use error::PipelineError;
+pub use execute::execute;
+pub use outcome::{ExecOutcome, ResponseBody};

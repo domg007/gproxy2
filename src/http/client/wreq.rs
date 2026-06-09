@@ -4,7 +4,7 @@
 
 use bytes::Bytes;
 
-use super::{ClientError, UpstreamClient};
+use super::{ClientError, RespStream, UpstreamClient};
 
 /// Upstream client backed by [`wreq::Client`] (native, TLS-emulation capable).
 #[derive(Clone)]
@@ -68,5 +68,30 @@ impl UpstreamClient for WreqClient {
         builder
             .body(body_bytes)
             .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    async fn send_streaming(
+        &self,
+        req: http::Request<Bytes>,
+    ) -> Result<(http::StatusCode, http::HeaderMap, RespStream), ClientError> {
+        use futures_util::{StreamExt, TryStreamExt};
+
+        let wreq_req: wreq::Request = req.into();
+        let resp = self
+            .inner
+            .execute(wreq_req)
+            .await
+            .map_err(|e| ClientError::Transport(e.to_string()))?;
+
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        // bytes_stream(self) consumes the owned Response (→ 'static) and yields
+        // wreq::Result<Bytes>; map the error to ClientError so the item type
+        // matches RespStream.
+        let stream: RespStream = resp
+            .bytes_stream()
+            .map_err(|e| ClientError::Transport(e.to_string()))
+            .boxed();
+        Ok((status, headers, stream))
     }
 }
