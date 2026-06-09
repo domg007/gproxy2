@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{User, UserInput};
+use crate::store::persistence::records::{Scope, User, UserInput};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
@@ -83,10 +83,15 @@ pub(crate) async fn upsert(root: &Path, input: UserInput) -> anyhow::Result<User
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: keys and scope-bound permissions / rate limits / quotas.
     super::user_keys::delete_by_user(root, id).await?;
-    crate::store::persistence::file::authz::route_permissions::delete_by_scope(root, "user", id)
+    crate::store::persistence::file::authz::route_permissions::delete_by_scope(
+        root,
+        Scope::User,
+        id,
+    )
+    .await?;
+    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, Scope::User, id)
         .await?;
-    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "user", id).await?;
-    crate::store::persistence::file::authz::quotas::delete_by_scope(root, "user", id).await?;
+    crate::store::persistence::file::authz::quotas::delete_by_scope(root, Scope::User, id).await?;
 
     let file = path(root);
     let mut t = table::load::<User>(&file).await?;
@@ -111,12 +116,19 @@ pub(crate) async fn delete_by_org(root: &Path, org_id: i64) -> anyhow::Result<()
     for uid in &ids {
         super::user_keys::delete_by_user(root, *uid).await?;
         crate::store::persistence::file::authz::route_permissions::delete_by_scope(
-            root, "user", *uid,
+            root,
+            Scope::User,
+            *uid,
         )
         .await?;
-        crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "user", *uid)
+        crate::store::persistence::file::authz::rate_limits::delete_by_scope(
+            root,
+            Scope::User,
+            *uid,
+        )
+        .await?;
+        crate::store::persistence::file::authz::quotas::delete_by_scope(root, Scope::User, *uid)
             .await?;
-        crate::store::persistence::file::authz::quotas::delete_by_scope(root, "user", *uid).await?;
     }
 
     let file = path(root);

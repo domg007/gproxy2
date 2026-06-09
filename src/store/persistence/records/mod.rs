@@ -14,7 +14,7 @@ pub mod transform;
 pub mod usage;
 
 pub use authz::{
-    Quota, QuotaInput, RateLimit, RateLimitInput, RoutePermission, RoutePermissionInput,
+    Quota, QuotaInput, RateLimit, RateLimitInput, RoutePermission, RoutePermissionInput, Scope,
 };
 pub use identity::{Org, OrgInput, Team, TeamInput, User, UserInput, UserKey, UserKeyInput};
 pub use logs::{DownstreamRequest, DownstreamRequestInput, UpstreamRequest, UpstreamRequestInput};

@@ -3,14 +3,14 @@
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{RateLimit, RateLimitInput};
+use crate::store::persistence::records::{RateLimit, RateLimitInput, Scope};
 
 use crate::store::persistence::db::entities::authz::rate_limit;
 
-fn to_record(m: rate_limit::Model) -> RateLimit {
-    RateLimit {
+fn to_record(m: rate_limit::Model) -> anyhow::Result<RateLimit> {
+    Ok(RateLimit {
         id: m.id,
-        scope: m.scope,
+        scope: Scope::parse(&m.scope)?,
         scope_id: m.scope_id,
         route_pattern: m.route_pattern,
         rpm: m.rpm,
@@ -18,22 +18,22 @@ fn to_record(m: rate_limit::Model) -> RateLimit {
         total_tokens: m.total_tokens,
         created_at: m.created_at,
         updated_at: m.updated_at,
-    }
+    })
 }
 
 pub async fn list(
     conn: &DatabaseConnection,
-    scope: &str,
+    scope: Scope,
     scope_id: i64,
 ) -> anyhow::Result<Vec<RateLimit>> {
-    Ok(rate_limit::Entity::find()
-        .filter(rate_limit::Column::Scope.eq(scope))
+    rate_limit::Entity::find()
+        .filter(rate_limit::Column::Scope.eq(scope.as_str()))
         .filter(rate_limit::Column::ScopeId.eq(scope_id))
         .all(conn)
         .await?
         .into_iter()
         .map(to_record)
-        .collect())
+        .collect()
 }
 
 pub async fn upsert(conn: &DatabaseConnection, input: RateLimitInput) -> anyhow::Result<RateLimit> {
@@ -46,7 +46,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RateLimitInput) -> anyhow:
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("rate limit not found: {id}"))?;
             let mut am: rate_limit::ActiveModel = existing.into();
-            am.scope = Set(input.scope);
+            am.scope = Set(input.scope.as_str().to_owned());
             am.scope_id = Set(input.scope_id);
             am.route_pattern = Set(input.route_pattern);
             am.rpm = Set(input.rpm);
@@ -58,7 +58,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RateLimitInput) -> anyhow:
         None => {
             rate_limit::ActiveModel {
                 id: NotSet,
-                scope: Set(input.scope),
+                scope: Set(input.scope.as_str().to_owned()),
                 scope_id: Set(input.scope_id),
                 route_pattern: Set(input.route_pattern),
                 rpm: Set(input.rpm),
@@ -72,7 +72,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RateLimitInput) -> anyhow:
         }
     };
 
-    Ok(to_record(model))
+    to_record(model)
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
@@ -82,11 +82,11 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
 
 pub async fn delete_by_scope(
     conn: &DatabaseConnection,
-    scope: &str,
+    scope: Scope,
     scope_id: i64,
 ) -> anyhow::Result<()> {
     rate_limit::Entity::delete_many()
-        .filter(rate_limit::Column::Scope.eq(scope))
+        .filter(rate_limit::Column::Scope.eq(scope.as_str()))
         .filter(rate_limit::Column::ScopeId.eq(scope_id))
         .exec(conn)
         .await?;

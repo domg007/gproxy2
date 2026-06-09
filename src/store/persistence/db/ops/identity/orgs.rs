@@ -3,7 +3,7 @@
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{Org, OrgInput};
+use crate::store::persistence::records::{Org, OrgInput, Scope};
 
 use crate::store::persistence::db::entities::identity::org;
 
@@ -76,11 +76,16 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
     // cascade: teams, users (which cascade user_keys), and scope-bound rows.
     super::teams::delete_by_org(conn, id).await?;
     super::users::delete_by_org(conn, id).await?;
-    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(conn, "org", id)
+    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(
+        conn,
+        Scope::Org,
+        id,
+    )
+    .await?;
+    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, Scope::Org, id)
         .await?;
-    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "org", id)
+    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, Scope::Org, id)
         .await?;
-    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "org", id).await?;
 
     let res = org::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)

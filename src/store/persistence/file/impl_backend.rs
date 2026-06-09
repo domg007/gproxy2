@@ -18,9 +18,9 @@ use crate::store::persistence::records::{
     OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
     ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
-    UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
-    UserKey, UserKeyInput,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
+    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
+    UserInput, UserKey, UserKeyInput,
 };
 
 #[async_trait]
@@ -335,7 +335,7 @@ impl PersistenceBackend for FilePersistence {
 
     async fn list_route_permissions(
         &self,
-        scope: &str,
+        scope: Scope,
         scope_id: i64,
     ) -> anyhow::Result<Vec<RoutePermission>> {
         route_permissions::list(&self.root, scope, scope_id).await
@@ -354,7 +354,11 @@ impl PersistenceBackend for FilePersistence {
         route_permissions::delete(&self.root, id).await
     }
 
-    async fn list_rate_limits(&self, scope: &str, scope_id: i64) -> anyhow::Result<Vec<RateLimit>> {
+    async fn list_rate_limits(
+        &self,
+        scope: Scope,
+        scope_id: i64,
+    ) -> anyhow::Result<Vec<RateLimit>> {
         rate_limits::list(&self.root, scope, scope_id).await
     }
 
@@ -368,7 +372,7 @@ impl PersistenceBackend for FilePersistence {
         rate_limits::delete(&self.root, id).await
     }
 
-    async fn get_quota(&self, scope: &str, scope_id: i64) -> anyhow::Result<Option<Quota>> {
+    async fn get_quota(&self, scope: Scope, scope_id: i64) -> anyhow::Result<Option<Quota>> {
         quotas::get(&self.root, scope, scope_id).await
     }
 

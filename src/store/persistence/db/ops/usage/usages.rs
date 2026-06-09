@@ -7,8 +7,8 @@ use crate::store::persistence::records::{Usage, UsageInput};
 
 use crate::store::persistence::db::entities::usage::usage;
 
-fn to_record(m: usage::Model) -> Usage {
-    Usage {
+fn to_record(m: usage::Model) -> anyhow::Result<Usage> {
+    Ok(Usage {
         id: m.id,
         request_id: m.request_id,
         at: m.at,
@@ -27,10 +27,10 @@ fn to_record(m: usage::Model) -> Usage {
         cache_read_tokens: m.cache_read_tokens,
         cache_creation_5m_tokens: m.cache_creation_5m_tokens,
         cache_creation_1h_tokens: m.cache_creation_1h_tokens,
-        cost: m.cost,
+        cost: m.cost.parse::<rust_decimal::Decimal>()?,
         created_at: m.created_at,
         updated_at: m.updated_at,
-    }
+    })
 }
 
 pub async fn append(conn: &DatabaseConnection, input: UsageInput) -> anyhow::Result<Usage> {
@@ -54,22 +54,22 @@ pub async fn append(conn: &DatabaseConnection, input: UsageInput) -> anyhow::Res
         cache_read_tokens: Set(input.cache_read_tokens),
         cache_creation_5m_tokens: Set(input.cache_creation_5m_tokens),
         cache_creation_1h_tokens: Set(input.cache_creation_1h_tokens),
-        cost: Set(input.cost),
+        cost: Set(input.cost.to_string()),
         created_at: Set(now),
         updated_at: Set(now),
     }
     .insert(conn)
     .await?;
-    Ok(to_record(model))
+    to_record(model)
 }
 
 pub async fn list(conn: &DatabaseConnection, limit: u64) -> anyhow::Result<Vec<Usage>> {
-    Ok(usage::Entity::find()
+    usage::Entity::find()
         .order_by_desc(usage::Column::Id)
         .limit(limit)
         .all(conn)
         .await?
         .into_iter()
         .map(to_record)
-        .collect())
+        .collect()
 }

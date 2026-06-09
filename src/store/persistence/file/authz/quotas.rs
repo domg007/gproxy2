@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{Quota, QuotaInput};
+use crate::store::persistence::records::{Quota, QuotaInput, Scope};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
@@ -10,7 +10,7 @@ fn path(root: &Path) -> PathBuf {
     root.join("quotas.json")
 }
 
-pub(crate) async fn get(root: &Path, scope: &str, scope_id: i64) -> anyhow::Result<Option<Quota>> {
+pub(crate) async fn get(root: &Path, scope: Scope, scope_id: i64) -> anyhow::Result<Option<Quota>> {
     Ok(table::load::<Quota>(&path(root))
         .await?
         .rows
@@ -31,7 +31,7 @@ pub(crate) async fn upsert(root: &Path, input: QuotaInput) -> anyhow::Result<Quo
     {
         anyhow::bail!(
             "quota already exists for scope {}:{}",
-            input.scope,
+            input.scope.as_str(),
             input.scope_id
         );
     }
@@ -83,7 +83,11 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(crate) async fn delete_by_scope(root: &Path, scope: &str, scope_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_scope(
+    root: &Path,
+    scope: Scope,
+    scope_id: i64,
+) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<Quota>(&file).await?;
     let before = t.rows.len();

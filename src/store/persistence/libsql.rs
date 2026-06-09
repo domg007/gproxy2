@@ -15,9 +15,9 @@ use super::records::{
     OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
     ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
-    UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
-    UserKey, UserKeyInput,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
+    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
+    UserInput, UserKey, UserKeyInput,
 };
 
 /// Edge persistence backend backed by a Turso/libSQL database via Hrana HTTP.
@@ -319,7 +319,7 @@ impl PersistenceBackend for LibsqlPersistence {
 
     async fn list_route_permissions(
         &self,
-        _scope: &str,
+        _scope: Scope,
         _scope_id: i64,
     ) -> anyhow::Result<Vec<RoutePermission>> {
         anyhow::bail!("libsql identity ops not implemented yet")
@@ -338,7 +338,7 @@ impl PersistenceBackend for LibsqlPersistence {
 
     async fn list_rate_limits(
         &self,
-        _scope: &str,
+        _scope: Scope,
         _scope_id: i64,
     ) -> anyhow::Result<Vec<RateLimit>> {
         anyhow::bail!("libsql identity ops not implemented yet")
@@ -352,7 +352,7 @@ impl PersistenceBackend for LibsqlPersistence {
         anyhow::bail!("libsql identity ops not implemented yet")
     }
 
-    async fn get_quota(&self, _scope: &str, _scope_id: i64) -> anyhow::Result<Option<Quota>> {
+    async fn get_quota(&self, _scope: Scope, _scope_id: i64) -> anyhow::Result<Option<Quota>> {
         anyhow::bail!("libsql identity ops not implemented yet")
     }
 

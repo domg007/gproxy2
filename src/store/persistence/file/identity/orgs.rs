@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{Org, OrgInput};
+use crate::store::persistence::records::{Org, OrgInput, Scope};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
@@ -78,10 +78,15 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     // cascade: teams, users (which cascade user_keys), and scope-bound rows.
     super::teams::delete_by_org(root, id).await?;
     super::users::delete_by_org(root, id).await?;
-    crate::store::persistence::file::authz::route_permissions::delete_by_scope(root, "org", id)
+    crate::store::persistence::file::authz::route_permissions::delete_by_scope(
+        root,
+        Scope::Org,
+        id,
+    )
+    .await?;
+    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, Scope::Org, id)
         .await?;
-    crate::store::persistence::file::authz::rate_limits::delete_by_scope(root, "org", id).await?;
-    crate::store::persistence::file::authz::quotas::delete_by_scope(root, "org", id).await?;
+    crate::store::persistence::file::authz::quotas::delete_by_scope(root, Scope::Org, id).await?;
 
     let file = path(root);
     let mut t = table::load::<Org>(&file).await?;

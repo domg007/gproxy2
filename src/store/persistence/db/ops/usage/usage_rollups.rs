@@ -9,8 +9,8 @@ use crate::store::persistence::records::{UsageRollup, UsageRollupInput};
 
 use crate::store::persistence::db::entities::usage::usage_rollup;
 
-fn to_record(m: usage_rollup::Model) -> UsageRollup {
-    UsageRollup {
+fn to_record(m: usage_rollup::Model) -> anyhow::Result<UsageRollup> {
+    Ok(UsageRollup {
         id: m.id,
         granularity: m.granularity,
         bucket_start: m.bucket_start,
@@ -23,10 +23,10 @@ fn to_record(m: usage_rollup::Model) -> UsageRollup {
         requests: m.requests,
         input_tokens: m.input_tokens,
         output_tokens: m.output_tokens,
-        cost: m.cost,
+        cost: m.cost.parse::<rust_decimal::Decimal>()?,
         created_at: m.created_at,
         updated_at: m.updated_at,
-    }
+    })
 }
 
 pub async fn add(
@@ -71,12 +71,12 @@ pub async fn add(
             let requests = existing.requests + input.requests;
             let input_tokens = existing.input_tokens + input.input_tokens;
             let output_tokens = existing.output_tokens + input.output_tokens;
-            let cost = existing.cost + input.cost;
+            let cost = existing.cost.parse::<rust_decimal::Decimal>()? + input.cost;
             let mut am: usage_rollup::ActiveModel = existing.into();
             am.requests = Set(requests);
             am.input_tokens = Set(input_tokens);
             am.output_tokens = Set(output_tokens);
-            am.cost = Set(cost);
+            am.cost = Set(cost.to_string());
             am.updated_at = Set(now);
             am.update(conn).await?
         }
@@ -94,7 +94,7 @@ pub async fn add(
                 requests: Set(input.requests),
                 input_tokens: Set(input.input_tokens),
                 output_tokens: Set(input.output_tokens),
-                cost: Set(input.cost),
+                cost: Set(input.cost.to_string()),
                 created_at: Set(now),
                 updated_at: Set(now),
             }
@@ -103,7 +103,7 @@ pub async fn add(
         }
     };
 
-    Ok(to_record(model))
+    to_record(model)
 }
 
 pub async fn list(
@@ -112,7 +112,7 @@ pub async fn list(
     from: i64,
     to: i64,
 ) -> anyhow::Result<Vec<UsageRollup>> {
-    Ok(usage_rollup::Entity::find()
+    usage_rollup::Entity::find()
         .filter(usage_rollup::Column::Granularity.eq(granularity))
         .filter(usage_rollup::Column::BucketStart.gte(from))
         .filter(usage_rollup::Column::BucketStart.lte(to))
@@ -121,5 +121,5 @@ pub async fn list(
         .await?
         .into_iter()
         .map(to_record)
-        .collect())
+        .collect()
 }

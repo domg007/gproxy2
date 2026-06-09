@@ -3,34 +3,34 @@
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{RoutePermission, RoutePermissionInput};
+use crate::store::persistence::records::{RoutePermission, RoutePermissionInput, Scope};
 
 use crate::store::persistence::db::entities::authz::route_permission;
 
-fn to_record(m: route_permission::Model) -> RoutePermission {
-    RoutePermission {
+fn to_record(m: route_permission::Model) -> anyhow::Result<RoutePermission> {
+    Ok(RoutePermission {
         id: m.id,
-        scope: m.scope,
+        scope: Scope::parse(&m.scope)?,
         scope_id: m.scope_id,
         route_pattern: m.route_pattern,
         created_at: m.created_at,
         updated_at: m.updated_at,
-    }
+    })
 }
 
 pub async fn list(
     conn: &DatabaseConnection,
-    scope: &str,
+    scope: Scope,
     scope_id: i64,
 ) -> anyhow::Result<Vec<RoutePermission>> {
-    Ok(route_permission::Entity::find()
-        .filter(route_permission::Column::Scope.eq(scope))
+    route_permission::Entity::find()
+        .filter(route_permission::Column::Scope.eq(scope.as_str()))
         .filter(route_permission::Column::ScopeId.eq(scope_id))
         .all(conn)
         .await?
         .into_iter()
         .map(to_record)
-        .collect())
+        .collect()
 }
 
 pub async fn upsert(
@@ -46,7 +46,7 @@ pub async fn upsert(
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("route permission not found: {id}"))?;
             let mut am: route_permission::ActiveModel = existing.into();
-            am.scope = Set(input.scope);
+            am.scope = Set(input.scope.as_str().to_owned());
             am.scope_id = Set(input.scope_id);
             am.route_pattern = Set(input.route_pattern);
             am.updated_at = Set(now);
@@ -55,7 +55,7 @@ pub async fn upsert(
         None => {
             route_permission::ActiveModel {
                 id: NotSet,
-                scope: Set(input.scope),
+                scope: Set(input.scope.as_str().to_owned()),
                 scope_id: Set(input.scope_id),
                 route_pattern: Set(input.route_pattern),
                 created_at: Set(now),
@@ -66,7 +66,7 @@ pub async fn upsert(
         }
     };
 
-    Ok(to_record(model))
+    to_record(model)
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
@@ -78,11 +78,11 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
 
 pub async fn delete_by_scope(
     conn: &DatabaseConnection,
-    scope: &str,
+    scope: Scope,
     scope_id: i64,
 ) -> anyhow::Result<()> {
     route_permission::Entity::delete_many()
-        .filter(route_permission::Column::Scope.eq(scope))
+        .filter(route_permission::Column::Scope.eq(scope.as_str()))
         .filter(route_permission::Column::ScopeId.eq(scope_id))
         .exec(conn)
         .await?;

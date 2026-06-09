@@ -3,7 +3,7 @@
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
-use crate::store::persistence::records::{User, UserInput};
+use crate::store::persistence::records::{Scope, User, UserInput};
 
 use crate::store::persistence::db::entities::identity::user;
 
@@ -84,11 +84,16 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserInput) -> anyhow::Resu
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
     // cascade: keys and scope-bound permissions / rate limits / quotas.
     super::user_keys::delete_by_user(conn, id).await?;
-    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(conn, "user", id)
+    crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(
+        conn,
+        Scope::User,
+        id,
+    )
+    .await?;
+    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, Scope::User, id)
         .await?;
-    crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "user", id)
+    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, Scope::User, id)
         .await?;
-    crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "user", id).await?;
 
     let res = user::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)
@@ -103,12 +108,18 @@ pub async fn delete_by_org(conn: &DatabaseConnection, org_id: i64) -> anyhow::Re
     for u in users {
         super::user_keys::delete_by_user(conn, u.id).await?;
         crate::store::persistence::db::ops::authz::route_permissions::delete_by_scope(
-            conn, "user", u.id,
+            conn,
+            Scope::User,
+            u.id,
         )
         .await?;
-        crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(conn, "user", u.id)
-            .await?;
-        crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, "user", u.id)
+        crate::store::persistence::db::ops::authz::rate_limits::delete_by_scope(
+            conn,
+            Scope::User,
+            u.id,
+        )
+        .await?;
+        crate::store::persistence::db::ops::authz::quotas::delete_by_scope(conn, Scope::User, u.id)
             .await?;
     }
     user::Entity::delete_many()

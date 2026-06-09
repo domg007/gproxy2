@@ -1,6 +1,7 @@
 //! Usage records (§8-D): per-request usage and rollups. All tables are
 //! append/accumulate only; retention is deferred.
 
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// A per-request usage row (one logical proxied request, §8-D).
@@ -25,7 +26,8 @@ pub struct Usage {
     pub cache_read_tokens: i64,
     pub cache_creation_5m_tokens: i64,
     pub cache_creation_1h_tokens: i64,
-    pub cost: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cost: Decimal,
     /// Unix seconds.
     pub created_at: i64,
     /// Unix seconds.
@@ -52,7 +54,8 @@ pub struct UsageInput {
     pub cache_read_tokens: i64,
     pub cache_creation_5m_tokens: i64,
     pub cache_creation_1h_tokens: i64,
-    pub cost: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cost: Decimal,
 }
 
 /// An aggregated usage bucket for one `(granularity, bucket_start, dimensions)`
@@ -73,7 +76,8 @@ pub struct UsageRollup {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
-    pub cost: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cost: Decimal,
     /// Unix seconds.
     pub created_at: i64,
     /// Unix seconds.
@@ -95,5 +99,6 @@ pub struct UsageRollupInput {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
-    pub cost: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub cost: Decimal,
 }

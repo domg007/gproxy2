@@ -1,9 +1,11 @@
-//! `usage_rollups` table SeaORM entity (accumulated usage bucket). `cost` is
-//! `f64`, so this model cannot derive `Eq`.
+//! `usage_rollups` table SeaORM entity (accumulated usage bucket).
+//!
+//! `cost` is stored as the exact decimal string (TEXT) for lossless money
+//! round-trips across backends.
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "usage_rollups")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -19,7 +21,8 @@ pub struct Model {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
-    pub cost: f64,
+    #[sea_orm(column_type = "Text")]
+    pub cost: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

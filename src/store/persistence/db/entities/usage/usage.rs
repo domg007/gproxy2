@@ -1,9 +1,11 @@
-//! `usages` table SeaORM entity (per-request usage row). `cost` is `f64`, so
-//! this model cannot derive `Eq`.
+//! `usages` table SeaORM entity (per-request usage row).
+//!
+//! `cost` is stored as the exact decimal string (TEXT) for lossless money
+//! round-trips across backends.
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "usages")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -25,7 +27,8 @@ pub struct Model {
     pub cache_read_tokens: i64,
     pub cache_creation_5m_tokens: i64,
     pub cache_creation_1h_tokens: i64,
-    pub cost: f64,
+    #[sea_orm(column_type = "Text")]
+    pub cost: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

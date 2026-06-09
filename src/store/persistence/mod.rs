@@ -28,9 +28,9 @@ use records::{
     OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
     ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
     RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Team, TeamInput, UpstreamRequest,
-    UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User, UserInput,
-    UserKey, UserKeyInput,
+    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
+    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
+    UserInput, UserKey, UserKeyInput,
 };
 
 /// Durable storage abstraction.
@@ -277,10 +277,10 @@ pub trait PersistenceBackend: Send + Sync {
 
     // ── authz: route permissions / rate limits / quotas (§8-C) ──────────────
 
-    /// List route permissions for a scope (`org` | `team` | `user`).
+    /// List route permissions for a scope (org/team/user).
     async fn list_route_permissions(
         &self,
-        scope: &str,
+        scope: Scope,
         scope_id: i64,
     ) -> anyhow::Result<Vec<RoutePermission>>;
 
@@ -294,7 +294,8 @@ pub trait PersistenceBackend: Send + Sync {
     async fn delete_route_permission(&self, id: i64) -> anyhow::Result<bool>;
 
     /// List rate limits for a scope.
-    async fn list_rate_limits(&self, scope: &str, scope_id: i64) -> anyhow::Result<Vec<RateLimit>>;
+    async fn list_rate_limits(&self, scope: Scope, scope_id: i64)
+    -> anyhow::Result<Vec<RateLimit>>;
 
     /// Insert or update a rate limit.
     async fn upsert_rate_limit(&self, input: RateLimitInput) -> anyhow::Result<RateLimit>;
@@ -303,7 +304,7 @@ pub trait PersistenceBackend: Send + Sync {
     async fn delete_rate_limit(&self, id: i64) -> anyhow::Result<bool>;
 
     /// Fetch the quota for a scope (unique per `(scope, scope_id)`).
-    async fn get_quota(&self, scope: &str, scope_id: i64) -> anyhow::Result<Option<Quota>>;
+    async fn get_quota(&self, scope: Scope, scope_id: i64) -> anyhow::Result<Option<Quota>>;
 
     /// Insert or update a quota.
     async fn upsert_quota(&self, input: QuotaInput) -> anyhow::Result<Quota>;

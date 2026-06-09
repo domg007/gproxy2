@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::store::persistence::records::{RateLimit, RateLimitInput};
+use crate::store::persistence::records::{RateLimit, RateLimitInput, Scope};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
@@ -12,7 +12,7 @@ fn path(root: &Path) -> PathBuf {
 
 pub(crate) async fn list(
     root: &Path,
-    scope: &str,
+    scope: Scope,
     scope_id: i64,
 ) -> anyhow::Result<Vec<RateLimit>> {
     Ok(table::load::<RateLimit>(&path(root))
@@ -79,7 +79,11 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
     Ok(removed)
 }
 
-pub(crate) async fn delete_by_scope(root: &Path, scope: &str, scope_id: i64) -> anyhow::Result<()> {
+pub(crate) async fn delete_by_scope(
+    root: &Path,
+    scope: Scope,
+    scope_id: i64,
+) -> anyhow::Result<()> {
     let file = path(root);
     let mut t = table::load::<RateLimit>(&file).await?;
     let before = t.rows.len();

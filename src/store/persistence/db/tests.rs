@@ -157,3 +157,35 @@ async fn cascade_deletes() {
     assert!(db.list_route_members(r.id).await.unwrap().is_empty());
     assert!(db.get_alias_by_name("a").await.unwrap().is_none());
 }
+
+#[tokio::test]
+async fn quota_decimal_exact_round_trip() {
+    use rust_decimal::Decimal;
+
+    // Money is stored as a decimal STRING; assert it survives the sqlite
+    // round-trip with no float drift (exact equality, not approximate).
+    let db = mem().await;
+    let quota_total = "0.000000123".parse::<Decimal>().unwrap();
+    let cost_used = "0.000000001".parse::<Decimal>().unwrap();
+
+    let created = db
+        .upsert_quota(QuotaInput {
+            id: None,
+            scope: Scope::User,
+            scope_id: 42,
+            quota_total,
+            cost_used,
+        })
+        .await
+        .expect("upsert quota");
+
+    let fetched = db
+        .get_quota(Scope::User, 42)
+        .await
+        .expect("get quota")
+        .expect("quota present");
+
+    assert_eq!(fetched.quota_total, quota_total);
+    assert_eq!(fetched.cost_used, cost_used);
+    assert_eq!(fetched, created);
+}
