@@ -8,11 +8,16 @@ use http::header::AUTHORIZATION;
 use crate::app::snapshot::{ControlPlaneSnapshot, KeyIdentity};
 use crate::pipeline::error::PipelineError;
 
-/// Extract the bearer token from inbound headers. Order:
-/// 1. `Authorization: Bearer <tok>` (the `Bearer ` prefix stripped, ASCII
-///    case-insensitive);
-/// 2. else `x-api-key: <tok>` (Claude-style). Returns the BARE token.
-pub fn extract_bearer(headers: &HeaderMap) -> Option<String> {
+/// Extract the inbound API token. Accepts the four credential presentations a
+/// multi-protocol gateway sees, in priority order:
+/// 1. `Authorization: Bearer <tok>` (OpenAI; prefix stripped, ASCII case-insensitive)
+/// 2. `x-api-key: <tok>` (Claude)
+/// 3. `x-goog-api-key: <tok>` (Gemini header)
+/// 4. `?key=<tok>` query parameter (Gemini AI Studio)
+///
+/// Returns the BARE token; empty values are skipped. (The `?key=` value is taken
+/// verbatim — API keys are not percent-encoded in practice.)
+pub fn extract_bearer(headers: &HeaderMap, query: Option<&str>) -> Option<String> {
     if let Some(v) = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         let v = v.trim();
         if let Some(rest) = v
@@ -23,14 +28,28 @@ pub fn extract_bearer(headers: &HeaderMap) -> Option<String> {
             if !rest.is_empty() {
                 return Some(rest.to_string());
             }
-            // empty Bearer value → fall through to x-api-key
+            // empty Bearer value → fall through
         }
     }
-    headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    for header in ["x-api-key", "x-goog-api-key"] {
+        if let Some(tok) = headers.get(header).and_then(|v| v.to_str().ok()) {
+            let tok = tok.trim();
+            if !tok.is_empty() {
+                return Some(tok.to_string());
+            }
+        }
+    }
+    if let Some(query) = query {
+        for pair in query.split('&') {
+            if let Some(val) = pair.strip_prefix("key=") {
+                let val = val.trim();
+                if !val.is_empty() {
+                    return Some(val.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Digest used to index `keys_by_digest`. M1: lowercase hex of `blake3(token)`.
@@ -45,11 +64,55 @@ pub fn key_digest(bare_token: &str) -> String {
 pub fn authenticate(
     cp: &ControlPlaneSnapshot,
     headers: &HeaderMap,
+    query: Option<&str>,
 ) -> Result<Arc<KeyIdentity>, PipelineError> {
-    let token = extract_bearer(headers).ok_or(PipelineError::Unauthorized)?;
+    let token = extract_bearer(headers, query).ok_or(PipelineError::Unauthorized)?;
     let digest = key_digest(&token);
     cp.keys_by_digest
         .get(&digest)
         .cloned()
         .ok_or(PipelineError::Unauthorized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(k.parse::<http::HeaderName>().unwrap(), v.parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn accepts_four_inbound_forms() {
+        assert_eq!(
+            extract_bearer(&headers(&[("authorization", "Bearer abc")]), None).as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            extract_bearer(&headers(&[("x-api-key", "k1")]), None).as_deref(),
+            Some("k1")
+        );
+        assert_eq!(
+            extract_bearer(&headers(&[("x-goog-api-key", "k2")]), None).as_deref(),
+            Some("k2")
+        );
+        assert_eq!(
+            extract_bearer(&HeaderMap::new(), Some("alt=1&key=k3&z=2")).as_deref(),
+            Some("k3")
+        );
+        assert_eq!(extract_bearer(&HeaderMap::new(), None), None);
+    }
+
+    #[test]
+    fn bearer_wins_and_empty_falls_through() {
+        let h = headers(&[("authorization", "Bearer top"), ("x-api-key", "k")]);
+        assert_eq!(extract_bearer(&h, None).as_deref(), Some("top"));
+
+        let h = headers(&[("authorization", "Bearer "), ("x-api-key", "k")]);
+        assert_eq!(extract_bearer(&h, None).as_deref(), Some("k"));
+    }
 }

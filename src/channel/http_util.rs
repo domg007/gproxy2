@@ -32,7 +32,7 @@ fn is_stripped(name: &HeaderName) -> bool {
     HOP_BY_HOP.contains(&n)
         || matches!(
             n,
-            "host" | "authorization" | "x-api-key" | "api-key" | "cookie"
+            "host" | "authorization" | "x-api-key" | "x-goog-api-key" | "api-key" | "cookie"
         )
 }
 

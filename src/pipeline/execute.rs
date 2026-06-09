@@ -15,7 +15,7 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     let cp = state.cp();
 
     // auth (401 short-circuit before any upstream candidate is built)
-    ctx.identity = Some(auth::authenticate(&cp, &ctx.headers)?);
+    ctx.identity = Some(auth::authenticate(&cp, &ctx.headers, ctx.query.as_deref())?);
 
     // classify
     let classified = classify::classify(&ctx.method, &ctx.path, &ctx.body)?;
