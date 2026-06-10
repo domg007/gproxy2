@@ -33,6 +33,10 @@ pub struct AppState {
     /// Per-instance passive health: breakers, credential cooldowns, latency
     /// EWMA (§3.2). Soft state — restart clears.
     pub health: Arc<crate::health::HealthState>,
+    /// Single-flight OAuth refresh orchestrator (§14.5). Serialises concurrent
+    /// refreshes per credential id so a rotating refresh_token is not burned
+    /// twice. Soft state — restart clears.
+    pub refresh: Arc<crate::credentials::refresh::RefreshOrchestrator>,
     /// Per-proxy upstream client pool (§7.4): failover resolves the effective
     /// proxy per attempt and picks a client here. `upstream` stays the default
     /// client (also used by tokenizer downloads). wasm/non-wreq builds have no
@@ -73,6 +77,7 @@ impl AppState {
             channels,
             cipher,
             health: Arc::new(crate::health::HealthState::new()),
+            refresh: Arc::new(crate::credentials::refresh::RefreshOrchestrator::new()),
             #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
             client_pool,
             #[cfg(feature = "count-local")]

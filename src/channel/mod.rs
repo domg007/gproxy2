@@ -19,7 +19,6 @@ use serde_json::Value;
 
 use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
-use crate::store::persistence::records::Credential;
 
 pub use disposition::Disposition;
 pub use prepared::PreparedRequest;
@@ -86,16 +85,19 @@ pub trait Channel: Send + Sync {
         body
     }
 
-    /// Whether the credential must be refreshed before use. M1: never.
-    fn needs_refresh(&self, _cred: &Credential) -> bool {
+    /// Whether the DECRYPTED secret must be refreshed before use (e.g. OAuth
+    /// access token near expiry). Default: never.
+    fn needs_refresh(&self, _secret: &Value) -> bool {
         false
     }
 
-    /// Refresh the credential against the provider. M1: unsupported.
+    /// Refresh the credential against the provider, returning the new PLAINTEXT
+    /// secret Value. The pipeline re-seals + persists + publishes — the channel
+    /// never touches cipher/persistence (purity §6.3). Default: unsupported.
     async fn refresh(
         &self,
         _client: &Arc<dyn UpstreamClient>,
-        _cred: &Credential,
+        _secret: &Value,
     ) -> Result<Value, ChannelError> {
         Err(ChannelError::Unsupported("refresh"))
     }

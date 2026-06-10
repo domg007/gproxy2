@@ -5,6 +5,7 @@ pub mod app;
 pub mod billing;
 pub mod channel;
 pub mod config;
+pub mod credentials;
 pub mod crypto;
 pub mod health;
 pub mod http;
