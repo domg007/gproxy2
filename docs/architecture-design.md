@@ -233,8 +233,20 @@ ExecOutcome { status, headers, body: Full(Bytes) | Stream(ByteStream), dispositi
 
 前半段同一码路,干掉 v1 两个孪生函数。
 
-**short-circuit**:routing 的 `local`(内存模型表、不发上游)在 transform-dispatch 阶段就短路,
-**不进 executor** —— executor 只处理真实上游调用。
+**short-circuit**:routing 的 `local`(不发上游)在 transform-dispatch 阶段就短路,
+**不进 executor 的上游调用** —— 目前两类 local 实现:
+- **models**:聚合 `/v1/models` 返回**网关视角的可用模型 = alias/route 名列表**(永不发上游);
+  scoped `/{provider}/v1/models` 按 routing_rule——`local` = 仅 `provider_models`+变体展开,
+  `passthrough/transform` = 上游列表转换后**合并**手动行与变体。GetModel 同理。
+  `GET /v1/models` 是 openai/claude 撞路径,classify 按**入站凭证形态**消歧
+  (`x-api-key` → claude,其余 → openai)。
+- **count_tokens 本地计数**:`src/tokenize/` —— gpt 族 → **tiktoken-rs**(内置编码,
+  o200k/cl100k 按 model 名启发式);非 gpt → **HF tokenizers**(`provider.settings_json.
+  tokenizer_map`:glob → 内置编码名或 `data_dir/tokenizers/*.json` 本地文件,不做网络下载);
+  两者都没有 → 字符估算。两 crate 进 native 默认构建;edge 只有估算。
+  **默认规则**:CountTokens 在 claude/gemini 渠道走上游真端点(openai 官方有
+  `/v1/responses/input_tokens`,可显式配 passthrough),openai 兼容族默认 local;
+  且 failover 全部候选失败时 local **兜底回退**。响应按入站协议形态构造。
 
 **WS-out**:按 §7.4 —— `UpstreamClient` 出双工帧管道、**帧协议归 channel**、解回内部统一 stream
 事件,**executor 不为 WS 特判**(只问 channel 传输种类);会话复用另加一个**可选** `SessionCloser`
@@ -389,7 +401,14 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `routes`:`name`(唯一)· `strategy`(weighted/round_robin/failover/least_latency)· `enabled` · `description?`
 - `route_members`:`route_id` · `provider_id` · `upstream_model_id` · `weight` · `tier` · `enabled`
 - `aliases`:`alias`(唯一)· `route_id`(多对一)
-- `provider_models`:`provider_id` · `model_id` · `display_name?` · `pricing_json?` · `enabled`
+- `provider_models`:`provider_id` · `model_id` · `display_name?` · `pricing_json?` · `variants_json?` · `enabled`
+  - **手动模型行**:`model_id` 可以是上游真实 id,也可以是凭空新增的对外 id(不要求上游存在)。
+  - **变体(一变多)**:`variants_json` = 纯后缀数组 `["-thinking","-32k"]`(base 照常暴露)或对象
+    `{expose_base: bool, suffixes: [..]}`(`expose_base=false` 时只暴露变体、隐藏 base)。
+    列表时展开为 `{model_id}{suffix}`;请求侧整名未命中时剥已知变体后缀映射回 base 作
+    `upstream_model_id`;变体绑参数注入**不另造机制**——用 process 规则的
+    `filter_model_pattern` 匹配**剥离前的原始全名**(如 `*-thinking` + rewrite)。
+  - **关联删除**:变体存于行上,删行 = base + 全部变体一并下线,无悬挂。
 
 **B. 供应商 / 凭证**
 - `providers`:`name`(唯一)· `channel` · `label?` · `settings_json`(base_url、各 channel 标量开关、**熔断阈值**`circuit_breaker?`{连续失败数或错误率 + 冷却时长},见 §3.2/§7.4)· `credential_strategy`(`round_robin`/`sticky`,sticky key 见 §3.3)· `proxy_url?`(provider 默认出站代理,credential 覆盖 / 全局兜底,见 §7.4)· `tls_fingerprint?`(**JSON**,provider 默认 TLS 伪装指纹,credential 覆盖,见 §7.4)· `enabled` —— **不再有任何 rules 的 JSON 列**,全部提成下列独立表
