@@ -433,6 +433,9 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
   - `--host` / `GPROXY_HOST`(默认 `127.0.0.1`)· `--port` / `GPROXY_PORT`(默认 `8787`)
   - `--instance-name` / `GPROXY_INSTANCE_NAME`(默认 `default`)
   - `GPROXY_MASTER_KEY`(本地 KEK,base64 32B;凭证信封加密用,见 §14.1)
+  - `--admin-user` / `GPROXY_ADMIN_USER`(默认 `admin`)· `--admin-password` /
+    `GPROXY_ADMIN_PASSWORD?`(admin 引导/密码找回,见 §14.2;密码**推荐用 env 而非
+    CLI 旗标**——cmdline 对同宿主其他用户可见且进 shell history)
   - `OTEL_EXPORTER_OTLP_ENDPOINT?`(可选,给定即开启 trace 导出,见 §15)
   - `GPROXY_CORS_ORIGINS?` · `GPROXY_MAX_BODY_BYTES?` · `GPROXY_MAX_INFLIGHT?` · `GPROXY_ADMIN_IP_ALLOWLIST?` · `GPROXY_TRUSTED_PROXY_CIDRS?`(入站防护,见 §16;命名最终以实现为准)
 - `instance_settings`(运行时可改,存持久层,按 `instance_name` 每实例一行):`proxy?` · `spoof_emulation?` · `enable_usage` · `enable_upstream_log(_body)` · `enable_downstream_log(_body)` · `disable_log_redaction?`(默认 false,debug 排障用,关脱敏时日志打告警,见 §14.3)· `update_channel?`。host/port/dsn/redis/master_key 是 bootstrap,不进此表。
@@ -549,6 +552,21 @@ Vercel/Cloudflare =
   会话状态走 §7.2 的 redis(native)/ libsql|upstash(edge)。
 - Console 用 httpOnly + Secure + SameSite cookie 携带 session。
 - 用户 API key 仍走 `user_keys` 的 `api_key_digest`(不变);管理端登录是独立通道。
+- **首启 admin 引导(唯一内置引导)**:启动完成持久层健康检查与首启导入(§18,若有)后,
+  若 `users` 表为空 → 自动创建默认组织(`default`)与用户 `admin`(`is_admin=true`,挂该 org 下):
+  密码 CSPRNG 随机生成(URL-safe,≥24 字符),argon2id 哈希入库,**明文只打印一次**到启动
+  stdout/日志(醒目框出,提示登录后立即修改);明文不落任何持久层/缓存。非空库永不触发。
+  与"无 seed、无内置 provider 模板"不冲突——那禁的是业务配置种子,这里只解决
+  "空库无人能登录管理面"的自举问题。native-only;edge 的引导随其导入路径另定(§18)。
+- **admin 凭证覆盖(密码找回)**:`--admin-user` / `GPROXY_ADMIN_USER`(默认 `admin`)+
+  `--admin-password` / `GPROXY_ADMIN_PASSWORD`(§8-E)。设了密码 → 每次启动在引导点对该
+  用户**强制 upsert**:不存在则按首启路径创建(用给定密码,不再随机生成+打印);已存在则
+  重置 password hash 并强制 `enabled=true`、`is_admin=true`(宿主级恢复动作,语义即
+  "夺回管理权")。生效期间每次启动打**醒目告警**(凭证来自 env/CLI,恢复后应移除);
+  密码值永不写日志/配置 dump。覆盖在首启导入(§18)之后应用,对导入带来的用户同样生效。
+  信任模型与 §18 同源:能设进程 env/CLI 即已有宿主访问权,而宿主上本就有
+  `GPROXY_MASTER_KEY`(可解全部凭证)与数据目录/DSN(可直改 users 表),此机制不扩大攻击面;
+  唯 CLI 旗标在 `/proc/*/cmdline` 对同宿主其他用户可见 → 密码**推荐走 env**。
 
 ### 14.3 日志正文脱敏
 - 开 `enable_*_log_body` 抓正文时,**强制剥离 Authorization / api-key 等密钥头与已知密钥字段**

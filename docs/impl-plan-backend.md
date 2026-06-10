@@ -55,8 +55,8 @@ on user, `label` on key); `Provider.channel: String`.
 
 ## Post-review amendments (M1)
 
-After M1 was implemented and adversarially reviewed, two product decisions
-superseded parts of §2 below:
+After M1 was implemented and adversarially reviewed, the following product
+decisions superseded parts of §2 below:
 
 - **No seeding.** The `--seed` / `GPROXY_SEED` flag and `src/seed.rs` are
   removed. There are **no built-in provider templates** either. All config
@@ -71,6 +71,25 @@ superseded parts of §2 below:
   channels with distinct auth get their own adapter (`claude_api` = `x-api-key`;
   later `gemini_api`, and the OAuth/cookie/TLS channels each as their own,
   per `src/channel/registry.rs`). M1 ships `openai_compatible` + `claude_api`.
+- **First-boot admin bootstrap (2026-06-10).** Deliberate exception to "no
+  seeding" (which bans business-config seeds only): on startup, after
+  persistence health and the §18 first-boot import (if any), if the `users`
+  table is empty → create a default org (`default`) and user `admin`
+  (`is_admin=true`) under it, with a CSPRNG-generated password (URL-safe, ≥24
+  chars). Store the argon2id hash; print the plaintext ONCE to startup
+  stdout/log in a prominent box with a change-it-now notice. Plaintext is never
+  persisted or cached; never triggers on a non-empty store. Native-only (edge
+  bootstrap follows its own import path). Companion override for password
+  recovery: `--admin-user` / `GPROXY_ADMIN_USER` (default `admin`) +
+  `--admin-password` / `GPROXY_ADMIN_PASSWORD`. When the password is set, every
+  startup force-upserts that user at the bootstrap point — create as on first
+  boot (given password, no random+print) or reset the hash and force
+  `enabled=true` + `is_admin=true` (host-level recovery). Prominent warning on
+  every startup while active; value never logged; env preferred over the CLI
+  flag (cmdline is world-readable to other users on shared hosts). Same trust
+  model as §18 import: host access already implies `GPROXY_MASTER_KEY` +
+  data-dir/DSN access, so this adds no new attack surface. Lands with the
+  admin API (M9).
 
 ---
 
@@ -704,7 +723,9 @@ Each lists new types/methods + the exact M1 seam they hook into.
   future is non-Send; never spawn.)
 - **M9 Export/Import.** `admin/export.rs`/`import.rs`: serialize all records to a
   bundle; import via `upsert_*` (reuses the seed pattern; `*Input` = import
-  schema). `admin.rs` deferred from M1 lands here.
+  schema). `admin.rs` deferred from M1 lands here. First-boot admin bootstrap
+  lands here too, ordered AFTER the first-boot import (see post-review
+  amendments).
 - **M10 (reserved/hardening).** Rate-limit fairness, quota reset jobs, admin
   console; over existing `cache.incr` + snapshot configs.
 
