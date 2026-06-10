@@ -5,13 +5,6 @@
 use super::*;
 use crate::pipeline::error::PipelineError;
 
-/// BUNDLE with one extra top-level array spliced in (rate_limits / quotas).
-fn bundle_with(key: &str, rows: Value) -> String {
-    let mut v: Value = serde_json::from_str(BUNDLE).expect("bundle json");
-    v[key] = rows;
-    serde_json::to_string(&v).expect("serialize")
-}
-
 fn chat_ok() -> Bytes {
     let body = json!({
         "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",

@@ -126,6 +126,13 @@ async fn state_with(fake: Arc<FakeUpstream>) -> (AppState, tempfile::TempDir) {
     state_with_bundle(fake, BUNDLE).await
 }
 
+/// BUNDLE with one top-level array replaced (routing_rules / rate_limits / …).
+fn bundle_with(key: &str, rows: Value) -> String {
+    let mut v: Value = serde_json::from_str(BUNDLE).expect("bundle json");
+    v[key] = rows;
+    serde_json::to_string(&v).expect("serialize")
+}
+
 async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let persistence: Arc<dyn crate::store::persistence::PersistenceBackend> = Arc::new(

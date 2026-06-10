@@ -109,16 +109,11 @@ async fn count_tokens_falls_back_to_local_when_upstream_fails() {
     assert_eq!(fake.seen.lock().unwrap().len(), 1, "upstream was attempted");
 }
 
-/// Explicit `local` routing rule: scoped ListModels served from the snapshot's
-/// exposed provider_models (manual rows + variants), no upstream call.
-#[tokio::test]
-async fn scoped_models_list_served_locally_via_rule() {
-    let fake = Arc::new(FakeUpstream::new(Bytes::new(), vec![]));
-    let (state, _dir) = state_with(Arc::clone(&fake)).await;
-
+/// Scoped GET /v1/models at provider `oai`.
+fn scoped_models_ctx() -> RequestCtx {
     let mut headers = HeaderMap::new();
     headers.insert("authorization", "Bearer sk-test".parse().unwrap());
-    let ctx = RequestCtx {
+    RequestCtx {
         request_id: "t-lm".into(),
         method: Method::GET,
         path: "/v1/models".into(),
@@ -132,24 +127,67 @@ async fn scoped_models_list_served_locally_via_rule() {
         op: None,
         stream: false,
         route_name: None,
-    };
+    }
+}
 
-    let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");
+fn list_ids(b: &Bytes) -> Vec<String> {
+    let v: Value = serde_json::from_slice(b).unwrap();
+    v["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Explicit `local` routing rule: scoped ListModels served from the snapshot's
+/// exposed provider_models (manual rows + variants), no upstream call.
+#[tokio::test]
+async fn scoped_models_list_served_locally_via_rule() {
+    let fake = Arc::new(FakeUpstream::new(Bytes::new(), vec![]));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let outcome = crate::pipeline::execute(&state, scoped_models_ctx())
+        .await
+        .expect("ok");
     assert_eq!(outcome.status, StatusCode::OK);
     let ResponseBody::Full(b) = outcome.body else {
         panic!("expected Full")
     };
-    let v: Value = serde_json::from_slice(&b).unwrap();
-    let ids: Vec<&str> = v["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| m["id"].as_str().unwrap())
-        .collect();
     assert_eq!(
-        ids,
+        list_ids(&b),
         ["gpt-test", "gpt-test-thinking"],
         "exposed rows listed"
     );
     assert!(fake.seen.lock().unwrap().is_empty(), "no upstream call");
+}
+
+/// §6.3 merged models: without a local rule, scoped ListModels passes through
+/// to the upstream and the snapshot's manual + variant rows join the list.
+#[tokio::test]
+async fn scoped_models_upstream_list_merges_manual_rows() {
+    let bundle = bundle_with("routing_rules", json!([]));
+    let upstream = json!({
+        "object": "list",
+        "data": [{ "id": "gpt-upstream", "object": "model", "created": 0, "owned_by": "openai" }]
+    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&upstream).unwrap()),
+        vec![],
+    ));
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &bundle).await;
+
+    let outcome = crate::pipeline::execute(&state, scoped_models_ctx())
+        .await
+        .expect("ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected Full")
+    };
+    assert_eq!(
+        list_ids(&b),
+        ["gpt-upstream", "gpt-test", "gpt-test-thinking"],
+        "upstream ids first, manual + variant rows appended"
+    );
+    assert_eq!(fake.seen.lock().unwrap().len(), 1, "upstream listing hit");
 }
