@@ -60,6 +60,11 @@ impl Operation {
             Self::CreateConversation => OperationGroup::Conversation,
         }
     }
+
+    /// Whether requests of this operation carry a JSON body.
+    pub const fn has_request_body(self) -> bool {
+        !matches!(self, Self::ListModels | Self::GetModel)
+    }
 }
 
 /// Wire-format kind used together with [`Operation`].

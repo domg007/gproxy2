@@ -1,17 +1,14 @@
-//! Bytes-level dispatch from a resolved [`TransformPair`] to its typed pair
-//! functions. M2 wires the 12 content-generation pairs; other groups
-//! (count_tokens/models/embeddings/images/compact) return `InvalidInput`
-//! until their gateway paths exist in `pipeline/classify`.
+//! Content-generation dispatch arms: the 12 pairs wired in M2, including
+//! per-event stream conversion.
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::generate_content as gc;
-use super::{TransformContext, TransformError, TransformPair};
+use super::{not_wired, run, run_value};
+use crate::transform::generate_content as gc;
+use crate::transform::{TransformContext, TransformError, TransformPair};
 
-/// Whether the bytes dispatch has arms for this pair.
-pub fn is_wired(pair: TransformPair) -> bool {
+/// Whether this pair belongs to the content-generation group.
+pub(super) fn is_content(pair: TransformPair) -> bool {
     use TransformPair as P;
     matches!(
         pair,
@@ -30,8 +27,7 @@ pub fn is_wired(pair: TransformPair) -> bool {
     )
 }
 
-/// Convert a request body (inbound wire JSON → upstream wire JSON).
-pub fn request_bytes(
+pub(super) fn request_bytes(
     pair: TransformPair,
     ctx: &TransformContext,
     body: &[u8],
@@ -90,9 +86,7 @@ pub fn request_bytes(
     }
 }
 
-/// Convert a response body (upstream wire JSON → inbound wire JSON). The pair
-/// here is the REVERSE pair (`resolve(upstream_key, inbound_key)`).
-pub fn response_bytes(
+pub(super) fn response_bytes(
     pair: TransformPair,
     ctx: &TransformContext,
     body: &[u8],
@@ -151,9 +145,7 @@ pub fn response_bytes(
     }
 }
 
-/// Convert one decoded stream event (upstream wire JSON value → inbound wire
-/// JSON value). Same reverse-pair convention as [`response_bytes`].
-pub fn stream_event_value(
+pub(super) fn stream_event_value(
     pair: TransformPair,
     ctx: &TransformContext,
     event: Value,
@@ -217,71 +209,5 @@ pub fn stream_event_value(
             event,
         ),
         other => Err(not_wired(other)),
-    }
-}
-
-fn run<S, T>(
-    f: impl Fn(S, &TransformContext) -> Result<T, TransformError>,
-    ctx: &TransformContext,
-    body: &[u8],
-) -> Result<Vec<u8>, TransformError>
-where
-    S: DeserializeOwned,
-    T: Serialize,
-{
-    let input: S = serde_json::from_slice(body).map_err(|e| TransformError::InvalidInput {
-        reason: format!("decode source body: {e}"),
-    })?;
-    let out = f(input, ctx)?;
-    serde_json::to_vec(&out).map_err(|e| TransformError::Serialization {
-        reason: e.to_string(),
-    })
-}
-
-fn run_value<S, T>(
-    f: impl Fn(S, &TransformContext) -> Result<T, TransformError>,
-    ctx: &TransformContext,
-    event: Value,
-) -> Result<Value, TransformError>
-where
-    S: DeserializeOwned,
-    T: Serialize,
-{
-    let input: S = serde_json::from_value(event).map_err(|e| TransformError::InvalidInput {
-        reason: format!("decode stream event: {e}"),
-    })?;
-    let out = f(input, ctx)?;
-    serde_json::to_value(&out).map_err(|e| TransformError::Serialization {
-        reason: e.to_string(),
-    })
-}
-
-fn not_wired(pair: TransformPair) -> TransformError {
-    TransformError::InvalidInput {
-        reason: format!("bytes dispatch not wired for {pair:?}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol::{ContentGenerationKind, Operation, OperationKey};
-
-    #[test]
-    fn claude_to_openai_chat_request_roundtrip() {
-        let source = OperationKey::content_generation(
-            Operation::GenerateContent,
-            ContentGenerationKind::ClaudeMessages,
-        );
-        let target = OperationKey::content_generation(
-            Operation::GenerateContent,
-            ContentGenerationKind::OpenAiChatCompletions,
-        );
-        let ctx = TransformContext::new(source, target);
-        let body = br#"{"model":"m","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}"#;
-        let out = request_bytes(TransformPair::ClaudeMessagesToOpenAiChat, &ctx, body).unwrap();
-        let v: Value = serde_json::from_slice(&out).unwrap();
-        assert_eq!(v["messages"][0]["role"], "user");
-        assert!(v.get("max_tokens").is_some() || v.get("max_completion_tokens").is_some());
     }
 }

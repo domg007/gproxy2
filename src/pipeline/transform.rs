@@ -63,8 +63,7 @@ pub fn plan_for(
             if !dispatch::is_wired(request_pair) || !dispatch::is_wired(response_pair) {
                 return Err(PipelineError::TransformRequest(
                     TransformError::InvalidInput {
-                        reason: "pair not wired for bytes dispatch (M2: content generation only)"
-                            .to_owned(),
+                        reason: "pair not wired for bytes dispatch".to_owned(),
                     },
                 ));
             }
@@ -122,8 +121,10 @@ pub fn request_parts(
             let mut body = ctx.body.clone();
             // Aggregated-mode member model rewrite. Scoped mode peeked the
             // same model into upstream_model_id, so this stays a no-op there
-            // (single memoized model peek; no transform).
-            if !cand.upstream_model_id.is_empty()
+            // (single memoized model peek; no transform). Body-less ops
+            // (models GETs) carry nothing to peek or patch.
+            if op.operation.has_request_body()
+                && !cand.upstream_model_id.is_empty()
                 && memo.inbound_model(&ctx.body).as_deref() != Some(cand.upstream_model_id.as_str())
             {
                 match op.kind {
@@ -163,45 +164,61 @@ pub fn request_parts(
             target,
             ..
         } => {
-            let OperationKind::ContentGeneration(tk) = target.kind else {
-                return Err(PipelineError::TransformRequest(
-                    TransformError::InvalidInput {
-                        reason: "non-content transform target (not wired in M2)".to_owned(),
+            // Body-less ops (models GETs): nothing to transform or patch;
+            // only endpoint synthesis applies.
+            if !target.operation.has_request_body() {
+                let t = protocol::request_target(*target, &cand.upstream_model_id, ctx.stream);
+                (
+                    RequestParts {
+                        method: t.method.into(),
+                        path: t.path,
+                        query: t.query,
+                        body: ctx.body.clone(),
+                        headers: None,
                     },
-                ));
-            };
-            let key = (tk, cand.upstream_model_id.clone());
-            let body = match memo.bodies.get(&key) {
-                Some(b) => b.clone(),
-                None => {
-                    let fwd = TransformContext::new(*source, *target);
-                    let converted = dispatch::request_bytes(*request_pair, &fwd, &ctx.body)
-                        .map_err(PipelineError::TransformRequest)?;
-                    let mut converted = Bytes::from(converted);
-                    // Gemini targets keep model + streaming in the URL
-                    // (request_target); body stays untouched.
-                    if tk != ContentGenerationKind::GeminiGenerateContent {
-                        let model = (!cand.upstream_model_id.is_empty())
-                            .then_some(cand.upstream_model_id.as_str());
-                        if model.is_some() || ctx.stream {
-                            converted = patch_body(&converted, model, ctx.stream)?;
+                    *target,
+                )
+            } else {
+                let OperationKind::ContentGeneration(tk) = target.kind else {
+                    return Err(PipelineError::TransformRequest(
+                        TransformError::InvalidInput {
+                            reason: "non-content transform target (not wired in M2)".to_owned(),
+                        },
+                    ));
+                };
+                let key = (tk, cand.upstream_model_id.clone());
+                let body = match memo.bodies.get(&key) {
+                    Some(b) => b.clone(),
+                    None => {
+                        let fwd = TransformContext::new(*source, *target);
+                        let converted = dispatch::request_bytes(*request_pair, &fwd, &ctx.body)
+                            .map_err(PipelineError::TransformRequest)?;
+                        let mut converted = Bytes::from(converted);
+                        // Gemini targets keep model + streaming in the URL
+                        // (request_target); body stays untouched.
+                        if tk != ContentGenerationKind::GeminiGenerateContent {
+                            let model = (!cand.upstream_model_id.is_empty())
+                                .then_some(cand.upstream_model_id.as_str());
+                            if model.is_some() || ctx.stream {
+                                converted = patch_body(&converted, model, ctx.stream)?;
+                            }
                         }
+                        memo.bodies.insert(key, converted.clone());
+                        converted
                     }
-                    memo.bodies.insert(key, converted.clone());
-                    converted
-                }
-            };
-            let t = protocol::request_target(*target, &cand.upstream_model_id, ctx.stream);
-            (
-                RequestParts {
-                    method: t.method.into(),
-                    path: t.path,
-                    query: t.query,
-                    body,
-                    headers: None,
-                },
-                *target,
-            )
+                };
+                let t = protocol::request_target(*target, &cand.upstream_model_id, ctx.stream);
+                (
+                    RequestParts {
+                        method: t.method.into(),
+                        path: t.path,
+                        query: t.query,
+                        body,
+                        headers: None,
+                    },
+                    *target,
+                )
+            }
         }
     };
 
