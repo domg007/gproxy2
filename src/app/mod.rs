@@ -27,6 +27,9 @@ pub struct AppState {
     pub snapshot: Arc<ArcSwap<ControlPlaneSnapshot>>,
     /// Channel adapters keyed by id (§6.3).
     pub channels: Arc<ChannelRegistry>,
+    /// Envelope cipher for stored secrets (§14.1): seals at import, opens at
+    /// use. Keyless boots get a [`crate::crypto::NoopCipher`] (plaintext).
+    pub cipher: Arc<dyn crate::crypto::SecretCipher>,
     /// Per-instance passive health: breakers, credential cooldowns, latency
     /// EWMA (§3.2). Soft state — restart clears.
     pub health: Arc<crate::health::HealthState>,
@@ -52,6 +55,7 @@ impl AppState {
         upstream: Arc<dyn UpstreamClient>,
         snapshot: Arc<ArcSwap<ControlPlaneSnapshot>>,
         channels: Arc<ChannelRegistry>,
+        cipher: Arc<dyn crate::crypto::SecretCipher>,
     ) -> Self {
         #[cfg(feature = "count-local")]
         let tokenizers = Arc::new(crate::tokenize::TokenizerRegistry::new(
@@ -67,6 +71,7 @@ impl AppState {
             upstream,
             snapshot,
             channels,
+            cipher,
             health: Arc::new(crate::health::HealthState::new()),
             #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
             client_pool,

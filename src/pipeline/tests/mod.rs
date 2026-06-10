@@ -150,7 +150,7 @@ async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, 
             .await
             .expect("file persistence"),
     );
-    crate::app::import::import_bundle(persistence.as_ref(), bundle)
+    crate::app::import::import_bundle(persistence.as_ref(), &crate::crypto::NoopCipher, bundle)
         .await
         .expect("import");
     let snapshot = ControlPlaneSnapshot::build(persistence.as_ref(), 1)
@@ -171,7 +171,15 @@ async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, 
     let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(snapshot));
     let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
     (
-        AppState::new(config, cache, persistence, fake, snapshot, channels),
+        AppState::new(
+            config,
+            cache,
+            persistence,
+            fake,
+            snapshot,
+            channels,
+            Arc::new(crate::crypto::NoopCipher),
+        ),
         dir,
     )
 }

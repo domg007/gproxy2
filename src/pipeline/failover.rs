@@ -107,8 +107,27 @@ pub async fn run_failover(
             }
         };
 
+        // §14.1 decrypt-at-use: the snapshot carries sealed secrets; open per
+        // attempt (µs-scale). Unreadable secret → skip candidate, not 500.
+        let secret = match state.cipher.open(&cand.credential.secret_json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    credential_id = cand.credential.id,
+                    error = %e,
+                    "secret open failed; skipping credential"
+                );
+                last_err = Some(PipelineError::Channel(
+                    crate::channel::ChannelError::InvalidCredential(
+                        "sealed secret unreadable".into(),
+                    ),
+                ));
+                continue;
+            }
+        };
+
         let prepared = match channel.prepare(PrepareCtx {
-            secret: &cand.credential.secret_json,
+            secret: &secret,
             provider_settings: &cand.provider.settings_json,
             upstream_model_id: &cand.upstream_model_id,
             method: parts.method.clone(),

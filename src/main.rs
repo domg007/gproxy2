@@ -107,10 +107,20 @@ async fn main() -> anyhow::Result<()> {
     persistence.health().await?;
     tracing::info!("persistence backend: {} healthy", persistence.kind());
 
+    // Envelope cipher (§14.1): GPROXY_MASTER_KEY is env-only (§8-E — never a
+    // CLI flag). Malformed key = hard boot error; absent key = plaintext mode.
+    let master_key = std::env::var("GPROXY_MASTER_KEY").ok();
+    if master_key.is_none() {
+        tracing::warn!("GPROXY_MASTER_KEY not set; secrets stored and read as plaintext");
+    }
+    let cipher = gproxy::crypto::cipher_from_master_key(master_key.as_deref())?;
+
     // Import subcommand: load bundle, upsert, exit — no server started.
     if let Some(Command::Import { input }) = cli.command {
         let json = std::fs::read_to_string(&input)?;
-        let stats = gproxy::app::import::import_bundle(persistence.as_ref(), &json).await?;
+        let stats =
+            gproxy::app::import::import_bundle(persistence.as_ref(), cipher.as_ref(), &json)
+                .await?;
         tracing::info!(records = stats.records, "bundle imported");
         return Ok(());
     }
@@ -124,7 +134,9 @@ async fn main() -> anyhow::Result<()> {
             && persistence.list_users().await?.is_empty();
         if empty {
             let json = std::fs::read_to_string(&path)?;
-            let stats = gproxy::app::import::import_bundle(persistence.as_ref(), &json).await?;
+            let stats =
+                gproxy::app::import::import_bundle(persistence.as_ref(), cipher.as_ref(), &json)
+                    .await?;
             tracing::info!(records = stats.records, path, "first-boot bundle imported");
         } else {
             tracing::info!(path, "GPROXY_IMPORT_FILE set but store not empty; skipped");
@@ -178,7 +190,15 @@ async fn main() -> anyhow::Result<()> {
     let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(snapshot));
     let channels = Arc::new(gproxy::channel::registry::ChannelRegistry::with_builtin());
 
-    let state = AppState::new(config, cache, persistence, upstream, snapshot, channels);
+    let state = AppState::new(
+        config,
+        cache,
+        persistence,
+        upstream,
+        snapshot,
+        channels,
+        cipher,
+    );
 
     // Tokenizer registry (§6.3): vocab storage rides the persistence backend
     // (file = raw files under data_dir/tokenizers, db = BLOB rows); only the

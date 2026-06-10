@@ -101,6 +101,9 @@ pub async fn init(
         upstream,
         snapshot,
         channels,
+        // Edge has no master-key config surface yet — NoopCipher (plaintext)
+        // until edge config lands; sealed secrets then need a real key here.
+        crate::crypto::cipher_from_master_key(None).map_err(js_err)?,
     ));
     Ok(())
 }

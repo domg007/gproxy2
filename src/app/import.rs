@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 
+use crate::crypto::SecretCipher;
 use crate::pipeline::auth::key_digest;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
@@ -54,7 +55,7 @@ pub struct Bundle {
 }
 
 /// `user_keys` import form: bare api key in, digest + ciphertext derived
-/// (M1 plaintext-at-rest; envelope encryption re-keys this in M6).
+/// (sealed via the boot cipher; keyless boots store the bare key as before).
 #[derive(Debug, Deserialize)]
 pub struct UserKeyImport {
     pub id: Option<i64>,
@@ -110,7 +111,11 @@ pub struct ImportStats {
     pub records: usize,
 }
 
-pub async fn import_bundle(db: &dyn PersistenceBackend, json: &str) -> anyhow::Result<ImportStats> {
+pub async fn import_bundle(
+    db: &dyn PersistenceBackend,
+    cipher: &dyn SecretCipher,
+    json: &str,
+) -> anyhow::Result<ImportStats> {
     let bundle: Bundle = serde_json::from_str(json)?;
     anyhow::ensure!(
         bundle.schema_version == 1,
@@ -131,11 +136,20 @@ pub async fn import_bundle(db: &dyn PersistenceBackend, json: &str) -> anyhow::R
         n += 1;
     }
     for k in bundle.user_keys {
+        // digest from the BARE key (auth lookup), ciphertext sealed (§14.1).
+        // NoopCipher seal is identity → the bare string is stored as before;
+        // a real cipher yields an envelope object stored as JSON text.
+        let digest = key_digest(&k.api_key);
+        let sealed = cipher.seal(&serde_json::Value::String(k.api_key))?;
+        let stored = match &sealed {
+            serde_json::Value::String(s) => s.clone(),
+            other => serde_json::to_string(other)?,
+        };
         db.upsert_user_key(UserKeyInput {
             id: k.id,
             user_id: k.user_id,
-            api_key_digest: key_digest(&k.api_key),
-            api_key_ciphertext: k.api_key,
+            api_key_digest: digest,
+            api_key_ciphertext: stored,
             label: k.label,
             enabled: k.enabled,
         })
@@ -164,7 +178,7 @@ pub async fn import_bundle(db: &dyn PersistenceBackend, json: &str) -> anyhow::R
             provider_id: c.provider_id,
             name: c.label,
             kind: c.kind,
-            secret_json: c.secret_json,
+            secret_json: cipher.seal(&c.secret_json)?,
             weight: c.weight,
             rpm_limit: c.rpm_limit,
             tpm_limit: c.tpm_limit,
