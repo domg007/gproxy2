@@ -7,8 +7,10 @@ use std::sync::Arc;
 use crate::app::AppState;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
-use crate::pipeline::outcome::ExecOutcome;
+use crate::pipeline::local_ops::{self, ModelEntry};
+use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::{auth, balance, classify, failover, ingress, preprocess, route};
+use crate::protocol::Operation;
 
 /// Drive one request to an [`ExecOutcome`].
 pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
@@ -26,6 +28,18 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     let classified = classify::classify(&ctx.method, &ctx.path, &ctx.headers, &ctx.body)?;
     ctx.op = Some(classified.op);
     ctx.stream = classified.stream;
+
+    // Aggregated models surface (§6.3): the gateway's own view — alias + route
+    // names — served before preprocess/route (there is no model to route) and
+    // never touching an upstream.
+    if matches!(ctx.mode, RoutingMode::Aggregated)
+        && matches!(
+            classified.op.operation,
+            Operation::ListModels | Operation::GetModel
+        )
+    {
+        return aggregated_models(&cp, &ctx);
+    }
 
     // resolve candidates per routing mode
     let candidates = match &ctx.mode {
@@ -48,7 +62,10 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
 }
 
 /// Scoped mode (`/{provider}/v1/...`): bypass routing, hit the named provider
-/// directly. Provider must exist + be enabled; model validation is lax in M1.
+/// directly. Provider must exist + be enabled; model validation is lax (M1
+/// behavior kept) — but a known variant suffix strips to its base as the
+/// upstream model (§8-B), with the body/path rewrite done downstream by
+/// `transform::request_parts`.
 fn scoped_candidates(
     cp: &crate::app::snapshot::ControlPlaneSnapshot,
     provider_name: &str,
@@ -60,7 +77,18 @@ fn scoped_candidates(
         .filter(|p| p.enabled)
         .ok_or_else(|| PipelineError::UnknownProvider(provider_name.to_string()))?;
 
-    let model = classify::peek_model(&ctx.body).unwrap_or_default();
+    // Requested name: body peek, else path-embedded (gemini `models/{id}:verb`,
+    // models GETs). Process filters still see this ORIGINAL full name (§8-B) —
+    // only upstream_model_id is stripped.
+    let requested = classify::peek_model(&ctx.body)
+        .or_else(|| classify::path_model_id(&ctx.path))
+        .unwrap_or_default();
+    let model = cp
+        .variant_base_by_provider
+        .get(&provider.id)
+        .and_then(|idx| idx.get(&requested))
+        .cloned()
+        .unwrap_or(requested);
     let creds = cp
         .credentials_by_provider
         .get(&provider.id)
@@ -75,4 +103,60 @@ fn scoped_candidates(
             upstream_model_id: model.clone(),
         })
         .collect())
+}
+
+/// Serve aggregated ListModels/GetModel from the snapshot: alias names + route
+/// names ARE the model list. GetModel is an existence check on the same set.
+fn aggregated_models(
+    cp: &crate::app::snapshot::ControlPlaneSnapshot,
+    ctx: &RequestCtx,
+) -> Result<ExecOutcome, PipelineError> {
+    let op = ctx.op.expect("classified");
+    let family = op.provider_family();
+    let known = |id: &str| cp.alias_to_route.contains_key(id) || cp.routes_by_name.contains_key(id);
+
+    let body = match op.operation {
+        Operation::ListModels => {
+            let mut ids: Vec<&String> = cp
+                .alias_to_route
+                .keys()
+                .chain(cp.routes_by_name.keys())
+                .collect();
+            ids.sort();
+            ids.dedup();
+            let entries: Vec<ModelEntry> = ids
+                .into_iter()
+                .map(|id| ModelEntry {
+                    id: id.clone(),
+                    display_name: None,
+                })
+                .collect();
+            local_ops::render_model_list(family, &entries)
+        }
+        _ => {
+            let id = classify::path_model_id(&ctx.path).ok_or(PipelineError::UnsupportedPath)?;
+            if !known(&id) {
+                return Err(PipelineError::UnknownRoute(id));
+            }
+            local_ops::render_model(
+                family,
+                &ModelEntry {
+                    id,
+                    display_name: None,
+                },
+            )
+        }
+    };
+
+    let mut headers = http::HeaderMap::new();
+    headers.insert(
+        http::header::CONTENT_TYPE,
+        http::HeaderValue::from_static("application/json"),
+    );
+    Ok(ExecOutcome {
+        status: http::StatusCode::OK,
+        headers,
+        body: ResponseBody::Full(body),
+        disposition: crate::channel::disposition::Disposition::Success,
+    })
 }

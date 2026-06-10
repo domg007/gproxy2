@@ -9,6 +9,7 @@ pub mod error;
 pub mod execute;
 pub mod failover;
 pub mod ingress;
+pub mod local_ops;
 pub mod outcome;
 pub mod preprocess;
 pub mod route;

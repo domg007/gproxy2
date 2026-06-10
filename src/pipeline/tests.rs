@@ -78,6 +78,9 @@ const BUNDLE: &str = r#"{
     { "id": 1, "provider_id": 1, "label": null, "secret_json": { "api_key": "up-key" }, "proxy_url": null, "tls_fingerprint": null, "enabled": true },
     { "id": 2, "provider_id": 2, "label": null, "secret_json": { "api_key": "up-key" }, "proxy_url": null, "tls_fingerprint": null, "enabled": true }
   ],
+  "provider_models": [
+    { "id": 1, "provider_id": 1, "model_id": "gpt-test", "display_name": null, "pricing_json": null, "variants_json": ["-thinking"], "enabled": true }
+  ],
   "routes": [
     { "id": 1, "name": "to-openai", "strategy": "failover", "enabled": true, "description": null },
     { "id": 2, "name": "to-claude", "strategy": "failover", "enabled": true, "description": null }
@@ -312,4 +315,92 @@ async fn process_rules_apply_on_claude_passthrough() {
         "context-1m",
         "header rule forwarded (claude_api whitelists it)"
     );
+}
+
+#[tokio::test]
+async fn aggregated_models_lists_aliases_and_routes() {
+    let fake = Arc::new(FakeUpstream {
+        seen: Mutex::new(vec![]),
+        response: Bytes::new(),
+        chunks: vec![],
+    });
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    let ctx = RequestCtx {
+        request_id: "t-m".into(),
+        method: Method::GET,
+        path: "/v1/models".into(),
+        query: None,
+        headers,
+        body: Bytes::new(),
+        mode: RoutingMode::Aggregated,
+        identity: None,
+        op: None,
+        stream: false,
+        route_name: None,
+    };
+
+    let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected Full")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    let ids: Vec<&str> = v["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    for expected in ["claude-test", "claude-direct", "to-openai", "to-claude"] {
+        assert!(ids.contains(&expected), "missing {expected} in {ids:?}");
+    }
+    // gateway view: never touches an upstream
+    assert!(fake.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn scoped_variant_suffix_strips_to_base() {
+    let chat_response = json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",
+        "choices": [{ "index": 0, "message": { "role": "assistant", "content": "hi" }, "finish_reason": "stop" }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+    let fake = Arc::new(FakeUpstream {
+        seen: Mutex::new(vec![]),
+        response: Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        chunks: vec![],
+    });
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    headers.insert("content-type", "application/json".parse().unwrap());
+    let body = json!({
+        "model": "gpt-test-thinking",
+        "messages": [{ "role": "user", "content": "hi" }]
+    });
+    let ctx = RequestCtx {
+        request_id: "t-v".into(),
+        method: Method::POST,
+        path: "/v1/chat/completions".into(),
+        query: None,
+        headers,
+        body: Bytes::from(serde_json::to_vec(&body).unwrap()),
+        mode: RoutingMode::Scoped {
+            provider: "oai".into(),
+        },
+        identity: None,
+        op: None,
+        stream: false,
+        route_name: None,
+    };
+
+    let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+    let seen = fake.seen.lock().unwrap();
+    let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
+    assert_eq!(up["model"], "gpt-test", "variant suffix stripped to base");
 }

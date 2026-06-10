@@ -228,12 +228,19 @@ pub fn request_parts(
             OperationKind::ContentGeneration(k) => Some(k),
             OperationKind::Provider(_) => None,
         };
+        // §8-B: rule model filters match the PRE-variant-strip INBOUND name
+        // (body model, else path-embedded model — e.g. `*-thinking` patterns
+        // keyed on the requested variant), falling back to the member model.
+        let filter_model = memo
+            .inbound_model(&ctx.body)
+            .or_else(|| crate::pipeline::classify::path_model_id(&ctx.path))
+            .unwrap_or_else(|| cand.upstream_model_id.clone());
         let mut headers = ctx.headers.clone();
         parts.body = process::apply(
             rules,
             target_key,
             kind,
-            &cand.upstream_model_id,
+            &filter_model,
             &mut headers,
             parts.body,
         );

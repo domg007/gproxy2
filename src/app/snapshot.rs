@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::app::models_index::{self, ExposedModel};
 use crate::process::CompiledRule;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
@@ -28,6 +29,11 @@ pub struct ControlPlaneSnapshot {
     pub credentials_by_provider: HashMap<i64, Vec<Arc<Credential>>>,
     /// provider id → models.
     pub models_by_provider: HashMap<i64, Vec<Arc<ProviderModel>>>,
+    /// provider id → expansion of `provider_models` rows (enabled, variants
+    /// applied) for list-side serving (§8-B).
+    pub exposed_models_by_provider: HashMap<i64, Arc<Vec<ExposedModel>>>,
+    /// provider id → variant full id → base id (request-side suffix strip).
+    pub variant_base_by_provider: HashMap<i64, Arc<HashMap<String, String>>>,
     /// provider id → compiled transform-dispatch rules (§8-B2 `routing_rules`).
     pub routing_rules_by_provider: HashMap<i64, Arc<Vec<CompiledRoutingRule>>>,
     /// provider id → flattened, apply-ordered process rules (§8-B2 rule sets,
@@ -60,6 +66,8 @@ impl ControlPlaneSnapshot {
             keys_by_digest: HashMap::new(),
             credentials_by_provider: HashMap::new(),
             models_by_provider: HashMap::new(),
+            exposed_models_by_provider: HashMap::new(),
+            variant_base_by_provider: HashMap::new(),
             routing_rules_by_provider: HashMap::new(),
             rule_sets_by_provider: HashMap::new(),
             version,
@@ -96,6 +104,15 @@ impl ControlPlaneSnapshot {
                 .map(Arc::new)
                 .collect::<Vec<_>>();
             snap.credentials_by_provider.insert(pid, creds);
+            let compiled = models_index::compile(&models);
+            if !compiled.exposed.is_empty() {
+                snap.exposed_models_by_provider
+                    .insert(pid, Arc::new(compiled.exposed));
+            }
+            if !compiled.variant_base.is_empty() {
+                snap.variant_base_by_provider
+                    .insert(pid, Arc::new(compiled.variant_base));
+            }
             snap.models_by_provider.insert(pid, models);
 
             let routing = db.list_routing_rules(pid).await?;

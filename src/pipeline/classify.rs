@@ -148,10 +148,13 @@ pub(crate) fn peek_model(body: &Bytes) -> Option<String> {
 }
 
 /// Model id embedded in the path (gemini `models/{id}:verb`, `/v1/models/{id}`).
-#[allow(dead_code)] // consumed by local models (T4/T6)
+/// Only matches a `/models/{id}` segment — non-model paths return `None`.
 pub(crate) fn path_model_id(path: &str) -> Option<String> {
-    let last = path.rsplit('/').next()?;
-    let id = last.split(':').next().unwrap_or(last);
+    let (_, rest) = path.rsplit_once("/models/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    let id = rest.split(':').next().unwrap_or(rest);
     (!id.is_empty()).then(|| id.to_owned())
 }
 
