@@ -1,4 +1,155 @@
-//! Gemini CLI auth (TODO M7): OAuth2 authorization-code + PKCE against
-//! `accounts.google.com`, token refresh at `oauth2.googleapis.com/token`;
-//! base `https://cloudcode-pa.googleapis.com`. Requests are wrapped in the
-//! Code Assist envelope (M2 transform).
+//! Gemini CLI auth — Google OAuth2 `refresh_token` grant against
+//! `oauth2.googleapis.com/token`; base `https://cloudcode-pa.googleapis.com`.
+//! Requests are wrapped in the Code Assist envelope (see
+//! [`crate::channel::envelope`]).
+//!
+//! The login-time authorization-code + PKCE flow (auth URL, scopes, project_id
+//! resolution via `loadCodeAssist` / `onboardUser`) is an M10 concern; this
+//! module covers only the per-request access-token use and the refresh that the
+//! pipeline drives. `project_id` is therefore expected to already be present in
+//! the decrypted secret — a credential without it errors in `prepare`.
+
+use std::sync::Arc;
+
+use bytes::Bytes;
+use http::Request;
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
+use serde_json::Value;
+
+use crate::channel::ChannelError;
+use crate::channel::oauth;
+use crate::http::client::UpstreamClient;
+
+/// Public Gemini CLI OAuth client (the credentials the official CLI ships with).
+pub(super) const OAUTH_CLIENT_ID: &str =
+    "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+pub(super) const OAUTH_CLIENT_SECRET: &str = "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";
+pub(super) const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
+/// Code Assist API host (non-regional). Both verbs live under `/v1internal:`.
+pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
+
+/// User-Agent the Gemini CLI sends; some Code Assist paths key behaviour off it.
+const USER_AGENT_VALUE: &str = "GeminiCLI/0.35.2 (linux; x64; terminal)";
+/// `x-goog-api-client` mirrors the genai SDK fingerprint (optional but cheap).
+const GOOG_API_CLIENT: &str = "google-genai-sdk/1.30.0 gl-node/20";
+
+/// Refresh slightly before expiry to avoid racing a 401 mid-flight.
+const EXPIRY_SKEW_MS: i64 = 60_000;
+
+/// Read a trimmed, non-empty string field from the secret.
+fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
+    secret
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// The OAuth access token, required by [`super::GeminiCliChannel::prepare`].
+pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
+    secret_str(secret, "access_token")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing access_token".into()))
+}
+
+/// The Code Assist `project_id`. REQUIRED for M7b — resolution via
+/// `loadCodeAssist` / `onboardUser` is a login-time (M10) concern, so a
+/// credential that lacks it cannot address the API.
+pub(super) fn project_id(secret: &Value) -> Result<&str, ChannelError> {
+    secret_str(secret, "project_id")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing project_id (run login)".into()))
+}
+
+/// Whether the access token is absent or within the skew window of expiry.
+pub(super) fn needs_refresh(secret: &Value) -> bool {
+    if secret_str(secret, "access_token").is_none() {
+        return true;
+    }
+    let expires_at_ms = secret
+        .get("expires_at_ms")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    // `expires_at_ms == 0` means "unknown" → treat as valid; the 401-driven
+    // refresh path still covers stale tokens.
+    if expires_at_ms == 0 {
+        return false;
+    }
+    let now_ms = crate::util::time::unix_now().saturating_mul(1000);
+    now_ms > expires_at_ms - EXPIRY_SKEW_MS
+}
+
+/// Refresh via the Google `refresh_token` grant, returning the new plaintext
+/// secret (`access_token` + `expires_at_ms` rotate; `refresh_token` rotates when
+/// the response carries one, else the old one is kept; every other field —
+/// notably `project_id` — is preserved).
+pub(super) async fn refresh(
+    client: &Arc<dyn UpstreamClient>,
+    secret: &Value,
+) -> Result<Value, ChannelError> {
+    let refresh_token = secret_str(secret, "refresh_token")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing refresh_token".into()))?;
+
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("client_secret", OAUTH_CLIENT_SECRET),
+        ("refresh_token", refresh_token),
+    ];
+    let resp = oauth::token_post(client, TOKEN_URL, &form, &[]).await?;
+
+    let new_access = resp
+        .access_token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::Build("refresh response missing access_token".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut out = secret.clone();
+    let obj = out
+        .as_object_mut()
+        .ok_or_else(|| ChannelError::Build("secret is not an object".into()))?;
+    obj.insert("access_token".into(), Value::String(new_access));
+    // refresh_token ROTATES when present — store the new one, else keep the old.
+    if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
+        obj.insert("refresh_token".into(), Value::String(rt));
+    }
+    obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
+    Ok(out)
+}
+
+/// Inject the OAuth bearer + Gemini CLI fingerprint headers onto the prepared
+/// upstream request. `content-type`/`accept` are forced to `application/json`
+/// (the stream still arrives as SSE — that is selected by `alt=sse`, not Accept,
+/// matching the Gemini CLI's own request).
+pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), ChannelError> {
+    let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
+        .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
+    let h = req.headers_mut();
+    h.insert(AUTHORIZATION, bearer);
+    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    h.insert(
+        HeaderName::from_static("x-goog-api-client"),
+        HeaderValue::from_static(GOOG_API_CLIENT),
+    );
+    Ok(())
+}
+
+/// A fresh random `user_prompt_id` (16 bytes → 32 hex chars). Code Assist treats
+/// it as an opaque per-request id. Randomness comes from `chacha20poly1305`'s
+/// `OsRng` — the same cross-target source `oauth::pkce` / `crypto::envelope`
+/// use, so this compiles on wasm without uuid's native-only gate.
+pub(super) fn random_user_prompt_id() -> String {
+    use chacha20poly1305::aead::OsRng;
+    use chacha20poly1305::aead::rand_core::RngCore;
+
+    let mut bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    let mut out = String::with_capacity(32);
+    for b in bytes {
+        out.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        out.push(char::from_digit((b & 0xf) as u32, 16).unwrap());
+    }
+    out
+}
