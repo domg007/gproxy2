@@ -11,7 +11,7 @@ use crate::protocol::ContentGenerationKind;
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
     default_base_url: Some("https://generativelanguage.googleapis.com"),
     forward_headers: &[],
-    forward_query: &[],
+    forward_query: &["alt"],
 };
 
 pub struct AiStudioChannel;
