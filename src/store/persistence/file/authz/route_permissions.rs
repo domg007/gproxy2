@@ -33,16 +33,29 @@ pub(crate) async fn upsert(
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|p| p.id == id)
-                .ok_or_else(|| anyhow::anyhow!("route permission not found: {id}"))?;
-            row.scope = input.scope;
-            row.scope_id = input.scope_id;
-            row.route_pattern = input.route_pattern;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|p| p.id == id) {
+                row.scope = input.scope;
+                row.scope_id = input.scope_id;
+                row.route_pattern = input.route_pattern;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                // Insert with the pinned id (bundle import contract — same
+                // semantics as the identity tables).
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let perm = RoutePermission {
+                    id,
+                    scope: input.scope,
+                    scope_id: input.scope_id,
+                    route_pattern: input.route_pattern,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(perm.clone());
+                perm
+            }
         }
         None => {
             let id = t.next_id;

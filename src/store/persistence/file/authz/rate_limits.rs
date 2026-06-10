@@ -30,19 +30,35 @@ pub(crate) async fn upsert(root: &Path, input: RateLimitInput) -> anyhow::Result
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("rate limit not found: {id}"))?;
-            row.scope = input.scope;
-            row.scope_id = input.scope_id;
-            row.route_pattern = input.route_pattern;
-            row.rpm = input.rpm;
-            row.rpd = input.rpd;
-            row.total_tokens = input.total_tokens;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|r| r.id == id) {
+                row.scope = input.scope;
+                row.scope_id = input.scope_id;
+                row.route_pattern = input.route_pattern;
+                row.rpm = input.rpm;
+                row.rpd = input.rpd;
+                row.total_tokens = input.total_tokens;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                // Insert with the pinned id (bundle import contract — same
+                // semantics as the identity tables).
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let limit = RateLimit {
+                    id,
+                    scope: input.scope,
+                    scope_id: input.scope_id,
+                    route_pattern: input.route_pattern,
+                    rpm: input.rpm,
+                    rpd: input.rpd,
+                    total_tokens: input.total_tokens,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(limit.clone());
+                limit
+            }
         }
         None => {
             let id = t.next_id;

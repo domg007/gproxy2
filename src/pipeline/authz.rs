@@ -128,6 +128,11 @@ pub fn precheck_quota(
     Ok(())
 }
 
+/// Boolean form of [`check_permission`] for filtering model listings.
+pub fn permitted(cp: &ControlPlaneSnapshot, identity: &KeyIdentity, name: &str) -> bool {
+    check_permission(cp, identity, name).is_ok()
+}
+
 /// The single pipeline entry point: permission → limits → quota.
 pub async fn authorize(
     cp: &ControlPlaneSnapshot,

@@ -79,8 +79,15 @@ impl FakeUpstream {
 const BUNDLE: &str = r#"{
   "schema_version": 1,
   "orgs": [{ "id": 1, "name": "default", "enabled": true, "description": null }],
-  "users": [{ "id": 1, "name": "dev", "org_id": 1, "team_id": null, "password": null, "enabled": true, "is_admin": false }],
-  "user_keys": [{ "id": 1, "user_id": 1, "api_key": "sk-test", "label": null, "enabled": true }],
+  "users": [
+    { "id": 1, "name": "dev", "org_id": 1, "team_id": null, "password": null, "enabled": true, "is_admin": false },
+    { "id": 2, "name": "noperm", "org_id": 1, "team_id": null, "password": null, "enabled": true, "is_admin": false }
+  ],
+  "user_keys": [
+    { "id": 1, "user_id": 1, "api_key": "sk-test", "label": null, "enabled": true },
+    { "id": 2, "user_id": 2, "api_key": "sk-noperm", "label": null, "enabled": true }
+  ],
+  "route_permissions": [{ "id": 1, "scope": "user", "scope_id": 1, "route_pattern": "*" }],
   "providers": [
     { "id": 1, "name": "oai", "channel": "openai", "label": null, "settings_json": { "base_url": "http://fake.local" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true },
     { "id": 2, "name": "cla", "channel": "claude_api", "label": null, "settings_json": { "base_url": "http://fake.local" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true }
@@ -116,13 +123,17 @@ const BUNDLE: &str = r#"{
 }"#;
 
 async fn state_with(fake: Arc<FakeUpstream>) -> (AppState, tempfile::TempDir) {
+    state_with_bundle(fake, BUNDLE).await
+}
+
+async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let persistence: Arc<dyn crate::store::persistence::PersistenceBackend> = Arc::new(
         crate::store::persistence::FilePersistence::open(dir.path().to_path_buf())
             .await
             .expect("file persistence"),
     );
-    crate::app::import::import_bundle(persistence.as_ref(), BUNDLE)
+    crate::app::import::import_bundle(persistence.as_ref(), bundle)
         .await
         .expect("import");
     let snapshot = ControlPlaneSnapshot::build(persistence.as_ref(), 1)
@@ -149,8 +160,15 @@ async fn state_with(fake: Arc<FakeUpstream>) -> (AppState, tempfile::TempDir) {
 }
 
 fn claude_ctx(model: &str, stream: bool) -> RequestCtx {
+    claude_ctx_as("sk-test", model, stream)
+}
+
+fn claude_ctx_as(api_key: &str, model: &str, stream: bool) -> RequestCtx {
     let mut headers = HeaderMap::new();
-    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    headers.insert(
+        "authorization",
+        format!("Bearer {api_key}").parse().unwrap(),
+    );
     headers.insert("content-type", "application/json".parse().unwrap());
     let body = json!({
         "model": model,
@@ -370,4 +388,5 @@ async fn scoped_variant_suffix_strips_to_base() {
     assert_eq!(up["model"], "gpt-test", "variant suffix stripped to base");
 }
 
+mod authz;
 mod local;

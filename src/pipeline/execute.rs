@@ -9,8 +9,9 @@ use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
 use crate::pipeline::outcome::ExecOutcome;
-use crate::pipeline::{auth, balance, classify, failover, ingress, preprocess, route};
+use crate::pipeline::{auth, authz, balance, classify, failover, ingress, preprocess, route};
 use crate::protocol::Operation;
+use crate::util::time::unix_now;
 
 /// Drive one request to an [`ExecOutcome`].
 pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
@@ -41,16 +42,37 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
         return aggregated_models(&cp, &ctx);
     }
 
-    // resolve candidates per routing mode
+    // resolve candidates per routing mode, with authz (§8-C) on the canonical
+    // name BEFORE any candidate is built. The snapshot guard `cp` is held
+    // across authorize's await — that's only a sub-millisecond cache incr, not
+    // the upstream call the M2 invariant guards against.
     let candidates = match &ctx.mode {
         RoutingMode::Aggregated => {
             let route_name = preprocess::preprocess(&cp, &ctx)?;
             let resolved = route::route(&cp, &route_name)?;
+            let identity = ctx.identity.as_ref().expect("auth ran first");
+            authz::authorize(&cp, state.cache.as_ref(), identity, &route_name, unix_now()).await?;
             let cands = balance::candidates(&cp, resolved, state.cache.as_ref(), None)?;
             ctx.route_name = Some(route_name);
             cands
         }
-        RoutingMode::Scoped { provider } => scoped_candidates(&cp, provider, &ctx)?,
+        RoutingMode::Scoped { provider } => {
+            let provider = cp
+                .providers_by_name
+                .get(provider.as_str())
+                .filter(|p| p.enabled)
+                .ok_or_else(|| PipelineError::UnknownProvider(provider.clone()))?;
+            let identity = ctx.identity.as_ref().expect("auth ran first");
+            authz::authorize(
+                &cp,
+                state.cache.as_ref(),
+                identity,
+                &provider.name,
+                unix_now(),
+            )
+            .await?;
+            scoped_candidates(&cp, provider, &ctx)?
+        }
     };
 
     // Candidates own their Arcs; drop the snapshot guard before the (possibly
@@ -68,15 +90,9 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
 /// `transform::request_parts`.
 fn scoped_candidates(
     cp: &crate::app::snapshot::ControlPlaneSnapshot,
-    provider_name: &str,
+    provider: &Arc<crate::store::persistence::records::Provider>,
     ctx: &RequestCtx,
 ) -> Result<Vec<Candidate>, PipelineError> {
-    let provider = cp
-        .providers_by_name
-        .get(provider_name)
-        .filter(|p| p.enabled)
-        .ok_or_else(|| PipelineError::UnknownProvider(provider_name.to_string()))?;
-
     // Requested name: body peek, else path-embedded (gemini `models/{id}:verb`,
     // models GETs). Process filters still see this ORIGINAL full name (§8-B) —
     // only upstream_model_id is stripped.
@@ -106,13 +122,16 @@ fn scoped_candidates(
 }
 
 /// Serve aggregated ListModels/GetModel from the snapshot: alias names + route
-/// names ARE the model list. GetModel is an existence check on the same set.
+/// names ARE the model list, filtered to what the caller's permission union
+/// allows. Non-permitted GetModel 404s identically to missing (no existence
+/// leak).
 fn aggregated_models(
     cp: &crate::app::snapshot::ControlPlaneSnapshot,
     ctx: &RequestCtx,
 ) -> Result<ExecOutcome, PipelineError> {
     let op = ctx.op.expect("classified");
     let family = op.provider_family();
+    let identity = ctx.identity.as_ref().expect("auth ran first");
     let known = |id: &str| cp.alias_to_route.contains_key(id) || cp.routes_by_name.contains_key(id);
 
     let body = match op.operation {
@@ -121,6 +140,7 @@ fn aggregated_models(
                 .alias_to_route
                 .keys()
                 .chain(cp.routes_by_name.keys())
+                .filter(|id| authz::permitted(cp, identity, id))
                 .collect();
             ids.sort();
             ids.dedup();
@@ -135,7 +155,7 @@ fn aggregated_models(
         }
         _ => {
             let id = classify::path_model_id(&ctx.path).ok_or(PipelineError::UnsupportedPath)?;
-            if !known(&id) {
+            if !known(&id) || !authz::permitted(cp, identity, &id) {
                 return Err(PipelineError::UnknownRoute(id));
             }
             local_ops::render_model(

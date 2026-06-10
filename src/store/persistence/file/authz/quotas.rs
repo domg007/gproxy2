@@ -38,17 +38,31 @@ pub(crate) async fn upsert(root: &Path, input: QuotaInput) -> anyhow::Result<Quo
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|q| q.id == id)
-                .ok_or_else(|| anyhow::anyhow!("quota not found: {id}"))?;
-            row.scope = input.scope;
-            row.scope_id = input.scope_id;
-            row.quota_total = input.quota_total;
-            row.cost_used = input.cost_used;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|q| q.id == id) {
+                row.scope = input.scope;
+                row.scope_id = input.scope_id;
+                row.quota_total = input.quota_total;
+                row.cost_used = input.cost_used;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                // Insert with the pinned id (bundle import contract — same
+                // semantics as the identity tables).
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let quota = Quota {
+                    id,
+                    scope: input.scope,
+                    scope_id: input.scope_id,
+                    quota_total: input.quota_total,
+                    cost_used: input.cost_used,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(quota.clone());
+                quota
+            }
         }
         None => {
             let id = t.next_id;

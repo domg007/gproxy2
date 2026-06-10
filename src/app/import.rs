@@ -10,8 +10,8 @@ use crate::pipeline::auth::key_digest;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
     AliasInput, CredentialInput, OrgInput, ProviderInput, ProviderModelInput, ProviderRuleSetInput,
-    RouteInput, RouteMemberInput, RoutingRuleInput, RuleInput, RuleSetInput, TeamInput, UserInput,
-    UserKeyInput,
+    QuotaInput, RateLimitInput, RouteInput, RouteMemberInput, RoutePermissionInput,
+    RoutingRuleInput, RuleInput, RuleSetInput, TeamInput, UserInput, UserKeyInput,
 };
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +25,12 @@ pub struct Bundle {
     pub users: Vec<UserInput>,
     #[serde(default)]
     pub user_keys: Vec<UserKeyImport>,
+    #[serde(default)]
+    pub route_permissions: Vec<RoutePermissionInput>,
+    #[serde(default)]
+    pub rate_limits: Vec<RateLimitInput>,
+    #[serde(default)]
+    pub quotas: Vec<QuotaInput>,
     #[serde(default)]
     pub providers: Vec<ProviderInput>,
     #[serde(default)]
@@ -134,6 +140,18 @@ pub async fn import_bundle(db: &dyn PersistenceBackend, json: &str) -> anyhow::R
             enabled: k.enabled,
         })
         .await?;
+        n += 1;
+    }
+    for x in bundle.route_permissions {
+        db.upsert_route_permission(x).await?;
+        n += 1;
+    }
+    for x in bundle.rate_limits {
+        db.upsert_rate_limit(x).await?;
+        n += 1;
+    }
+    for x in bundle.quotas {
+        db.upsert_quota(x).await?;
         n += 1;
     }
     for x in bundle.providers {
