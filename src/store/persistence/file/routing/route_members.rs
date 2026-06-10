@@ -26,19 +26,33 @@ pub(crate) async fn upsert(root: &Path, input: RouteMemberInput) -> anyhow::Resu
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|m| m.id == id)
-                .ok_or_else(|| anyhow::anyhow!("route member not found: {id}"))?;
-            row.route_id = input.route_id;
-            row.provider_id = input.provider_id;
-            row.upstream_model_id = input.upstream_model_id;
-            row.weight = input.weight;
-            row.tier = input.tier;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|m| m.id == id) {
+                row.route_id = input.route_id;
+                row.provider_id = input.provider_id;
+                row.upstream_model_id = input.upstream_model_id;
+                row.weight = input.weight;
+                row.tier = input.tier;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let member = RouteMember {
+                    id,
+                    route_id: input.route_id,
+                    provider_id: input.provider_id,
+                    upstream_model_id: input.upstream_model_id,
+                    weight: input.weight,
+                    tier: input.tier,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(member.clone());
+                member
+            }
         }
         None => {
             let id = t.next_id;

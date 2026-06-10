@@ -34,23 +34,41 @@ pub(crate) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Resul
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|c| c.id == id)
-                .ok_or_else(|| anyhow::anyhow!("credential not found: {id}"))?;
-            row.provider_id = input.provider_id;
-            row.name = input.name;
-            row.kind = input.kind;
-            row.secret_json = input.secret_json;
-            row.weight = input.weight;
-            row.rpm_limit = input.rpm_limit;
-            row.tpm_limit = input.tpm_limit;
-            row.proxy_url = input.proxy_url;
-            row.tls_fingerprint = input.tls_fingerprint;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|c| c.id == id) {
+                row.provider_id = input.provider_id;
+                row.name = input.name;
+                row.kind = input.kind;
+                row.secret_json = input.secret_json;
+                row.weight = input.weight;
+                row.rpm_limit = input.rpm_limit;
+                row.tpm_limit = input.tpm_limit;
+                row.proxy_url = input.proxy_url;
+                row.tls_fingerprint = input.tls_fingerprint;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let cred = Credential {
+                    id,
+                    provider_id: input.provider_id,
+                    name: input.name,
+                    kind: input.kind,
+                    secret_json: input.secret_json,
+                    weight: input.weight,
+                    rpm_limit: input.rpm_limit,
+                    tpm_limit: input.tpm_limit,
+                    proxy_url: input.proxy_url,
+                    tls_fingerprint: input.tls_fingerprint,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(cred.clone());
+                cred
+            }
         }
         None => {
             let id = t.next_id;

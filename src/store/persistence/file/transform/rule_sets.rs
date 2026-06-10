@@ -43,16 +43,27 @@ pub(crate) async fn upsert(root: &Path, input: RuleSetInput) -> anyhow::Result<R
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("rule set not found: {id}"))?;
-            row.name = input.name;
-            row.enabled = input.enabled;
-            row.description = input.description;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|r| r.id == id) {
+                row.name = input.name;
+                row.enabled = input.enabled;
+                row.description = input.description;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let set = RuleSet {
+                    id,
+                    name: input.name,
+                    enabled: input.enabled,
+                    description: input.description,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(set.clone());
+                set
+            }
         }
         None => {
             let id = t.next_id;

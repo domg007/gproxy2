@@ -43,19 +43,33 @@ pub(crate) async fn upsert(root: &Path, input: UserInput) -> anyhow::Result<User
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|u| u.id == id)
-                .ok_or_else(|| anyhow::anyhow!("user not found: {id}"))?;
-            row.name = input.name;
-            row.org_id = input.org_id;
-            row.team_id = input.team_id;
-            row.password = input.password;
-            row.enabled = input.enabled;
-            row.is_admin = input.is_admin;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|u| u.id == id) {
+                row.name = input.name;
+                row.org_id = input.org_id;
+                row.team_id = input.team_id;
+                row.password = input.password;
+                row.enabled = input.enabled;
+                row.is_admin = input.is_admin;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let user = User {
+                    id,
+                    name: input.name,
+                    org_id: input.org_id,
+                    team_id: input.team_id,
+                    password: input.password,
+                    enabled: input.enabled,
+                    is_admin: input.is_admin,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(user.clone());
+                user
+            }
         }
         None => {
             let id = t.next_id;

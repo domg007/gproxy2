@@ -29,18 +29,31 @@ pub(crate) async fn upsert(
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|m| m.id == id)
-                .ok_or_else(|| anyhow::anyhow!("provider model not found: {id}"))?;
-            row.provider_id = input.provider_id;
-            row.model_id = input.model_id;
-            row.display_name = input.display_name;
-            row.pricing_json = input.pricing_json;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|m| m.id == id) {
+                row.provider_id = input.provider_id;
+                row.model_id = input.model_id;
+                row.display_name = input.display_name;
+                row.pricing_json = input.pricing_json;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let model = ProviderModel {
+                    id,
+                    provider_id: input.provider_id,
+                    model_id: input.model_id,
+                    display_name: input.display_name,
+                    pricing_json: input.pricing_json,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(model.clone());
+                model
+            }
         }
         None => {
             let id = t.next_id;

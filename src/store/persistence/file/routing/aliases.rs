@@ -35,15 +35,25 @@ pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|a| a.id == id)
-                .ok_or_else(|| anyhow::anyhow!("alias not found: {id}"))?;
-            row.alias = input.alias;
-            row.route_id = input.route_id;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|a| a.id == id) {
+                row.alias = input.alias;
+                row.route_id = input.route_id;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let alias = Alias {
+                    id,
+                    alias: input.alias,
+                    route_id: input.route_id,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(alias.clone());
+                alias
+            }
         }
         None => {
             let id = t.next_id;

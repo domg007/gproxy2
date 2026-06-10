@@ -34,20 +34,35 @@ pub(crate) async fn upsert(root: &Path, input: RuleInput) -> anyhow::Result<Rule
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("rule not found: {id}"))?;
-            row.rule_set_id = input.rule_set_id;
-            row.kind = input.kind;
-            row.config_json = input.config_json;
-            row.filter_model_pattern = input.filter_model_pattern;
-            row.filter_operation_keys = input.filter_operation_keys;
-            row.sort_order = input.sort_order;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|r| r.id == id) {
+                row.rule_set_id = input.rule_set_id;
+                row.kind = input.kind;
+                row.config_json = input.config_json;
+                row.filter_model_pattern = input.filter_model_pattern;
+                row.filter_operation_keys = input.filter_operation_keys;
+                row.sort_order = input.sort_order;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let rule = Rule {
+                    id,
+                    rule_set_id: input.rule_set_id,
+                    kind: input.kind,
+                    config_json: input.config_json,
+                    filter_model_pattern: input.filter_model_pattern,
+                    filter_operation_keys: input.filter_operation_keys,
+                    sort_order: input.sort_order,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(rule.clone());
+                rule
+            }
         }
         None => {
             let id = t.next_id;

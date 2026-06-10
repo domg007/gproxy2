@@ -44,21 +44,37 @@ pub(crate) async fn upsert(root: &Path, input: ProviderInput) -> anyhow::Result<
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|p| p.id == id)
-                .ok_or_else(|| anyhow::anyhow!("provider not found: {id}"))?;
-            row.name = input.name;
-            row.channel = input.channel;
-            row.label = input.label;
-            row.settings_json = input.settings_json;
-            row.credential_strategy = input.credential_strategy;
-            row.proxy_url = input.proxy_url;
-            row.tls_fingerprint = input.tls_fingerprint;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|p| p.id == id) {
+                row.name = input.name;
+                row.channel = input.channel;
+                row.label = input.label;
+                row.settings_json = input.settings_json;
+                row.credential_strategy = input.credential_strategy;
+                row.proxy_url = input.proxy_url;
+                row.tls_fingerprint = input.tls_fingerprint;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let provider = Provider {
+                    id,
+                    name: input.name,
+                    channel: input.channel,
+                    label: input.label,
+                    settings_json: input.settings_json,
+                    credential_strategy: input.credential_strategy,
+                    proxy_url: input.proxy_url,
+                    tls_fingerprint: input.tls_fingerprint,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(provider.clone());
+                provider
+            }
         }
         None => {
             let id = t.next_id;

@@ -46,21 +46,37 @@ pub(crate) async fn upsert(root: &Path, input: RoutingRuleInput) -> anyhow::Resu
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("routing rule not found: {id}"))?;
-            row.provider_id = input.provider_id;
-            row.operation = input.operation;
-            row.kind = input.kind;
-            row.implementation = input.implementation;
-            row.dest_operation = input.dest_operation;
-            row.dest_kind = input.dest_kind;
-            row.sort_order = input.sort_order;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|r| r.id == id) {
+                row.provider_id = input.provider_id;
+                row.operation = input.operation;
+                row.kind = input.kind;
+                row.implementation = input.implementation;
+                row.dest_operation = input.dest_operation;
+                row.dest_kind = input.dest_kind;
+                row.sort_order = input.sort_order;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let rule = RoutingRule {
+                    id,
+                    provider_id: input.provider_id,
+                    operation: input.operation,
+                    kind: input.kind,
+                    implementation: input.implementation,
+                    dest_operation: input.dest_operation,
+                    dest_kind: input.dest_kind,
+                    sort_order: input.sort_order,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(rule.clone());
+                rule
+            }
         }
         None => {
             let id = t.next_id;

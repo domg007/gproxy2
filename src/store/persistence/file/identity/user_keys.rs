@@ -51,18 +51,31 @@ pub(crate) async fn upsert(root: &Path, input: UserKeyInput) -> anyhow::Result<U
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|k| k.id == id)
-                .ok_or_else(|| anyhow::anyhow!("user key not found: {id}"))?;
-            row.user_id = input.user_id;
-            row.api_key_ciphertext = input.api_key_ciphertext;
-            row.api_key_digest = input.api_key_digest;
-            row.label = input.label;
-            row.enabled = input.enabled;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|k| k.id == id) {
+                row.user_id = input.user_id;
+                row.api_key_ciphertext = input.api_key_ciphertext;
+                row.api_key_digest = input.api_key_digest;
+                row.label = input.label;
+                row.enabled = input.enabled;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let key = UserKey {
+                    id,
+                    user_id: input.user_id,
+                    api_key_ciphertext: input.api_key_ciphertext,
+                    api_key_digest: input.api_key_digest,
+                    label: input.label,
+                    enabled: input.enabled,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(key.clone());
+                key
+            }
         }
         None => {
             let id = t.next_id;

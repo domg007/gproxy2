@@ -43,16 +43,27 @@ pub(crate) async fn upsert(root: &Path, input: OrgInput) -> anyhow::Result<Org> 
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|o| o.id == id)
-                .ok_or_else(|| anyhow::anyhow!("org not found: {id}"))?;
-            row.name = input.name;
-            row.enabled = input.enabled;
-            row.description = input.description;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|o| o.id == id) {
+                row.name = input.name;
+                row.enabled = input.enabled;
+                row.description = input.description;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let org = Org {
+                    id,
+                    name: input.name,
+                    enabled: input.enabled,
+                    description: input.description,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(org.clone());
+                org
+            }
         }
         None => {
             let id = t.next_id;

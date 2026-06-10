@@ -49,6 +49,19 @@ struct Cli {
     /// rows in the database; set distinct values across a multi-node fleet).
     #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
     instance_id: u64,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Import a config bundle (JSON) into the persistence backend, then exit.
+    Import {
+        /// Path to the bundle file.
+        #[arg(long = "in")]
+        input: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -70,6 +83,53 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let bind = config.bind_addr()?;
+
+    // Persistence is built first — the import subcommand and first-boot hook
+    // both need it before the (optional) cache backend is started.
+    let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {
+        #[cfg(feature = "persist-file")]
+        PersistenceConfig::File { data_dir } => {
+            Arc::new(gproxy::store::persistence::FilePersistence::open(data_dir.clone()).await?)
+        }
+        #[cfg(not(feature = "persist-file"))]
+        PersistenceConfig::File { .. } => {
+            anyhow::bail!("persistence backend `file` requires the `persist-file` feature")
+        }
+        #[cfg(feature = "persist-db")]
+        PersistenceConfig::Db { dsn } => {
+            Arc::new(gproxy::store::persistence::DbPersistence::connect(dsn).await?)
+        }
+        #[cfg(not(feature = "persist-db"))]
+        PersistenceConfig::Db { .. } => {
+            anyhow::bail!("persistence backend `db` requires the `persist-db` feature")
+        }
+    };
+    persistence.health().await?;
+    tracing::info!("persistence backend: {} healthy", persistence.kind());
+
+    // Import subcommand: load bundle, upsert, exit — no server started.
+    if let Some(Command::Import { input }) = cli.command {
+        let json = std::fs::read_to_string(&input)?;
+        let stats = gproxy::app::import::import_bundle(persistence.as_ref(), &json).await?;
+        tracing::info!(records = stats.records, "bundle imported");
+        return Ok(());
+    }
+
+    // First-boot hook: if GPROXY_IMPORT_FILE is set and the store is empty,
+    // seed it from the bundle before building the snapshot.
+    if let Ok(path) = std::env::var("GPROXY_IMPORT_FILE")
+        && !path.is_empty()
+    {
+        let empty = persistence.list_providers().await?.is_empty()
+            && persistence.list_users().await?.is_empty();
+        if empty {
+            let json = std::fs::read_to_string(&path)?;
+            let stats = gproxy::app::import::import_bundle(persistence.as_ref(), &json).await?;
+            tracing::info!(records = stats.records, path, "first-boot bundle imported");
+        } else {
+            tracing::info!(path, "GPROXY_IMPORT_FILE set but store not empty; skipped");
+        }
+    }
 
     let cache: Arc<dyn CacheBackend> = match &config.cache {
         #[cfg(feature = "cache-memory")]
@@ -96,27 +156,6 @@ async fn main() -> anyhow::Result<()> {
             anyhow::bail!("edge-only cache backend cannot be used by native server")
         }
     };
-
-    let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {
-        #[cfg(feature = "persist-file")]
-        PersistenceConfig::File { data_dir } => {
-            Arc::new(gproxy::store::persistence::FilePersistence::open(data_dir.clone()).await?)
-        }
-        #[cfg(not(feature = "persist-file"))]
-        PersistenceConfig::File { .. } => {
-            anyhow::bail!("persistence backend `file` requires the `persist-file` feature")
-        }
-        #[cfg(feature = "persist-db")]
-        PersistenceConfig::Db { dsn } => {
-            Arc::new(gproxy::store::persistence::DbPersistence::connect(dsn).await?)
-        }
-        #[cfg(not(feature = "persist-db"))]
-        PersistenceConfig::Db { .. } => {
-            anyhow::bail!("persistence backend `db` requires the `persist-db` feature")
-        }
-    };
-    persistence.health().await?;
-    tracing::info!("persistence backend: {} healthy", persistence.kind());
 
     #[cfg(not(feature = "upstream-wreq"))]
     compile_error!("a native gproxy binary requires the `upstream-wreq` feature");
