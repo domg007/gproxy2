@@ -30,6 +30,14 @@ pub enum PipelineError {
     AllAttemptsFailed,
     #[error("upstream transport error: {0}")]
     Transport(String),
+    #[error("request transform failed: {0}")]
+    TransformRequest(crate::transform::TransformError),
+    #[error("response transform failed: {0}")]
+    TransformResponse(crate::transform::TransformError),
+    #[error("operation not supported by provider routing rules")]
+    RuleUnsupported,
+    #[error("local implementation pending")]
+    LocalUnimplemented,
 }
 
 impl PipelineError {
@@ -41,6 +49,9 @@ impl PipelineError {
             NoMembers | NoCredentials => StatusCode::SERVICE_UNAVAILABLE,
             UnknownChannel(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Channel(_) | AllAttemptsFailed | Transport(_) => StatusCode::BAD_GATEWAY,
+            TransformRequest(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            TransformResponse(_) => StatusCode::BAD_GATEWAY,
+            RuleUnsupported | LocalUnimplemented => StatusCode::NOT_IMPLEMENTED,
         }
     }
 }
@@ -51,11 +62,13 @@ impl IntoResponse for PipelineError {
         // Variants whose Display embeds upstream/internal detail (URLs, transport
         // causes, possibly proxy info) are collapsed to a generic client message
         // and the real cause is logged server-side (CWE-209). The remaining
-        // variants reveal nothing sensitive (client-supplied names / fixed text).
+        // variants reveal nothing sensitive (client-supplied names / fixed text /
+        // client-actionable request-transform detail).
         let message = match &self {
             PipelineError::Channel(_)
             | PipelineError::Transport(_)
-            | PipelineError::AllAttemptsFailed => {
+            | PipelineError::AllAttemptsFailed
+            | PipelineError::TransformResponse(_) => {
                 tracing::warn!(error = %self, "upstream request failed");
                 "upstream request failed".to_string()
             }

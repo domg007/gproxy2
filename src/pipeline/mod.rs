@@ -14,6 +14,7 @@ pub mod preprocess;
 pub mod route;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stream;
+pub mod transform;
 
 pub use context::{Candidate, Classified, RequestCtx, RoutingMode};
 pub use error::PipelineError;
