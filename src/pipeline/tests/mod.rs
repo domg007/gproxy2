@@ -231,6 +231,7 @@ fn claude_ctx_as(api_key: &str, model: &str, stream: bool) -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 
@@ -336,6 +337,7 @@ async fn gemini_inbound_streaming_sets_body_stream_flag() {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     };
 
     let outcome = crate::pipeline::execute(&state, ctx)
@@ -422,6 +424,7 @@ async fn scoped_variant_suffix_strips_to_base() {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     };
 
     let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");

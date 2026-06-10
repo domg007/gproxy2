@@ -22,6 +22,7 @@ async fn aggregated_models_lists_aliases_and_routes() {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     };
 
     let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");
@@ -63,6 +64,7 @@ fn count_ctx(model: &str) -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 
@@ -127,6 +129,7 @@ fn scoped_models_ctx() -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 

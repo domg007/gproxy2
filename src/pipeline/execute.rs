@@ -5,12 +5,13 @@
 use std::sync::Arc;
 
 use crate::app::AppState;
+use crate::billing::pending;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
 use crate::pipeline::outcome::ExecOutcome;
 use crate::pipeline::{auth, authz, balance, classify, failover, ingress, preprocess, route};
-use crate::protocol::Operation;
+use crate::protocol::{Operation, OperationKind};
 use crate::util::time::unix_now;
 
 /// Drive one request to an [`ExecOutcome`].
@@ -46,13 +47,21 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     // name BEFORE any candidate is built. The snapshot guard `cp` is held
     // across authorize's await AND balance::candidates' await (sticky-pin
     // cache get/set) — both are sub-millisecond cache ops, not the upstream
-    // call the M2 invariant guards against.
-    let candidates = match &ctx.mode {
+    // call the M2 invariant guards against. Each arm also yields the §17
+    // pre-deduct estimate (computed here, where `cp` and the resolved
+    // route/provider are alive — authorize stays estimate-agnostic).
+    let (candidates, est_micros) = match &ctx.mode {
         RoutingMode::Aggregated => {
             let route_name = preprocess::preprocess(&cp, &ctx)?;
             let resolved = route::route(&cp, &route_name)?;
             let identity = ctx.identity.as_ref().expect("auth ran first");
             authz::authorize(&cp, state.cache.as_ref(), identity, &route_name, unix_now()).await?;
+            // best-effort estimate priced at the FIRST enabled member's model
+            let est = resolved
+                .members
+                .first()
+                .map(|m| estimate(&cp, &ctx, m.provider_id, &m.upstream_model_id))
+                .unwrap_or(0);
             let cands = balance::candidates(
                 &cp,
                 resolved,
@@ -62,7 +71,7 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
             )
             .await?;
             ctx.route_name = Some(route_name);
-            cands
+            (cands, est)
         }
         RoutingMode::Scoped { provider } => {
             let provider = cp
@@ -79,16 +88,67 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
                 unix_now(),
             )
             .await?;
-            scoped_candidates(&cp, provider, &ctx)?
+            let cands = scoped_candidates(&cp, provider, &ctx)?;
+            // scoped: priced at the scoped provider's (variant-stripped) model
+            let est = cands
+                .first()
+                .map(|c| estimate(&cp, &ctx, provider.id, &c.upstream_model_id))
+                .unwrap_or(0);
+            (cands, est)
         }
     };
+
+    // §17 pre-deduct: precheck_quota passed above — charge the estimate to
+    // every quota-bearing scope now, before any upstream byte. Settle refunds
+    // the exact amount; the error path below refunds when nothing settles.
+    let quota_scopes = if est_micros > 0 {
+        let identity = ctx.identity.as_ref().expect("auth ran first");
+        authz::quota_scopes(&cp, identity)
+    } else {
+        Vec::new()
+    };
+    let pending_micros = if quota_scopes.is_empty() {
+        0
+    } else {
+        est_micros
+    };
+    pending::charge(state.cache.as_ref(), &quota_scopes, pending_micros).await;
+    ctx.pending_micros = pending_micros;
 
     // Candidates own their Arcs; drop the snapshot guard before the (possibly
     // long-lived, streaming) upstream call so it doesn't pin the old snapshot
     // across an invalidation/swap.
     drop(cp);
 
-    failover::run_failover(state, &ctx, &candidates).await
+    let result = failover::run_failover(state, &ctx, &candidates).await;
+    // Only a 2xx content response attaches a SettleCtx (whose settle refunds
+    // the pending). Everything else — pipeline error, all-candidates-failed,
+    // or a relayed permanent 4xx — must refund here. A crash in between
+    // self-heals via the 15-minute pending TTL.
+    if !matches!(&result, Ok(o) if o.status.is_success()) {
+        pending::refund(state.cache.as_ref(), &quota_scopes, pending_micros).await;
+    }
+    result
+}
+
+/// §17 pre-deduct estimate in micro-dollars: content-generation ops only;
+/// estimated tokens = full body char count ×1, priced as input tokens at the
+/// target model's pricing. No pricing configured → 0 (pre-deduct skipped).
+fn estimate(
+    cp: &crate::app::snapshot::ControlPlaneSnapshot,
+    ctx: &RequestCtx,
+    provider_id: i64,
+    model_id: &str,
+) -> i64 {
+    let content = matches!(
+        ctx.op.map(|o| o.kind),
+        Some(OperationKind::ContentGeneration(_))
+    );
+    if !content {
+        return 0; // models/count/etc. are never billed → nothing to pre-deduct
+    }
+    let pricing = pending::model_pricing(cp, provider_id, model_id);
+    pending::estimate_micros(&pricing, ctx.body.len())
 }
 
 /// Scoped mode (`/{provider}/v1/...`): bypass routing, hit the named provider

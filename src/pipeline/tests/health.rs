@@ -41,6 +41,7 @@ fn openai_ctx(model: &str) -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 

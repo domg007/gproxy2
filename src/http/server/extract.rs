@@ -47,6 +47,7 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     })
 }
 

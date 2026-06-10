@@ -322,8 +322,9 @@ fn materialize(
 }
 
 /// Per-credential minute budgets (§3.3), incr-then-check on the shared cache
-/// (same off-by-one semantics as authz). rpm increments per attempt; tpm is a
-/// read-only seam — nothing increments `ctpm:*` until M6 feeds real usage.
+/// (same off-by-one semantics as authz). rpm increments per attempt; tpm is
+/// read-only here — settle-time reconciliation (M6 §17) feeds `ctpm:*` with
+/// each request's actual total tokens.
 async fn budget_exhausted(state: &AppState, cand: &Candidate) -> bool {
     let bucket = crate::util::time::unix_now() / 60;
     let ttl = Some(Duration::from_secs(120));

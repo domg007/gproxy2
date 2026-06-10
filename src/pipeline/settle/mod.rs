@@ -3,11 +3,13 @@
 //! guard, and the inline settle for buffered bodies. The counting ladder
 //! lives in [`ladder`]; frame decoding/error frames in [`frames`].
 //!
-//! ~360 lines by design (M6 Task 3 budget: settle may exceed the 200-line
-//! ideal; hard cap respected).
+//! ~390 lines by design (M6 Task 3/4 budget: settle may exceed the 200-line
+//! ideal; hard cap respected). Quota/counter reconciliation lives in
+//! [`reconcile`]; the counting ladder in [`ladder`]; frames in [`frames`].
 
 pub(crate) mod frames;
 mod ladder;
+mod reconcile;
 
 use ladder::count_and_record;
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,7 +26,7 @@ use crate::channel::Channel;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::outcome::ResponseBody;
 use crate::protocol::{ContentGenerationKind, OperationKind, Provider as Family};
-use crate::store::persistence::records::{Credential, Provider as ProviderRecord};
+use crate::store::persistence::records::{Credential, Provider as ProviderRecord, Scope};
 use crate::usage::{Ended, NormalizedUsage, UsageSource, extract};
 use crate::util::time::unix_now;
 
@@ -59,6 +61,13 @@ pub struct SettleCtx {
     channel: Arc<dyn Channel>,
     provider: Arc<ProviderRecord>,
     credential: Arc<Credential>,
+    /// §17 pre-deducted pending (micro-dollars) to refund exactly at settle.
+    pending_micros: i64,
+    /// Scopes with a quota row, resolved at capture time (reconcile targets).
+    quota_scopes: Vec<(Scope, i64)>,
+    /// rate_limits row ids with a `total_tokens` budget matching this
+    /// request's route/provider name — fed via `rlt:{id}:d{day}` at settle.
+    token_rlt_ids: Vec<i64>,
 }
 
 impl SettleCtx {
@@ -75,15 +84,26 @@ impl SettleCtx {
         let OperationKind::ContentGeneration(inbound) = op.kind else {
             return None; // models/count/etc. are never billed (§17)
         };
-        let pricing = {
-            let cp = state.cp();
-            cp.models_by_provider
-                .get(&cand.provider.id)
-                .and_then(|ms| ms.iter().find(|m| m.model_id == cand.upstream_model_id))
-                .map(|m| billing::price::pricing_from(m.pricing_json.as_ref()))
-                .unwrap_or_default()
-        };
         let identity = ctx.identity.as_deref();
+        // Resolve everything reconcile needs NOW (snapshot guard scoped to
+        // this block — the detached settle task never touches the snapshot).
+        let (pricing, quota_scopes, token_rlt_ids) = {
+            let cp = state.cp();
+            let pricing = crate::billing::pending::model_pricing(
+                &cp,
+                cand.provider.id,
+                &cand.upstream_model_id,
+            );
+            let name = ctx.route_name.as_deref().unwrap_or(&cand.provider.name);
+            let (scopes, rlt_ids) = match identity {
+                Some(i) => (
+                    crate::pipeline::authz::quota_scopes(&cp, i),
+                    crate::pipeline::authz::token_limit_ids(&cp, i, name),
+                ),
+                None => (Vec::new(), Vec::new()),
+            };
+            (pricing, scopes, rlt_ids)
+        };
         Some(Self {
             state: state.clone(),
             request_id: ctx.request_id.clone(),
@@ -103,6 +123,9 @@ impl SettleCtx {
             channel: Arc::clone(channel),
             provider: Arc::clone(&cand.provider),
             credential: Arc::clone(&cand.credential),
+            pending_micros: ctx.pending_micros,
+            quota_scopes,
+            token_rlt_ids,
         })
     }
 }
@@ -285,6 +308,10 @@ async fn settle_stream(ctx: SettleCtx, buf: RelayBuffer, ended: Ended) {
 
 async fn record(ctx: &SettleCtx, usage: NormalizedUsage, source: UsageSource, ended: Ended) {
     let cost = billing::price::cost(&usage, &ctx.pricing);
+    // §17 reconcile first (pending refund + quota cost_used + counter feeds):
+    // the usage row may be idempotently skipped, but the settle path runs
+    // exactly once per request (StreamGuard / inline), so this never doubles.
+    reconcile::reconcile(ctx, &usage, cost).await;
     let rec = UsageRecord {
         request_id: &ctx.request_id,
         at: ctx.at,

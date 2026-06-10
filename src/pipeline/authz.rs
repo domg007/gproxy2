@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use crate::app::snapshot::{ControlPlaneSnapshot, KeyIdentity};
+use crate::billing::pending;
 use crate::pipeline::error::PipelineError;
 use crate::store::cache::CacheBackend;
 use crate::store::persistence::records::Scope;
@@ -94,9 +95,9 @@ pub async fn precheck_limits(
                 }
             }
             if let Some(limit) = row.total_tokens {
-                // Read-only precheck of the daily token budget: incr(_, 0)
-                // just reads the counter. Nothing increments `rlt:*` until
-                // M6 wires post-response token accounting in here.
+                // Read-only precheck of the daily token budget; settle-time
+                // reconciliation (M6 §17) increments `rlt:*` with each
+                // request's actual total tokens.
                 let key = format!("rlt:{}:d{}", row.id, now_unix / DAY);
                 let count = cache
                     .incr(&key, 0, Some(Duration::from_secs(48 * 3600)))
@@ -112,20 +113,49 @@ pub async fn precheck_limits(
     Ok(())
 }
 
-/// All scope quotas must have cost_used < quota_total (M6 adds estimate
-/// deduction + reconciliation).
-pub fn precheck_quota(
+/// All scope quotas must satisfy persisted `cost_used` + in-flight pending
+/// (the M6 §17 pre-deduct, read from `qp:*`) < `quota_total`. Negative
+/// pending (stray refunds) never grants extra budget.
+pub async fn precheck_quota(
     cp: &ControlPlaneSnapshot,
+    cache: &dyn CacheBackend,
     identity: &KeyIdentity,
 ) -> Result<(), PipelineError> {
-    for scope in scopes(identity) {
-        if let Some(quota) = cp.quotas_by_scope.get(&scope)
-            && quota.cost_used >= quota.quota_total
-        {
-            return Err(PipelineError::QuotaExceeded);
+    for (scope, scope_id) in scopes(identity) {
+        if let Some(quota) = cp.quotas_by_scope.get(&(scope, scope_id)) {
+            let in_flight = pending::read(cache, scope, scope_id).await.max(0);
+            if quota.cost_used + pending::micros_to_cost(in_flight) >= quota.quota_total {
+                return Err(PipelineError::QuotaExceeded);
+            }
         }
     }
     Ok(())
+}
+
+/// The scopes of `identity`'s chain that actually carry a quota row — the
+/// targets of pre-deduct, settle-time reconcile, and error refund.
+pub fn quota_scopes(cp: &ControlPlaneSnapshot, identity: &KeyIdentity) -> Vec<(Scope, i64)> {
+    scopes(identity)
+        .into_iter()
+        .filter(|key| cp.quotas_by_scope.contains_key(key))
+        .collect()
+}
+
+/// Rate-limit row ids on `identity`'s chain with a `total_tokens` budget
+/// matching `name`. Settle feeds `rlt:{id}:d{day}` with each request's actual
+/// total tokens (the counter [`precheck_limits`] reads).
+pub fn token_limit_ids(cp: &ControlPlaneSnapshot, identity: &KeyIdentity, name: &str) -> Vec<i64> {
+    let mut ids = Vec::new();
+    for scope in scopes(identity) {
+        if let Some(rows) = cp.rate_limits_by_scope.get(&scope) {
+            ids.extend(
+                rows.iter()
+                    .filter(|r| r.total_tokens.is_some() && glob::matches(&r.route_pattern, name))
+                    .map(|r| r.id),
+            );
+        }
+    }
+    ids
 }
 
 /// Boolean form of [`check_permission`] for filtering model listings.
@@ -143,7 +173,7 @@ pub async fn authorize(
 ) -> Result<(), PipelineError> {
     check_permission(cp, identity, name)?;
     precheck_limits(cp, cache, identity, name, now_unix).await?;
-    precheck_quota(cp, identity)
+    precheck_quota(cp, cache, identity).await
 }
 
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "cache-memory"))]

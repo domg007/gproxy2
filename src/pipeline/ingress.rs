@@ -83,6 +83,7 @@ mod tests {
             op: None,
             stream: false,
             route_name: None,
+            pending_micros: 0,
         }
     }
 

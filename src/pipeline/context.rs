@@ -34,6 +34,9 @@ pub struct RequestCtx {
     pub op: Option<OperationKey>,
     pub stream: bool,
     pub route_name: Option<String>,
+    /// §17 pre-deducted quota pending (micro-dollars), set by `execute` after
+    /// authz passes; settle refunds this exact amount. 0 = no pre-deduct.
+    pub pending_micros: i64,
 }
 
 /// One (member + credential) attempt for failover.

@@ -1,6 +1,7 @@
 //! §17 billing: request_id-idempotent usage records + rollups; failed
 //! attempts are audit-only (`upstream_requests`), never billed.
 
+pub mod pending;
 pub mod price;
 
 use rust_decimal::Decimal;

@@ -40,6 +40,7 @@ fn models_ctx(api_key: &str) -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 

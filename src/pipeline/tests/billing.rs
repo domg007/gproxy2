@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::store::persistence::records::Usage;
-
 fn openai_stream_ctx(request_id: &str, model: &str) -> RequestCtx {
     let mut headers = HeaderMap::new();
     headers.insert("authorization", "Bearer sk-test".parse().unwrap());
@@ -24,6 +23,7 @@ fn openai_stream_ctx(request_id: &str, model: &str) -> RequestCtx {
         op: None,
         stream: false,
         route_name: None,
+        pending_micros: 0,
     }
 }
 
@@ -143,4 +143,85 @@ async fn include_usage_injected() {
         );
         assert_eq!(v["stream"], true, "attempt {i} still streams");
     }
+}
+
+/// BUNDLE + pricing on gpt-test + a user-scope quota row (M6 Task 4 tests).
+fn quota_bundle() -> String {
+    let mut v: Value =
+        serde_json::from_str(&bundle_with("quotas", json!([{ "id": 1, "scope": "user", "scope_id": 1, "quota_total": "100.00", "cost_used": "0" }]))).unwrap();
+    v["provider_models"] = json!([{
+        "id": 1, "provider_id": 1, "model_id": "gpt-test", "display_name": null,
+        "pricing_json": { "input": "3", "output": "15" },
+        "variants_json": null, "enabled": true
+    }]);
+    serde_json::to_string(&v).unwrap()
+}
+
+#[tokio::test]
+async fn quota_reconciles_after_settle() {
+    use crate::store::persistence::records::Scope;
+
+    let chat_response = json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",
+        "choices": [{ "index": 0, "message": { "role": "assistant", "content": "ok" }, "finish_reason": "stop" }],
+        "usage": { "prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500 }
+    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &quota_bundle()).await;
+
+    crate::pipeline::execute(&state, claude_ctx("claude-test", false))
+        .await
+        .expect("pipeline ok");
+
+    // settle persists actual cost into the quota row (read-modify-write)
+    let mut quota = None;
+    for _ in 0..200 {
+        let q = state
+            .persistence
+            .get_quota(Scope::User, 1)
+            .await
+            .expect("get quota")
+            .expect("quota row");
+        if q.cost_used > rust_decimal::Decimal::ZERO {
+            quota = Some(q);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let quota = quota.expect("cost_used never reconciled");
+    let row = wait_usage(&state).await;
+    assert_eq!(quota.cost_used, row.cost, "quota charged the settled cost");
+    // 1000 × 3/M + 500 × 15/M
+    assert_eq!(quota.cost_used, "0.0105".parse().unwrap());
+
+    // pending was refunded by the exact pre-deducted amount
+    let pending = state.cache.incr("qp:user:1", 0, None).await;
+    assert!(pending <= 1, "pending refunded, got {pending} micros");
+}
+
+#[tokio::test]
+async fn failed_request_refunds_pending() {
+    use crate::store::persistence::records::Scope;
+
+    let mut upstream = FakeUpstream::new(Bytes::from_static(b"{\"error\":\"boom\"}"), vec![]);
+    upstream.statuses = vec![StatusCode::INTERNAL_SERVER_ERROR]; // every attempt 500s
+    let fake = Arc::new(upstream);
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &quota_bundle()).await;
+
+    let result = crate::pipeline::execute(&state, claude_ctx("claude-test", false)).await;
+    assert!(result.is_err(), "all-500 upstream must error");
+
+    // refund-on-error in execute: pending back to 0, nothing persisted
+    let pending = state.cache.incr("qp:user:1", 0, None).await;
+    assert_eq!(pending, 0, "pending refunded on pipeline error");
+    let q = state
+        .persistence
+        .get_quota(Scope::User, 1)
+        .await
+        .expect("get quota")
+        .expect("quota row");
+    assert_eq!(q.cost_used, rust_decimal::Decimal::ZERO);
 }
