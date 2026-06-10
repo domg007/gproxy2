@@ -12,6 +12,8 @@ pub struct Model {
     pub display_name: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub pricing_json: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub variants_json: Option<String>,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,

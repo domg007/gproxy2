@@ -17,6 +17,10 @@ fn to_record(m: provider_model::Model) -> anyhow::Result<ProviderModel> {
             .pricing_json
             .map(|s| serde_json::from_str(&s))
             .transpose()?,
+        variants_json: m
+            .variants_json
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?,
         enabled: m.enabled,
         created_at: m.created_at,
         updated_at: m.updated_at,
@@ -45,6 +49,10 @@ pub async fn upsert(
         .pricing_json
         .map(|v| serde_json::to_string(&v))
         .transpose()?;
+    let variants = input
+        .variants_json
+        .map(|v| serde_json::to_string(&v))
+        .transpose()?;
 
     let model = match input.id {
         Some(id) => {
@@ -57,6 +65,7 @@ pub async fn upsert(
             am.model_id = Set(input.model_id);
             am.display_name = Set(input.display_name);
             am.pricing_json = Set(pricing);
+            am.variants_json = Set(variants);
             am.enabled = Set(input.enabled);
             am.updated_at = Set(now);
             am.update(conn).await?
@@ -68,6 +77,7 @@ pub async fn upsert(
                 model_id: Set(input.model_id),
                 display_name: Set(input.display_name),
                 pricing_json: Set(pricing),
+                variants_json: Set(variants),
                 enabled: Set(input.enabled),
                 created_at: Set(now),
                 updated_at: Set(now),

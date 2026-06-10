@@ -34,6 +34,7 @@ pub(crate) async fn upsert(
                 row.model_id = input.model_id;
                 row.display_name = input.display_name;
                 row.pricing_json = input.pricing_json;
+                row.variants_json = input.variants_json;
                 row.enabled = input.enabled;
                 row.updated_at = now;
                 row.clone()
@@ -47,6 +48,7 @@ pub(crate) async fn upsert(
                     model_id: input.model_id,
                     display_name: input.display_name,
                     pricing_json: input.pricing_json,
+                    variants_json: input.variants_json,
                     enabled: input.enabled,
                     created_at: now,
                     updated_at: now,
@@ -64,6 +66,7 @@ pub(crate) async fn upsert(
                 model_id: input.model_id,
                 display_name: input.display_name,
                 pricing_json: input.pricing_json,
+                variants_json: input.variants_json,
                 enabled: input.enabled,
                 created_at: now,
                 updated_at: now,

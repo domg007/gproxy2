@@ -117,6 +117,7 @@ async fn cascade_deletes() {
         model_id: "gpt-x".to_owned(),
         display_name: None,
         pricing_json: None,
+        variants_json: None,
         enabled: true,
     })
     .await

@@ -149,6 +149,9 @@ pub struct ProviderModel {
     pub model_id: String,
     pub display_name: Option<String>,
     pub pricing_json: Option<Value>,
+    /// Suffix-variant config (§8-B): `["-x"]` or `{expose_base, suffixes}`.
+    #[serde(default)]
+    pub variants_json: Option<Value>,
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -162,5 +165,8 @@ pub struct ProviderModelInput {
     pub model_id: String,
     pub display_name: Option<String>,
     pub pricing_json: Option<Value>,
+    /// Suffix-variant config (§8-B): `["-x"]` or `{expose_base, suffixes}`.
+    #[serde(default)]
+    pub variants_json: Option<Value>,
     pub enabled: bool,
 }
