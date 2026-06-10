@@ -779,6 +779,20 @@ Each lists new types/methods + the exact M1 seam they hook into.
   ciphertext}`; decrypt `credential.secret_json`→plaintext `Value` before
   `PrepareCtx.secret`. No signature change (`secret: &Value` already "decrypted at
   use"). Seed switches to envelope form. `key_digest` salt/pepper revisited.
+  **Landed (2026-06-10).** XChaCha20-Poly1305 envelopes
+  `{kek_id, wrapped_dek, nonce, ciphertext}` (AAD = kek_id; kek_id =
+  `local-` + blake3(kek)[..8]); KEK from `GPROXY_MASTER_KEY` (env only,
+  base64 32B, malformed = boot error; absent = plaintext mode + warn).
+  Decrypt-at-use in failover (snapshot keeps sealed values; open failure
+  skips the candidate); import seals credentials.secret_json +
+  user_keys.api_key_ciphertext (digest from the bare key first; keyless
+  byte-identical). Legacy plaintext rows stay readable (envelope detected
+  by exact shape — documented residual false-positive risk). Single KEK;
+  rotation via export/import (M9) or batch re-seal later. key_digest
+  stays unpeppered blake3 — API keys are high-entropy tokens, pepper adds
+  key-management coupling without attack-surface gain. Edge currently
+  NoopCipher (master-key config surface lands with the edge entry); a
+  sealed store served from edge errors cleanly per credential.
 - **M6 Billing + observability.** `billing/record.rs`: `record_success`
   (idempotent by `request_id`) via `append_usage` + `add_usage_rollup`;
   `record_failure` per failed attempt via `append_upstream_request`. The single

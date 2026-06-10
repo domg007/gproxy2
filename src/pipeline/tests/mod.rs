@@ -144,13 +144,31 @@ fn bundle_with(key: &str, rows: Value) -> String {
 }
 
 async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, tempfile::TempDir) {
+    state_with_ciphers(
+        fake,
+        bundle,
+        &crate::crypto::NoopCipher,
+        Arc::new(crate::crypto::NoopCipher),
+    )
+    .await
+}
+
+/// Crypto-aware variant (M5 envelope tests): the bundle is imported through
+/// `import_cipher` while the serving state opens with `state_cipher` — passing
+/// different ciphers models a master-key mismatch.
+async fn state_with_ciphers(
+    fake: Arc<FakeUpstream>,
+    bundle: &str,
+    import_cipher: &dyn crate::crypto::SecretCipher,
+    state_cipher: Arc<dyn crate::crypto::SecretCipher>,
+) -> (AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let persistence: Arc<dyn crate::store::persistence::PersistenceBackend> = Arc::new(
         crate::store::persistence::FilePersistence::open(dir.path().to_path_buf())
             .await
             .expect("file persistence"),
     );
-    crate::app::import::import_bundle(persistence.as_ref(), &crate::crypto::NoopCipher, bundle)
+    crate::app::import::import_bundle(persistence.as_ref(), import_cipher, bundle)
         .await
         .expect("import");
     let snapshot = ControlPlaneSnapshot::build(persistence.as_ref(), 1)
@@ -178,7 +196,7 @@ async fn state_with_bundle(fake: Arc<FakeUpstream>, bundle: &str) -> (AppState, 
             fake,
             snapshot,
             channels,
-            Arc::new(crate::crypto::NoopCipher),
+            state_cipher,
         ),
         dir,
     )
@@ -414,5 +432,6 @@ async fn scoped_variant_suffix_strips_to_base() {
 }
 
 mod authz;
+mod envelope;
 mod health;
 mod local;

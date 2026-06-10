@@ -577,6 +577,7 @@ Vercel/Cloudflare =
 - `credentials.secret_json` 存信封结构 `{kek_id, wrapped_dek, nonce, ciphertext}`;`kek_id`
   即密钥版本,支持轮换(惰性重封 / 批量重封)。
 - 域代码只调 `SecretCipher`,永不直接碰算法 / KMS SDK。
+- **算法已定(2026-06-10)**:XChaCha20-Poly1305;`kek_id = local-{blake3(kek)[..8]}`;无 master key = 明文模式(启动告警);信封按形状识别,旧明文行始终可读。
 
 ### 14.2 管理端鉴权
 - 口令 hash:**argon2id**(RustCrypto,wasm 兼容)。
