@@ -817,6 +817,24 @@ Each lists new types/methods + the exact M1 seam they hook into.
 - **M7 Resilience.** Real `Channel::refresh`/`needs_refresh`; retry budgets. The
   `AuthDead` branch already calls `refresh` once then retries — M7 fills the body.
   `requires_tls_emulation`/`transport` drive §7.4 degradation.
+  **M7a landed (2026-06-11):** infra ahead of the channels (the one hard
+  ordering). `Channel::needs_refresh(&secret)/refresh(&client,&secret)` now
+  reason about the DECRYPTED secret (pipeline opens + re-seals + writes back +
+  `cache.publish("cred",id)` — channel stays pure). Single-flight refresh =
+  per-credential local `futures_util::Mutex` (DashMap); loser re-reads +
+  re-gates so a rotated refresh_token isn't double-spent; redis distributed
+  lock (key=cred id) = M8 seam. Failover: lazy pre-use `ensure_fresh`, plus
+  AuthDead → forced-refresh + same-candidate retry once (`refreshed_creds`
+  set bounds it; retry doesn't consume the budget). Retry budget =
+  `GPROXY_MAX_ATTEMPTS` (default 6) caps distinct candidate attempts. Client
+  pool re-keyed `(proxy, fingerprint_hash)`; **wreq is 6.0.0-rc.29** (API:
+  `client/emulate.rs`, `IntoEmulation`, `EmulationBuilder::build(Group)`) —
+  M7a wires the `headers` emulation layer; http2/tls fingerprint presets are
+  per-channel in M7b. **M7b remaining:** the 7 OAuth channels (vertex /
+  geminicli / antigravity / claudecode / codex / kiro / copilot_cli) — prepare
+  (inject access_token) + needs_refresh + refresh (token endpoint) + TLS
+  preset; mine v1 `sdk/gproxy-channel/src/channels/*` + `upstream_docs/`;
+  per-channel cooldown research (§3.3) lands here.
 - **M8 Multi-instance redis.** Real `CacheBackend::publish`/`subscribe`;
   `app/invalidation.rs` subscribe → `reload_snapshot()`. `version`+`ArcSwap` are
   the consistency primitive; no snapshot shape change. (Wasm: `reload_snapshot`

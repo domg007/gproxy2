@@ -56,10 +56,24 @@ impl RefreshOrchestrator {
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
         let _guard = lock.lock().await;
-        // Loser re-check: re-read the credential, re-open; if a peer already
-        // refreshed it (no longer stale), use that without a second refresh.
-        let current = reread_open(state, credential).await.unwrap_or(opened);
+        // Loser re-check (single-flight): re-read the credential + re-open. Two
+        // discriminators, because `force` and the lazy path differ:
+        //   * lazy (force=false): a peer that rotated leaves the secret no longer
+        //     stale — `needs_refresh(&current)` is false → use it, no 2nd refresh.
+        //   * forced (force=true): the token may still LOOK fresh (the AuthDead is
+        //     clock-skew / server-side revocation), so `needs_refresh` can't tell
+        //     winner from loser. Instead compare against what THIS caller opened:
+        //     if the re-read secret CHANGED, a concurrent forced refresh already
+        //     rotated it → use that (a 2nd rotation would double-spend a single-use
+        //     refresh_token and kill the cred). If unchanged, this caller is the
+        //     winner and must honor `force`.
+        let current = reread_open(state, credential)
+            .await
+            .unwrap_or_else(|| opened.clone());
         if !force && !channel.needs_refresh(&current) {
+            return Ok(current);
+        }
+        if force && current != opened {
             return Ok(current);
         }
         // Refresh goes through the default client (no proxy pool needed).
@@ -350,5 +364,82 @@ mod tests {
         assert_eq!(b.unwrap(), json!({"access_token": "new"}));
         // Loser re-reads the winner's sealed result and short-circuits.
         assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+    }
+
+    /// Channel that ALWAYS reports fresh (`needs_refresh == false`) yet whose
+    /// `refresh` rotates the token — models the forced-refresh case where the
+    /// staleness view can't distinguish winner from loser, so the loser must
+    /// fall back on "the secret changed under the lock".
+    struct AlwaysFreshRotatingChannel {
+        refreshes: Arc<AtomicUsize>,
+        sleep_ms: u64,
+    }
+
+    #[async_trait]
+    impl Channel for AlwaysFreshRotatingChannel {
+        fn id(&self) -> &'static str {
+            "always_fresh"
+        }
+        fn target_kind(&self) -> ContentGenerationKind {
+            ContentGenerationKind::OpenAiChatCompletions
+        }
+        fn prepare(&self, _ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
+            Err(ChannelError::Unsupported("prepare"))
+        }
+        fn classify(
+            &self,
+            status: StatusCode,
+            headers: &http::HeaderMap,
+            _body: &Bytes,
+        ) -> Disposition {
+            Disposition::from_http(status, headers)
+        }
+        fn transport(&self) -> TransportKind {
+            TransportKind::Http
+        }
+        fn needs_refresh(&self, _secret: &Value) -> bool {
+            false
+        }
+        async fn refresh(
+            &self,
+            _client: &Arc<dyn UpstreamClient>,
+            _secret: &Value,
+        ) -> Result<Value, ChannelError> {
+            let n = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.sleep_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(self.sleep_ms)).await;
+            }
+            Ok(json!({ "access_token": format!("rotated-{n}") }))
+        }
+    }
+
+    /// Two concurrent FORCED refreshes (AuthDead on both) of the same credential
+    /// must rotate the token exactly once. A single-use refresh_token rotated
+    /// twice would be killed upstream; the loser sees the secret changed under
+    /// the lock and reuses the winner's token instead of refreshing again.
+    #[tokio::test]
+    async fn forced_single_flight_rotates_once() {
+        let cipher = cipher();
+        let (state, cred, _dir) =
+            state_with_cred(cipher.clone(), json!({"access_token": "orig"})).await;
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let channel: Arc<dyn Channel> = Arc::new(AlwaysFreshRotatingChannel {
+            refreshes: refreshes.clone(),
+            sleep_ms: 20,
+        });
+
+        let orig = json!({"access_token": "orig"});
+        let (a, b) = tokio::join!(
+            state
+                .refresh
+                .ensure_fresh(&state, &channel, &cred, orig.clone(), true),
+            state
+                .refresh
+                .ensure_fresh(&state, &channel, &cred, orig.clone(), true),
+        );
+
+        // Exactly one rotation; both callers see the same rotated token.
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+        assert_eq!(a.unwrap(), b.unwrap());
     }
 }
