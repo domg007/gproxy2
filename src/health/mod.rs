@@ -34,8 +34,12 @@ pub struct HealthState {
     creds: DashMap<i64, CredHealth>,
     /// member_id → latency EWMA (ms).
     latency_ms: DashMap<i64, f64>,
-    /// Route/provider rotation counters for round_robin selection.
-    rotation: DashMap<i64, AtomicUsize>,
+    /// route_id → rotation counter (round_robin / weighted member selection).
+    /// Separate from `cred_rotation` — route ids and provider ids share the
+    /// i64 space and must not collide.
+    route_rotation: DashMap<i64, AtomicUsize>,
+    /// provider_id → rotation counter (credential pool selection).
+    cred_rotation: DashMap<i64, AtomicUsize>,
 }
 
 impl HealthState {
@@ -117,10 +121,18 @@ impl HealthState {
         self.latency_ms.get(&member_id).map(|v| *v)
     }
 
-    /// Monotonic per-key counter for round_robin rotation (T2 consumer).
-    pub fn next_rotation(&self, key: i64) -> usize {
-        self.rotation
-            .entry(key)
+    /// Monotonic per-route counter for member rotation.
+    pub fn next_route_rotation(&self, route_id: i64) -> usize {
+        self.route_rotation
+            .entry(route_id)
+            .or_default()
+            .fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Monotonic per-provider counter for credential rotation.
+    pub fn next_credential_rotation(&self, provider_id: i64) -> usize {
+        self.cred_rotation
+            .entry(provider_id)
             .or_default()
             .fetch_add(1, Ordering::Relaxed)
     }

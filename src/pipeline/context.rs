@@ -41,6 +41,9 @@ pub struct Candidate {
     pub provider: Arc<Provider>,
     pub credential: Arc<Credential>,
     pub upstream_model_id: String,
+    /// Route member behind this attempt; `None` in scoped mode (no member —
+    /// the member breaker is skipped).
+    pub member_id: Option<i64>,
 }
 
 /// Output of [`classify`](crate::pipeline::classify::classify).

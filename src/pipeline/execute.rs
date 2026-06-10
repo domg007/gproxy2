@@ -52,7 +52,14 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
             let resolved = route::route(&cp, &route_name)?;
             let identity = ctx.identity.as_ref().expect("auth ran first");
             authz::authorize(&cp, state.cache.as_ref(), identity, &route_name, unix_now()).await?;
-            let cands = balance::candidates(&cp, resolved, state.cache.as_ref(), None)?;
+            let cands = balance::candidates(
+                &cp,
+                resolved,
+                state.health.as_ref(),
+                state.cache.as_ref(),
+                Some(identity.user_key.id),
+            )
+            .await?;
             ctx.route_name = Some(route_name);
             cands
         }
@@ -117,6 +124,7 @@ fn scoped_candidates(
             provider: Arc::clone(provider),
             credential: Arc::clone(cred),
             upstream_model_id: model.clone(),
+            member_id: None,
         })
         .collect())
 }
