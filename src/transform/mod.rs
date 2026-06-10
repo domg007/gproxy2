@@ -15,6 +15,7 @@ pub mod images;
 pub mod models;
 mod registry;
 pub mod routing;
+pub mod stream_adapter;
 
 pub use context::*;
 pub use error::*;
