@@ -40,6 +40,7 @@ pub enum ContentBlockParam {
     ContainerUpload(ContainerUploadBlock),
     Compaction(CompactionBlock),
     MidConversationSystem(MidConversationSystemBlock),
+    Fallback(FallbackBlock),
     Raw(TypedObject),
 }
 
@@ -62,6 +63,7 @@ pub enum ResponseContentBlock {
     McpToolResult(ResponseMcpToolResultBlock),
     ContainerUpload(ResponseContainerUploadBlock),
     Compaction(ResponseCompactionBlock),
+    Fallback(FallbackBlock),
     Raw(TypedObject),
 }
 

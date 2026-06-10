@@ -29,6 +29,8 @@ pub fn request(
         container: None,
         context_management: Some(compact_context_management(input.instructions.as_deref())),
         diagnostics: openai_previous_response_id_to_claude(input.previous_response_id),
+        fallback_credit_token: None,
+        fallbacks: None,
         inference_geo: None,
         mcp_servers: None,
         metadata: None,

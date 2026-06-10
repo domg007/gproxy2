@@ -24,6 +24,7 @@ macro_rules! extensible_string_enum {
 }
 
 extensible_string_enum!(ClaudeModel, ClaudeModelKnown {
+    ClaudeFable5 => "claude-fable-5", ClaudeMythos5 => "claude-mythos-5",
     ClaudeOpus48 => "claude-opus-4-8", ClaudeOpus47 => "claude-opus-4-7",
     ClaudeMythosPreview => "claude-mythos-preview", ClaudeOpus46 => "claude-opus-4-6",
     ClaudeSonnet46 => "claude-sonnet-4-6", ClaudeHaiku45 => "claude-haiku-4-5",
@@ -68,6 +69,8 @@ extensible_string_enum!(AnthropicBeta, AnthropicBetaKnown {
     ManagedAgents20260401 => "managed-agents-2026-04-01",
     CacheDiagnosis20260407 => "cache-diagnosis-2026-04-07",
     ThinkingTokenCount20260513 => "thinking-token-count-2026-05-13",
+    ServerSideFallback20260601 => "server-side-fallback-2026-06-01",
+    FallbackCredit20260601 => "fallback-credit-2026-06-01",
 });
 
 extensible_string_enum!(MessageRole, MessageRoleKnown { User => "user", Assistant => "assistant", System => "system" });
@@ -115,7 +118,7 @@ extensible_string_enum!(JsonSchemaFormatType, JsonSchemaFormatTypeKnown { JsonSc
 extensible_string_enum!(McpServerType, McpServerTypeKnown { Url => "url" });
 extensible_string_enum!(TaskBudgetType, TaskBudgetTypeKnown { Tokens => "tokens" });
 extensible_string_enum!(SkillType, SkillTypeKnown { Anthropic => "anthropic", Custom => "custom" });
-extensible_string_enum!(IterationUsageType, IterationUsageTypeKnown { Message => "message", Compaction => "compaction", AdvisorMessage => "advisor_message" });
+extensible_string_enum!(IterationUsageType, IterationUsageTypeKnown { Message => "message", Compaction => "compaction", AdvisorMessage => "advisor_message", FallbackMessage => "fallback_message" });
 extensible_string_enum!(ContextEditType, ContextEditTypeKnown {
     ClearToolUses20250919 => "clear_tool_uses_20250919",
     ClearThinking20251015 => "clear_thinking_20251015",

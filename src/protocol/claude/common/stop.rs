@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{JsonObject, TypedObject};
+use super::{ClaudeModel, JsonObject, TypedObject};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -15,6 +15,12 @@ pub struct RefusalStopDetails {
     pub explanation: Option<String>,
     #[serde(rename = "type")]
     pub type_: RefusalStopDetailsType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_credit_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_has_prefill_claim: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_model: Option<ClaudeModel>,
     #[serde(default, flatten, skip_serializing_if = "JsonObject::is_empty")]
     pub extra: JsonObject,
 }
@@ -38,4 +44,6 @@ pub enum RefusalCategoryKnown {
     Cyber,
     #[serde(rename = "bio")]
     Bio,
+    #[serde(rename = "reasoning_extraction")]
+    ReasoningExtraction,
 }

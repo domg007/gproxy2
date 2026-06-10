@@ -151,6 +151,8 @@ pub fn request(
         container: None,
         context_management: None,
         diagnostics: None,
+        fallback_credit_token: None,
+        fallbacks: None,
         inference_geo: None,
         mcp_servers: None,
         metadata,

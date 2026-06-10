@@ -8,4 +8,3 @@
 //! `user-agent`, `originator`, `session-id`, `thread-id`, `x-client-request-id`,
 //! `x-codex-beta-features`, `x-codex-turn-metadata`, `x-codex-window-id`.
 //! (`accept: text/event-stream` rides the base allow-list.)
-

@@ -318,6 +318,9 @@ pub struct AdvisorTool {
     pub type_: AdvisorTool20260301Type,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caching: Option<CacheControl>,
+    /// Bounds the advisor's total output (thinking + text) per call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_uses: Option<u64>,
     #[serde(flatten)]

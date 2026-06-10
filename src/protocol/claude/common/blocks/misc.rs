@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::super::CacheControl;
+use super::super::{CacheControl, ClaudeModel, JsonObject};
 use super::TextBlock;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,4 +49,25 @@ pub struct MidConversationSystemBlock {
 pub enum MidConversationSystemBlockType {
     #[serde(rename = "mid_conv_system")]
     MidConversationSystem,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FallbackBlock {
+    pub from: FallbackInfo,
+    pub to: FallbackInfo,
+    #[serde(rename = "type")]
+    pub type_: FallbackBlockType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FallbackInfo {
+    pub model: ClaudeModel,
+    #[serde(default, flatten, skip_serializing_if = "JsonObject::is_empty")]
+    pub extra: JsonObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FallbackBlockType {
+    #[serde(rename = "fallback")]
+    Fallback,
 }

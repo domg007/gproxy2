@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use super::common::{
     AnthropicBetaHeaders, AssistantRole, CacheControl, ClaudeModel, Container, ContainerParam,
     ContentBlock, ContextManagementConfig, ContextManagementResponse, Diagnostics,
-    DiagnosticsParam, InferenceGeo, JsonObject, JsonSchemaFormat, McpServer, MessageObjectType,
-    MessageParam, Metadata, OutputConfig, RequestServiceTier, Speed, StopDetails, StopReason,
-    SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
+    DiagnosticsParam, FallbackParam, InferenceGeo, JsonObject, JsonSchemaFormat, McpServer,
+    MessageObjectType, MessageParam, Metadata, OutputConfig, RequestServiceTier, Speed,
+    StopDetails, StopReason, SystemPrompt, ThinkingConfig, Tool, ToolChoice, Usage,
 };
 
 pub mod stream;
@@ -29,6 +29,12 @@ pub struct CreateMessageRequestBody {
     pub context_management: Option<ContextManagementConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<DiagnosticsParam>,
+    /// Beta `fallback-credit-2026-06-01`: redeem a prior refusal's credit on retry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_credit_token: Option<String>,
+    /// Beta `server-side-fallback-2026-06-01`: server-side retry chain on refusal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallbacks: Option<Vec<FallbackParam>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inference_geo: Option<InferenceGeo>,
     #[serde(skip_serializing_if = "Option::is_none")]
