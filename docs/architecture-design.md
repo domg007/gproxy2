@@ -110,7 +110,7 @@ src/
       common/             # 收敛后的共享样板(SSE 分帧、role/tool 映射、usage 搬运、错误包装)
       dispatch.rs         # (from, to) → impl 转换表,替代手写巨型 match
   process/                # provider 规则处理层(transform 之后、channel 之前,见 §6.1)
-                          #   prelude / cache_breakpoints / rewrite / sanitize / beta_headers
+                          #   system_text / cache_breakpoint / rewrite / sanitize / header
                           #   作用于 provider-native 请求(headers+body);channel 因此保持纯接入
   channel/                # (后续)按【供应商】的纯接入适配:Channel trait + openai/claude/codex/...
                           #   只管 auth 注入 + endpoint/method + 传输能力声明;用 http::client 发请求
@@ -139,7 +139,7 @@ src/
  → permission + ratelimit + quota 预检(配额先扣估算,见 §17)
  → balance(选 member + 选凭证)
  → transform(若入站协议 ≠ provider 协议)
- → process(provider 规则改写:prelude/cache_breakpoints/rewrite/sanitize/beta_headers,见 §6.1)
+ → process(provider 规则改写:system_text/cache_breakpoint/rewrite/sanitize/header,见 §6.1)
  → channel(纯接入:auth + endpoint,见 §6.3)
  → UpstreamClient 发出(按凭证选 proxy,见 §7.4)
  → [失败 / 429?] failover:回到 balance 选下个凭证重试(见 §6.4)
@@ -177,7 +177,7 @@ src/
 | §8-B2 规则 | 归属 |
 |------|------|
 | `routing_rules`(passthrough/transform_to/local/unsupported) | **transform-dispatch**(决定要不要转、转成啥),不在 process |
-| `rule_sets` → `rules`(prelude / cache_breakpoint / rewrite / sanitize / beta_header),经 `provider_rule_sets` 挂到 provider | **process 层**,按固定顺序作用(prelude → cache_breakpoint → rewrite(JSON path)→ sanitize(正文正则)→ beta_header(头)) |
+| `rule_sets` → `rules`(system_text / cache_breakpoint / rewrite / sanitize / header),经 `provider_rule_sets` 挂到 provider | **process 层**,按固定顺序作用(system_text → cache_breakpoint → rewrite(JSON path)→ sanitize(正文正则)→ header(头)) |
 
 **规则解析**:选定 provider → 取其 `enabled` 的 `provider_rule_sets`(按 `sort_order`)→ 各 set 内 `enabled` 的 `rules`(按 `sort_order`)→ 用 `filter_model_pattern`(匹配**去前缀后的 model**)与 `filter_operation_keys`(匹配当前 operation)过滤 → 按 `kind` 作用。
 
@@ -399,9 +399,9 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 **B2. 供应商级规则**
 - `routing_rules`(**transform-dispatch 决策,非请求改写,仍按 provider 配置**;含 `provider_id` · `sort_order` · `enabled`):`operation` · `kind`(入站 wire kind;内容生成是 `open_ai_responses`/`open_ai_chat_completions`/`claude_messages`/`gemini_generate_content`,非内容生成是 `open_ai`/`claude`/`gemini`)· `implementation`(passthrough/transform_to/local/unsupported)· `dest_operation?` · `dest_kind?` — 唯一约束 `(provider_id, operation, kind)`
 
-请求改写规则(prelude / cache_breakpoint / rewrite / sanitize / beta_header)**不再 provider-scoped**,而是归入**可复用的 rule-set 模型**,再通过 `provider_rule_sets` 挂到 provider:
+请求改写规则(system_text / cache_breakpoint / rewrite / sanitize / header)**不再 provider-scoped**,而是归入**可复用的 rule-set 模型**,再通过 `provider_rule_sets` 挂到 provider:
 - `rule_sets`(可复用的命名规则集):`name`(唯一)· `enabled` · `description?`
-- `rules`(规则集内的单条规则;含 `rule_set_id` · `sort_order` · `enabled`):`kind`(`prelude_system`/`cache_breakpoint`/`rewrite`/`sanitize`/`beta_header`)· `config_json`(按 `kind` 存各自字段:`rewrite`={path,action,value_json?}、`sanitize`={pattern,replacement}、`cache_breakpoint`={target,position,index,ttl}、`beta_header`={token}、`prelude_system`={text};校验下放到 process 层)· `filter_model_pattern?` · `filter_operation_keys?`
+- `rules`(规则集内的单条规则;含 `rule_set_id` · `sort_order` · `enabled`):`kind`(`system_text`/`cache_breakpoint`/`rewrite`/`sanitize`/`header`)· `config_json`(按 `kind` 存各自字段:`rewrite`={path,action,value_json?}、`sanitize`={pattern,replacement}、`cache_breakpoint`={target,position,index,ttl}、`header`={name,value,mode?:`override`|`merge`,默认 override;merge=逗号合并去重,适用 anthropic-beta 类列表头}、`system_text`={text,position?:`prepend`|`append`,默认 prepend;四种内容生成形态均支持——claude `system`、chat `messages` 系统消息、responses `instructions`、gemini `systemInstruction`;单字段协议按文本拼接,数组协议按块/消息插入};校验下放到 process 层)· `filter_model_pattern?` · `filter_operation_keys?`
 - `provider_rule_sets`(M:N 挂载;含 `provider_id` · `rule_set_id` · `sort_order` · `enabled`):把一个 `rule_set` 附到 provider,按 `sort_order` 生效;删 provider 只摘挂载,不删共享的 `rule_sets`
 
 **C. 组织 / 用户 / 鉴权 / 权限 / 限额**
