@@ -761,6 +761,20 @@ Each lists new types/methods + the exact M1 seam they hook into.
   real strategy + filters; `failover` calls `health.record_*` on each
   Disposition (branch points exist in the single loop). Per-credential proxy via
   WreqClient `(proxy_url, tls_emulation)` pool (`PreparedRequest.proxy_url` key).
+  **Landed (2026-06-10).** As contracted plus decisions: strategies order the
+  lowest healthy tier (failover/round_robin/weighted via deterministic
+  counter rotation — no rand/least_latency via send-latency EWMA α=0.3,
+  untried-first) with higher tiers as failover tail; breaker defaults
+  consecutive_failures=5/cooldown=30s, exponential reopen cap 300s, half-open
+  single probe; route-level breaker override DEFERRED (routes lack a settings
+  column); credential rpm enforced at attempt time (incr-then-check), tpm =
+  read-only seam until M6; RateLimited/AuthDead cool the CREDENTIAL only
+  (member breaker unaffected; AuthDead 600s until M7 refresh); state
+  transitions edge-persist to credential_statuses (fire-and-forget spawn,
+  native; member transitions memory-only); sticky affinity
+  `aff:{provider}:{user_key}` rolling 1h re-pinned on every pick; upstream
+  ClientPool keyed by effective proxy (cred>provider>global), fingerprint
+  impersonation joins the key in M7.
 - **M5 Security envelope.** `crypto/envelope.rs` `{kek_id, wrapped_dek, nonce,
   ciphertext}`; decrypt `credential.secret_json`→plaintext `Value` before
   `PrepareCtx.secret`. No signature change (`secret: &Value` already "decrypted at

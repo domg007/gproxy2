@@ -44,8 +44,9 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
 
     // resolve candidates per routing mode, with authz (§8-C) on the canonical
     // name BEFORE any candidate is built. The snapshot guard `cp` is held
-    // across authorize's await — that's only a sub-millisecond cache incr, not
-    // the upstream call the M2 invariant guards against.
+    // across authorize's await AND balance::candidates' await (sticky-pin
+    // cache get/set) — both are sub-millisecond cache ops, not the upstream
+    // call the M2 invariant guards against.
     let candidates = match &ctx.mode {
         RoutingMode::Aggregated => {
             let route_name = preprocess::preprocess(&cp, &ctx)?;

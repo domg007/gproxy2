@@ -63,7 +63,7 @@ v2 是一次全量重写,但**不是字面意义的从零**:协议转换与 chan
 - **权限 / 配额 / 限流按 `user → team → org` 多级解析**:权限取三级**并集**;配额、限流三级**逐级预检**,最严格者拦截(详见 §8-C)。
 - **池内所有 member 必须同协议**。这样故障转移时转换行为始终一致,不会换个后端就换一套转换逻辑。
 - route 第一层均衡策略:`weighted` / `round_robin` / `failover`(按 tier 优先)/ `least_latency`。跳过处于熔断冷却期的 member。
-- **熔断阈值可配**:连续失败数 **或** 滑动窗口错误率触发熔断 + 冷却时长(过冷却自动半开探测)。默认在 **provider 级**配置,route 级可覆盖(见 §8-B `providers.settings_json`)。`least_latency` 的延迟统计机制留到负载均衡 phase 细化。
+- **熔断阈值可配**:连续失败数 **或** 滑动窗口错误率触发熔断 + 冷却时长(过冷却自动半开探测)。默认在 **provider 级**配置,route 级可覆盖(见 §8-B `providers.settings_json`)。`least_latency` = 上游 send 延迟 EWMA(α=0.3),未试探过的 member 优先(乐观);route 级熔断覆盖待 routes 增加 settings 列后补。
 
 ### 3.3 成员(member)与凭证池 —— 后端层
 
