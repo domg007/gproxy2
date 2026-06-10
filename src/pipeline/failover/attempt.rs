@@ -86,17 +86,21 @@ pub(super) async fn attempt(
         }
     };
 
-    // §7.4 effective proxy per attempt → per-proxy client; wasm and
+    // §7.4 effective (proxy, fingerprint) per attempt → pooled client; wasm and
     // non-wreq builds always use the default upstream client.
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
-    let client = state.client_pool.for_proxy(
-        crate::channel::resolve::effective_proxy(
+    let client = {
+        let proxy = crate::channel::resolve::effective_proxy(
             &cand.credential,
             &cand.provider,
             state.config.upstream.proxy_url.as_deref(),
-        )
-        .as_deref(),
-    );
+        );
+        let fingerprint =
+            crate::channel::resolve::effective_tls_fingerprint(&cand.credential, &cand.provider);
+        state
+            .client_pool
+            .for_target(proxy.as_deref(), fingerprint.as_ref())
+    };
     #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
     let client = Arc::clone(&state.upstream);
 

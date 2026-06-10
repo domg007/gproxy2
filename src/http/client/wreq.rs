@@ -26,9 +26,22 @@ impl WreqClient {
 
     /// Build a `WreqClient` with an optional all-traffic upstream proxy.
     pub fn with_proxy_url(proxy_url: Option<&str>) -> wreq::Result<Self> {
+        Self::with_proxy_and_emulation(proxy_url, None)
+    }
+
+    /// Build a `WreqClient` with an optional proxy and an optional TLS/header
+    /// [`wreq::Emulation`] (§7.4). The pool builds one of these per distinct
+    /// `(proxy, fingerprint)` target.
+    pub fn with_proxy_and_emulation(
+        proxy_url: Option<&str>,
+        emulation: Option<wreq::Emulation>,
+    ) -> wreq::Result<Self> {
         let mut builder = wreq::Client::builder();
         if let Some(proxy_url) = proxy_url {
             builder = builder.proxy(wreq::Proxy::all(proxy_url)?);
+        }
+        if let Some(emulation) = emulation {
+            builder = builder.emulation(emulation);
         }
         Ok(Self {
             inner: builder.build()?,
