@@ -6,6 +6,7 @@ pub mod channel;
 pub mod config;
 pub mod http;
 pub mod pipeline;
+pub mod process;
 pub mod protocol;
 pub mod store;
 pub mod transform;
