@@ -438,7 +438,7 @@ v2 是**逻辑数据模型**:`db` 实现用 SeaORM 表实现它(全新 schema,**
 - `teams`:`org_id` · `name` · `enabled` — 唯一 `(org_id, name)`
 - `users`:`name`(唯一)· `org_id`(FK)· `team_id?`(FK)· `password?`(hash)· `enabled` · `is_admin`
 - `user_keys`:`user_id` · `api_key_ciphertext` · `api_key_digest`(唯一索引)· `label?` · `enabled` *(凭证始终系在 user 身份上)*
-- `route_permissions`:`scope` · `scope_id` · `route_pattern`(glob,作用在 route 名上)— 用户**有效权限 = 自身 ∪ team ∪ org 的并集**
+- `route_permissions`:`scope` · `scope_id` · `route_pattern`(glob,作用在 route 名上)— 用户**有效权限 = 自身 ∪ team ∪ org 的并集**(scoped 模式下 pattern 作用在 **provider 名**上;任何一级都无匹配行 = **默认拒绝**)
 - `rate_limits`:`scope` · `scope_id` · `route_pattern` · `rpm?` · `rpd?` · `total_tokens?` — 三级**逐级预检**,任一级超限即拒
 - `quotas`:`scope` · `scope_id`(唯一 `(scope, scope_id)`)· `quota_total` · `cost_used`(对账后持久值)— 每请求成本**同时累加到 user/team/org 三级**;预检三级均需通过(最严格者拦截)
 

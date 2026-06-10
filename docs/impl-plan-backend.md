@@ -739,6 +739,23 @@ Each lists new types/methods + the exact M1 seam they hook into.
   user/team/org), `precheck_limits` (strictest of 3, via `cache.incr`). Inserted
   after `route()` before `balance()`. Counters redis-direct, not snapshot.
   Snapshot gains permissions/limits/quotas + orgs/teams. (§4 reconciliation, D3.)
+  **Landed (2026-06-10).** As contracted (authorize after route, before
+  balance; counters cache-direct; snapshot gained orgs/teams/permissions/
+  limits/quotas) plus decisions: (1) scoped mode authorizes against the
+  PROVIDER name (route_pattern glob applies to it); (2) no matching
+  permission row at any level = DENY 403 (secure default — grant `"*"` to
+  open up); (3) disabled org/team denies all members; (4) rate-limit
+  counters are per-row `rl:{row_id}:{bucket}` with incr-then-check (the
+  rejected request stays counted); cache degradation fails OPEN;
+  (5) `total_tokens` precheck reads a counter nothing increments until M6
+  wires usage; quota precheck enforces persisted `cost_used >=
+  quota_total` only — the §17 estimate-deduct + reconcile lands with M6
+  billing; (6) aggregated `/v1/models` listing is permission-filtered and
+  non-permitted GetModel returns the same 404 as missing (no existence
+  leak); (7) the `*`-glob moved to `util::glob` (shared by process/
+  tokenize/authz); (8) file-backend explicit-id upsert semantics extended
+  to route_permissions/rate_limits/quotas (same DB-backend parity gap as
+  the M2 import note — M9).
 - **M4 Balance + breaker + cooldown.** `balance/strategy.rs`; local soft
   `CredentialHealth` as a 2nd `AppState` field (DashMap). `candidates` filled with
   real strategy + filters; `failover` calls `health.record_*` on each
