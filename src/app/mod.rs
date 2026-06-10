@@ -30,6 +30,12 @@ pub struct AppState {
     /// Per-instance passive health: breakers, credential cooldowns, latency
     /// EWMA (§3.2). Soft state — restart clears.
     pub health: Arc<crate::health::HealthState>,
+    /// Per-proxy upstream client pool (§7.4): failover resolves the effective
+    /// proxy per attempt and picks a client here. `upstream` stays the default
+    /// client (also used by tokenizer downloads). wasm/non-wreq builds have no
+    /// pool — failover uses `upstream` directly.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    pub client_pool: Arc<crate::http::client::ClientPool>,
     /// Global tokenizer registry (§6.3), backed by the shared persistence
     /// backend for downloaded vocabs. `main.rs` only flips download
     /// enablement from instance settings before serving.
@@ -52,6 +58,8 @@ impl AppState {
             Arc::clone(&persistence),
             Arc::clone(&upstream),
         ));
+        #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+        let client_pool = Arc::new(crate::http::client::ClientPool::new(Arc::clone(&upstream)));
         Self {
             config,
             cache,
@@ -60,6 +68,8 @@ impl AppState {
             snapshot,
             channels,
             health: Arc::new(crate::health::HealthState::new()),
+            #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+            client_pool,
             #[cfg(feature = "count-local")]
             tokenizers,
         }

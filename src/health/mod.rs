@@ -4,6 +4,7 @@
 
 pub mod breaker;
 pub mod config;
+pub mod persist;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

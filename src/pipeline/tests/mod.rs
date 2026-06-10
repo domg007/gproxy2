@@ -1,5 +1,6 @@
 //! M2 integration tests: full pipeline::execute against a fake upstream.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -22,20 +23,28 @@ struct Seen {
 
 struct FakeUpstream {
     seen: Mutex<Vec<Seen>>,
-    /// canned non-stream response status
-    status: StatusCode,
+    /// canned non-stream response statuses, consumed per call; last repeats
+    statuses: Vec<StatusCode>,
     /// canned non-stream response body
     response: Bytes,
     /// canned stream chunks (send_streaming)
     chunks: Vec<Bytes>,
+    calls: AtomicUsize,
 }
 
 #[async_trait::async_trait]
 impl UpstreamClient for FakeUpstream {
     async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ClientError> {
         self.capture(&req);
+        let i = self.calls.fetch_add(1, Ordering::SeqCst);
+        let status = self
+            .statuses
+            .get(i)
+            .or_else(|| self.statuses.last())
+            .copied()
+            .unwrap_or(StatusCode::OK);
         Ok(http::Response::builder()
-            .status(self.status)
+            .status(status)
             .header("content-type", "application/json")
             .body(self.response.clone())
             .expect("response"))
@@ -61,9 +70,10 @@ impl FakeUpstream {
     fn new(response: Bytes, chunks: Vec<Bytes>) -> Self {
         Self {
             seen: Mutex::new(vec![]),
-            status: StatusCode::OK,
+            statuses: vec![StatusCode::OK],
             response,
             chunks,
+            calls: AtomicUsize::new(0),
         }
     }
 
@@ -396,4 +406,5 @@ async fn scoped_variant_suffix_strips_to_base() {
 }
 
 mod authz;
+mod health;
 mod local;

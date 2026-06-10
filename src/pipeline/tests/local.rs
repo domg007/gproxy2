@@ -91,7 +91,7 @@ async fn count_tokens_on_openai_channel_serves_locally() {
 #[tokio::test]
 async fn count_tokens_falls_back_to_local_when_upstream_fails() {
     let mut fake = FakeUpstream::new(Bytes::from_static(b"{}"), vec![]);
-    fake.status = StatusCode::INTERNAL_SERVER_ERROR;
+    fake.statuses = vec![StatusCode::INTERNAL_SERVER_ERROR];
     let fake = Arc::new(fake);
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 

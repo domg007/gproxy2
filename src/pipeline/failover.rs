@@ -4,6 +4,7 @@
 //! cross-protocol) is resolved PER candidate, before `prepare`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -13,6 +14,7 @@ use crate::channel::{Channel, PrepareCtx};
 use crate::http::client::{ClientError, UpstreamClient};
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
+use crate::pipeline::health_hooks;
 use crate::pipeline::local_ops;
 use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
@@ -82,6 +84,15 @@ pub async fn run_failover(
             (plan, rules, local_models)
         };
 
+        // §3.3 per-credential rpm/tpm budget — a budget skip is not a health
+        // failure (the key is fine, just busy this minute).
+        if budget_exhausted(state, cand).await {
+            last_err = Some(PipelineError::Transport(
+                "credential rpm budget exhausted".into(),
+            ));
+            continue;
+        }
+
         let parts = match transform_step::request_parts(
             ctx,
             cand,
@@ -108,25 +119,55 @@ pub async fn run_failover(
         }) {
             Ok(p) => p,
             Err(e) => {
+                // Prepare failures count against health like transient errors.
+                health_hooks::record_failure(state, cand);
                 last_err = Some(PipelineError::Channel(e));
                 continue;
             }
         };
 
+        // §7.4 effective proxy per attempt → per-proxy client; wasm and
+        // non-wreq builds always use the default upstream client.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+        let client = state.client_pool.for_proxy(
+            crate::channel::resolve::effective_proxy(
+                &cand.credential,
+                &cand.provider,
+                state.config.upstream.proxy_url.as_deref(),
+            )
+            .as_deref(),
+        );
+        #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
+        let client = Arc::clone(&state.upstream);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let send_started = std::time::Instant::now();
+
         let (status, mut headers, source) =
-            match send_once(state.upstream.as_ref(), prepared.into_http(), ctx.stream).await {
+            match send_once(client.as_ref(), prepared.into_http(), ctx.stream).await {
                 Ok(t) => t,
                 Err(e) => {
+                    health_hooks::record_failure(state, cand);
                     last_err = Some(PipelineError::Transport(e.to_string()));
                     continue;
                 }
             };
+
+        // Send latency feeds the member EWMA (native only; wasm has no
+        // monotonic clock worth trusting here).
+        #[cfg(not(target_arch = "wasm32"))]
+        let send_ms = Some(send_started.elapsed().as_secs_f64() * 1000.0);
+        #[cfg(target_arch = "wasm32")]
+        let send_ms = None;
 
         let disposition = match &source {
             BodySource::Buffered(b) => channel.classify(status, &headers, b),
             #[cfg(not(target_arch = "wasm32"))]
             BodySource::Streaming(_) => channel.classify(status, &headers, &Bytes::new()),
         };
+
+        // §3.2/§16.3 disposition → health (+ edge-persisted credential edges).
+        health_hooks::record_attempt(state, cand, &disposition, send_ms);
 
         if !disposition.should_failover() {
             // Success, or a Permanent 4xx the client should see — return it.
@@ -218,6 +259,27 @@ fn materialize(
             }
         }
     }
+}
+
+/// Per-credential minute budgets (§3.3), incr-then-check on the shared cache
+/// (same off-by-one semantics as authz). rpm increments per attempt; tpm is a
+/// read-only seam — nothing increments `ctpm:*` until M6 feeds real usage.
+async fn budget_exhausted(state: &AppState, cand: &Candidate) -> bool {
+    let bucket = crate::util::time::unix_now() / 60;
+    let ttl = Some(Duration::from_secs(120));
+    if let Some(limit) = cand.credential.rpm_limit {
+        let key = format!("crpm:{}:m{bucket}", cand.credential.id);
+        if state.cache.incr(&key, 1, ttl).await > limit {
+            return true;
+        }
+    }
+    if let Some(limit) = cand.credential.tpm_limit {
+        let key = format!("ctpm:{}:m{bucket}", cand.credential.id);
+        if state.cache.incr(&key, 0, ttl).await > limit {
+            return true;
+        }
+    }
+    false
 }
 
 /// One upstream send → uniform `(status, headers, BodySource)`. Streaming on

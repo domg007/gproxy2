@@ -46,6 +46,11 @@ pub trait UpstreamClient: Send + Sync {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod pool;
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+pub use pool::ClientPool;
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod wreq;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 pub use wreq::WreqClient;
