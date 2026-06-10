@@ -405,4 +405,16 @@ impl PersistenceBackend for DbPersistence {
     ) -> anyhow::Result<InstanceSettings> {
         ops::settings::instance_settings::upsert(&self.conn, input).await
     }
+
+    async fn list_tokenizer_vocabs(&self) -> anyhow::Result<Vec<String>> {
+        ops::tokenize::tokenizer_vocabs::list(&self.conn).await
+    }
+
+    async fn get_tokenizer_vocab(&self, name: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        ops::tokenize::tokenizer_vocabs::get(&self.conn, name).await
+    }
+
+    async fn put_tokenizer_vocab(&self, name: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        ops::tokenize::tokenizer_vocabs::put(&self.conn, name, bytes).await
+    }
 }

@@ -242,7 +242,9 @@ ExecOutcome { status, headers, body: Full(Bytes) | Stream(ByteStream), dispositi
   (`x-api-key` → claude,其余 → openai)。
 - **count_tokens 本地计数**:`src/tokenize/` + **全局词库注册服务**(TokenizerRegistry,挂 AppState):
   内置 tiktoken 编码(gpt 族启发式:o200k/cl100k)+ **打包 deepseek-v4-pro tokenizer**
-  (非 gpt 默认计数器)+ `data_dir/tokenizers/` 落盘词库;注册服务可枚举词库
+  (非 gpt 默认计数器);词库经**持久层统一存取**(file 后端 = `data_dir/tokenizers/`
+  原始文件;db 后端 = BLOB 表 `tokenizer_vocabs`),registry 内存缓存 + 后台
+  hydrate/下载;注册服务可枚举词库
   (内置/打包/已下载,M10 管理 API 暴露)。模型→词库映射:
   `provider.settings_json.tokenizer_map`(glob → 词库名或 HF repo)。
   在线下载:`instance_settings.enable_tokenizer_download`(默认关);开启时映射指向的

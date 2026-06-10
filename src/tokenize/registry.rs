@@ -1,10 +1,10 @@
-//! Global HF-tokenizer registry (§6.3): bundled deepseek vocab, lazy-loaded
-//! downloads under `data_dir/tokenizers/`, and a fire-and-forget background
-//! HF download path through the shared [`UpstreamClient`]. Native-only
-//! (`count-local` feature); tiktoken builtins are handled directly by
-//! [`super::count`] and never live here.
+//! Global HF-tokenizer registry (§6.3): bundled deepseek vocab, persisted
+//! vocabs through the [`PersistenceBackend`] (file backend = raw files under
+//! `data_dir/tokenizers/`, db backend = BLOB rows), and a fire-and-forget
+//! background hydrate/HF-download path through the shared [`UpstreamClient`].
+//! Native-only (`count-local` feature); tiktoken builtins are handled
+//! directly by [`super::count`] and never live here.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -13,6 +13,7 @@ use dashmap::DashMap;
 use tokenizers::Tokenizer;
 
 use crate::http::client::UpstreamClient;
+use crate::store::persistence::PersistenceBackend;
 
 /// Bundled DeepSeek vocab, vendored from `deepseek-ai/DeepSeek-V4-Pro`
 /// (`tokenizer.json`).
@@ -40,8 +41,8 @@ type LoadedMap = Arc<DashMap<String, Arc<Tokenizer>>>;
 
 /// Global tokenizer registry living on `AppState`.
 pub struct TokenizerRegistry {
-    /// `data_dir/tokenizers`; `None` = no disk tier, downloads disabled.
-    dir: Option<PathBuf>,
+    /// Persisted vocab tier (file backend = raw files, db backend = BLOBs).
+    store: Arc<dyn PersistenceBackend>,
     /// Mirrors `instance_settings.enable_tokenizer_download`.
     download_enabled: AtomicBool,
     upstream: Arc<dyn UpstreamClient>,
@@ -50,9 +51,9 @@ pub struct TokenizerRegistry {
 }
 
 impl TokenizerRegistry {
-    pub fn new(dir: Option<PathBuf>, upstream: Arc<dyn UpstreamClient>) -> Self {
+    pub fn new(store: Arc<dyn PersistenceBackend>, upstream: Arc<dyn UpstreamClient>) -> Self {
         Self {
-            dir,
+            store,
             download_enabled: AtomicBool::new(false),
             upstream,
             loaded: Arc::new(DashMap::new()),
@@ -64,8 +65,9 @@ impl TokenizerRegistry {
         self.download_enabled.store(on, Ordering::Relaxed);
     }
 
-    /// Builtins + bundled + on-disk downloads.
-    pub fn list(&self) -> Vec<VocabInfo> {
+    /// Builtins + bundled + persisted vocabs (admin surface; async because it
+    /// asks the persistence backend).
+    pub async fn list(&self) -> Vec<VocabInfo> {
         let mut out = vec![
             info("o200k_base", VocabSource::BuiltinTiktoken, true),
             info("cl100k_base", VocabSource::BuiltinTiktoken, true),
@@ -75,22 +77,21 @@ impl TokenizerRegistry {
                 self.loaded.contains_key(BUNDLED_NAMES[0]),
             ),
         ];
-        if let Some(dir) = &self.dir
-            && let Ok(entries) = std::fs::read_dir(dir)
-        {
-            for entry in entries.flatten() {
-                let file = entry.file_name().to_string_lossy().into_owned();
-                if let Some(stem) = file.strip_suffix(".json") {
-                    let name = stem.replace("--", "/");
+        match self.store.list_tokenizer_vocabs().await {
+            Ok(names) => {
+                for name in names {
                     let loaded = self.loaded.contains_key(&name);
                     out.push(info(&name, VocabSource::Downloaded, loaded));
                 }
             }
+            Err(e) => tracing::warn!(error = %e, "listing persisted tokenizer vocabs failed"),
         }
         out
     }
 
-    /// memory → bundled name → disk file (sanitized name) → `None`.
+    /// memory → bundled name → `None`. Persisted/downloaded vocabs only show
+    /// up after a background [`request_load`](Self::request_load) hydrates
+    /// them into memory; a miss here never blocks the request.
     pub fn resolve(&self, name: &str) -> Option<Arc<Tokenizer>> {
         if let Some(t) = self.loaded.get(name) {
             return Some(Arc::clone(&t));
@@ -102,44 +103,50 @@ impl TokenizerRegistry {
             }
             return Some(tok);
         }
-        let path = self.dir.as_ref()?.join(format!("{}.json", sanitize(name)));
-        let bytes = std::fs::read(path).ok()?;
-        let tok = Arc::new(Tokenizer::from_bytes(&bytes).ok()?);
-        self.loaded.insert(name.to_owned(), Arc::clone(&tok));
-        Some(tok)
+        None
     }
 
-    /// Fire-and-forget: download `hf.co/{name}/resolve/main/tokenizer.json`
-    /// through the shared upstream client and persist it under the registry
-    /// dir. No-op when disabled, dirless, the name is not an HF repo path
-    /// (`org/repo`), or a download is already inflight. Never blocks.
-    pub fn request_download(&self, name: &str) {
-        let Some(dir) = self.dir.clone() else { return };
-        if !self.download_enabled.load(Ordering::Relaxed)
-            || !name.contains('/')
-            || self.inflight.insert(name.to_owned(), ()).is_some()
-        {
+    /// Fire-and-forget load pipeline, deduped per name: hydrate from the
+    /// persistence backend; when absent there, downloads are enabled, and the
+    /// name is an HF repo path (`org/repo`), download
+    /// `hf.co/{name}/resolve/main/tokenizer.json` through the shared upstream
+    /// client and persist it. Never blocks the calling request.
+    pub fn request_load(&self, name: &str) {
+        if self.inflight.insert(name.to_owned(), ()).is_some() {
             return;
         }
+        let store = Arc::clone(&self.store);
         let upstream = Arc::clone(&self.upstream);
         let loaded = Arc::clone(&self.loaded);
         let inflight = Arc::clone(&self.inflight);
+        let download_enabled = self.download_enabled.load(Ordering::Relaxed);
         let name = name.to_owned();
         tokio::spawn(async move {
-            if let Err(e) = download(upstream, &dir, &name, &loaded).await {
-                tracing::warn!(name, error = %e, "tokenizer download failed");
+            if let Err(e) = load(store, upstream, &name, &loaded, download_enabled).await {
+                tracing::warn!(name, error = %e, "tokenizer load failed");
             }
             inflight.remove(&name);
         });
     }
 }
 
-async fn download(
+/// Hydrate `name` from the store, falling back to an HF download.
+async fn load(
+    store: Arc<dyn PersistenceBackend>,
     upstream: Arc<dyn UpstreamClient>,
-    dir: &Path,
     name: &str,
     loaded: &LoadedMap,
+    download_enabled: bool,
 ) -> anyhow::Result<()> {
+    if let Some(bytes) = store.get_tokenizer_vocab(name).await? {
+        let tok = Tokenizer::from_bytes(&bytes).map_err(|e| anyhow::anyhow!("bad vocab: {e}"))?;
+        loaded.insert(name.to_owned(), Arc::new(tok));
+        return Ok(());
+    }
+    if !download_enabled || !name.contains('/') {
+        return Ok(());
+    }
+
     let url = format!("https://huggingface.co/{name}/resolve/main/tokenizer.json");
     let req = http::Request::builder()
         .method(http::Method::GET)
@@ -153,12 +160,7 @@ async fn download(
     let body = resp.into_body();
     let tok = Tokenizer::from_bytes(&body).map_err(|e| anyhow::anyhow!("bad vocab: {e}"))?;
 
-    std::fs::create_dir_all(dir)?;
-    let path = dir.join(format!("{}.json", sanitize(name)));
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &body)?;
-    std::fs::rename(&tmp, &path)?;
-
+    store.put_tokenizer_vocab(name, &body).await?;
     loaded.insert(name.to_owned(), Arc::new(tok));
     tracing::info!(name, "tokenizer downloaded");
     Ok(())
@@ -170,9 +172,4 @@ fn info(name: &str, source: VocabSource, loaded: bool) -> VocabInfo {
         source,
         loaded,
     }
-}
-
-/// HF repo paths contain `/`; keep disk names flat.
-fn sanitize(name: &str) -> String {
-    name.replace('/', "--")
 }

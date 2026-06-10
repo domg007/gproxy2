@@ -9,6 +9,7 @@ use super::logs::{downstream_requests, upstream_requests};
 use super::provider::{credential_statuses, credentials, provider_models, providers};
 use super::routing::{aliases, route_members, routes};
 use super::settings::instance_settings;
+use super::tokenizers;
 use super::transform::{provider_rule_sets, routing_rules, rule_sets, rules};
 use super::usage::{usage_rollups, usages};
 use crate::store::persistence::PersistenceBackend;
@@ -456,5 +457,17 @@ impl PersistenceBackend for FilePersistence {
     ) -> anyhow::Result<InstanceSettings> {
         let _guard = self.write.lock().await;
         instance_settings::upsert(&self.root, input).await
+    }
+
+    async fn list_tokenizer_vocabs(&self) -> anyhow::Result<Vec<String>> {
+        tokenizers::list(&self.root).await
+    }
+
+    async fn get_tokenizer_vocab(&self, name: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        tokenizers::get(&self.root, name).await
+    }
+
+    async fn put_tokenizer_vocab(&self, name: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        tokenizers::put(&self.root, name, bytes).await
     }
 }

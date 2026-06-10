@@ -13,6 +13,7 @@ mod logs;
 mod provider;
 mod routing;
 mod settings;
+mod tokenizers;
 mod transform;
 mod usage;
 

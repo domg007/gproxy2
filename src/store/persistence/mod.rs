@@ -372,4 +372,22 @@ pub trait PersistenceBackend: Send + Sync {
         &self,
         input: InstanceSettingsInput,
     ) -> anyhow::Result<InstanceSettings>;
+
+    // ── tokenizer vocabs (§6.3) ─────────────────────────────────────────────
+
+    /// Stored tokenizer vocabularies (HF tokenizer.json blobs). Defaults are
+    /// for backends without vocab storage (edge): empty/unsupported.
+    async fn list_tokenizer_vocabs(&self) -> anyhow::Result<Vec<String>> {
+        Ok(vec![])
+    }
+
+    /// Fetch a stored vocab's raw bytes by name, or `None` if absent.
+    async fn get_tokenizer_vocab(&self, _name: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    /// Store (insert or replace) a vocab's raw bytes under `name`.
+    async fn put_tokenizer_vocab(&self, _name: &str, _bytes: &[u8]) -> anyhow::Result<()> {
+        anyhow::bail!("tokenizer vocab storage unsupported by this backend")
+    }
 }

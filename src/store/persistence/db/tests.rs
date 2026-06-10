@@ -194,3 +194,30 @@ async fn quota_decimal_exact_round_trip() {
     assert_eq!(fetched.cost_used, cost_used);
     assert_eq!(fetched, created);
 }
+
+#[tokio::test]
+async fn tokenizer_vocab_round_trip() {
+    let db = mem().await;
+    db.put_tokenizer_vocab("org/repo", b"{\"v\":1}")
+        .await
+        .expect("put");
+    db.put_tokenizer_vocab("org/repo", b"{\"v\":2}")
+        .await
+        .expect("upsert");
+    let bytes = db
+        .get_tokenizer_vocab("org/repo")
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(bytes, b"{\"v\":2}");
+    assert_eq!(
+        db.list_tokenizer_vocabs().await.expect("list"),
+        vec!["org/repo"]
+    );
+    assert!(
+        db.get_tokenizer_vocab("absent")
+            .await
+            .expect("get")
+            .is_none()
+    );
+}

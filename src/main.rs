@@ -180,17 +180,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState::new(config, cache, persistence, upstream, snapshot, channels);
 
-    // Tokenizer registry (§6.3): disk tier under data_dir/tokenizers for the
-    // file backend (db deployments keep the dirless default = no downloads).
+    // Tokenizer registry (§6.3): vocab storage rides the persistence backend
+    // (file = raw files under data_dir/tokenizers, db = BLOB rows); only the
+    // download toggle is seeded here from instance settings.
     #[cfg(feature = "count-local")]
-    let state = {
-        let mut state = state;
-        if let PersistenceConfig::File { data_dir } = &state.config.persistence {
-            state.tokenizers = Arc::new(gproxy::tokenize::TokenizerRegistry::new(
-                Some(data_dir.join("tokenizers")),
-                Arc::clone(&state.upstream),
-            ));
-        }
+    {
         let enabled = state
             .persistence
             .list_instance_settings()
@@ -198,8 +192,7 @@ async fn main() -> anyhow::Result<()> {
             .first()
             .is_some_and(|s| s.enable_tokenizer_download);
         state.tokenizers.set_download_enabled(enabled);
-        state
-    };
+    }
 
     let app = http::server::router(state);
 

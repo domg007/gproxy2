@@ -10,6 +10,7 @@ use super::entities::logs::{downstream_request, upstream_request};
 use super::entities::provider::{credential, credential_status, provider, provider_model};
 use super::entities::routing::{alias, route, route_member};
 use super::entities::settings::instance_setting;
+use super::entities::tokenize::tokenizer_vocab;
 use super::entities::transform::{provider_rule_set, routing_rule, rule, rule_set};
 use super::entities::usage::{usage, usage_rollup};
 
@@ -48,6 +49,9 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
 
     // §8-E settings
     create_table(conn, &schema, instance_setting::Entity).await?;
+
+    // §6.3 tokenizer vocabs
+    create_table(conn, &schema, tokenizer_vocab::Entity).await?;
 
     Ok(())
 }

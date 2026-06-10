@@ -39,7 +39,8 @@ pub fn count(
             return bpe.encode_ordinary(&joined).len() as u64 + overhead;
         }
         // tokenizer_map glob hit → that vocab; otherwise resolve the model
-        // name itself. Miss → request a background download and fall through.
+        // name itself. Miss → request a background hydrate/download and fall
+        // through.
         let name = map
             .and_then(|m| m.as_object())
             .and_then(|obj| {
@@ -53,7 +54,7 @@ pub fn count(
                 return n + overhead;
             }
         } else {
-            registry.request_download(&name);
+            registry.request_load(&name);
         }
         // Bundled fallback vocab.
         if let Some(tok) = registry.resolve("deepseek")
@@ -104,7 +105,7 @@ fn glob_match(pattern: &str, value: &str) -> bool {
     inner(pattern.as_bytes(), value.as_bytes())
 }
 
-#[cfg(all(test, feature = "count-local"))]
+#[cfg(all(test, feature = "count-local", feature = "persist-file"))]
 mod tests {
     use std::sync::Arc;
 
@@ -112,6 +113,7 @@ mod tests {
 
     use super::{TokenizerRegistry, count};
     use crate::http::client::{ClientError, UpstreamClient};
+    use crate::store::persistence::FilePersistence;
 
     /// No-op upstream: the registry never dials out in these tests.
     struct NoUpstream;
@@ -125,6 +127,15 @@ mod tests {
         }
     }
 
+    async fn registry() -> (TokenizerRegistry, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = FilePersistence::open(dir.path().to_path_buf())
+            .await
+            .expect("open");
+        let reg = TokenizerRegistry::new(Arc::new(store), Arc::new(NoUpstream));
+        (reg, dir)
+    }
+
     fn chat_body() -> Vec<u8> {
         serde_json::json!({
             "model": "x",
@@ -134,18 +145,18 @@ mod tests {
         .into_bytes()
     }
 
-    #[test]
-    fn tiktoken_gpt_path_is_stable() {
-        let reg = TokenizerRegistry::new(None, Arc::new(NoUpstream));
+    #[tokio::test]
+    async fn tiktoken_gpt_path_is_stable() {
+        let (reg, _dir) = registry().await;
         let a = count("gpt-4o-mini", &chat_body(), None, &reg);
         let b = count("gpt-4o-mini", &chat_body(), None, &reg);
         assert!(a > 0);
         assert_eq!(a, b);
     }
 
-    #[test]
-    fn bundled_deepseek_covers_unknown_models() {
-        let reg = TokenizerRegistry::new(None, Arc::new(NoUpstream));
+    #[tokio::test]
+    async fn bundled_deepseek_covers_unknown_models() {
+        let (reg, _dir) = registry().await;
         assert!(reg.resolve("deepseek").is_some());
         assert!(count("qwen-max", &chat_body(), None, &reg) > 0);
     }
