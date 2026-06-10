@@ -167,6 +167,18 @@ pub enum HttpMethod {
     Delete,
 }
 
+impl From<HttpMethod> for http::Method {
+    fn from(m: HttpMethod) -> Self {
+        match m {
+            HttpMethod::Get => http::Method::GET,
+            HttpMethod::Post => http::Method::POST,
+            HttpMethod::Put => http::Method::PUT,
+            HttpMethod::Patch => http::Method::PATCH,
+            HttpMethod::Delete => http::Method::DELETE,
+        }
+    }
+}
+
 /// Provider endpoint metadata used by routing and protocol modules.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Endpoint {

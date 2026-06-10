@@ -23,7 +23,7 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     ingress::apply_global_blacklist(&mut ctx);
 
     // classify
-    let classified = classify::classify(&ctx.method, &ctx.path, &ctx.body)?;
+    let classified = classify::classify(&ctx.method, &ctx.path, &ctx.headers, &ctx.body)?;
     ctx.op = Some(classified.op);
     ctx.stream = classified.stream;
 

@@ -84,7 +84,7 @@ pub async fn run_failover(
             secret: &cand.credential.secret_json,
             provider_settings: &cand.provider.settings_json,
             upstream_model_id: &cand.upstream_model_id,
-            method: ctx.method.clone(),
+            method: parts.method.clone(),
             path: &parts.path,
             query: parts.query.as_deref(),
             headers: parts.headers.as_ref().unwrap_or(&ctx.headers),

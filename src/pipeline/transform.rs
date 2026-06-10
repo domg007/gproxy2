@@ -80,6 +80,7 @@ pub fn plan_for(
 
 /// Effective upstream request pieces for one attempt.
 pub struct RequestParts {
+    pub method: http::Method,
     pub path: String,
     pub query: Option<String>,
     pub body: Bytes,
@@ -130,11 +131,7 @@ pub fn request_parts(
                         ContentGenerationKind::GeminiGenerateContent,
                     ) => {
                         // gemini carries the model in the PATH, not the body
-                        let t = protocol::content_request_target(
-                            ContentGenerationKind::GeminiGenerateContent,
-                            &cand.upstream_model_id,
-                            ctx.stream,
-                        );
+                        let t = protocol::request_target(op, &cand.upstream_model_id, ctx.stream);
                         path = t.path;
                         if let Some(extra) = t.query {
                             query = Some(merge_query(query.as_deref(), &extra));
@@ -151,6 +148,7 @@ pub fn request_parts(
             }
             (
                 RequestParts {
+                    method: ctx.method.clone(),
                     path,
                     query,
                     body,
@@ -181,7 +179,7 @@ pub fn request_parts(
                         .map_err(PipelineError::TransformRequest)?;
                     let mut converted = Bytes::from(converted);
                     // Gemini targets keep model + streaming in the URL
-                    // (content_request_target); body stays untouched.
+                    // (request_target); body stays untouched.
                     if tk != ContentGenerationKind::GeminiGenerateContent {
                         let model = (!cand.upstream_model_id.is_empty())
                             .then_some(cand.upstream_model_id.as_str());
@@ -193,9 +191,10 @@ pub fn request_parts(
                     converted
                 }
             };
-            let t = protocol::content_request_target(tk, &cand.upstream_model_id, ctx.stream);
+            let t = protocol::request_target(*target, &cand.upstream_model_id, ctx.stream);
             (
                 RequestParts {
+                    method: t.method.into(),
                     path: t.path,
                     query: t.query,
                     body,
