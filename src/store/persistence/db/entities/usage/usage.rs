@@ -10,6 +10,8 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
+    /// Unique: usage rows are idempotent by `request_id` (§17).
+    #[sea_orm(unique)]
     pub request_id: String,
     pub at: i64,
     pub route_name: Option<String>,
@@ -29,6 +31,12 @@ pub struct Model {
     pub cache_creation_1h_tokens: i64,
     #[sea_orm(column_type = "Text")]
     pub cost: String,
+    /// §17: `upstream` | `counted` | `estimated`.
+    #[sea_orm(default_value = "")]
+    pub usage_source: String,
+    /// §17: `complete` | `interrupted`.
+    #[sea_orm(default_value = "")]
+    pub ended: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

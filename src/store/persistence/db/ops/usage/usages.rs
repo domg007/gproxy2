@@ -1,7 +1,10 @@
-//! Usage ops for the `db` backend (append-only).
+//! Usage ops for the `db` backend (append-only, idempotent by `request_id`).
 
 use sea_orm::ActiveValue::{NotSet, Set};
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryOrder, QuerySelect};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 
 use crate::store::persistence::records::{Usage, UsageInput};
 
@@ -28,12 +31,25 @@ fn to_record(m: usage::Model) -> anyhow::Result<Usage> {
         cache_creation_5m_tokens: m.cache_creation_5m_tokens,
         cache_creation_1h_tokens: m.cache_creation_1h_tokens,
         cost: m.cost.parse::<rust_decimal::Decimal>()?,
+        usage_source: m.usage_source,
+        ended: m.ended,
         created_at: m.created_at,
         updated_at: m.updated_at,
     })
 }
 
-pub async fn append(conn: &DatabaseConnection, input: UsageInput) -> anyhow::Result<Usage> {
+/// Append a usage row; `Ok(None)` when a row with the same `request_id` already
+/// exists (idempotent settle, §17). A unique index on `request_id` backs the
+/// pre-insert check (a concurrent duplicate insert errors rather than dupes).
+pub async fn append(conn: &DatabaseConnection, input: UsageInput) -> anyhow::Result<Option<Usage>> {
+    let existing = usage::Entity::find()
+        .filter(usage::Column::RequestId.eq(input.request_id.clone()))
+        .one(conn)
+        .await?;
+    if existing.is_some() {
+        return Ok(None);
+    }
+
     let now = crate::store::persistence::db::ops::now_secs();
     let model = usage::ActiveModel {
         id: NotSet,
@@ -55,12 +71,14 @@ pub async fn append(conn: &DatabaseConnection, input: UsageInput) -> anyhow::Res
         cache_creation_5m_tokens: Set(input.cache_creation_5m_tokens),
         cache_creation_1h_tokens: Set(input.cache_creation_1h_tokens),
         cost: Set(input.cost.to_string()),
+        usage_source: Set(input.usage_source),
+        ended: Set(input.ended),
         created_at: Set(now),
         updated_at: Set(now),
     }
     .insert(conn)
     .await?;
-    to_record(model)
+    to_record(model).map(Some)
 }
 
 pub async fn list(conn: &DatabaseConnection, limit: u64) -> anyhow::Result<Vec<Usage>> {

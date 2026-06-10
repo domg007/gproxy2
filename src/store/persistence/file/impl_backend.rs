@@ -387,7 +387,7 @@ impl PersistenceBackend for FilePersistence {
         quotas::delete(&self.root, id).await
     }
 
-    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Usage> {
+    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Option<Usage>> {
         let _guard = self.write.lock().await;
         usages::append(&self.root, input).await
     }

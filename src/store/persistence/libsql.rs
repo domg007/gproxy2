@@ -364,7 +364,7 @@ impl PersistenceBackend for LibsqlPersistence {
         anyhow::bail!("libsql identity ops not implemented yet")
     }
 
-    async fn append_usage(&self, _input: UsageInput) -> anyhow::Result<Usage> {
+    async fn append_usage(&self, _input: UsageInput) -> anyhow::Result<Option<Usage>> {
         anyhow::bail!("libsql usage ops not implemented yet")
     }
 

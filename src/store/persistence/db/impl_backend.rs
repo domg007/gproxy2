@@ -339,7 +339,7 @@ impl PersistenceBackend for DbPersistence {
         ops::authz::quotas::delete(&self.conn, id).await
     }
 
-    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Usage> {
+    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Option<Usage>> {
         ops::usage::usages::append(&self.conn, input).await
     }
 

@@ -314,8 +314,10 @@ pub trait PersistenceBackend: Send + Sync {
 
     // ── usage / logs (§8-D) ─────────────────────────────────────────────────
 
-    /// Append a per-request usage row (append-only).
-    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Usage>;
+    /// Append a per-request usage row (append-only). Idempotent by
+    /// `request_id`: returns `Ok(None)` without writing when a row with the
+    /// same `request_id` already exists (§17 settle-exactly-once).
+    async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Option<Usage>>;
 
     /// List the most recent usage rows (by id desc), up to `limit`.
     async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>>;

@@ -2,6 +2,7 @@
 //! layer over these modules.
 
 pub mod app;
+pub mod billing;
 pub mod channel;
 pub mod config;
 pub mod crypto;

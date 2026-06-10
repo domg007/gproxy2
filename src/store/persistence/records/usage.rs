@@ -28,6 +28,12 @@ pub struct Usage {
     pub cache_creation_1h_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
+    /// §17: `upstream` | `counted` | `estimated` (empty on pre-M6 rows).
+    #[serde(default)]
+    pub usage_source: String,
+    /// §17: `complete` | `interrupted` (empty on pre-M6 rows).
+    #[serde(default)]
+    pub ended: String,
     /// Unix seconds.
     pub created_at: i64,
     /// Unix seconds.
@@ -56,6 +62,12 @@ pub struct UsageInput {
     pub cache_creation_1h_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
+    /// §17: `upstream` | `counted` | `estimated`.
+    #[serde(default)]
+    pub usage_source: String,
+    /// §17: `complete` | `interrupted`.
+    #[serde(default)]
+    pub ended: String,
 }
 
 /// An aggregated usage bucket for one `(granularity, bucket_start, dimensions)`
