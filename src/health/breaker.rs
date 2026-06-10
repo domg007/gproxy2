@@ -8,6 +8,12 @@
 
 use super::config::{BreakerConfig, COOLDOWN_CAP_SECS};
 
+/// An outstanding half-open probe re-arms after this long. Covers probe slots
+/// consumed during candidate filtering whose attempt never fires (an earlier
+/// candidate served the request, empty credential pool, budget skip) — without
+/// this the breaker would stay `HalfOpen { probing }` forever.
+const PROBE_REARM_SECS: i64 = 30;
+
 /// Admission verdict for the next request through this breaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admit {
@@ -49,7 +55,9 @@ enum State {
         opens: u32,
     },
     HalfOpen {
-        probing: bool,
+        /// While a probe is outstanding, the time at which the slot re-arms
+        /// if its outcome was never recorded.
+        probe_deadline: i64,
         opens: u32,
     },
 }
@@ -89,15 +97,17 @@ impl Breaker {
     }
 
     /// Open + expired → flip to HalfOpen and return `Probe`. While a probe is
-    /// outstanding further callers get `No { until: now + 1 }` — the probe
-    /// outcome is imminent, so a 1s retry hint is enough.
+    /// outstanding further callers get `No { until: probe_deadline }`; if the
+    /// probe outcome is never recorded (the slot was consumed during candidate
+    /// filtering but the attempt never fired), the slot re-arms at the
+    /// deadline and the next caller gets a fresh `Probe`.
     pub fn admit(&mut self, _cfg: &BreakerConfig, now: i64) -> Admit {
         match &mut self.state {
             State::Closed { .. } => Admit::Yes,
             State::Open { until, opens } => {
                 if now >= *until {
                     self.state = State::HalfOpen {
-                        probing: true,
+                        probe_deadline: now + PROBE_REARM_SECS,
                         opens: *opens,
                     };
                     Admit::Probe
@@ -105,12 +115,14 @@ impl Breaker {
                     Admit::No { until: *until }
                 }
             }
-            State::HalfOpen { probing, .. } => {
-                if *probing {
-                    Admit::No { until: now + 1 }
-                } else {
-                    *probing = true;
+            State::HalfOpen { probe_deadline, .. } => {
+                if now >= *probe_deadline {
+                    *probe_deadline = now + PROBE_REARM_SECS;
                     Admit::Probe
+                } else {
+                    Admit::No {
+                        until: *probe_deadline,
+                    }
                 }
             }
         }
@@ -223,9 +235,25 @@ mod tests {
             b.on_failure(&cfg, 100);
         }
         assert_eq!(b.admit(&cfg, 130), Admit::Probe);
-        assert_eq!(b.admit(&cfg, 130), Admit::No { until: 131 });
+        assert_eq!(b.admit(&cfg, 130), Admit::No { until: 160 });
         assert_eq!(b.on_success(131), Some(Transition::Closed));
         assert_eq!(b.admit(&cfg, 131), Admit::Yes);
+    }
+
+    /// Regression: a probe slot consumed during candidate filtering whose
+    /// attempt never fires must re-arm, not wedge the breaker in HalfOpen.
+    #[test]
+    fn unresolved_probe_rearms_after_deadline() {
+        let cfg = BreakerConfig::default();
+        let mut b = Breaker::new();
+        for _ in 0..5 {
+            b.on_failure(&cfg, 100);
+        }
+        assert_eq!(b.admit(&cfg, 130), Admit::Probe);
+        // Probe outcome never recorded (another member served the request).
+        assert_eq!(b.admit(&cfg, 159), Admit::No { until: 160 });
+        assert_eq!(b.admit(&cfg, 160), Admit::Probe, "slot re-arms");
+        assert_eq!(b.on_success(161), Some(Transition::Closed));
     }
 
     #[test]
