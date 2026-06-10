@@ -31,6 +31,16 @@ impl ChannelRegistry {
     pub fn get(&self, id: &str) -> Option<Arc<dyn Channel>> {
         self.map.get(id).cloned()
     }
+
+    /// Test-only: build the full built-in set plus one extra (or overriding)
+    /// channel under `id`. Lets integration tests drive paths no built-in
+    /// channel exercises (e.g. a channel whose `refresh` succeeds).
+    #[cfg(test)]
+    pub fn with_channel(id: &'static str, channel: Arc<dyn Channel>) -> Self {
+        let mut reg = Self::with_builtin();
+        reg.map.insert(id, channel);
+        reg
+    }
 }
 
 /// All built-in channel adapters (API-key functional; OAuth/envelope = stubs).

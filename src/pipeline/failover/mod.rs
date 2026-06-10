@@ -2,16 +2,22 @@
 //! `Channel::classify` is called. Stream & non-stream share the loop and differ
 //! only at the body tail (D4). M2: the transform plan (passthrough vs
 //! cross-protocol) is resolved PER candidate, before `prepare`.
+//!
+//! M7a: a lazy pre-use refresh (refresh only if the channel says the secret is
+//! stale) sits before each attempt, and an AuthDead classification triggers a
+//! single forced refresh + replay of the SAME candidate. A per-request retry
+//! budget caps the number of candidate attempts. The single-attempt mechanics
+//! (prepare → send → classify, body materialization) live in [`attempt`].
 
-use std::sync::Arc;
+mod attempt;
+
+pub use attempt::BodySource;
+use attempt::{AttemptOutcome, attempt, materialize, refresh_failed};
+
 use std::time::Duration;
 
-use bytes::Bytes;
-use http::{HeaderMap, StatusCode};
-
 use crate::app::AppState;
-use crate::channel::{Channel, PrepareCtx};
-use crate::http::client::{ClientError, UpstreamClient};
+use crate::channel::Disposition;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::health_hooks;
@@ -20,15 +26,6 @@ use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::settle;
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
 use crate::protocol::Operation;
-
-/// Uniform per-attempt response body source. `Streaming` is native-only; on wasm
-/// the executor always buffers, so `classify` runs identically on status+headers
-/// regardless of mode and only the tail materialization branches.
-pub enum BodySource {
-    Buffered(Bytes),
-    #[cfg(not(target_arch = "wasm32"))]
-    Streaming(crate::http::client::RespStream),
-}
 
 /// Iterate candidates until one succeeds or returns a permanent error. The
 /// channel AND the transform plan are resolved PER candidate (a route's members
@@ -40,8 +37,26 @@ pub async fn run_failover(
 ) -> Result<ExecOutcome, PipelineError> {
     let mut last_err: Option<PipelineError> = None;
     let mut memo = AttemptMemo::default();
+    // Credentials force-refreshed once this request after an AuthDead — guards
+    // against an infinite refresh→retry loop (each cred gets ONE forced refresh).
+    let mut refreshed_creds: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    // §6.4 per-request failover budget: bounds fan-out on a large unhealthy
+    // pool. Counts candidate ATTEMPTS; the AuthDead forced-refresh retry is the
+    // SAME logical candidate and does NOT increment this. A route with more
+    // candidates than the budget stops early and returns `last_err`.
+    let max_attempts = state.config.max_attempts;
+    let mut attempts: u32 = 0;
 
     for cand in candidates {
+        if attempts >= max_attempts {
+            tracing::warn!(
+                attempts,
+                max_attempts,
+                "failover budget exhausted; stopping with last error"
+            );
+            break;
+        }
+
         let Some(channel) = state.channels.get(&cand.provider.channel) else {
             last_err = Some(PipelineError::UnknownChannel(cand.provider.channel.clone()));
             continue;
@@ -86,7 +101,8 @@ pub async fn run_failover(
         };
 
         // §3.3 per-credential rpm/tpm budget — a budget skip is not a health
-        // failure (the key is fine, just busy this minute).
+        // failure (the key is fine, just busy this minute). It is also not a
+        // candidate ATTEMPT (no upstream call), so the retry budget is untouched.
         if budget_exhausted(state, cand).await {
             last_err = Some(PipelineError::Transport(
                 "credential rpm budget exhausted".into(),
@@ -94,23 +110,9 @@ pub async fn run_failover(
             continue;
         }
 
-        let parts = match transform_step::request_parts(
-            ctx,
-            cand,
-            &plan,
-            rules.as_deref().map(|v| v.as_slice()),
-            &mut memo,
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                last_err = Some(e);
-                continue;
-            }
-        };
-
         // §14.1 decrypt-at-use: the snapshot carries sealed secrets; open per
         // attempt (µs-scale). Unreadable secret → skip candidate, not 500.
-        let secret = match state.cipher.open(&cand.credential.secret_json) {
+        let opened = match state.cipher.open(&cand.credential.secret_json) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(
@@ -127,91 +129,112 @@ pub async fn run_failover(
             }
         };
 
-        let prepared = match channel.prepare(PrepareCtx {
-            secret: &secret,
-            provider_settings: &cand.provider.settings_json,
-            upstream_model_id: &cand.upstream_model_id,
-            method: parts.method.clone(),
-            path: &parts.path,
-            query: parts.query.as_deref(),
-            headers: parts.headers.as_ref().unwrap_or(&ctx.headers),
-            body: parts.body,
-        }) {
-            Ok(p) => p,
+        // §14.5 lazy pre-use refresh: refresh ONLY if this channel says the
+        // opened secret is stale; otherwise returns it unchanged. A refresh
+        // failure is treated like an unreadable secret — cool + audit + skip.
+        let mut secret = match state
+            .refresh
+            .ensure_fresh(state, &channel, &cand.credential, opened, false)
+            .await
+        {
+            Ok(v) => v,
             Err(e) => {
-                // Prepare failures count against health like transient errors.
-                health_hooks::record_failure(state, cand);
+                refresh_failed(state, ctx, cand, &e);
                 last_err = Some(PipelineError::Channel(e));
                 continue;
             }
         };
 
-        // §7.4 effective proxy per attempt → per-proxy client; wasm and
-        // non-wreq builds always use the default upstream client.
-        #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
-        let client = state.client_pool.for_proxy(
-            crate::channel::resolve::effective_proxy(
-                &cand.credential,
-                &cand.provider,
-                state.config.upstream.proxy_url.as_deref(),
-            )
-            .as_deref(),
-        );
-        #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
-        let client = Arc::clone(&state.upstream);
-
-        // §17: capture what the wire actually carries — the sent body feeds
-        // the count ladder; the URL feeds failed-attempt audit rows. Both are
-        // cheap (refcounted Bytes / one small String).
-        let sent_body = prepared.request.body().clone();
-        let sent_url = prepared.request.uri().to_string();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let send_started = std::time::Instant::now();
-
-        let (status, mut headers, source) =
-            match send_once(client.as_ref(), prepared.into_http(), ctx.stream).await {
-                Ok(t) => t,
-                Err(e) => {
-                    health_hooks::record_failure(state, cand);
-                    settle::audit_failure(
-                        state,
-                        &ctx.request_id,
-                        cand,
-                        settle::FailedAttempt {
-                            url: &sent_url,
-                            method: parts.method.as_str(),
-                            status: 0,
-                            latency_ms: 0,
-                            error: &e.to_string(),
-                        },
-                    );
-                    last_err = Some(PipelineError::Transport(e.to_string()));
-                    continue;
-                }
-            };
-
-        // Send latency feeds the member EWMA (native only; wasm has no
-        // monotonic clock worth trusting here).
-        #[cfg(not(target_arch = "wasm32"))]
-        let send_ms = Some(send_started.elapsed().as_secs_f64() * 1000.0);
-        #[cfg(target_arch = "wasm32")]
-        let send_ms = None;
-
-        let disposition = match &source {
-            BodySource::Buffered(b) => channel.classify(status, &headers, b),
-            #[cfg(not(target_arch = "wasm32"))]
-            BodySource::Streaming(_) => channel.classify(status, &headers, &Bytes::new()),
+        // One candidate attempt (counts against the budget).
+        attempts += 1;
+        let outcome = match attempt(
+            state,
+            ctx,
+            cand,
+            &channel,
+            &secret,
+            &plan,
+            rules.as_deref().map(Vec::as_slice),
+            &mut memo,
+        )
+        .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                last_err = Some(e);
+                continue;
+            }
         };
 
-        // §3.2/§16.3 disposition → health (+ edge-persisted credential edges).
-        health_hooks::record_attempt(state, cand, &disposition, send_ms);
+        // §14.5 AuthDead-triggered forced refresh + retry-once. The lazy gate
+        // above said "fresh", yet upstream rejected the auth — so the channel's
+        // staleness view is wrong (clock skew, server-side revocation). Force a
+        // refresh ONCE per credential and replay the SAME candidate. The retry
+        // does NOT consume the retry budget (same logical candidate).
+        let outcome = if outcome.disposition == Disposition::AuthDead
+            && refreshed_creds.insert(cand.credential.id)
+        {
+            match state
+                .refresh
+                .ensure_fresh(state, &channel, &cand.credential, secret.clone(), true)
+                .await
+            {
+                Ok(fresh) => {
+                    secret = fresh;
+                    match attempt(
+                        state,
+                        ctx,
+                        cand,
+                        &channel,
+                        &secret,
+                        &plan,
+                        rules.as_deref().map(Vec::as_slice),
+                        &mut memo,
+                    )
+                    .await
+                    {
+                        Ok(o) => o,
+                        // Retry transport/prepare failure already audited + health
+                        // recorded inside `attempt`; just advance.
+                        Err(e) => {
+                            last_err = Some(e);
+                            continue;
+                        }
+                    }
+                }
+                // Forced refresh failed: cool + audit + next candidate. The
+                // original AuthDead outcome's health is recorded below.
+                Err(e) => {
+                    tracing::warn!(
+                        credential_id = cand.credential.id,
+                        error = %e,
+                        "forced refresh after AuthDead failed; cooling credential"
+                    );
+                    outcome
+                }
+            }
+        } else {
+            outcome
+        };
 
-        if !disposition.should_failover() {
+        // §3.2/§16.3 disposition → health (+ edge-persisted credential edges),
+        // recorded EXACTLY ONCE per logical candidate on the FINAL disposition.
+        // A still-AuthDead final cools the credential 600s (health_hooks).
+        health_hooks::record_attempt(state, cand, &outcome.disposition, outcome.send_ms);
+
+        if !outcome.disposition.should_failover() {
             // Success, or a Permanent 4xx the client should see — return it.
             // §17: billing context is captured BEFORE the body is handed out
             // (content-generation successes only; capture needs no snapshot
             // at settle time — pricing is resolved here).
+            let AttemptOutcome {
+                status,
+                mut headers,
+                source,
+                sent_body,
+                disposition,
+                ..
+            } = outcome;
             let settle_ctx = status
                 .is_success()
                 .then(|| settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body))
@@ -252,15 +275,16 @@ pub async fn run_failover(
             &ctx.request_id,
             cand,
             settle::FailedAttempt {
-                url: &sent_url,
-                method: parts.method.as_str(),
-                status: i64::from(status.as_u16()),
-                latency_ms: send_ms.map(|ms| ms as i64).unwrap_or(0),
-                error: &format!("upstream {status} ({disposition:?})"),
+                url: &outcome.sent_url,
+                method: outcome.method.as_str(),
+                status: i64::from(outcome.status.as_u16()),
+                latency_ms: outcome.send_ms.map(|ms| ms as i64).unwrap_or(0),
+                error: &format!("upstream {} ({:?})", outcome.status, outcome.disposition),
             },
         );
         last_err = Some(PipelineError::Transport(format!(
-            "upstream {status} ({disposition:?})"
+            "upstream {} ({:?})",
+            outcome.status, outcome.disposition
         )));
     }
 
@@ -275,50 +299,6 @@ pub async fn run_failover(
     }
 
     Err(last_err.unwrap_or(PipelineError::AllAttemptsFailed))
-}
-
-/// Materialize an attempt's body. Response-direction transform applies only to
-/// 2xx bodies — error payloads stay provider-native (M2 fidelity note).
-fn materialize(
-    channel: &Arc<dyn Channel>,
-    source: BodySource,
-    plan: &TransformPlan,
-    ctx: &RequestCtx,
-    status: StatusCode,
-) -> Result<ResponseBody, PipelineError> {
-    match source {
-        BodySource::Buffered(b) => {
-            let b = channel.normalize(b);
-            if !status.is_success() || !plan.is_transform() {
-                return Ok(ResponseBody::Full(b));
-            }
-            if ctx.stream {
-                // buffered streaming (wasm): convert the whole SSE body
-                let t = transform_step::stream_transformer(plan).expect("transform plan");
-                Ok(ResponseBody::Full(Bytes::from(
-                    crate::transform::stream_adapter::convert_buffered(t, &b),
-                )))
-            } else {
-                Ok(ResponseBody::Full(transform_step::response_body(plan, b)?))
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        BodySource::Streaming(st) => {
-            if !status.is_success() {
-                return Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::into_byte_stream(st),
-                ));
-            }
-            match transform_step::stream_transformer(plan) {
-                None => Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::into_byte_stream(st),
-                )),
-                Some(t) => Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::transform_byte_stream(st, t),
-                )),
-            }
-        }
-    }
 }
 
 /// Per-credential minute budgets (§3.3), incr-then-check on the shared cache
@@ -341,33 +321,4 @@ async fn budget_exhausted(state: &AppState, cand: &Candidate) -> bool {
         }
     }
     false
-}
-
-/// One upstream send → uniform `(status, headers, BodySource)`. Streaming on
-/// native when requested; always buffered on wasm.
-#[cfg(not(target_arch = "wasm32"))]
-async fn send_once(
-    client: &dyn UpstreamClient,
-    req: http::Request<Bytes>,
-    stream: bool,
-) -> Result<(StatusCode, HeaderMap, BodySource), ClientError> {
-    if stream {
-        let (status, headers, st) = client.send_streaming(req).await?;
-        Ok((status, headers, BodySource::Streaming(st)))
-    } else {
-        let resp = client.send(req).await?;
-        let (parts, body) = resp.into_parts();
-        Ok((parts.status, parts.headers, BodySource::Buffered(body)))
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn send_once(
-    client: &dyn UpstreamClient,
-    req: http::Request<Bytes>,
-    _stream: bool,
-) -> Result<(StatusCode, HeaderMap, BodySource), ClientError> {
-    let resp = client.send(req).await?;
-    let (parts, body) = resp.into_parts();
-    Ok((parts.status, parts.headers, BodySource::Buffered(body)))
 }

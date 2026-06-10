@@ -82,6 +82,7 @@ pub async fn init(
         persistence: PersistenceConfig::Db { dsn: turso_url },
         upstream: UpstreamConfig::from_proxy_url(None),
         instance_id: 0,
+        max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
     });
 
     let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());

@@ -50,6 +50,12 @@ struct Cli {
     #[arg(long, env = "GPROXY_INSTANCE_ID", default_value_t = 0)]
     instance_id: u64,
 
+    /// Per-request failover attempt cap: the loop stops after this many
+    /// candidate attempts even if more remain (bounds fan-out on a large
+    /// unhealthy pool). The AuthDead forced-refresh retry does not count.
+    #[arg(long, env = "GPROXY_MAX_ATTEMPTS", default_value_t = gproxy::config::DEFAULT_MAX_ATTEMPTS)]
+    max_attempts: u32,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -80,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         persistence: persistence_cfg,
         upstream: upstream_cfg,
         instance_id: cli.instance_id,
+        max_attempts: cli.max_attempts,
     });
 
     let bind = config.bind_addr()?;

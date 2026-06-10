@@ -162,6 +162,30 @@ async fn state_with_ciphers(
     import_cipher: &dyn crate::crypto::SecretCipher,
     state_cipher: Arc<dyn crate::crypto::SecretCipher>,
 ) -> (AppState, tempfile::TempDir) {
+    let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
+    build_state(
+        fake,
+        bundle,
+        import_cipher,
+        state_cipher,
+        channels,
+        crate::config::DEFAULT_MAX_ATTEMPTS,
+    )
+    .await
+}
+
+/// Fully-parameterized state builder shared by the helpers above and the M7a
+/// failover tests (which need a custom channel registry and/or a tuned retry
+/// budget). Imports `bundle` through `import_cipher`, serves through
+/// `state_cipher`, and wires `channels` + `max_attempts`.
+async fn build_state(
+    fake: Arc<FakeUpstream>,
+    bundle: &str,
+    import_cipher: &dyn crate::crypto::SecretCipher,
+    state_cipher: Arc<dyn crate::crypto::SecretCipher>,
+    channels: Arc<crate::channel::registry::ChannelRegistry>,
+    max_attempts: u32,
+) -> (AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let persistence: Arc<dyn crate::store::persistence::PersistenceBackend> = Arc::new(
         crate::store::persistence::FilePersistence::open(dir.path().to_path_buf())
@@ -183,11 +207,11 @@ async fn state_with_ciphers(
         },
         upstream: UpstreamConfig::from_proxy_url(None),
         instance_id: 0,
+        max_attempts,
     });
     let cache: Arc<dyn crate::store::cache::CacheBackend> =
         Arc::new(crate::store::cache::MemoryCache::new());
     let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(snapshot));
-    let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
     (
         AppState::new(
             config,

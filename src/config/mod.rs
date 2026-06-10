@@ -129,7 +129,16 @@ pub struct RuntimeConfig {
     /// Numeric identifier for this instance. Numeric (not a name) so the
     /// database can partition / shard per-instance rows by it later.
     pub instance_id: u64,
+    /// §6.4 per-request failover budget: the loop stops after this many
+    /// candidate ATTEMPTS even if more candidates remain (returns the last
+    /// error). Bounds pathological fan-out on a large unhealthy pool. The
+    /// AuthDead forced-refresh retry does NOT count against this (same logical
+    /// candidate). Default [`DEFAULT_MAX_ATTEMPTS`].
+    pub max_attempts: u32,
 }
+
+/// Default per-request failover attempt cap (`GPROXY_MAX_ATTEMPTS`).
+pub const DEFAULT_MAX_ATTEMPTS: u32 = 6;
 
 impl RuntimeConfig {
     /// Resolve the `host:port` bind address.
@@ -154,6 +163,7 @@ mod tests {
             },
             upstream: UpstreamConfig::from_proxy_url(None),
             instance_id: 0,
+            max_attempts: DEFAULT_MAX_ATTEMPTS,
         }
     }
 
