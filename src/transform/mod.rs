@@ -7,6 +7,7 @@ pub mod common;
 pub mod compact;
 mod context;
 pub mod count_tokens;
+pub mod dispatch;
 pub mod embeddings;
 mod error;
 pub mod generate_content;
