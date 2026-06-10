@@ -240,10 +240,15 @@ ExecOutcome { status, headers, body: Full(Bytes) | Stream(ByteStream), dispositi
   `passthrough/transform` = 上游列表转换后**合并**手动行与变体。GetModel 同理。
   `GET /v1/models` 是 openai/claude 撞路径,classify 按**入站凭证形态**消歧
   (`x-api-key` → claude,其余 → openai)。
-- **count_tokens 本地计数**:`src/tokenize/` —— gpt 族 → **tiktoken-rs**(内置编码,
-  o200k/cl100k 按 model 名启发式);非 gpt → **HF tokenizers**(`provider.settings_json.
-  tokenizer_map`:glob → 内置编码名或 `data_dir/tokenizers/*.json` 本地文件,不做网络下载);
-  两者都没有 → 字符估算。两 crate 进 native 默认构建;edge 只有估算。
+- **count_tokens 本地计数**:`src/tokenize/` + **全局词库注册服务**(TokenizerRegistry,挂 AppState):
+  内置 tiktoken 编码(gpt 族启发式:o200k/cl100k)+ **打包 deepseek-v4-pro tokenizer**
+  (非 gpt 默认计数器)+ `data_dir/tokenizers/` 落盘词库;注册服务可枚举词库
+  (内置/打包/已下载,M10 管理 API 暴露)。模型→词库映射:
+  `provider.settings_json.tokenizer_map`(glob → 词库名或 HF repo)。
+  在线下载:`instance_settings.enable_tokenizer_download`(默认关);开启时映射指向的
+  缺失词库**后台**从 HF 拉取(走 `UpstreamClient`,经出站代理),本次请求先按退化链兜底。
+  **退化链(非 gpt)**:映射词库 → 内置 deepseek-v4-pro → (无 tokenizers 服务,如 edge)
+  字符估算 chars/2。
   **默认规则**:CountTokens 在 claude/gemini 渠道走上游真端点(openai 官方有
   `/v1/responses/input_tokens`,可显式配 passthrough),openai 兼容族默认 local;
   且 failover 全部候选失败时 local **兜底回退**。响应按入站协议形态构造。
