@@ -617,13 +617,11 @@ Vercel/Cloudflare =
 
 订阅账号(ChatGPT/Claude/Gemini 等)经 OAuth 接入,凭证生命周期是这类代理的立身之本。
 
-**获取(登录)——回调三模式优先级阶梯(2026-06-11 修订)**:
-- 两步走 admin 操作:① `start`:服务端生成 **PKCE verifier + state**,存 cache(短 TTL,keyed by login-session),返回 auth URL;② `complete`:按下列**优先级阶梯**完成,服务端用存的 verifier 换 token 入库。
-- **模式 1 — 自动上传(默认,可达即用)**:`redirect_uri` 指向 gproxy 自己的回调端点(如 `/admin/oauth/callback`);operator 浏览器授权后 provider 直接重定向回 gproxy,**自动捕获 code+state 并完成换取**,无需手动粘贴。适用本地 dev / admin 端点对 operator 浏览器可达时。
-- **模式 2 — 粘贴 callback URL(次选)**:`redirect_uri` 用 provider 固定回调页;operator 把跳转后的整条 URL(含 code+state)贴回。适用远程 VPS / 容器 / **边缘**(原 §14.5 形态,到处可用、天然 edge 兼容、攻击面小)。
-- **模式 3 — 粘贴裸 code(兜底)**:URL 不好取时只贴 code,state 旁路匹配。摩擦最低、最不安全。
-- **device flow**:支持的 provider 上的并行模式 —— copilot **强制**(GitHub device flow);codex/kiro 端点支持则可选。
-- **登录代码归属**:渠道知识(client_id / 授权 + token 端点 / PKCE 配置 / code↔token 换取)在**各 channel**(M7b,可单测);登录编排(start/complete 状态机 + 三模式)是共享服务;实际 HTTP 入口端点在 **M10 管理 API**。M7b 用导入预置 token 的凭证测试 prepare+刷新+转换,不依赖 M10。
+**获取(登录)——回传 callback URL(2026-06-11:只保留这一种)**:
+- 两步走 admin 操作:① `start`:服务端生成 **PKCE verifier + state**,存 cache(短 TTL,keyed by login-session),返回 auth URL;② `complete`:operator 在浏览器完成授权后,把跳转后的**整条 callback URL**(含 code+state)贴回,服务端用存的 verifier 换 token 入库。
+- **为什么只走回传 URL**:不建本地回调服务器、不自动开浏览器——那套假设代理跑在有浏览器、localhost 可达的机器上;远程 VPS / 容器 / **边缘 serverless** 上不成立。回传 URL 流程**到处可用、天然 edge 兼容**(纯 HTTP 两步)、攻击面最小。
+- **device flow**:不走 callback redirect 的 provider 另用 device flow(显示 code + 轮询)—— copilot **强制**(GitHub device flow);codex/kiro 端点支持则可选。
+- **登录代码归属**:渠道知识(client_id / 授权 + token 端点 / PKCE 配置 / code↔token 换取)在**各 channel**(M7b,可单测);登录编排(start/complete 状态机)是共享服务;实际 HTTP 入口端点在 **M10 管理 API**。M7b 用导入预置 token 的凭证测试 prepare+刷新+转换,不依赖 M10。
 
 **刷新——惰性按需 + 单飞锁**:
 - secret_json(信封加密)存 `{access_token, refresh_token, expires_at, ...}`。
