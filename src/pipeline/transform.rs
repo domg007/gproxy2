@@ -89,11 +89,13 @@ pub struct RequestParts {
     pub headers: Option<HeaderMap>,
 }
 
-/// Cross-attempt memo: transformed bodies keyed by (target kind, model), plus
-/// the lazily-peeked inbound model.
+/// Cross-attempt memo: transformed bodies keyed by (target key, model), plus
+/// the lazily-peeked inbound model. The FULL target key matters: rules with
+/// `dest_operation` let two targets share a kind (e.g. both
+/// `Provider(OpenAi)`) while converting to different operations.
 #[derive(Default)]
 pub struct AttemptMemo {
-    bodies: HashMap<(OperationKind, String), Bytes>,
+    bodies: HashMap<(OperationKey, String), Bytes>,
     inbound_model: Option<Option<String>>,
 }
 
@@ -106,8 +108,8 @@ impl AttemptMemo {
 }
 
 /// Build the effective request for one candidate: transform (memoized per
-/// (kind, model)), model rewrite, endpoint synthesis, then process rules on
-/// the provider-native result.
+/// (target key, model)), model rewrite, endpoint synthesis, then process rules
+/// on the provider-native result.
 pub fn request_parts(
     ctx: &RequestCtx,
     cand: &Candidate,
@@ -183,7 +185,7 @@ pub fn request_parts(
                     *target,
                 )
             } else {
-                let key = (target.kind, cand.upstream_model_id.clone());
+                let key = (*target, cand.upstream_model_id.clone());
                 let body = match memo.bodies.get(&key) {
                     Some(b) => b.clone(),
                     None => {

@@ -54,7 +54,9 @@ pair_name/
 - `dispatch/{mod,content,other}.rs` — bytes-level
   `(TransformPair, ctx, body) -> body` covering all 37 wired pairs
   (content generation plus count_tokens/models/embeddings/images/compact);
-  `is_wired` gates anything unported.
+  `is_wired` gates anything unported. M2.5: models pairs dispatch list/get on
+  the source operation; request direction for body-less ops is path-synthesis
+  only.
 - `routing.rs` — compiled §8-B2 `routing_rules` + the
   passthrough/transform_to/local/unsupported decision.
 - `stream_adapter.rs` — the runtime SSE adapter (decode upstream frames →
