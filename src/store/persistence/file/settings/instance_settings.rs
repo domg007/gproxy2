@@ -58,6 +58,7 @@ pub(crate) async fn upsert(
             row.enable_downstream_log = input.enable_downstream_log;
             row.enable_downstream_log_body = input.enable_downstream_log_body;
             row.disable_log_redaction = input.disable_log_redaction;
+            row.enable_tokenizer_download = input.enable_tokenizer_download;
             row.update_channel = input.update_channel;
             row.updated_at = now;
             row.clone()
@@ -76,6 +77,7 @@ pub(crate) async fn upsert(
                 enable_downstream_log: input.enable_downstream_log,
                 enable_downstream_log_body: input.enable_downstream_log_body,
                 disable_log_redaction: input.disable_log_redaction,
+                enable_tokenizer_download: input.enable_tokenizer_download,
                 update_channel: input.update_channel,
                 created_at: now,
                 updated_at: now,

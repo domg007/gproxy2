@@ -9,6 +9,7 @@ pub mod pipeline;
 pub mod process;
 pub mod protocol;
 pub mod store;
+pub mod tokenize;
 pub mod transform;
 
 // Edge self-test exercises all edge backends; gate on the full edge bundle.

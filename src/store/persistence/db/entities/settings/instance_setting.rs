@@ -18,6 +18,7 @@ pub struct Model {
     pub enable_downstream_log: bool,
     pub enable_downstream_log_body: bool,
     pub disable_log_redaction: bool,
+    pub enable_tokenizer_download: bool,
     pub update_channel: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,

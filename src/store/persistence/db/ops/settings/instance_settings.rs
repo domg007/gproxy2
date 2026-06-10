@@ -19,6 +19,7 @@ fn to_record(m: instance_setting::Model) -> InstanceSettings {
         enable_downstream_log: m.enable_downstream_log,
         enable_downstream_log_body: m.enable_downstream_log_body,
         disable_log_redaction: m.disable_log_redaction,
+        enable_tokenizer_download: m.enable_tokenizer_download,
         update_channel: m.update_channel,
         created_at: m.created_at,
         updated_at: m.updated_at,
@@ -67,6 +68,7 @@ pub async fn upsert(
             am.enable_downstream_log = Set(input.enable_downstream_log);
             am.enable_downstream_log_body = Set(input.enable_downstream_log_body);
             am.disable_log_redaction = Set(input.disable_log_redaction);
+            am.enable_tokenizer_download = Set(input.enable_tokenizer_download);
             am.update_channel = Set(input.update_channel);
             am.updated_at = Set(now);
             am.update(conn).await?
@@ -83,6 +85,7 @@ pub async fn upsert(
                 enable_downstream_log: Set(input.enable_downstream_log),
                 enable_downstream_log_body: Set(input.enable_downstream_log_body),
                 disable_log_redaction: Set(input.disable_log_redaction),
+                enable_tokenizer_download: Set(input.enable_tokenizer_download),
                 update_channel: Set(input.update_channel),
                 created_at: Set(now),
                 updated_at: Set(now),

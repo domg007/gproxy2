@@ -27,6 +27,11 @@ pub struct AppState {
     pub snapshot: Arc<ArcSwap<ControlPlaneSnapshot>>,
     /// Channel adapters keyed by id (§6.3).
     pub channels: Arc<ChannelRegistry>,
+    /// Global tokenizer registry (§6.3). `new()` seeds a dirless default
+    /// (bundled vocab only, downloads off); `main.rs` replaces it with one
+    /// rooted at `data_dir/tokenizers` before serving.
+    #[cfg(feature = "count-local")]
+    pub tokenizers: Arc<crate::tokenize::TokenizerRegistry>,
 }
 
 impl AppState {
@@ -39,6 +44,11 @@ impl AppState {
         snapshot: Arc<ArcSwap<ControlPlaneSnapshot>>,
         channels: Arc<ChannelRegistry>,
     ) -> Self {
+        #[cfg(feature = "count-local")]
+        let tokenizers = Arc::new(crate::tokenize::TokenizerRegistry::new(
+            None,
+            Arc::clone(&upstream),
+        ));
         Self {
             config,
             cache,
@@ -46,6 +56,8 @@ impl AppState {
             upstream,
             snapshot,
             channels,
+            #[cfg(feature = "count-local")]
+            tokenizers,
         }
     }
 

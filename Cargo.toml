@@ -44,6 +44,8 @@ sea-orm = { version = "=2.0.0-rc.40", features = ["runtime-tokio-rustls", "sqlx-
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4"] }
 wreq = { version = "6.0.0-rc.28", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"], optional = true }
+tiktoken-rs = { version = "0.12", optional = true }
+tokenizers = { version = "0.23", optional = true, default-features = false, features = ["onig"] }
 
 # ── wasm32-only ───────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -62,7 +64,7 @@ tempfile = "3"
 # Production builds compile only the backends they use; dev builds use
 # `--all-features` (or `full`). default = native zero-extra-dep baseline.
 [features]
-default = ["cache-memory", "persist-file", "upstream-wreq"]
+default = ["cache-memory", "persist-file", "upstream-wreq", "count-local"]
 
 # cache backends (native)
 cache-memory = []
@@ -72,6 +74,8 @@ persist-file = []
 persist-db = ["dep:sea-orm"]
 # outbound transport (native)
 upstream-wreq = ["dep:wreq"]
+# local token counting: tiktoken + HF tokenizers registry (native only)
+count-local = ["dep:tiktoken-rs", "dep:tokenizers"]
 
 # edge (wasm) backends — code-only gates (deps are wasm-target)
 cache-libsql = []
@@ -81,7 +85,7 @@ upstream-fetch = []
 edge = ["cache-libsql", "cache-upstash", "persist-libsql", "upstream-fetch"]
 
 # dev convenience: all native backends
-full = ["cache-memory", "cache-redis", "persist-file", "persist-db", "upstream-wreq"]
+full = ["cache-memory", "cache-redis", "persist-file", "persist-db", "upstream-wreq", "count-local"]
 
 
 [profile.release]

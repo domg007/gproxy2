@@ -26,6 +26,9 @@ pub struct InstanceSettings {
     pub enable_downstream_log_body: bool,
     /// Disable secret/PII redaction in logs.
     pub disable_log_redaction: bool,
+    /// Allow the tokenizer registry to download missing vocabs from HF.
+    #[serde(default)]
+    pub enable_tokenizer_download: bool,
     /// Update channel, e.g. `stable` | `beta`; `None` = default.
     pub update_channel: Option<String>,
     /// Unix seconds.
@@ -48,5 +51,8 @@ pub struct InstanceSettingsInput {
     pub enable_downstream_log: bool,
     pub enable_downstream_log_body: bool,
     pub disable_log_redaction: bool,
+    /// Allow the tokenizer registry to download missing vocabs from HF.
+    #[serde(default)]
+    pub enable_tokenizer_download: bool,
     pub update_channel: Option<String>,
 }
