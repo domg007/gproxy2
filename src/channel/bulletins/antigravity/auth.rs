@@ -1,3 +1,161 @@
-//! Antigravity auth (TODO M7): same shape as Gemini CLI — OAuth2 + PKCE against
-//! `accounts.google.com`; base `https://cloudcode-pa.googleapis.com`; requests
-//! wrapped in the Code Assist envelope (M2 transform).
+//! Antigravity auth — Google OAuth2 `refresh_token` grant against
+//! `oauth2.googleapis.com/token`; base `https://cloudcode-pa.googleapis.com`.
+//! Same Code Assist envelope and `/v1internal:` shape as `geminicli` (see
+//! [`crate::channel::envelope`]); differs only in the OAuth client_id/secret,
+//! the User-Agent, and two extra request headers (`requestId`/`requestType`).
+//!
+//! The login-time authorization-code + PKCE flow (6 scopes, remote-paste login,
+//! `project_id` resolution via `loadCodeAssist` / `onboardUser`) is an M10
+//! concern; this module covers only the per-request access-token use and the
+//! refresh the pipeline drives. `project_id` is therefore expected to already
+//! be present in the decrypted secret — a credential without it errors in
+//! `prepare`.
+
+use std::sync::Arc;
+
+use bytes::Bytes;
+use http::Request;
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
+use serde_json::Value;
+
+use crate::channel::ChannelError;
+use crate::channel::envelope;
+use crate::channel::oauth;
+use crate::http::client::UpstreamClient;
+
+/// Public Antigravity OAuth client (the credentials the Antigravity app ships
+/// with — distinct from the Gemini CLI client).
+pub(super) const OAUTH_CLIENT_ID: &str =
+    "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
+pub(super) const OAUTH_CLIENT_SECRET: &str = "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";
+pub(super) const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
+/// Code Assist API host (non-regional). Both verbs live under `/v1internal:`.
+pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
+
+/// User-Agent the Antigravity app sends; some Code Assist paths key behaviour
+/// off it (this is what distinguishes the channel from `geminicli` upstream).
+const USER_AGENT_VALUE: &str = "antigravity/2.22.2 windows/amd64";
+
+/// Refresh slightly before expiry to avoid racing a 401 mid-flight.
+const EXPIRY_SKEW_MS: i64 = 60_000;
+
+/// Read a trimmed, non-empty string field from the secret.
+fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
+    secret
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// The OAuth access token, required by [`super::AntigravityChannel::prepare`].
+pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
+    secret_str(secret, "access_token")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing access_token".into()))
+}
+
+/// The Code Assist `project_id`. REQUIRED for M7b — resolution via
+/// `loadCodeAssist` / `onboardUser` is a login-time (M10) concern, so a
+/// credential that lacks it cannot address the API.
+pub(super) fn project_id(secret: &Value) -> Result<&str, ChannelError> {
+    secret_str(secret, "project_id")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing project_id (run login)".into()))
+}
+
+/// Whether the access token is absent or within the skew window of expiry.
+pub(super) fn needs_refresh(secret: &Value) -> bool {
+    if secret_str(secret, "access_token").is_none() {
+        return true;
+    }
+    let expires_at_ms = secret
+        .get("expires_at_ms")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    // `expires_at_ms == 0` means "unknown" → treat as valid; the 401-driven
+    // refresh path still covers stale tokens.
+    if expires_at_ms == 0 {
+        return false;
+    }
+    let now_ms = crate::util::time::unix_now().saturating_mul(1000);
+    now_ms > expires_at_ms - EXPIRY_SKEW_MS
+}
+
+/// Refresh via the Google `refresh_token` grant, returning the new plaintext
+/// secret (`access_token` + `expires_at_ms` rotate; `refresh_token` rotates when
+/// the response carries one, else the old one is kept; every other field —
+/// notably `project_id` — is preserved).
+pub(super) async fn refresh(
+    client: &Arc<dyn UpstreamClient>,
+    secret: &Value,
+) -> Result<Value, ChannelError> {
+    let refresh_token = secret_str(secret, "refresh_token")
+        .ok_or_else(|| ChannelError::InvalidCredential("missing refresh_token".into()))?;
+
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("client_secret", OAUTH_CLIENT_SECRET),
+        ("refresh_token", refresh_token),
+    ];
+    let resp = oauth::token_post(client, TOKEN_URL, &form, &[]).await?;
+
+    let new_access = resp
+        .access_token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::Build("refresh response missing access_token".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut out = secret.clone();
+    let obj = out
+        .as_object_mut()
+        .ok_or_else(|| ChannelError::Build("secret is not an object".into()))?;
+    obj.insert("access_token".into(), Value::String(new_access));
+    // refresh_token ROTATES when present — store the new one, else keep the old.
+    if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
+        obj.insert("refresh_token".into(), Value::String(rt));
+    }
+    obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
+    Ok(out)
+}
+
+/// `requestType` Antigravity tags each request with: `image_gen` for image
+/// models, else `agent` (v1 keys this off the model name).
+pub(super) fn request_type(model: &str) -> &'static str {
+    if model.to_ascii_lowercase().contains("image") {
+        "image_gen"
+    } else {
+        "agent"
+    }
+}
+
+/// Inject the OAuth bearer + Antigravity fingerprint headers onto the prepared
+/// upstream request. `content-type`/`accept` are forced to `application/json`
+/// (the stream still arrives as SSE — selected by `alt=sse`, not Accept). Unlike
+/// `geminicli`, Antigravity also sends `requestId` (a fresh opaque id) and
+/// `requestType` (`agent`/`image_gen`). v1 derives `requestId` from a uuid-v5
+/// content fingerprint; the M7b pipeline has no route handle here, so a fresh
+/// random id (same cross-target `OsRng` hex source as `user_prompt_id`, so it
+/// avoids uuid's native-only gate) is used — Code Assist treats it as opaque.
+pub(super) fn apply(
+    req: &mut Request<Bytes>,
+    access_token: &str,
+    request_type: &str,
+) -> Result<(), ChannelError> {
+    let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
+        .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
+    let request_id = format!("req-{}", envelope::random_user_prompt_id());
+    let request_id = HeaderValue::from_str(&request_id)
+        .map_err(|e| ChannelError::Build(format!("bad requestId: {e}")))?;
+    let request_type = HeaderValue::from_str(request_type)
+        .map_err(|e| ChannelError::Build(format!("bad requestType: {e}")))?;
+    let h = req.headers_mut();
+    h.insert(AUTHORIZATION, bearer);
+    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    h.insert(HeaderName::from_static("requestid"), request_id);
+    h.insert(HeaderName::from_static("requesttype"), request_type);
+    Ok(())
+}

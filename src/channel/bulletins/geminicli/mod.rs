@@ -49,7 +49,7 @@ impl Channel for GeminiCliChannel {
             &ctx.body,
             ctx.upstream_model_id,
             project_id,
-            &auth::random_user_prompt_id(),
+            &envelope::random_user_prompt_id(),
         )?;
 
         // M2 encodes the verb in the path for gemini targets; reuse only the

@@ -135,21 +135,3 @@ pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), 
     );
     Ok(())
 }
-
-/// A fresh random `user_prompt_id` (16 bytes → 32 hex chars). Code Assist treats
-/// it as an opaque per-request id. Randomness comes from `chacha20poly1305`'s
-/// `OsRng` — the same cross-target source `oauth::pkce` / `crypto::envelope`
-/// use, so this compiles on wasm without uuid's native-only gate.
-pub(super) fn random_user_prompt_id() -> String {
-    use chacha20poly1305::aead::OsRng;
-    use chacha20poly1305::aead::rand_core::RngCore;
-
-    let mut bytes = [0u8; 16];
-    OsRng.fill_bytes(&mut bytes);
-    let mut out = String::with_capacity(32);
-    for b in bytes {
-        out.push(char::from_digit((b >> 4) as u32, 16).unwrap());
-        out.push(char::from_digit((b & 0xf) as u32, 16).unwrap());
-    }
-    out
-}
