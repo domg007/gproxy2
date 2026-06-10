@@ -14,6 +14,7 @@ pub mod generate_content;
 pub mod images;
 pub mod models;
 mod registry;
+pub mod routing;
 
 pub use context::*;
 pub use error::*;
