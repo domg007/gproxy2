@@ -697,6 +697,22 @@ Each lists new types/methods + the exact M1 seam they hook into.
   failover. Per-frame `dispatch_stream_event` splices at
   `pipeline/stream.rs::into_byte_stream` — failover loop unchanged (D4). Snapshot
   gains `rule_sets_by_provider`; `ResolvedRoute` gains per-member target kind.
+  **Landed (2026-06-10).** Deviations from the original contract: (1) the
+  bypass predicate + plan run PER CANDIDATE in the failover loop head (members
+  span channels with different native kinds; the channel — hence
+  `target_kind()` — is resolved there), not between balance and failover;
+  (2) `ResolvedRoute` did NOT gain per-member target kind (redundant with the
+  per-candidate channel); (3) `process::apply` is a free function;
+  (4) non-content pair dispatch (count_tokens/models/embeddings/images/
+  compact) and §6.2 signature compat are deferred — `dispatch::is_wired`
+  gates them; (5) non-2xx upstream bodies return provider-native (error-shape
+  conversion is a fidelity follow-up); (6) routing `local` returns 501 until
+  the in-memory models implementation lands with classify coverage for models
+  operations. A minimal bundle import (M9-lite: `gproxy import --in` +
+  `GPROXY_IMPORT_FILE` first-boot hook) landed as the e2e enabler; the FILE
+  backend's `upsert_*` now insert at explicit ids (advancing `next_id`); the
+  DB backend still errors on explicit-id-not-found — **M9 must port the same
+  upsert semantics to the DB backend before `import --persistence=db` works.**
 - **M3 Authz 3-level.** `pipeline/authz.rs`: `check_permission` (union
   user/team/org), `precheck_limits` (strictest of 3, via `cache.incr`). Inserted
   after `route()` before `balance()`. Counters redis-direct, not snapshot.
@@ -726,6 +742,8 @@ Each lists new types/methods + the exact M1 seam they hook into.
   schema). `admin.rs` deferred from M1 lands here. First-boot admin bootstrap
   lands here too, ordered AFTER the first-boot import (see post-review
   amendments).
+  Note: M2 landed an import enabler (see M2 bullet); port the file backend's
+  explicit-id upsert semantics to the DB backend here.
 - **M10 (reserved/hardening).** Rate-limit fairness, quota reset jobs, admin
   console; over existing `cache.incr` + snapshot configs.
 

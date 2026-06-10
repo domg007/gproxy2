@@ -48,3 +48,13 @@ pair_name/
   stream.rs
   tools.rs
 ```
+
+## Runtime wiring (M2)
+
+- `dispatch.rs` — bytes-level `(TransformPair, ctx, body) -> body` for the 12
+  content-generation pairs; `is_wired` gates unported groups.
+- `routing.rs` — compiled §8-B2 `routing_rules` + the
+  passthrough/transform_to/local/unsupported decision.
+- `stream_adapter.rs` — the runtime SSE adapter (decode upstream frames →
+  `stream_event` per frame → encode inbound frames). Cross-event aggregation
+  state, when needed, belongs here.
