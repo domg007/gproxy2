@@ -125,14 +125,19 @@ pub fn request_parts(
             let mut path = ctx.path.clone();
             let mut query = ctx.query.clone();
             let mut body = ctx.body.clone();
+            // §17: openai-chat-bound streams must request the final usage
+            // chunk, or settlement never sees upstream usage. One body parse
+            // per streaming request is the accepted cost.
+            let include_usage = ctx.stream && is_openai_chat(op.kind);
             // Aggregated-mode member model rewrite. Scoped mode peeked the
             // same model into upstream_model_id, so this stays a no-op there
             // (single memoized model peek; no transform). Body-less ops
             // (models GETs) carry nothing to peek or patch.
-            if op.operation.has_request_body()
+            let model_rewrite = op.operation.has_request_body()
                 && !cand.upstream_model_id.is_empty()
-                && memo.inbound_model(&ctx.body).as_deref() != Some(cand.upstream_model_id.as_str())
-            {
+                && memo.inbound_model(&ctx.body).as_deref()
+                    != Some(cand.upstream_model_id.as_str());
+            if model_rewrite {
                 match op.kind {
                     OperationKind::ContentGeneration(
                         ContentGenerationKind::GeminiGenerateContent,
@@ -147,11 +152,14 @@ pub fn request_parts(
                     OperationKind::ContentGeneration(_) => {
                         // passthrough bodies already carry the correct stream
                         // flag; never inject it here
-                        body = patch_body(&body, Some(&cand.upstream_model_id), false)?;
+                        body =
+                            patch_body(&body, Some(&cand.upstream_model_id), false, include_usage)?;
                     }
                     // non-content body-model rewrite (embeddings etc.) deferred
                     OperationKind::Provider(_) => {}
                 }
+            } else if include_usage {
+                body = patch_body(&body, None, false, true)?;
             }
             (
                 RequestParts {
@@ -210,8 +218,10 @@ pub fn request_parts(
                                 .then_some(cand.upstream_model_id.as_str());
                             // `stream` is a content-generation concept only
                             let stream = ctx.stream && target.operation.is_content_generation();
-                            if model.is_some() || stream {
-                                converted = patch_body(&converted, model, stream)?;
+                            // §17: openai-chat targets need the usage chunk
+                            let include_usage = ctx.stream && is_openai_chat(target.kind);
+                            if model.is_some() || stream || include_usage {
+                                converted = patch_body(&converted, model, stream, include_usage)?;
                             }
                         }
                         memo.bodies.insert(key, converted.clone());
@@ -301,11 +311,17 @@ pub fn stream_transformer(plan: &TransformPlan) -> Option<SseTransformer> {
 }
 
 /// Patch the transformed provider-native body in one parse: set the member
-/// model (body-model kinds) and, when the inbound request streams, the
-/// `stream` flag — gemini sources carry streaming in the URL, not the body,
-/// so the converted body would otherwise silently request a non-streaming
-/// upstream response.
-fn patch_body(body: &Bytes, model: Option<&str>, stream: bool) -> Result<Bytes, PipelineError> {
+/// model (body-model kinds), the `stream` flag when the inbound request
+/// streams but the converted body would otherwise silently request a
+/// non-streaming upstream response (gemini sources carry streaming in the
+/// URL), and — §17 — `stream_options.include_usage` for openai-chat-bound
+/// streams (merged; other `stream_options` keys are preserved).
+fn patch_body(
+    body: &Bytes,
+    model: Option<&str>,
+    stream: bool,
+    include_usage: bool,
+) -> Result<Bytes, PipelineError> {
     let mut v: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
         PipelineError::TransformRequest(TransformError::InvalidInput {
             reason: format!("body patch: body is not JSON: {e}"),
@@ -321,12 +337,31 @@ fn patch_body(body: &Bytes, model: Option<&str>, stream: bool) -> Result<Bytes, 
         if stream {
             obj.insert("stream".to_owned(), serde_json::Value::Bool(true));
         }
+        if include_usage {
+            let opts = obj
+                .entry("stream_options")
+                .or_insert_with(|| serde_json::json!({}));
+            match opts.as_object_mut() {
+                Some(map) => {
+                    map.insert("include_usage".to_owned(), serde_json::Value::Bool(true));
+                }
+                None => *opts = serde_json::json!({ "include_usage": true }),
+            }
+        }
     }
     serde_json::to_vec(&v).map(Bytes::from).map_err(|e| {
         PipelineError::TransformRequest(TransformError::Serialization {
             reason: e.to_string(),
         })
     })
+}
+
+/// §17: does this key target the openai chat-completions wire format?
+fn is_openai_chat(kind: OperationKind) -> bool {
+    matches!(
+        kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::OpenAiChatCompletions)
+    )
 }
 
 fn merge_query(existing: Option<&str>, extra: &str) -> String {

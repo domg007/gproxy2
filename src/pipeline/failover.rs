@@ -17,6 +17,7 @@ use crate::pipeline::error::PipelineError;
 use crate::pipeline::health_hooks;
 use crate::pipeline::local_ops;
 use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
+use crate::pipeline::settle;
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
 use crate::protocol::Operation;
 
@@ -159,6 +160,12 @@ pub async fn run_failover(
         #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
         let client = Arc::clone(&state.upstream);
 
+        // §17: capture what the wire actually carries — the sent body feeds
+        // the count ladder; the URL feeds failed-attempt audit rows. Both are
+        // cheap (refcounted Bytes / one small String).
+        let sent_body = prepared.request.body().clone();
+        let sent_url = prepared.request.uri().to_string();
+
         #[cfg(not(target_arch = "wasm32"))]
         let send_started = std::time::Instant::now();
 
@@ -167,6 +174,18 @@ pub async fn run_failover(
                 Ok(t) => t,
                 Err(e) => {
                     health_hooks::record_failure(state, cand);
+                    settle::audit_failure(
+                        state,
+                        &ctx.request_id,
+                        cand,
+                        settle::FailedAttempt {
+                            url: &sent_url,
+                            method: parts.method.as_str(),
+                            status: 0,
+                            latency_ms: 0,
+                            error: &e.to_string(),
+                        },
+                    );
                     last_err = Some(PipelineError::Transport(e.to_string()));
                     continue;
                 }
@@ -190,6 +209,13 @@ pub async fn run_failover(
 
         if !disposition.should_failover() {
             // Success, or a Permanent 4xx the client should see — return it.
+            // §17: billing context is captured BEFORE the body is handed out
+            // (content-generation successes only; capture needs no snapshot
+            // at settle time — pricing is resolved here).
+            let settle_ctx = status
+                .is_success()
+                .then(|| settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body))
+                .flatten();
             let body = materialize(&channel, source, &plan, ctx, status)?;
             if plan.is_transform() {
                 // converted bytes no longer match the upstream framing
@@ -209,6 +235,9 @@ pub async fn run_failover(
                 }
                 (_, body) => body,
             };
+            // §17: streams get the relay buffer + Drop guard; full bodies
+            // settle inline (`Complete`).
+            let body = settle::attach(settle_ctx, body, ctx.stream).await;
             return Ok(ExecOutcome {
                 status,
                 headers,
@@ -218,6 +247,18 @@ pub async fn run_failover(
         }
 
         // AuthDead / RateLimited / Transient → drop this attempt, try the next.
+        settle::audit_failure(
+            state,
+            &ctx.request_id,
+            cand,
+            settle::FailedAttempt {
+                url: &sent_url,
+                method: parts.method.as_str(),
+                status: i64::from(status.as_u16()),
+                latency_ms: send_ms.map(|ms| ms as i64).unwrap_or(0),
+                error: &format!("upstream {status} ({disposition:?})"),
+            },
+        );
         last_err = Some(PipelineError::Transport(format!(
             "upstream {status} ({disposition:?})"
         )));

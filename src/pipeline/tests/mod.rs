@@ -432,6 +432,7 @@ async fn scoped_variant_suffix_strips_to_base() {
 }
 
 mod authz;
+mod billing;
 mod envelope;
 mod health;
 mod local;

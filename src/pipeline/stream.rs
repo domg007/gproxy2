@@ -4,6 +4,7 @@
 
 use crate::http::client::RespStream;
 use crate::pipeline::outcome::ByteStream;
+use crate::pipeline::settle::StreamGuard;
 use crate::transform::stream_adapter::SseTransformer;
 
 /// Convert a per-attempt streaming body source into the executor's `ByteStream`
@@ -51,6 +52,61 @@ pub fn transform_byte_stream(s: RespStream, t: SseTransformer) -> ByteStream {
                         }
                         return Some((Ok(Bytes::from(tail)), st));
                     }
+                }
+            }
+        },
+    ))
+}
+
+/// Wrap an already-materialized body stream with §17 settlement: every relayed
+/// chunk is pushed (refcounted) into the guard's bounded buffer; upstream EOF
+/// settles `Complete`; a mid-stream upstream error emits ONE protocol-shaped
+/// error frame (不裸断) and the dropped guard settles `Interrupted`; a client
+/// drop anywhere also settles `Interrupted` via the guard's Drop.
+pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
+    use futures_util::StreamExt;
+
+    struct State {
+        inner: Option<ByteStream>,
+        guard: Option<StreamGuard>,
+    }
+
+    Box::pin(futures_util::stream::unfold(
+        State {
+            inner: Some(s),
+            guard: Some(guard),
+        },
+        |mut st| async move {
+            let inner = st.inner.as_mut()?;
+            match inner.next().await {
+                Some(Ok(chunk)) => {
+                    if let Some(g) = st.guard.as_mut() {
+                        g.push(&chunk);
+                    }
+                    Some((Ok(chunk), st))
+                }
+                Some(Err(e)) => {
+                    st.inner = None;
+                    let kind = st.guard.as_ref().and_then(StreamGuard::inbound_kind);
+                    // dropping the guard settles Interrupted (after the frame)
+                    drop(st.guard.take());
+                    match kind {
+                        Some(k) => Some((
+                            Ok(crate::pipeline::settle::frames::error_frame(
+                                k,
+                                &e.to_string(),
+                            )),
+                            st,
+                        )),
+                        None => Some((Err(e), st)),
+                    }
+                }
+                None => {
+                    st.inner = None;
+                    if let Some(g) = st.guard.take() {
+                        g.finish();
+                    }
+                    None
                 }
             }
         },

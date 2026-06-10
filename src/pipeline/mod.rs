@@ -15,6 +15,7 @@ pub mod local_ops;
 pub mod outcome;
 pub mod preprocess;
 pub mod route;
+pub mod settle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stream;
 #[cfg(all(

@@ -70,11 +70,19 @@ pub fn count(
     (chars as u64).div_ceil(2) + overhead
 }
 
+/// gpt-family prefixes with a tiktoken builtin (o200k / cl100k).
+const O200K: &[&str] = &["gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"];
+const CL100K: &[&str] = &["gpt-3.5", "gpt-4"];
+
+/// Whether `model` belongs to a gpt family with an exact local tiktoken
+/// vocabulary (drives the §17 counting-ladder source label).
+pub fn is_gpt_family(model: &str) -> bool {
+    O200K.iter().chain(CL100K).any(|p| model.starts_with(p))
+}
+
 /// tiktoken builtin for gpt families; `None` = not a gpt model.
 #[cfg(feature = "count-local")]
 fn gpt_encoding(model: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
-    const O200K: &[&str] = &["gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"];
-    const CL100K: &[&str] = &["gpt-3.5", "gpt-4"];
     if O200K.iter().any(|p| model.starts_with(p)) {
         Some(tiktoken_rs::o200k_base_singleton())
     } else if CL100K.iter().any(|p| model.starts_with(p)) {
