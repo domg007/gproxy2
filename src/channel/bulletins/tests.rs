@@ -158,12 +158,14 @@ fn custom_requires_base_url() {
 }
 
 #[test]
-fn oauth_stub_is_unsupported() {
+fn codex_rejects_credential_without_token() {
+    // Codex is OAuth-backed: an empty secret has no access_token, so `prepare`
+    // fails the credential rather than building a request.
     let settings = json!({});
     let secret = json!({});
     let h = HeaderMap::new();
     let err = codex::CodexChannel
-        .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/x"))
+        .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/responses"))
         .unwrap_err();
-    assert!(matches!(err, ChannelError::Unsupported(_)));
+    assert!(matches!(err, ChannelError::InvalidCredential(_)));
 }
