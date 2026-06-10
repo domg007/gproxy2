@@ -674,9 +674,22 @@ Vercel/Cloudflare =
 - **幂等键 = `request_id`**:同一请求只计一次;failover 的失败尝试**不计费**,只对**成功那次**按其真实
   usage 计。`usages` append 与 rollup 累加均按 request_id 幂等。
 - **配额先扣 → 对账**:预检阶段先扣**估算**(§7.2"cache 先扣"),响应后按实际 usage **对账多退少补**。
-- **流式预扣 = 消息总长度的 1/2**(初始 token 估算);流结束按最终 usage 事件对账;**中途中断、
-  拿不到最终 usage 时,按本地已产出累计兜底**并打标记。**非流式按实际**。
-- 多级配额(user/team/org)三级计数器同步累加,见 §7.2 / §8-C。
+- **流式预扣 = 消息总长度的 1/2**(初始 token 估算);流结束按最终 usage 事件对账;**非流式按实际**。
+- **流式结算细则(2026-06-10 定)**:热路径**零解析**——转发 chunk 时只 push 引用计数的 Bytes
+  克隆进**有界缓冲**(约 4MB,超限保尾部+总字节数);结算在**显式结束或 Drop 守卫**触发的
+  spawn 任务里离线做,`request_id` 幂等恰好一次。
+  - **正常结束**:从缓冲尾部解析出上游最终 usage 照记(openai 流**注入
+    `stream_options.include_usage`**,否则拿不到);提取器统一 cache 语义——归一口径
+    **input = 非缓存输入,cache_read/creation 单列**(openai `prompt_tokens` 含 cached 需减,
+    claude 天然分列),details 缺失 → cache=0、input 全价(只多记不少收)。
+  - **异常结束(上游断/客户端断)**:按**已产出部分**计费(客户端断不按预扣全额)。
+    计数阶梯:gpt 族 → 本地 tiktoken(精确);claude/gemini 族 → **上游 count 端点**
+    (原请求体→input,缓冲提取文本→output;全局并发上限+超时,不走用户配额,失败降级);
+    其余/失败 → 本地词库链(→ chars/2)。
+  - 落库标记:`usage_source: upstream | counted | estimated` + `ended: complete | interrupted`;
+    上游 mid-stream 断时给客户端补**协议形状的错误帧**再收尾,不裸断。
+- 多级配额(user/team/org)三级计数器同步累加,见 §7.2 / §8-C;预扣 pending 计数带 **TTL 自愈**
+  (进程崩溃后到期自动释放,无需恢复扫描)。
 
 > **本轮未纳入(留作干净加法)**:管理审计日志(`audit_logs`)、日志/用量数据保留与清理、
 > per-provider 并发上限、PII 正文脱敏、云 KMS 实现、native rustls、主动健康探活、
