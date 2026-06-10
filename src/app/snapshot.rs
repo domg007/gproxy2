@@ -8,10 +8,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::process::CompiledRule;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
     Credential, Provider, ProviderModel, Route, RouteMember, User, UserKey,
 };
+use crate::transform::routing::CompiledRoutingRule;
 
 /// Immutable control-plane snapshot.
 pub struct ControlPlaneSnapshot {
@@ -26,6 +28,11 @@ pub struct ControlPlaneSnapshot {
     pub credentials_by_provider: HashMap<i64, Vec<Arc<Credential>>>,
     /// provider id → models.
     pub models_by_provider: HashMap<i64, Vec<Arc<ProviderModel>>>,
+    /// provider id → compiled transform-dispatch rules (§8-B2 `routing_rules`).
+    pub routing_rules_by_provider: HashMap<i64, Arc<Vec<CompiledRoutingRule>>>,
+    /// provider id → flattened, apply-ordered process rules (§8-B2 rule sets,
+    /// via `provider_rule_sets`).
+    pub rule_sets_by_provider: HashMap<i64, Arc<Vec<CompiledRule>>>,
     /// Bumped on each rebuild.
     pub version: u64,
 }
@@ -53,6 +60,8 @@ impl ControlPlaneSnapshot {
             keys_by_digest: HashMap::new(),
             credentials_by_provider: HashMap::new(),
             models_by_provider: HashMap::new(),
+            routing_rules_by_provider: HashMap::new(),
+            rule_sets_by_provider: HashMap::new(),
             version,
         }
     }
@@ -62,6 +71,13 @@ impl ControlPlaneSnapshot {
     /// on a `Send`-requiring spawn.
     pub async fn build(db: &dyn PersistenceBackend, version: u64) -> anyhow::Result<Self> {
         let mut snap = Self::empty(version);
+
+        // rule sets compile once; providers attach by id below
+        let mut compiled_sets: HashMap<i64, Vec<CompiledRule>> = HashMap::new();
+        for set in db.list_rule_sets().await?.into_iter().filter(|s| s.enabled) {
+            let rules = db.list_rules(set.id).await?;
+            compiled_sets.insert(set.id, crate::process::compile_rules(&rules));
+        }
 
         // providers + their credentials/models
         for provider in db.list_providers().await? {
@@ -81,6 +97,27 @@ impl ControlPlaneSnapshot {
                 .collect::<Vec<_>>();
             snap.credentials_by_provider.insert(pid, creds);
             snap.models_by_provider.insert(pid, models);
+
+            let routing = db.list_routing_rules(pid).await?;
+            let compiled = crate::transform::routing::compile(&routing);
+            if !compiled.is_empty() {
+                snap.routing_rules_by_provider
+                    .insert(pid, Arc::new(compiled));
+            }
+
+            let mut attachments = db.list_provider_rule_sets(pid).await?;
+            attachments.retain(|a| a.enabled);
+            attachments.sort_by_key(|a| a.sort_order);
+            let mut prov_rules: Vec<CompiledRule> = Vec::new();
+            for a in &attachments {
+                if let Some(rules) = compiled_sets.get(&a.rule_set_id) {
+                    prov_rules.extend(rules.iter().cloned());
+                }
+            }
+            crate::process::order_for_apply(&mut prov_rules);
+            if !prov_rules.is_empty() {
+                snap.rule_sets_by_provider.insert(pid, Arc::new(prov_rules));
+            }
 
             let provider = Arc::new(provider);
             snap.providers_by_name
