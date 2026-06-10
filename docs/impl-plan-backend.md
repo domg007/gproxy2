@@ -713,6 +713,28 @@ Each lists new types/methods + the exact M1 seam they hook into.
   backend's `upsert_*` now insert at explicit ids (advancing `next_id`); the
   DB backend still errors on explicit-id-not-found — **M9 must port the same
   upsert semantics to the DB backend before `import --persistence=db` works.**
+  **M2.5 landed (2026-06-10): transform surface completion.** classify covers
+  models/count_tokens paths (`GET /v1/models` openai/claude collision resolved
+  by credential form: `x-api-key` → claude); `request_target` synthesizes all
+  wired operation endpoints (compact = `/v1/responses/compact` per v1 sdk);
+  bytes dispatch covers all 37 pairs (gemini batch embeddings deferred —
+  single `:embedContent` form only); non-content Provider-kind transform
+  targets flow through request_parts (memo keyed by OperationKind). `local`
+  is real: aggregated `/v1/models` lists alias+route names; scoped models
+  local/merged lists with `provider_models.variants_json` suffix variants
+  (request-side strip via snapshot variant index); count_tokens served by
+  `src/tokenize/` — tiktoken (gpt heuristic) / bundled deepseek-v4-pro vocab
+  (6.4 MB, `assets/tokenizers/`) / HF download via TokenizerRegistry
+  (vocabs stored through PersistenceBackend: file = raw files, db =
+  `tokenizer_vocabs` BLOBs; gate `instance_settings.enable_tokenizer_download`,
+  default off) / chars/2 estimate floor (edge). Default routing: CountTokens
+  on openai-family channels → Local (explicit rule opts into passthrough);
+  count falls back to local when every upstream candidate fails. Process
+  `filter_model_pattern` now matches the inbound pre-variant-strip model name.
+  Known gaps: inbound compact classify deferred; images/compact cross-op
+  reachable only via explicit routing rules; db backends created before this
+  milestone lack the two new columns (schema-from-entity, no migrations yet —
+  M9 concern).
 - **M3 Authz 3-level.** `pipeline/authz.rs`: `check_permission` (union
   user/team/org), `precheck_limits` (strictest of 3, via `cache.incr`). Inserted
   after `route()` before `balance()`. Counters redis-direct, not snapshot.

@@ -51,10 +51,13 @@ pair_name/
 
 ## Runtime wiring (M2)
 
-- `dispatch.rs` — bytes-level `(TransformPair, ctx, body) -> body` for the 12
-  content-generation pairs; `is_wired` gates unported groups.
+- `dispatch/{mod,content,other}.rs` — bytes-level
+  `(TransformPair, ctx, body) -> body` covering all 37 wired pairs
+  (content generation plus count_tokens/models/embeddings/images/compact);
+  `is_wired` gates anything unported.
 - `routing.rs` — compiled §8-B2 `routing_rules` + the
   passthrough/transform_to/local/unsupported decision.
 - `stream_adapter.rs` — the runtime SSE adapter (decode upstream frames →
   `stream_event` per frame → encode inbound frames). Cross-event aggregation
   state, when needed, belongs here.
+- local operations (models list/get, count_tokens) short-circuit in the failover loop — see pipeline/local_ops.rs and src/tokenize/.
