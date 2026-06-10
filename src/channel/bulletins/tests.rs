@@ -5,7 +5,7 @@ use http::{HeaderMap, Method};
 use serde_json::Value;
 use serde_json::json;
 
-use super::{aistudio, claude_api, custom, openai, vertex};
+use super::{aistudio, claude_api, codex, custom, openai};
 use crate::channel::{Channel, ChannelError, PrepareCtx};
 
 fn prep<'a>(
@@ -162,7 +162,7 @@ fn oauth_stub_is_unsupported() {
     let settings = json!({});
     let secret = json!({});
     let h = HeaderMap::new();
-    let err = vertex::VertexChannel
+    let err = codex::CodexChannel
         .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/x"))
         .unwrap_err();
     assert!(matches!(err, ChannelError::Unsupported(_)));
