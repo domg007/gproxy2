@@ -22,6 +22,8 @@ struct Seen {
 
 struct FakeUpstream {
     seen: Mutex<Vec<Seen>>,
+    /// canned non-stream response status
+    status: StatusCode,
     /// canned non-stream response body
     response: Bytes,
     /// canned stream chunks (send_streaming)
@@ -33,7 +35,7 @@ impl UpstreamClient for FakeUpstream {
     async fn send(&self, req: http::Request<Bytes>) -> Result<http::Response<Bytes>, ClientError> {
         self.capture(&req);
         Ok(http::Response::builder()
-            .status(StatusCode::OK)
+            .status(self.status)
             .header("content-type", "application/json")
             .body(self.response.clone())
             .expect("response"))
@@ -56,6 +58,15 @@ impl UpstreamClient for FakeUpstream {
 }
 
 impl FakeUpstream {
+    fn new(response: Bytes, chunks: Vec<Bytes>) -> Self {
+        Self {
+            seen: Mutex::new(vec![]),
+            status: StatusCode::OK,
+            response,
+            chunks,
+        }
+    }
+
     fn capture(&self, req: &http::Request<Bytes>) {
         self.seen.lock().unwrap().push(Seen {
             uri: req.uri().to_string(),
@@ -92,6 +103,9 @@ const BUNDLE: &str = r#"{
   "aliases": [
     { "id": 1, "route_id": 1, "alias": "claude-test" },
     { "id": 2, "route_id": 2, "alias": "claude-direct" }
+  ],
+  "routing_rules": [
+    { "id": 1, "provider_id": 1, "operation": "list_models", "kind": "open_ai", "implementation": "local", "dest_operation": null, "dest_kind": null, "sort_order": 0, "enabled": true }
   ],
   "rule_sets": [{ "id": 1, "name": "rs", "enabled": true, "description": null }],
   "rules": [
@@ -166,11 +180,10 @@ async fn claude_inbound_to_openai_buffered() {
         "choices": [{ "index": 0, "message": { "role": "assistant", "content": "hello" }, "finish_reason": "stop" }],
         "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
     });
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
-        chunks: vec![],
-    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let outcome = crate::pipeline::execute(&state, claude_ctx("claude-test", false))
@@ -203,15 +216,14 @@ async fn claude_inbound_to_openai_streaming() {
     let c1 = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"he"},"finish_reason":null}]}"#;
     let c2 = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"llo"},"finish_reason":null}]}"#;
     let c3 = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::new(),
-        chunks: vec![
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::new(),
+        vec![
             Bytes::from(format!("{c1}\n\n")),
             Bytes::from(format!("{c2}\n\n{c3}\n\n")),
             Bytes::from_static(b"data: [DONE]\n\n"),
         ],
-    });
+    ));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let outcome = crate::pipeline::execute(&state, claude_ctx("claude-test", true))
@@ -236,14 +248,13 @@ async fn claude_inbound_to_openai_streaming() {
 #[tokio::test]
 async fn gemini_inbound_streaming_sets_body_stream_flag() {
     let c1 = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}"#;
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::new(),
-        chunks: vec![
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::new(),
+        vec![
             Bytes::from(format!("{c1}\n\n")),
             Bytes::from_static(b"data: [DONE]\n\n"),
         ],
-    });
+    ));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let mut headers = HeaderMap::new();
@@ -293,11 +304,10 @@ async fn process_rules_apply_on_claude_passthrough() {
         "stop_reason": "end_turn", "stop_sequence": null,
         "usage": { "input_tokens": 1, "output_tokens": 1 }
     });
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::from(serde_json::to_vec(&msg_response).unwrap()),
-        chunks: vec![],
-    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&msg_response).unwrap()),
+        vec![],
+    ));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let outcome = crate::pipeline::execute(&state, claude_ctx("claude-direct", false))
@@ -319,11 +329,7 @@ async fn process_rules_apply_on_claude_passthrough() {
 
 #[tokio::test]
 async fn aggregated_models_lists_aliases_and_routes() {
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::new(),
-        chunks: vec![],
-    });
+    let fake = Arc::new(FakeUpstream::new(Bytes::new(), vec![]));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let mut headers = HeaderMap::new();
@@ -368,11 +374,10 @@ async fn scoped_variant_suffix_strips_to_base() {
         "choices": [{ "index": 0, "message": { "role": "assistant", "content": "hi" }, "finish_reason": "stop" }],
         "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
     });
-    let fake = Arc::new(FakeUpstream {
-        seen: Mutex::new(vec![]),
-        response: Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
-        chunks: vec![],
-    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
     let (state, _dir) = state_with(Arc::clone(&fake)).await;
 
     let mut headers = HeaderMap::new();
@@ -403,4 +408,115 @@ async fn scoped_variant_suffix_strips_to_base() {
     let seen = fake.seen.lock().unwrap();
     let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
     assert_eq!(up["model"], "gpt-test", "variant suffix stripped to base");
+}
+
+fn count_ctx(model: &str) -> RequestCtx {
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    headers.insert("content-type", "application/json".parse().unwrap());
+    let body = json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": "count my tokens please" }]
+    });
+    RequestCtx {
+        request_id: "t-c".into(),
+        method: Method::POST,
+        path: "/v1/messages/count_tokens".into(),
+        query: None,
+        headers,
+        body: Bytes::from(serde_json::to_vec(&body).unwrap()),
+        mode: RoutingMode::Aggregated,
+        identity: None,
+        op: None,
+        stream: false,
+        route_name: None,
+    }
+}
+
+/// §6.3 default: count_tokens routed at an openai-family channel is served
+/// locally — claude-shaped response, no upstream call.
+#[tokio::test]
+async fn count_tokens_on_openai_channel_serves_locally() {
+    let fake = Arc::new(FakeUpstream::new(Bytes::new(), vec![]));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let outcome = crate::pipeline::execute(&state, count_ctx("claude-test"))
+        .await
+        .expect("ok");
+
+    assert_eq!(outcome.status, StatusCode::OK);
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected Full")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert!(v["input_tokens"].as_u64().unwrap() > 0, "body: {v}");
+    assert!(fake.seen.lock().unwrap().is_empty(), "no upstream call");
+}
+
+/// §6.3 fallback: when every upstream count attempt fails, the gateway answers
+/// with a local count instead of a 502.
+#[tokio::test]
+async fn count_tokens_falls_back_to_local_when_upstream_fails() {
+    let mut fake = FakeUpstream::new(Bytes::from_static(b"{}"), vec![]);
+    fake.status = StatusCode::INTERNAL_SERVER_ERROR;
+    let fake = Arc::new(fake);
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    // claude-direct → claude provider → native count passthrough → 500s
+    let outcome = crate::pipeline::execute(&state, count_ctx("claude-direct"))
+        .await
+        .expect("local fallback");
+
+    assert_eq!(outcome.status, StatusCode::OK);
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected Full")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert!(v["input_tokens"].as_u64().unwrap() > 0, "body: {v}");
+    assert_eq!(fake.seen.lock().unwrap().len(), 1, "upstream was attempted");
+}
+
+/// Explicit `local` routing rule: scoped ListModels served from the snapshot's
+/// exposed provider_models (manual rows + variants), no upstream call.
+#[tokio::test]
+async fn scoped_models_list_served_locally_via_rule() {
+    let fake = Arc::new(FakeUpstream::new(Bytes::new(), vec![]));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    let ctx = RequestCtx {
+        request_id: "t-lm".into(),
+        method: Method::GET,
+        path: "/v1/models".into(),
+        query: None,
+        headers,
+        body: Bytes::new(),
+        mode: RoutingMode::Scoped {
+            provider: "oai".into(),
+        },
+        identity: None,
+        op: None,
+        stream: false,
+        route_name: None,
+    };
+
+    let outcome = crate::pipeline::execute(&state, ctx).await.expect("ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected Full")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    let ids: Vec<&str> = v["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        ["gpt-test", "gpt-test-thinking"],
+        "exposed rows listed"
+    );
+    assert!(fake.seen.lock().unwrap().is_empty(), "no upstream call");
 }

@@ -12,13 +12,13 @@ use crate::pipeline::classify::peek_model;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
 use crate::process;
-use crate::protocol::{self, ContentGenerationKind, OperationKey, OperationKind};
+use crate::protocol::{self, ContentGenerationKind, OperationKey, OperationKind, Provider};
 use crate::transform::routing::RoutingDecision;
 use crate::transform::stream_adapter::SseTransformer;
 use crate::transform::{self, TransformContext, TransformError, TransformPair, dispatch, routing};
 
-/// Per-candidate transform plan. `Local`/`Unsupported` decisions surface as
-/// errors from [`plan_for`], not as variants — the loop treats them per-policy.
+/// Per-candidate transform plan. `Unsupported` decisions surface as errors
+/// from [`plan_for`], not as variants — the loop treats them per-policy.
 #[derive(Debug, Clone)]
 pub enum TransformPlan {
     Passthrough,
@@ -30,6 +30,8 @@ pub enum TransformPlan {
         source: OperationKey,
         target: OperationKey,
     },
+    /// Serve locally — no upstream call (§6.3).
+    Local,
 }
 
 impl TransformPlan {
@@ -52,7 +54,7 @@ pub fn plan_for(
         .unwrap_or(&[]);
     match routing::decide(rules, source, target_kind) {
         RoutingDecision::Passthrough => Ok(TransformPlan::Passthrough),
-        RoutingDecision::Local => Err(PipelineError::LocalUnimplemented),
+        RoutingDecision::Local => Ok(TransformPlan::Local),
         RoutingDecision::Unsupported => Err(PipelineError::RuleUnsupported),
         RoutingDecision::TransformTo(target) if target == source => Ok(TransformPlan::Passthrough),
         RoutingDecision::TransformTo(target) => {
@@ -91,7 +93,7 @@ pub struct RequestParts {
 /// the lazily-peeked inbound model.
 #[derive(Default)]
 pub struct AttemptMemo {
-    bodies: HashMap<(ContentGenerationKind, String), Bytes>,
+    bodies: HashMap<(OperationKind, String), Bytes>,
     inbound_model: Option<Option<String>>,
 }
 
@@ -115,6 +117,8 @@ pub fn request_parts(
 ) -> Result<RequestParts, PipelineError> {
     let op = ctx.op.expect("classified before failover");
     let (mut parts, target_key) = match plan {
+        // Local plans never reach request building — failover serves them.
+        TransformPlan::Local => return Err(PipelineError::LocalUnimplemented),
         TransformPlan::Passthrough => {
             let mut path = ctx.path.clone();
             let mut query = ctx.query.clone();
@@ -179,14 +183,7 @@ pub fn request_parts(
                     *target,
                 )
             } else {
-                let OperationKind::ContentGeneration(tk) = target.kind else {
-                    return Err(PipelineError::TransformRequest(
-                        TransformError::InvalidInput {
-                            reason: "non-content transform target (not wired in M2)".to_owned(),
-                        },
-                    ));
-                };
-                let key = (tk, cand.upstream_model_id.clone());
+                let key = (target.kind, cand.upstream_model_id.clone());
                 let body = match memo.bodies.get(&key) {
                     Some(b) => b.clone(),
                     None => {
@@ -194,13 +191,25 @@ pub fn request_parts(
                         let converted = dispatch::request_bytes(*request_pair, &fwd, &ctx.body)
                             .map_err(PipelineError::TransformRequest)?;
                         let mut converted = Bytes::from(converted);
-                        // Gemini targets keep model + streaming in the URL
-                        // (request_target); body stays untouched.
-                        if tk != ContentGenerationKind::GeminiGenerateContent {
+                        // Gemini targets keep model (+ streaming) in the URL
+                        // (request_target); every other family carries the
+                        // model in the body — content AND non-content
+                        // (count/embeddings) alike.
+                        let body_carries_model = match target.kind {
+                            OperationKind::ContentGeneration(
+                                ContentGenerationKind::GeminiGenerateContent,
+                            ) => false,
+                            OperationKind::ContentGeneration(_) => true,
+                            OperationKind::Provider(Provider::Gemini) => false,
+                            OperationKind::Provider(_) => true,
+                        };
+                        if body_carries_model {
                             let model = (!cand.upstream_model_id.is_empty())
                                 .then_some(cand.upstream_model_id.as_str());
-                            if model.is_some() || ctx.stream {
-                                converted = patch_body(&converted, model, ctx.stream)?;
+                            // `stream` is a content-generation concept only
+                            let stream = ctx.stream && target.operation.is_content_generation();
+                            if model.is_some() || stream {
+                                converted = patch_body(&converted, model, stream)?;
                             }
                         }
                         memo.bodies.insert(key, converted.clone());
@@ -252,7 +261,7 @@ pub fn request_parts(
 /// Convert a buffered success response back to the inbound protocol.
 pub fn response_body(plan: &TransformPlan, body: Bytes) -> Result<Bytes, PipelineError> {
     match plan {
-        TransformPlan::Passthrough => Ok(body),
+        TransformPlan::Passthrough | TransformPlan::Local => Ok(body),
         TransformPlan::Transform {
             response_pair,
             source,
@@ -270,7 +279,7 @@ pub fn response_body(plan: &TransformPlan, body: Bytes) -> Result<Bytes, Pipelin
 /// Build the streaming adapter for a Transform plan (None for passthrough).
 pub fn stream_transformer(plan: &TransformPlan) -> Option<SseTransformer> {
     match plan {
-        TransformPlan::Passthrough => None,
+        TransformPlan::Passthrough | TransformPlan::Local => None,
         TransformPlan::Transform {
             response_pair,
             source,

@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::protocol::{ContentGenerationKind, Operation, OperationKey, OperationKind};
+use crate::protocol::{ContentGenerationKind, Operation, OperationKey, OperationKind, Provider};
 use crate::store::persistence::records::RoutingRule;
 
 /// `routing_rules.implementation`, parsed.
@@ -106,6 +106,14 @@ pub fn decide(
                     .unwrap_or_else(|| default_target_kind(source, target_kind)),
             }),
         };
+    }
+    // §6.3 default: openai-family channels have no count endpoint worth
+    // hitting by default — serve locally. claude/gemini targets keep their
+    // native/transform upstream count. (OpenAI official DOES expose
+    // `/v1/responses/input_tokens`; the operator opts into passthrough via an
+    // explicit rule.)
+    if source.operation == Operation::CountTokens && target_kind.provider() == Provider::OpenAi {
+        return RoutingDecision::Local;
     }
     if is_native(source.kind, target_kind) {
         return RoutingDecision::Passthrough;

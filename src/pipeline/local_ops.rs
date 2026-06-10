@@ -1,5 +1,7 @@
-//! Locally-served model-list/get shaping (§6.3 models): render gateway-side
-//! lists in each family's wire shape and merge manual rows into upstream lists.
+//! Locally-served operations (§6.3): model-list/get shaping (gateway-side
+//! lists in each family's wire shape, manual rows merged into upstream lists)
+//! plus the no-upstream serving of `Local`-plan candidates (count_tokens via
+//! [`crate::tokenize`], models from the snapshot's exposed rows).
 //! Minimal-field JSON on purpose — list shape per the protocol modules
 //! ([`openai::models`](crate::protocol::openai::models),
 //! [`claude::models`](crate::protocol::claude::models),
@@ -7,14 +9,127 @@
 //! omitted or zero-valued.
 
 use bytes::Bytes;
+use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 
-use crate::protocol::Provider;
+use crate::app::AppState;
+use crate::app::models_index::ExposedModel;
+use crate::app::snapshot::ControlPlaneSnapshot;
+use crate::channel::disposition::Disposition;
+use crate::pipeline::classify;
+use crate::pipeline::context::{Candidate, RequestCtx};
+use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
+use crate::protocol::{Operation, Provider};
 
 /// One gateway-visible model for rendering.
 pub struct ModelEntry {
     pub id: String,
     pub display_name: Option<String>,
+}
+
+/// Serve a `Local`-plan candidate without an upstream call (§6.3). `None` =
+/// the op has no local implementation (caller maps to `LocalUnimplemented`).
+pub fn serve_local(
+    state: &AppState,
+    cp: &ControlPlaneSnapshot,
+    ctx: &RequestCtx,
+    cand: &Candidate,
+) -> Option<ExecOutcome> {
+    let op = ctx.op.expect("classified before failover");
+    let family = op.provider_family();
+    match op.operation {
+        Operation::CountTokens => Some(local_count(state, ctx, cand, family)),
+        Operation::ListModels => {
+            let entries = exposed_entries(cp, cand.provider.id);
+            Some(json_outcome(
+                StatusCode::OK,
+                render_model_list(family, &entries),
+            ))
+        }
+        Operation::GetModel => {
+            let id = classify::path_model_id(&ctx.path);
+            let entries = exposed_entries(cp, cand.provider.id);
+            let found = id
+                .as_deref()
+                .and_then(|id| entries.iter().find(|e| e.id == id));
+            Some(match found {
+                Some(e) => json_outcome(StatusCode::OK, render_model(family, e)),
+                None => json_outcome(
+                    StatusCode::NOT_FOUND,
+                    to_bytes(&json!({ "error": { "message": "model not found" } })),
+                ),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// §6.3 local count: tokenize the inbound body and answer in the INBOUND
+/// family's wire shape. Never fails (tokenize::count floors to an estimate).
+fn local_count(
+    state: &AppState,
+    ctx: &RequestCtx,
+    cand: &Candidate,
+    family: Provider,
+) -> ExecOutcome {
+    // pre-variant-strip name is fine for tokenizer selection
+    let model = classify::peek_model(&ctx.body)
+        .or_else(|| classify::path_model_id(&ctx.path))
+        .unwrap_or_else(|| cand.upstream_model_id.clone());
+    let map = cand.provider.settings_json.get("tokenizer_map");
+    #[cfg(feature = "count-local")]
+    let n = crate::tokenize::count(&model, &ctx.body, map, &state.tokenizers);
+    #[cfg(not(feature = "count-local"))]
+    let n = {
+        let _ = state;
+        crate::tokenize::count(&model, &ctx.body, map, ())
+    };
+    let body = match family {
+        Provider::Claude => json!({ "input_tokens": n }),
+        Provider::Gemini => json!({ "totalTokens": n }),
+        // minimal `/v1/responses/input_tokens` response shape
+        Provider::OpenAi => json!({ "object": "response.input_tokens", "input_tokens": n }),
+    };
+    json_outcome(StatusCode::OK, to_bytes(&body))
+}
+
+/// Exposed-model rows as render entries (empty when the provider has none).
+fn exposed_entries(cp: &ControlPlaneSnapshot, provider_id: i64) -> Vec<ModelEntry> {
+    cp.exposed_models_by_provider
+        .get(&provider_id)
+        .map(|m| entries_from(m))
+        .unwrap_or_default()
+}
+
+/// [`ExposedModel`] rows → render entries.
+pub fn entries_from(models: &[ExposedModel]) -> Vec<ModelEntry> {
+    models
+        .iter()
+        .map(|m| ModelEntry {
+            id: m.full_id.clone(),
+            display_name: m.display_name.clone(),
+        })
+        .collect()
+}
+
+/// Buffered-JSON outcome shared by the local-serving paths.
+pub fn json_outcome(status: StatusCode, body: Bytes) -> ExecOutcome {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        http::header::CONTENT_TYPE,
+        http::HeaderValue::from_static("application/json"),
+    );
+    let disposition = if status.is_success() {
+        Disposition::Success
+    } else {
+        Disposition::Permanent
+    };
+    ExecOutcome {
+        status,
+        headers,
+        body: ResponseBody::Full(body),
+        disposition,
+    }
 }
 
 /// Serialize a model list in the inbound wire kind's list shape.

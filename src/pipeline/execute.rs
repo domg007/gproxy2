@@ -8,7 +8,7 @@ use crate::app::AppState;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
-use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
+use crate::pipeline::outcome::ExecOutcome;
 use crate::pipeline::{auth, balance, classify, failover, ingress, preprocess, route};
 use crate::protocol::Operation;
 
@@ -148,15 +148,5 @@ fn aggregated_models(
         }
     };
 
-    let mut headers = http::HeaderMap::new();
-    headers.insert(
-        http::header::CONTENT_TYPE,
-        http::HeaderValue::from_static("application/json"),
-    );
-    Ok(ExecOutcome {
-        status: http::StatusCode::OK,
-        headers,
-        body: ResponseBody::Full(body),
-        disposition: crate::channel::disposition::Disposition::Success,
-    })
+    Ok(local_ops::json_outcome(http::StatusCode::OK, body))
 }

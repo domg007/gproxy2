@@ -13,8 +13,10 @@ use crate::channel::{Channel, PrepareCtx};
 use crate::http::client::{ClientError, UpstreamClient};
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
+use crate::pipeline::local_ops;
 use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
+use crate::protocol::Operation;
 
 /// Uniform per-attempt response body source. `Streaming` is native-only; on wasm
 /// the executor always buffers, so `classify` runs identically on status+headers
@@ -44,7 +46,7 @@ pub async fn run_failover(
 
         // M2 dispatch decision per candidate. The snapshot guard is scoped to
         // this lookup only — never held across the upstream call.
-        let (plan, rules) = {
+        let (plan, rules, local_models) = {
             let cp = state.cp();
             let plan = match transform_step::plan_for(
                 &cp,
@@ -52,10 +54,15 @@ pub async fn run_failover(
                 ctx.op.expect("classified"),
                 channel.target_kind(),
             ) {
-                Ok(p) => p,
                 // `local` is intentional config addressed to this request —
-                // surface it, don't shop for another candidate.
-                Err(e @ PipelineError::LocalUnimplemented) => return Err(e),
+                // serve it here, never shop for another candidate.
+                Ok(TransformPlan::Local) => {
+                    return match local_ops::serve_local(state, &cp, ctx, cand) {
+                        Some(o) => Ok(o),
+                        None => Err(PipelineError::LocalUnimplemented),
+                    };
+                }
+                Ok(p) => p,
                 // unsupported / no-pair: this candidate can't serve it; next.
                 Err(e) => {
                     last_err = Some(e);
@@ -63,7 +70,16 @@ pub async fn run_failover(
                 }
             };
             let rules = cp.rule_sets_by_provider.get(&cand.provider.id).cloned();
-            (plan, rules)
+            // §6.3 merged models: manual + variant rows join a successful
+            // upstream list (additions captured while the guard is held).
+            let local_models = (ctx.op.expect("classified").operation == Operation::ListModels)
+                .then(|| {
+                    cp.exposed_models_by_provider
+                        .get(&cand.provider.id)
+                        .cloned()
+                })
+                .flatten();
+            (plan, rules, local_models)
         };
 
         let parts = match transform_step::request_parts(
@@ -119,6 +135,20 @@ pub async fn run_failover(
                 // converted bytes no longer match the upstream framing
                 headers.remove(http::header::CONTENT_LENGTH);
             }
+            // §6.3 merged models: append manual + variant entries to a
+            // successful upstream list (inbound-shaped by now).
+            let body = match (&local_models, body) {
+                (Some(models), ResponseBody::Full(b)) if status.is_success() => {
+                    headers.remove(http::header::CONTENT_LENGTH);
+                    let family = ctx.op.expect("classified").provider_family();
+                    ResponseBody::Full(local_ops::merge_into_list(
+                        family,
+                        b,
+                        &local_ops::entries_from(models),
+                    ))
+                }
+                (_, body) => body,
+            };
             return Ok(ExecOutcome {
                 status,
                 headers,
@@ -131,6 +161,16 @@ pub async fn run_failover(
         last_err = Some(PipelineError::Transport(format!(
             "upstream {status} ({disposition:?})"
         )));
+    }
+
+    // §6.3 count fallback: count must not fail just because upstreams did —
+    // answer locally (the first candidate supplies provider settings).
+    if ctx.op.expect("classified").operation == Operation::CountTokens
+        && let Some(cand) = candidates.first()
+        && let Some(o) = local_ops::serve_local(state, &state.cp(), ctx, cand)
+    {
+        tracing::warn!("all upstream count attempts failed; serving local count fallback");
+        return Ok(o);
     }
 
     Err(last_err.unwrap_or(PipelineError::AllAttemptsFailed))
