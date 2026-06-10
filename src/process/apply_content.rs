@@ -23,7 +23,7 @@ pub fn system_text(
                 obj.insert("system".to_owned(), json!(text));
             }
             Some(Value::String(s)) => match position {
-                TextPosition::Prepend => *s = format!("{text}\n\n{s}"),
+                TextPosition::Prepend => *s = format!("{text} {s}"),
                 TextPosition::Append => *s = format!("{s}\n\n{text}"),
             },
             Some(Value::Array(arr)) => match position {
@@ -53,7 +53,7 @@ pub fn system_text(
                 obj.insert("instructions".to_owned(), json!(text));
             }
             Some(Value::String(s)) => match position {
-                TextPosition::Prepend => *s = format!("{text}\n\n{s}"),
+                TextPosition::Prepend => *s = format!("{text} {s}"),
                 TextPosition::Append => *s = format!("{s}\n\n{text}"),
             },
             Some(_) => warn_skip("system_text", "unexpected instructions shape"),
@@ -139,7 +139,7 @@ mod tests {
             "P",
             TextPosition::Prepend,
         );
-        assert_eq!(claude["system"], "P\n\nold");
+        assert_eq!(claude["system"], "P old");
 
         let mut chat = json!({"messages": [{"role": "user", "content": "hi"}]});
         system_text(
