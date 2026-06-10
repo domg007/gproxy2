@@ -1390,6 +1390,7 @@ dependencies = [
  "http-body-util",
  "js-sys",
  "redis",
+ "regex",
  "rust_decimal",
  "sea-orm",
  "serde",
