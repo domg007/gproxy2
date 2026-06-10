@@ -1,13 +1,14 @@
 //! Provider rule processing (§6.1): applies §8-B2 rule-set mutations to the
 //! provider-native request, after transform and before the channel. Fixed kind
-//! order: prelude → cache_breakpoint → rewrite → sanitize → beta_header.
+//! order: system_text → cache_breakpoint → rewrite → sanitize → header.
 
 mod apply_content;
 mod apply_generic;
 mod compile;
 
 pub use compile::{
-    CacheBreakpointCfg, CompiledRule, RewriteAction, RuleConfig, compile_rules, order_for_apply,
+    CacheBreakpointCfg, CompiledRule, HeaderMode, RewriteAction, RuleConfig, TextPosition,
+    compile_rules, order_for_apply,
 };
 
 use bytes::Bytes;
@@ -32,7 +33,7 @@ pub fn apply(
         return body;
     }
 
-    // Phase 1 — JSON-value mutations (prelude / cache_breakpoint / rewrite),
+    // Phase 1 — JSON-value mutations (system_text / cache_breakpoint / rewrite),
     // already rank-ordered.
     let mut value: Option<serde_json::Value> = None;
     for rule in applicable.iter().filter(|r| r.config.mutates_value()) {
@@ -47,7 +48,9 @@ pub fn apply(
         }
         let Some(v) = value.as_mut() else { break };
         match &rule.config {
-            RuleConfig::PreludeSystem { text } => apply_content::prelude_system(v, kind, text),
+            RuleConfig::SystemText { text, position } => {
+                apply_content::system_text(v, kind, text, *position)
+            }
             RuleConfig::CacheBreakpoint(cfg) => apply_content::cache_breakpoint(v, kind, cfg),
             RuleConfig::Rewrite {
                 path,
@@ -77,8 +80,8 @@ pub fn apply(
 
     // Phase 3 — header rules.
     for rule in &applicable {
-        if let RuleConfig::BetaHeader { token } = &rule.config {
-            apply_generic::beta_header(headers, token);
+        if let RuleConfig::Header { name, value, mode } = &rule.config {
+            apply_generic::header(headers, name, value, *mode);
         }
     }
     body

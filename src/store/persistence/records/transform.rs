@@ -62,8 +62,8 @@ pub struct RuleSetInput {
 /// One mutation rule within a [`RuleSet`]. `config_json` carries the
 /// kind-specific fields (validated at the process layer, not here):
 /// `rewrite`={path,action,value_json?}, `sanitize`={pattern,replacement},
-/// `cache_breakpoint`={target,position,index,ttl}, `beta_header`={token},
-/// `prelude_system`={text}.
+/// `cache_breakpoint`={target,position,index,ttl}, `header`={name,value,mode?},
+/// `system_text`={text,position?}.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
     pub id: i64,

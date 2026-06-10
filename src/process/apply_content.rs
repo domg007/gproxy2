@@ -1,38 +1,62 @@
-//! Content-generation-aware rule applications: prelude system text and claude
+//! Content-generation-aware rule applications: system text injection and claude
 //! cache breakpoints. These must know the provider-native body shape.
 
 use serde_json::{Value, json};
 
-use super::compile::CacheBreakpointCfg;
+use super::compile::{CacheBreakpointCfg, TextPosition};
 use crate::protocol::ContentGenerationKind;
 
-/// Prepend system text in the target kind's native location.
-pub fn prelude_system(body: &mut Value, kind: Option<ContentGenerationKind>, text: &str) {
+/// Insert or append system text in the target kind's native location.
+pub fn system_text(
+    body: &mut Value,
+    kind: Option<ContentGenerationKind>,
+    text: &str,
+    position: TextPosition,
+) {
     use ContentGenerationKind as K;
     let Some(obj) = body.as_object_mut() else {
-        return warn_skip("prelude_system", "body not an object");
+        return warn_skip("system_text", "body not an object");
     };
     match kind {
         Some(K::ClaudeMessages) => match obj.get_mut("system") {
             None | Some(Value::Null) => {
                 obj.insert("system".to_owned(), json!(text));
             }
-            Some(Value::String(s)) => *s = format!("{text}\n\n{s}"),
-            Some(Value::Array(arr)) => arr.insert(0, json!({"type": "text", "text": text})),
-            Some(_) => warn_skip("prelude_system", "unexpected claude system shape"),
+            Some(Value::String(s)) => match position {
+                TextPosition::Prepend => *s = format!("{text}\n\n{s}"),
+                TextPosition::Append => *s = format!("{s}\n\n{text}"),
+            },
+            Some(Value::Array(arr)) => match position {
+                TextPosition::Prepend => arr.insert(0, json!({"type": "text", "text": text})),
+                TextPosition::Append => arr.push(json!({"type": "text", "text": text})),
+            },
+            Some(_) => warn_skip("system_text", "unexpected claude system shape"),
         },
         Some(K::OpenAiChatCompletions) => match obj.get_mut("messages") {
-            Some(Value::Array(msgs)) => {
-                msgs.insert(0, json!({"role": "system", "content": text}));
-            }
-            _ => warn_skip("prelude_system", "missing messages array"),
+            Some(Value::Array(msgs)) => match position {
+                TextPosition::Prepend => {
+                    msgs.insert(0, json!({"role": "system", "content": text}));
+                }
+                TextPosition::Append => {
+                    // Insert after the leading run of system-role messages.
+                    let insert_at = msgs
+                        .iter()
+                        .take_while(|m| m.get("role").and_then(Value::as_str) == Some("system"))
+                        .count();
+                    msgs.insert(insert_at, json!({"role": "system", "content": text}));
+                }
+            },
+            _ => warn_skip("system_text", "missing messages array"),
         },
         Some(K::OpenAiResponses) => match obj.get_mut("instructions") {
             None | Some(Value::Null) => {
                 obj.insert("instructions".to_owned(), json!(text));
             }
-            Some(Value::String(s)) => *s = format!("{text}\n\n{s}"),
-            Some(_) => warn_skip("prelude_system", "unexpected instructions shape"),
+            Some(Value::String(s)) => match position {
+                TextPosition::Prepend => *s = format!("{text}\n\n{s}"),
+                TextPosition::Append => *s = format!("{s}\n\n{text}"),
+            },
+            Some(_) => warn_skip("system_text", "unexpected instructions shape"),
         },
         Some(K::GeminiGenerateContent) => {
             let part = json!({"text": text});
@@ -41,15 +65,18 @@ pub fn prelude_system(body: &mut Value, kind: Option<ContentGenerationKind>, tex
                     obj.insert("systemInstruction".to_owned(), json!({"parts": [part]}));
                 }
                 Some(Value::Object(si)) => match si.get_mut("parts") {
-                    Some(Value::Array(parts)) => parts.insert(0, part),
+                    Some(Value::Array(parts)) => match position {
+                        TextPosition::Prepend => parts.insert(0, part),
+                        TextPosition::Append => parts.push(part),
+                    },
                     _ => {
                         si.insert("parts".to_owned(), json!([part]));
                     }
                 },
-                Some(_) => warn_skip("prelude_system", "unexpected systemInstruction shape"),
+                Some(_) => warn_skip("system_text", "unexpected systemInstruction shape"),
             }
         }
-        None => warn_skip("prelude_system", "non-content operation"),
+        None => warn_skip("system_text", "non-content operation"),
     }
 }
 
@@ -103,18 +130,61 @@ mod tests {
     use crate::protocol::ContentGenerationKind as K;
 
     #[test]
-    fn prelude_per_kind() {
+    fn system_text_per_kind() {
+        // --- prepend (default) ---
         let mut claude = json!({"system": "old", "messages": []});
-        prelude_system(&mut claude, Some(K::ClaudeMessages), "P");
+        system_text(
+            &mut claude,
+            Some(K::ClaudeMessages),
+            "P",
+            TextPosition::Prepend,
+        );
         assert_eq!(claude["system"], "P\n\nold");
 
         let mut chat = json!({"messages": [{"role": "user", "content": "hi"}]});
-        prelude_system(&mut chat, Some(K::OpenAiChatCompletions), "P");
+        system_text(
+            &mut chat,
+            Some(K::OpenAiChatCompletions),
+            "P",
+            TextPosition::Prepend,
+        );
         assert_eq!(chat["messages"][0]["role"], "system");
 
         let mut gem = json!({"contents": []});
-        prelude_system(&mut gem, Some(K::GeminiGenerateContent), "P");
+        system_text(
+            &mut gem,
+            Some(K::GeminiGenerateContent),
+            "P",
+            TextPosition::Prepend,
+        );
         assert_eq!(gem["systemInstruction"]["parts"][0]["text"], "P");
+
+        // --- append: claude string ---
+        let mut claude2 = json!({"system": "old"});
+        system_text(
+            &mut claude2,
+            Some(K::ClaudeMessages),
+            "A",
+            TextPosition::Append,
+        );
+        assert_eq!(claude2["system"], "old\n\nA");
+
+        // --- append: chat messages with leading system run ---
+        let mut chat2 = json!({"messages": [
+            {"role": "system", "content": "s1"},
+            {"role": "system", "content": "s2"},
+            {"role": "user",   "content": "hi"}
+        ]});
+        system_text(
+            &mut chat2,
+            Some(K::OpenAiChatCompletions),
+            "A",
+            TextPosition::Append,
+        );
+        // new system message inserted at index 2 (after the 2 leading system messages)
+        assert_eq!(chat2["messages"][2]["role"], "system");
+        assert_eq!(chat2["messages"][2]["content"], "A");
+        assert_eq!(chat2["messages"][3]["role"], "user");
     }
 
     #[test]

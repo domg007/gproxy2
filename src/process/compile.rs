@@ -32,11 +32,32 @@ pub enum RewriteAction {
     Merge,
 }
 
+/// Where to insert text relative to existing content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextPosition {
+    #[default]
+    Prepend,
+    Append,
+}
+
+/// How to apply a header value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeaderMode {
+    /// Insert or replace the header value.
+    #[default]
+    Override,
+    /// Comma-join with dedup (for list-valued headers like `anthropic-beta`).
+    Merge,
+}
+
 /// One parsed rule body.
 #[derive(Debug, Clone)]
 pub enum RuleConfig {
-    PreludeSystem {
+    SystemText {
         text: String,
+        position: TextPosition,
     },
     CacheBreakpoint(CacheBreakpointCfg),
     Rewrite {
@@ -48,8 +69,10 @@ pub enum RuleConfig {
         regex: Regex,
         replacement: String,
     },
-    BetaHeader {
-        token: String,
+    Header {
+        name: http::header::HeaderName,
+        value: String,
+        mode: HeaderMode,
     },
 }
 
@@ -57,11 +80,11 @@ impl RuleConfig {
     /// Fixed application order (§6.1).
     pub fn rank(&self) -> u8 {
         match self {
-            Self::PreludeSystem { .. } => 0,
+            Self::SystemText { .. } => 0,
             Self::CacheBreakpoint(_) => 1,
             Self::Rewrite { .. } => 2,
             Self::Sanitize { .. } => 3,
-            Self::BetaHeader { .. } => 4,
+            Self::Header { .. } => 4,
         }
     }
 
@@ -125,9 +148,19 @@ pub fn order_for_apply(rules: &mut [CompiledRule]) {
 
 fn compile_row(row: &Rule) -> Option<CompiledRule> {
     let config = match row.kind.as_str() {
-        "prelude_system" => RuleConfig::PreludeSystem {
-            text: row.config_json.get("text")?.as_str()?.to_owned(),
-        },
+        "system_text" => {
+            #[derive(Deserialize)]
+            struct Raw {
+                text: String,
+                #[serde(default)]
+                position: TextPosition,
+            }
+            let raw: Raw = serde_json::from_value(row.config_json.clone()).ok()?;
+            RuleConfig::SystemText {
+                text: raw.text,
+                position: raw.position,
+            }
+        }
         "cache_breakpoint" => {
             RuleConfig::CacheBreakpoint(serde_json::from_value(row.config_json.clone()).ok()?)
         }
@@ -158,9 +191,22 @@ fn compile_row(row: &Rule) -> Option<CompiledRule> {
                 replacement: raw.replacement,
             }
         }
-        "beta_header" => RuleConfig::BetaHeader {
-            token: row.config_json.get("token")?.as_str()?.to_owned(),
-        },
+        "header" => {
+            #[derive(Deserialize)]
+            struct Raw {
+                name: String,
+                value: String,
+                #[serde(default)]
+                mode: HeaderMode,
+            }
+            let raw: Raw = serde_json::from_value(row.config_json.clone()).ok()?;
+            let name = http::header::HeaderName::from_bytes(raw.name.as_bytes()).ok()?;
+            RuleConfig::Header {
+                name,
+                value: raw.value,
+                mode: raw.mode,
+            }
+        }
         _ => return None,
     };
     let operations = match &row.filter_operation_keys {

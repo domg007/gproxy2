@@ -92,8 +92,8 @@ const BUNDLE: &str = r#"{
   ],
   "rule_sets": [{ "id": 1, "name": "rs", "enabled": true, "description": null }],
   "rules": [
-    { "id": 1, "rule_set_id": 1, "kind": "prelude_system", "config_json": { "text": "PRELUDE" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 0, "enabled": true },
-    { "id": 2, "rule_set_id": 1, "kind": "beta_header", "config_json": { "token": "context-1m" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 1, "enabled": true }
+    { "id": 1, "rule_set_id": 1, "kind": "system_text", "config_json": { "text": "PRELUDE" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 0, "enabled": true },
+    { "id": 2, "rule_set_id": 1, "kind": "header", "config_json": { "name": "anthropic-beta", "value": "context-1m", "mode": "merge" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 1, "enabled": true }
   ],
   "provider_rule_sets": [{ "id": 1, "provider_id": 2, "rule_set_id": 1, "sort_order": 0, "enabled": true }]
 }"#;
@@ -305,11 +305,11 @@ async fn process_rules_apply_on_claude_passthrough() {
     let seen = fake.seen.lock().unwrap();
     assert!(seen[0].uri.contains("/v1/messages"), "passthrough path");
     let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
-    assert_eq!(up["system"], "PRELUDE", "prelude_system applied");
+    assert_eq!(up["system"], "PRELUDE", "system_text applied");
     assert_eq!(up["model"], "claude-test");
     assert_eq!(
         seen[0].headers.get("anthropic-beta").unwrap(),
         "context-1m",
-        "beta_header forwarded (claude_api whitelists it)"
+        "header rule forwarded (claude_api whitelists it)"
     );
 }

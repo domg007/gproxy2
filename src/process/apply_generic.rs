@@ -94,23 +94,50 @@ pub fn sanitize(body: Bytes, regex: &Regex, replacement: &str) -> Bytes {
     }
 }
 
-/// Append a token to `anthropic-beta` (comma-separated, deduped). Only useful
-/// on channels that whitelist that header (claude family).
-pub fn beta_header(headers: &mut HeaderMap, token: &str) {
-    let name = HeaderName::from_static("anthropic-beta");
-    let merged = match headers.get(&name).and_then(|v| v.to_str().ok()) {
-        Some(existing) if existing.split(',').any(|t| t.trim() == token) => return,
-        Some(existing) => format!("{existing},{token}"),
-        None => token.to_owned(),
-    };
-    if let Ok(v) = HeaderValue::from_str(&merged) {
-        headers.insert(name, v);
+/// Set or merge a request header. `override` replaces; `merge` comma-appends
+/// with dedup (for list-valued headers like `anthropic-beta`).
+pub fn header(
+    headers: &mut HeaderMap,
+    name: &HeaderName,
+    value: &str,
+    mode: super::compile::HeaderMode,
+) {
+    use super::compile::HeaderMode;
+    match mode {
+        HeaderMode::Override => match HeaderValue::from_str(value) {
+            Ok(v) => {
+                headers.insert(name, v);
+            }
+            Err(_) => tracing::warn!(
+                header = %name,
+                value,
+                "process header rule: invalid header value; rule skipped"
+            ),
+        },
+        HeaderMode::Merge => {
+            let merged = match headers.get(name).and_then(|v| v.to_str().ok()) {
+                Some(existing) if existing.split(',').any(|t| t.trim() == value) => return,
+                Some(existing) => format!("{existing},{value}"),
+                None => value.to_owned(),
+            };
+            match HeaderValue::from_str(&merged) {
+                Ok(v) => {
+                    headers.insert(name, v);
+                }
+                Err(_) => tracing::warn!(
+                    header = %name,
+                    value,
+                    "process header rule: invalid merged header value; rule skipped"
+                ),
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::compile::HeaderMode;
     use serde_json::json;
 
     #[test]
@@ -128,5 +155,36 @@ mod tests {
         );
         assert_eq!(v["a"]["b"], 5);
         assert_eq!(v["a"]["e"], 6);
+    }
+
+    #[test]
+    fn header_override_and_merge() {
+        let beta: HeaderName = "anthropic-beta".parse().unwrap();
+
+        // override replaces existing
+        let mut h = HeaderMap::new();
+        h.insert(&beta, "old-token".parse().unwrap());
+        header(&mut h, &beta, "new-token", HeaderMode::Override);
+        assert_eq!(h.get(&beta).unwrap(), "new-token");
+
+        // merge dedups existing token
+        let mut h = HeaderMap::new();
+        h.insert(&beta, "context-1m".parse().unwrap());
+        header(&mut h, &beta, "context-1m", HeaderMode::Merge);
+        assert_eq!(h.get(&beta).unwrap(), "context-1m"); // unchanged
+
+        // merge appends new token
+        let mut h = HeaderMap::new();
+        h.insert(&beta, "context-1m".parse().unwrap());
+        header(
+            &mut h,
+            &beta,
+            "interleaved-thinking-2025-05-14",
+            HeaderMode::Merge,
+        );
+        assert_eq!(
+            h.get(&beta).unwrap(),
+            "context-1m,interleaved-thinking-2025-05-14"
+        );
     }
 }
