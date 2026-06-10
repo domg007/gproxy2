@@ -14,6 +14,13 @@ pub mod preprocess;
 pub mod route;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stream;
+#[cfg(all(
+    test,
+    not(target_arch = "wasm32"),
+    feature = "persist-file",
+    feature = "cache-memory"
+))]
+mod tests;
 pub mod transform;
 
 pub use context::{Candidate, Classified, RequestCtx, RoutingMode};
