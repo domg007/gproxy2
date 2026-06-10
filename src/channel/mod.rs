@@ -6,7 +6,9 @@
 
 pub mod bulletins;
 pub mod disposition;
+pub mod envelope;
 pub mod http_util;
+pub mod oauth;
 pub mod prepared;
 pub mod registry;
 pub mod resolve;
@@ -29,6 +31,21 @@ pub use prepared::PreparedRequest;
 pub enum TransportKind {
     Http,
     Ws,
+}
+
+/// A per-channel byte-stream decoder spliced BEFORE the M2 protocol transform.
+/// Used by envelope/binary channels (code-assist per-frame unwrap, kiro Smithy
+/// → SSE). Sync core, mirrors the protocol `SseTransformer`
+/// ([`crate::transform::stream_adapter::SseTransformer`]): `push` per upstream
+/// chunk, `finish` at EOF. Streaming is native-only, but the trait is defined
+/// on both targets (the hook returns `None` everywhere by default) — the `Send`
+/// bound is harmless on wasm since the decoder is never held across an await.
+pub trait ChannelStreamDecoder: Send {
+    /// Feed one raw upstream chunk; return decoded bytes (possibly empty while a
+    /// frame is still buffering).
+    fn push(&mut self, chunk: &[u8]) -> Vec<u8>;
+    /// Flush any trailing buffered state at end of stream.
+    fn finish(&mut self) -> Vec<u8>;
 }
 
 /// Per-call inputs the channel needs to build the upstream request.
@@ -83,6 +100,13 @@ pub trait Channel: Send + Sync {
     /// M1 same-protocol: identity.
     fn normalize(&self, body: Bytes) -> Bytes {
         body
+    }
+
+    /// Optional channel-specific stream decoder (envelope unwrap / binary →
+    /// SSE), applied to the raw upstream byte stream before any protocol
+    /// transform. Default: none (passthrough).
+    fn stream_decoder(&self) -> Option<Box<dyn ChannelStreamDecoder>> {
+        None
     }
 
     /// Whether the DECRYPTED secret must be refreshed before use (e.g. OAuth

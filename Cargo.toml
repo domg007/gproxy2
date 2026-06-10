@@ -32,6 +32,7 @@ regex = "1"
 rust_decimal = { version = "1", features = ["serde-with-str"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
 dashmap = "6"
@@ -48,6 +49,10 @@ uuid = { version = "1", features = ["v4"] }
 wreq = { version = "6.0.0-rc.28", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"], optional = true }
 tiktoken-rs = { version = "0.12", optional = true }
 tokenizers = { version = "0.23", optional = true, default-features = false, features = ["onig"] }
+# Vertex RS256 service-account JWT signing (T1). NATIVE-ONLY: jsonwebtoken v9
+# hard-depends on `ring`, which does not wasm-compile — keeping it in the
+# native target table guarantees the edge tree never pulls it.
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
 
 # ── wasm32-only ───────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -221,10 +221,17 @@ pub(super) fn materialize(
                     crate::pipeline::stream::into_byte_stream(st),
                 ));
             }
+            // Order: raw upstream → channel decoder (envelope/binary → canonical
+            // provider SSE) → M2 transform (provider → inbound, or identity on
+            // passthrough) → client. The channel decoder runs FIRST; its output
+            // is the SAME `ByteStream`/`RespStream` typedef, so it feeds either
+            // the transform wrapper or the passthrough identity unchanged.
+            let st = match channel.stream_decoder() {
+                Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
+                None => crate::pipeline::stream::into_byte_stream(st),
+            };
             match transform_step::stream_transformer(plan) {
-                None => Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::into_byte_stream(st),
-                )),
+                None => Ok(ResponseBody::Stream(st)),
                 Some(t) => Ok(ResponseBody::Stream(
                     crate::pipeline::stream::transform_byte_stream(st, t),
                 )),
