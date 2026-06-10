@@ -121,7 +121,7 @@ pub fn request_parts(
             let mut body = ctx.body.clone();
             // Aggregated-mode member model rewrite. Scoped mode peeked the
             // same model into upstream_model_id, so this stays a no-op there
-            // (zero-parse fast path preserved).
+            // (single memoized model peek; no transform).
             if !cand.upstream_model_id.is_empty()
                 && memo.inbound_model(&ctx.body).as_deref() != Some(cand.upstream_model_id.as_str())
             {
@@ -140,8 +140,10 @@ pub fn request_parts(
                             query = Some(merge_query(query.as_deref(), &extra));
                         }
                     }
-                    OperationKind::ContentGeneration(kind) => {
-                        body = rewrite_model(kind, &body, &cand.upstream_model_id)?;
+                    OperationKind::ContentGeneration(_) => {
+                        // passthrough bodies already carry the correct stream
+                        // flag; never inject it here
+                        body = patch_body(&body, Some(&cand.upstream_model_id), false)?;
                     }
                     // non-content body-model rewrite (embeddings etc.) deferred
                     OperationKind::Provider(_) => {}
@@ -178,10 +180,14 @@ pub fn request_parts(
                     let converted = dispatch::request_bytes(*request_pair, &fwd, &ctx.body)
                         .map_err(PipelineError::TransformRequest)?;
                     let mut converted = Bytes::from(converted);
-                    if tk != ContentGenerationKind::GeminiGenerateContent
-                        && !cand.upstream_model_id.is_empty()
-                    {
-                        converted = rewrite_model(tk, &converted, &cand.upstream_model_id)?;
+                    // Gemini targets keep model + streaming in the URL
+                    // (content_request_target); body stays untouched.
+                    if tk != ContentGenerationKind::GeminiGenerateContent {
+                        let model = (!cand.upstream_model_id.is_empty())
+                            .then_some(cand.upstream_model_id.as_str());
+                        if model.is_some() || ctx.stream {
+                            converted = patch_body(&converted, model, ctx.stream)?;
+                        }
                     }
                     memo.bodies.insert(key, converted.clone());
                     converted
@@ -260,21 +266,27 @@ pub fn stream_transformer(plan: &TransformPlan) -> Option<SseTransformer> {
     }
 }
 
-fn rewrite_model(
-    _kind: ContentGenerationKind,
-    body: &Bytes,
-    model: &str,
-) -> Result<Bytes, PipelineError> {
+/// Patch the transformed provider-native body in one parse: set the member
+/// model (body-model kinds) and, when the inbound request streams, the
+/// `stream` flag — gemini sources carry streaming in the URL, not the body,
+/// so the converted body would otherwise silently request a non-streaming
+/// upstream response.
+fn patch_body(body: &Bytes, model: Option<&str>, stream: bool) -> Result<Bytes, PipelineError> {
     let mut v: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
         PipelineError::TransformRequest(TransformError::InvalidInput {
-            reason: format!("model rewrite: body is not JSON: {e}"),
+            reason: format!("body patch: body is not JSON: {e}"),
         })
     })?;
     if let Some(obj) = v.as_object_mut() {
-        obj.insert(
-            "model".to_owned(),
-            serde_json::Value::String(model.to_owned()),
-        );
+        if let Some(model) = model {
+            obj.insert(
+                "model".to_owned(),
+                serde_json::Value::String(model.to_owned()),
+            );
+        }
+        if stream {
+            obj.insert("stream".to_owned(), serde_json::Value::Bool(true));
+        }
     }
     serde_json::to_vec(&v).map(Bytes::from).map_err(|e| {
         PipelineError::TransformRequest(TransformError::Serialization {
@@ -285,6 +297,7 @@ fn rewrite_model(
 
 fn merge_query(existing: Option<&str>, extra: &str) -> String {
     match existing {
+        Some(q) if q.split('&').any(|p| p == extra) => q.to_owned(),
         Some(q) if !q.is_empty() => format!("{q}&{extra}"),
         _ => extra.to_owned(),
     }

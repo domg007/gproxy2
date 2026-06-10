@@ -41,8 +41,9 @@ pub struct PrepareCtx<'a> {
     pub secret: &'a Value,
     /// Provider settings (`base_url`, channel toggles, …).
     pub provider_settings: &'a Value,
-    /// Member rewrite target. M1: PATH construction only (path-templated
-    /// providers); NEVER used to mutate the body.
+    /// Member rewrite target. PATH construction only (path-templated
+    /// providers); body model rewrite happens in the pipeline transform
+    /// step before prepare.
     pub upstream_model_id: &'a str,
     pub method: http::Method,
     /// Inbound, provider-relative path (`/v1/...`); scoped mode already stripped
@@ -51,7 +52,8 @@ pub struct PrepareCtx<'a> {
     pub query: Option<&'a str>,
     /// Inbound headers (the channel sanitizes + injects its own auth).
     pub headers: &'a HeaderMap,
-    /// Inbound body, forwarded verbatim (same-protocol passthrough).
+    /// Effective upstream body (post-transform/process; verbatim on
+    /// passthrough).
     pub body: Bytes,
 }
 
