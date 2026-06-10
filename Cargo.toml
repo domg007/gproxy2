@@ -21,8 +21,10 @@ path = "src/main.rs"
 anyhow = "1"
 async-trait = "0.1"
 arc-swap = "1"
+base64 = "0.22"
 blake3 = "1"
 bytes = "1"
+chacha20poly1305 = "0.10"
 futures-core = "0.3"
 futures-util = "0.3"
 http = "1"
@@ -50,6 +52,9 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 # ── wasm32-only ───────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 axum = { version = "0.8", default-features = false, features = ["json"] }
+# chacha20poly1305's OsRng resolves getrandom 0.2 on wasm; the js backend is
+# required for randomness on wasm32-unknown-unknown (js-sys is already a dep).
+getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

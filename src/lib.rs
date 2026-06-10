@@ -4,6 +4,7 @@
 pub mod app;
 pub mod channel;
 pub mod config;
+pub mod crypto;
 pub mod health;
 pub mod http;
 pub mod pipeline;
