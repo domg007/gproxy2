@@ -1,7 +1,7 @@
 //! Pipeline error → HTTP response mapping (handler boundary).
 
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -38,6 +38,12 @@ pub enum PipelineError {
     RuleUnsupported,
     #[error("local implementation pending")]
     LocalUnimplemented,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("rate limited")]
+    RateLimited { retry_after_secs: u64 },
+    #[error("quota exceeded")]
+    QuotaExceeded,
 }
 
 impl PipelineError {
@@ -52,6 +58,8 @@ impl PipelineError {
             TransformRequest(_) => StatusCode::UNPROCESSABLE_ENTITY,
             TransformResponse(_) => StatusCode::BAD_GATEWAY,
             RuleUnsupported | LocalUnimplemented => StatusCode::NOT_IMPLEMENTED,
+            Forbidden => StatusCode::FORBIDDEN,
+            RateLimited { .. } | QuotaExceeded => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 }
@@ -75,6 +83,14 @@ impl IntoResponse for PipelineError {
             other => other.to_string(),
         };
         let body = json!({ "error": { "message": message, "type": "gproxy_error" } });
+        if let PipelineError::RateLimited { retry_after_secs } = &self {
+            return (
+                status,
+                [(header::RETRY_AFTER, retry_after_secs.to_string())],
+                Json(body),
+            )
+                .into_response();
+        }
         (status, Json(body)).into_response()
     }
 }

@@ -2,6 +2,7 @@
 //! god function with small, testable steps threaded by a [`RequestCtx`].
 
 pub mod auth;
+pub mod authz;
 pub mod balance;
 pub mod classify;
 pub mod context;
