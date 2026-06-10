@@ -45,7 +45,7 @@ pub fn count(
             .and_then(|m| m.as_object())
             .and_then(|obj| {
                 obj.iter()
-                    .find(|(pat, _)| glob_match(pat, model))
+                    .find(|(pat, _)| crate::util::glob::matches(pat, model))
                     .and_then(|(_, v)| v.as_str().map(str::to_owned))
             })
             .unwrap_or_else(|| model.to_owned());
@@ -87,22 +87,6 @@ fn gpt_encoding(model: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
 #[cfg(feature = "count-local")]
 fn encode_len(tok: &tokenizers::Tokenizer, text: &str) -> Option<u64> {
     Some(tok.encode(text, false).ok()?.get_ids().len() as u64)
-}
-
-// Same semantics as `process::compile::glob_match` (kept pub(crate) to
-// process; duplicated here rather than widening its visibility).
-#[cfg(feature = "count-local")]
-fn glob_match(pattern: &str, value: &str) -> bool {
-    fn inner(p: &[u8], v: &[u8]) -> bool {
-        match p.split_first() {
-            None => v.is_empty(),
-            Some((b'*', rest)) => (0..=v.len()).any(|i| inner(rest, &v[i..])),
-            Some((c, rest)) => v
-                .split_first()
-                .is_some_and(|(vc, vrest)| vc == c && inner(rest, vrest)),
-        }
-    }
-    inner(pattern.as_bytes(), value.as_bytes())
 }
 
 #[cfg(all(test, feature = "count-local", feature = "persist-file"))]

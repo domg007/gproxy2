@@ -112,7 +112,7 @@ impl CompiledRule {
             return false;
         }
         if let Some(p) = &self.model_pattern
-            && !glob_match(p, model)
+            && !crate::util::glob::matches(p, model)
         {
             return false;
         }
@@ -218,33 +218,4 @@ fn compile_row(row: &Rule) -> Option<CompiledRule> {
         model_pattern: row.filter_model_pattern.clone(),
         operations,
     })
-}
-
-/// `*`-wildcard glob (the only metachar §8-B2 promises). Anchored both ends.
-pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
-    fn inner(p: &[u8], v: &[u8]) -> bool {
-        match p.split_first() {
-            None => v.is_empty(),
-            Some((b'*', rest)) => (0..=v.len()).any(|i| inner(rest, &v[i..])),
-            Some((c, rest)) => v
-                .split_first()
-                .is_some_and(|(vc, vrest)| vc == c && inner(rest, vrest)),
-        }
-    }
-    inner(pattern.as_bytes(), value.as_bytes())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::glob_match;
-
-    #[test]
-    fn glob_semantics() {
-        assert!(glob_match("*", "anything"));
-        assert!(glob_match("claude-*", "claude-sonnet-4"));
-        assert!(glob_match("*sonnet*", "claude-sonnet-4"));
-        assert!(!glob_match("claude-*", "gpt-4"));
-        assert!(!glob_match("sonnet", "claude-sonnet")); // anchored
-        assert!(glob_match("", ""));
-    }
 }

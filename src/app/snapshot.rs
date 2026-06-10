@@ -12,7 +12,8 @@ use crate::app::models_index::{self, ExposedModel};
 use crate::process::CompiledRule;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
-    Credential, Provider, ProviderModel, Route, RouteMember, User, UserKey,
+    Credential, Org, Provider, ProviderModel, Quota, RateLimit, Route, RouteMember, Scope, Team,
+    User, UserKey,
 };
 use crate::transform::routing::CompiledRoutingRule;
 
@@ -39,6 +40,16 @@ pub struct ControlPlaneSnapshot {
     /// provider id → flattened, apply-ordered process rules (§8-B2 rule sets,
     /// via `provider_rule_sets`).
     pub rule_sets_by_provider: HashMap<i64, Arc<Vec<CompiledRule>>>,
+    /// All orgs (incl. disabled) keyed by id; authz checks `enabled` itself.
+    pub orgs_by_id: HashMap<i64, Arc<Org>>,
+    /// All teams keyed by id.
+    pub teams_by_id: HashMap<i64, Arc<Team>>,
+    /// (scope, scope_id) → permission glob patterns (§8-C union semantics).
+    pub permissions_by_scope: HashMap<(Scope, i64), Arc<Vec<String>>>,
+    /// (scope, scope_id) → rate-limit rows.
+    pub rate_limits_by_scope: HashMap<(Scope, i64), Arc<Vec<RateLimit>>>,
+    /// (scope, scope_id) → quota row.
+    pub quotas_by_scope: HashMap<(Scope, i64), Arc<Quota>>,
     /// Bumped on each rebuild.
     pub version: u64,
 }
@@ -70,6 +81,11 @@ impl ControlPlaneSnapshot {
             variant_base_by_provider: HashMap::new(),
             routing_rules_by_provider: HashMap::new(),
             rule_sets_by_provider: HashMap::new(),
+            orgs_by_id: HashMap::new(),
+            teams_by_id: HashMap::new(),
+            permissions_by_scope: HashMap::new(),
+            rate_limits_by_scope: HashMap::new(),
+            quotas_by_scope: HashMap::new(),
             version,
         }
     }
@@ -161,8 +177,11 @@ impl ControlPlaneSnapshot {
             }
         }
 
-        // users (enabled) + their keys (enabled), indexed by digest
+        // users (enabled) + their keys (enabled), indexed by digest;
+        // collect ids for the authz scope universe below.
+        let mut user_ids: Vec<i64> = Vec::new();
         for user in db.list_users().await?.into_iter().filter(|u| u.enabled) {
+            user_ids.push(user.id);
             let keys = db.list_user_keys(user.id).await?;
             let user = Arc::new(user);
             for key in keys.into_iter().filter(|k| k.enabled) {
@@ -175,6 +194,58 @@ impl ControlPlaneSnapshot {
             }
         }
 
+        load_authz(db, &mut snap, &user_ids).await?;
+
         Ok(snap)
     }
+}
+
+/// Load orgs, teams, and the authz scope universe (permissions / rate limits /
+/// quotas) into `snap`. Separated to keep `build` within size limits.
+async fn load_authz(
+    db: &dyn PersistenceBackend,
+    snap: &mut ControlPlaneSnapshot,
+    user_ids: &[i64],
+) -> anyhow::Result<()> {
+    let orgs = db.list_orgs().await?;
+    let mut org_ids: Vec<i64> = Vec::with_capacity(orgs.len());
+    let mut team_ids: Vec<i64> = Vec::new();
+
+    for org in orgs {
+        org_ids.push(org.id);
+        let teams = db.list_teams(org.id).await?;
+        for team in teams {
+            team_ids.push(team.id);
+            snap.teams_by_id.insert(team.id, Arc::new(team));
+        }
+        snap.orgs_by_id.insert(org.id, Arc::new(org));
+    }
+
+    // Build the full scope universe: orgs + teams + (enabled) users.
+    let mut scopes: Vec<(Scope, i64)> =
+        Vec::with_capacity(org_ids.len() + team_ids.len() + user_ids.len());
+    scopes.extend(org_ids.iter().map(|&id| (Scope::Org, id)));
+    scopes.extend(team_ids.iter().map(|&id| (Scope::Team, id)));
+    scopes.extend(user_ids.iter().map(|&id| (Scope::User, id)));
+
+    for (scope, id) in scopes {
+        let perms = db.list_route_permissions(scope, id).await?;
+        if !perms.is_empty() {
+            let patterns: Vec<String> = perms.into_iter().map(|p| p.route_pattern).collect();
+            snap.permissions_by_scope
+                .insert((scope, id), Arc::new(patterns));
+        }
+
+        let limits = db.list_rate_limits(scope, id).await?;
+        if !limits.is_empty() {
+            snap.rate_limits_by_scope
+                .insert((scope, id), Arc::new(limits));
+        }
+
+        if let Some(quota) = db.get_quota(scope, id).await? {
+            snap.quotas_by_scope.insert((scope, id), Arc::new(quota));
+        }
+    }
+
+    Ok(())
 }
