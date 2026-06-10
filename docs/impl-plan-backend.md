@@ -797,6 +797,23 @@ Each lists new types/methods + the exact M1 seam they hook into.
   (idempotent by `request_id`) via `append_usage` + `add_usage_rollup`;
   `record_failure` per failed attempt via `append_upstream_request`. The single
   failover loop already isolates final-Success vs failed-attempt.
+  **Landed (2026-06-10) as the billing half** (observability §15 — request_id
+  ULID middleware, tracing spans, /metrics — remains open; downstream/upstream
+  body capture logs likewise): normalized usage extraction (input = non-cached;
+  openai/gemini cached subtraction; gemini output includes thoughts);
+  request_id-idempotent `usages` + hour/day rollups (`usage_source`:
+  upstream|counted|estimated, `ended`: complete|interrupted columns); hot-path
+  zero-parse stream settlement (refcounted 4MB relay buffer, Drop-guard
+  exactly-once, protocol-shaped mid-stream error frames); abnormal-end
+  counting ladder (tiktoken → claude/gemini upstream count endpoints under
+  semaphore+timeout → local vocab → chars/2); `stream_options.include_usage`
+  injected for openai-chat streams (responses API carries usage natively);
+  quota pending pre-deduct (×1 full message length, first-member pricing,
+  micro-dollar cache counters, 15min TTL self-heal) reconciled exactly-once at
+  settle with refund-on-error in execute (covers relayed 4xx); total_tokens
+  (`rlt:`) and credential tpm (`ctpm:`) counters now fed from settled usage —
+  M3/M4 seams closed. Failed attempts audit to upstream_requests, never
+  billed. Embeddings/images settlement deferred (pricing model differs).
 - **M7 Resilience.** Real `Channel::refresh`/`needs_refresh`; retry budgets. The
   `AuthDead` branch already calls `refresh` once then retries — M7 fills the body.
   `requires_tls_emulation`/`transport` drive §7.4 degradation.
