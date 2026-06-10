@@ -835,6 +835,29 @@ Each lists new types/methods + the exact M1 seam they hook into.
   (inject access_token) + needs_refresh + refresh (token endpoint) + TLS
   preset; mine v1 `sdk/gproxy-channel/src/channels/*` + `upstream_docs/`;
   per-channel cooldown research (§3.3) lands here.
+  **M7b landed (2026-06-11):** all 7 OAuth channels functional (registry
+  resolves all 17). Per channel: **vertex** SA-JWT sign + exchange (refresh
+  native-only — edge can't sign); **copilot_cli** GitHub device-token →
+  Copilot bearer; **claudecode** OAuth `refresh_token` + impersonation headers
+  (cookie-login bootstrap deferred → M10); **geminicli + antigravity** share the
+  Code-Assist request envelope (`envelope::wrap_code_assist`: `{model, project,
+  user_prompt_id, request}`, roles forced `user`; `/v1internal:generateContent`
+  [+`:streamGenerateContent?alt=sse`]; both `normalize()` and the
+  `CodeAssistStreamDecoder` unwrap `.response` non-stream + per SSE frame);
+  **codex** Responses-normalization (force stream/store, strip 8 sampling/meta
+  fields, lift system→`instructions`, string-input→message-array; non-JSON
+  forwarded verbatim; `/backend-api/codex/responses` + originator/account-id);
+  **kiro** dual OAuth (social `/refreshToken` vs AWS IdC `oidc.{region}` —
+  discriminated by `client_id`+`client_secret`) + a hand-rolled AWS Smithy
+  binary event-stream parser (`smithy.rs`, chunk-boundary-safe + bounds-checked)
+  decoded to Responses SSE. New seam: `ChannelStreamDecoder` (per-stream push/
+  finish) + shared `oauth`/`envelope` helpers. **Deferred to M10:** the login
+  HTTP endpoints (PKCE authorize/exchange, OIDC client registration) and
+  project-id resolution (`loadCodeAssist`/`onboardUser` for geminicli/
+  antigravity — a credential without `project_id` errors cleanly in `prepare`)
+  + claudecode cookie-login. **Known gap:** kiro tool-use is sent in the request
+  but tool-call events are NOT yet decoded out of the response stream (only
+  text/reasoning deltas) — a follow-up.
 - **M8 Multi-instance redis.** Real `CacheBackend::publish`/`subscribe`;
   `app/invalidation.rs` subscribe → `reload_snapshot()`. `version`+`ArcSwap` are
   the consistency primitive; no snapshot shape change. (Wasm: `reload_snapshot`

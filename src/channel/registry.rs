@@ -2,8 +2,9 @@
 //!
 //! Each channel is a folder under [`crate::channel::bulletins`] that manages its
 //! own auth (`auth.rs`). The id (== `Provider.channel`) is the registry key.
-//! API-key channels are functional; OAuth/envelope channels are registered as
-//! stubs (their `prepare` errors until the M7 OAuth infra / M2 transforms land).
+//! All 17 channels are functional — API-key, OAuth (`refresh_token` grant /
+//! SA-JWT / device-token), and the Code-Assist / Smithy envelope channels all
+//! build real upstream requests (M7a/M7b landed the OAuth infra + transforms).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,10 +44,10 @@ impl ChannelRegistry {
     }
 }
 
-/// All built-in channel adapters (API-key functional; OAuth/envelope = stubs).
+/// All built-in channel adapters (all functional as of M7b).
 fn builtin_channels() -> Vec<Arc<dyn Channel>> {
     vec![
-        // ── API-key (functional) ──
+        // ── API-key ──
         Arc::new(bulletins::openai::OpenAiChannel),
         Arc::new(bulletins::openrouter::OpenRouterChannel),
         Arc::new(bulletins::deepseek::DeepSeekChannel),
@@ -57,7 +58,7 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
         Arc::new(bulletins::claude_api::ClaudeApiChannel),
         Arc::new(bulletins::aistudio::AiStudioChannel),
         Arc::new(bulletins::vertexexpress::VertexExpressChannel),
-        // ── OAuth / envelope (stubs: prepare errors until M7/M2) ──
+        // ── OAuth / envelope ──
         Arc::new(bulletins::vertex::VertexChannel),
         Arc::new(bulletins::geminicli::GeminiCliChannel),
         Arc::new(bulletins::antigravity::AntigravityChannel),
