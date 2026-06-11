@@ -658,7 +658,7 @@ Vercel/Cloudflare =
 
 **M7a 落地(2026-06-11)**:惰性 + 单飞(本地 mutex,redis 分布式锁 = M8 seam)已接入 failover;AuthDead 触发强制刷新 + 同候选重试一次。
 
-**vertex 边缘签名(2026-06-11 修正)**:vertex 的 SA-JWT(RS256)曾 native-only,**不是** Google/协议限制,是 `jsonwebtoken`→`ring` 不能编译到 wasm32。RS256=RSASSA-PKCS1v1.5+SHA-256 是纯数学,改用纯 Rust `rsa` crate(+sha2,wasm 可编)即可**全平台(含 edge)签名**,顺带统一为单一签名器、去掉 jsonwebtoken/ring。token 一小时签一次,性能无关。
+**vertex 边缘签名(2026-06-11 落地)**:vertex 的 SA-JWT(RS256)曾 native-only,**不是** Google/协议限制,是 `jsonwebtoken` v9 只有 `ring` 后端、不能编译到 wasm32。改用 **jsonwebtoken v10 + `rust_crypto` feature**(内部用 RustCrypto 的纯 Rust `rsa`/`sha2`,无 ring),vertex 即**全平台(含 edge)签名**;保留 jsonwebtoken 干净 API。RNG 统一到 `util::rand`(getrandom,跨目标),不再依赖 cipher crate re-export。token 一小时签一次,性能无关。配套:chacha20poly1305 0.11(crypto-common 0.2)在 wasm 上需 getrandom 0.4 的 `wasm_js` backend + `.cargo/config.toml` 的 `--cfg getrandom_backend` rustflag。
 
 ## 15. 可观测性
 
