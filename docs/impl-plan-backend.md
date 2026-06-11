@@ -906,8 +906,26 @@ Each lists new types/methods + the exact M1 seam they hook into.
   import is not yet supported — M10 or a dedicated db-upsert task must port the
   insert-with-id semantics. Follow-ups: `--passphrase` whole-file AEAD, edge
   import path.
-- **M10 (reserved/hardening).** Rate-limit fairness, quota reset jobs, admin
-  console; over existing `cache.incr` + snapshot configs.
+- **M10 (admin API — staged).**
+  - **M10a (auth foundation — LANDED 2026-06-11).** Cache-backed opaque session
+    token (httpOnly cookie, `SameSite=Lax`, sliding 12h TTL, server-side
+    revocable; 32 CSPRNG bytes via `util::rand`, keyed `sess:{token}` → user_id);
+    admin auth middleware (`require_admin`) that **re-validates `enabled` +
+    `is_admin` against persistence on every request** (mid-session disable/demote
+    takes effect at once); `api/` DTO module (single source of truth, §4) +
+    `ApiError`; endpoints `/admin/login | /admin/logout | /admin/me`. Login fails
+    closed with one generic 401 (no user enumeration); password never logged;
+    `GPROXY_INSECURE_COOKIES=1` drops the `Secure` attr for local plaintext-HTTP
+    dev. `api/` is axum-free (compiles wasm edge); only `ApiError::IntoResponse`
+    is native-gated.
+  - **M10b** config CRUD over the snapshot configs + admin-write cache
+    invalidation.
+  - **M10c** OAuth login endpoints — the M7b-deferred channel login flows
+    (cookie-login bootstrap).
+  - **M10d** usage / health read API.
+  - **M10e** Console — backend-first; the Console UI itself is deferred.
+  - Hardening (rate-limit fairness, quota reset jobs) rides on existing
+    `cache.incr` + snapshot configs.
 
 ---
 

@@ -110,11 +110,13 @@ src/
   api/                    # gproxy 自有 API 的端点清单 + 请求/响应形状(DTO);单一真相源
                           #   不用 OpenAPI/codegen;仅自有「管理/用户/鉴权」API
                           #   AI 协议网关端点不在此列(透传/转换,形状见 protocol/)
+                          #   【已落地 M10a】api/auth(login/me DTO)+ api/error(ApiError);axum-free,含 wasm edge
   http/                   # HTTP 两端(按方向拆)
     client/               # 出站传输:UpstreamClient trait + wreq(native)/ fetch(wasm)(见 §7.4)
     server/               # 入站(native,axum):router + health + middleware/ + admin/ + gateway/ + console
                           #   middleware: auth/classify/ratelimit/permission(均为入站、provider 无关)
                           #   admin: 管理 API handler(用 api/ 的 DTO);gateway: /v1、/{provider}/v1 透传/转换
+                          #   【已落地 M10a】admin/{mod,middleware,auth}:session 中间件 + login/logout/me
     edge.rs               # 入站 wasm:WinterCG fetch 入口,驱动同一 Router(见 §13)
   pipeline/               # 请求生命周期编排(替代旧 engine.execute 巨函数)
     classify.rs preprocess.rs route.rs balance.rs   # 入站 → 选后端各步
@@ -633,6 +635,17 @@ Vercel/Cloudflare =
   置真),并打告警(告警不含密码);非空库 + 无覆盖 = no-op,重复启动不产生第二个 admin 或第二个
   `default` org。`crypto::password::{hash,verify}`(argon2id,salt 取自 `util::rand`,跨目标含
   wasm edge)就绪供 M10 登录。native main-path。
+- **会话鉴权 + admin 登录落地(M10a,2026-06-11)**:`admin/session.rs` 实现不透明
+  session token——32 字节 CSPRNG(`util::rand`)→ url-safe base64,cache 存
+  `sess:{token}` = user_id(可吊销,12h 滑动 TTL,每次成功 `validate` 续期)。
+  `validate` **每请求回读持久层并校验 `enabled` + `is_admin`**(中途禁用/降权立即生效),
+  `revoke` 删除条目。`http/server/admin/`:`require_admin` 中间件(cookie → 会话 →
+  注入 `AdminUser`,否则 401)+ `/admin/login | /admin/logout | /admin/me`。
+  cookie 始终 `HttpOnly; SameSite=Lax; Path=/; Max-Age=<ttl>`,`Secure` 默认开,
+  仅 `GPROXY_INSECURE_COOKIES=1`(本地明文 HTTP 开发)关闭。登录任何失败路径返回**同一
+  通用 401**(无用户枚举),`crypto::password::verify` 校验,口令/ token 不落日志。
+  login/logout 公开,其余 `/admin/*` 在中间件之后(无自锁)。token 不透明、非 JWT,
+  故吊销即时。
 
 ### 14.3 日志正文脱敏
 - 开 `enable_*_log_body` 抓正文时,**强制剥离 Authorization / api-key 等密钥头与已知密钥字段**
