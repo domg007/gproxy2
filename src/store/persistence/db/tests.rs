@@ -196,6 +196,43 @@ async fn quota_decimal_exact_round_trip() {
 }
 
 #[tokio::test]
+async fn add_quota_cost_accumulates() {
+    use rust_decimal::Decimal;
+
+    let db = mem().await;
+    db.upsert_quota(QuotaInput {
+        id: None,
+        scope: Scope::User,
+        scope_id: 7,
+        quota_total: Decimal::from(100),
+        cost_used: Decimal::ZERO,
+    })
+    .await
+    .expect("seed quota");
+
+    let delta = "1.5".parse::<Decimal>().unwrap();
+    db.add_quota_cost(Scope::User, 7, delta)
+        .await
+        .expect("add 1");
+    db.add_quota_cost(Scope::User, 7, delta)
+        .await
+        .expect("add 2");
+
+    let q = db
+        .get_quota(Scope::User, 7)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(q.cost_used, "3.0".parse::<Decimal>().unwrap());
+
+    // Absent row → Ok, no-op.
+    db.add_quota_cost(Scope::Org, 999, delta)
+        .await
+        .expect("absent row is a no-op");
+    assert!(db.get_quota(Scope::Org, 999).await.expect("get").is_none());
+}
+
+#[tokio::test]
 async fn tokenizer_vocab_round_trip() {
     let db = mem().await;
     db.put_tokenizer_vocab("org/repo", b"{\"v\":1}")

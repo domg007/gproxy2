@@ -364,6 +364,15 @@ impl PersistenceBackend for LibsqlPersistence {
         anyhow::bail!("libsql identity ops not implemented yet")
     }
 
+    async fn add_quota_cost(
+        &self,
+        _scope: Scope,
+        _scope_id: i64,
+        _delta: rust_decimal::Decimal,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("libsql identity ops not implemented yet")
+    }
+
     async fn append_usage(&self, _input: UsageInput) -> anyhow::Result<Option<Usage>> {
         anyhow::bail!("libsql usage ops not implemented yet")
     }

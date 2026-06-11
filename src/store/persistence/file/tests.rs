@@ -80,3 +80,40 @@ async fn provider_round_trip() {
     assert!(fp.delete_provider(created.id).await.expect("delete"));
     assert!(fp.list_providers().await.expect("list").is_empty());
 }
+
+#[tokio::test]
+async fn add_quota_cost_accumulates() {
+    use rust_decimal::Decimal;
+
+    let (_dir, fp) = open().await;
+    fp.upsert_quota(QuotaInput {
+        id: None,
+        scope: Scope::User,
+        scope_id: 7,
+        quota_total: Decimal::from(100),
+        cost_used: Decimal::ZERO,
+    })
+    .await
+    .expect("seed quota");
+
+    let delta = "1.5".parse::<Decimal>().unwrap();
+    fp.add_quota_cost(Scope::User, 7, delta)
+        .await
+        .expect("add 1");
+    fp.add_quota_cost(Scope::User, 7, delta)
+        .await
+        .expect("add 2");
+
+    let q = fp
+        .get_quota(Scope::User, 7)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(q.cost_used, "3.0".parse::<Decimal>().unwrap());
+
+    // Absent row → Ok, no-op (the request just isn't cost-tracked).
+    fp.add_quota_cost(Scope::Org, 999, delta)
+        .await
+        .expect("absent row is a no-op");
+    assert!(fp.get_quota(Scope::Org, 999).await.expect("get").is_none());
+}

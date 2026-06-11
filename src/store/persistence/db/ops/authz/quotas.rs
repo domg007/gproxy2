@@ -1,7 +1,9 @@
 //! Quota ops for the `db` backend. Unique per `(scope, scope_id)`.
 
 use sea_orm::ActiveValue::{NotSet, Set};
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
+};
 
 use crate::store::persistence::records::{Quota, QuotaInput, Scope};
 
@@ -87,6 +89,47 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
     let res = quota::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)
+}
+
+/// Atomically add `delta` to `cost_used` for the `(scope, scope_id)` row.
+///
+/// `cost_used` is a TEXT column holding the exact decimal string, so SQL `+`
+/// cannot do the arithmetic. We do a read-add-write inside a single
+/// transaction instead: SQLite serialises the txn and Postgres/MySQL row-lock
+/// the selected row under it, so the increment is atomic against concurrent
+/// reconciles. No-op when the row is absent (the request isn't cost-tracked).
+pub async fn add_cost(
+    conn: &DatabaseConnection,
+    scope: Scope,
+    scope_id: i64,
+    delta: rust_decimal::Decimal,
+) -> anyhow::Result<()> {
+    let now = crate::store::persistence::db::ops::now_secs();
+    let scope_label = scope.as_str().to_owned();
+    conn.transaction::<_, (), sea_orm::DbErr>(|txn| {
+        Box::pin(async move {
+            let Some(existing) = quota::Entity::find()
+                .filter(quota::Column::Scope.eq(scope_label.as_str()))
+                .filter(quota::Column::ScopeId.eq(scope_id))
+                .one(txn)
+                .await?
+            else {
+                return Ok(()); // no quota row → nothing to charge
+            };
+            let updated = existing
+                .cost_used
+                .parse::<rust_decimal::Decimal>()
+                .map_err(|e| sea_orm::DbErr::Custom(format!("parse cost_used: {e}")))?
+                + delta;
+            let mut am: quota::ActiveModel = existing.into();
+            am.cost_used = Set(updated.to_string());
+            am.updated_at = Set(now);
+            am.update(txn).await?;
+            Ok(())
+        })
+    })
+    .await?;
+    Ok(())
 }
 
 pub async fn delete_by_scope(

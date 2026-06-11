@@ -112,3 +112,26 @@ pub(crate) async fn delete_by_scope(
     }
     Ok(())
 }
+
+/// Atomically add `delta` to the `cost_used` of the `(scope, scope_id)` row.
+/// No-op when the row is absent. The caller holds the backend write lock, so
+/// this load → mutate → store is atomic for the single-process file backend.
+pub(crate) async fn add_cost(
+    root: &Path,
+    scope: Scope,
+    scope_id: i64,
+    delta: rust_decimal::Decimal,
+) -> anyhow::Result<()> {
+    let file = path(root);
+    let mut t = table::load::<Quota>(&file).await?;
+    if let Some(row) = t
+        .rows
+        .iter_mut()
+        .find(|q| q.scope == scope && q.scope_id == scope_id)
+    {
+        row.cost_used += delta;
+        row.updated_at = now_secs();
+        table::store(&file, &t).await?;
+    }
+    Ok(())
+}

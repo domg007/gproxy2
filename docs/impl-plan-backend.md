@@ -862,6 +862,19 @@ Each lists new types/methods + the exact M1 seam they hook into.
   `app/invalidation.rs` subscribe → `reload_snapshot()`. `version`+`ArcSwap` are
   the consistency primitive; no snapshot shape change. (Wasm: `reload_snapshot`
   future is non-Send; never spawn.)
+  - **Landed (2026-06-11):** real redis pub/sub + an invalidation listener
+    (`spawn_invalidation_listener`: subscribe → per-message `reload_snapshot`)
+    over the shared `gproxy:invalidate` channel; OAuth refresh publishes a
+    `cred:{id}` hint there on writeback. A redis distributed refresh lock guards
+    single-use refresh_token rotation across instances (local per-credential
+    mutex first, then `SET NX PX`; the lock is held only across the upstream
+    refresh call, released on every exit path — never across seal/writeback/
+    publish). Settle reconcile now uses an atomic `add_quota_cost` (file: under
+    the write lock; db: a read-add-write transaction, since `cost_used` is a TEXT
+    decimal column so SQL `+` can't apply) — closing the M6 read-modify-write
+    quota race. Follow-ups: subscribe reconnection on drop, invalidation
+    coalescing, lock-token check-and-delete on unlock, and admin-write
+    invalidation (M10).
 - **M9 Export/Import.** `admin/export.rs`/`import.rs`: serialize all records to a
   bundle; import via `upsert_*` (reuses the seed pattern; `*Input` = import
   schema). `admin.rs` deferred from M1 lands here. First-boot admin bootstrap

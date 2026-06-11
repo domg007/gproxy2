@@ -387,6 +387,16 @@ impl PersistenceBackend for FilePersistence {
         quotas::delete(&self.root, id).await
     }
 
+    async fn add_quota_cost(
+        &self,
+        scope: Scope,
+        scope_id: i64,
+        delta: rust_decimal::Decimal,
+    ) -> anyhow::Result<()> {
+        let _guard = self.write.lock().await;
+        quotas::add_cost(&self.root, scope, scope_id, delta).await
+    }
+
     async fn append_usage(&self, input: UsageInput) -> anyhow::Result<Option<Usage>> {
         let _guard = self.write.lock().await;
         usages::append(&self.root, input).await

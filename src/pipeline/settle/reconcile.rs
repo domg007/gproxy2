@@ -9,7 +9,6 @@ use rust_decimal::Decimal;
 
 use super::SettleCtx;
 use crate::billing::pending;
-use crate::store::persistence::records::QuotaInput;
 use crate::usage::NormalizedUsage;
 use crate::util::time::unix_now;
 
@@ -20,29 +19,14 @@ pub(super) async fn reconcile(ctx: &SettleCtx, usage: &NormalizedUsage, cost: De
     // crash loses this, the 15-minute pending TTL self-heals.)
     pending::refund(cache, &ctx.quota_scopes, ctx.pending_micros).await;
 
-    // Persist actual cost on every scope that has a quota row. Read-modify-
-    // write (get_quota + upsert_quota): the lost-update race across instances
-    // is accepted here — multi-instance hardening is M8.
+    // Persist actual cost on every scope that has a quota row. The increment is
+    // atomic per row (`add_quota_cost`): the M6 read-modify-write lost-update
+    // race across instances is closed.
     if cost > Decimal::ZERO {
         let db = ctx.state.persistence.as_ref();
         for &(scope, scope_id) in &ctx.quota_scopes {
-            match db.get_quota(scope, scope_id).await {
-                Ok(Some(q)) => {
-                    let input = QuotaInput {
-                        id: Some(q.id),
-                        scope,
-                        scope_id,
-                        quota_total: q.quota_total,
-                        cost_used: q.cost_used + cost,
-                    };
-                    if let Err(e) = db.upsert_quota(input).await {
-                        tracing::warn!(request_id = %ctx.request_id, error = %e, "quota reconcile write failed");
-                    }
-                }
-                Ok(None) => {} // quota row deleted mid-flight; nothing to charge
-                Err(e) => {
-                    tracing::warn!(request_id = %ctx.request_id, error = %e, "quota reconcile read failed");
-                }
+            if let Err(e) = db.add_quota_cost(scope, scope_id, cost).await {
+                tracing::warn!(request_id = %ctx.request_id, error = %e, "quota reconcile write failed");
             }
         }
     }

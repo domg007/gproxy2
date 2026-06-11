@@ -312,6 +312,18 @@ pub trait PersistenceBackend: Send + Sync {
     /// Delete a quota by id.
     async fn delete_quota(&self, id: i64) -> anyhow::Result<bool>;
 
+    /// Atomically add `delta` to the `cost_used` of the quota row for
+    /// `(scope, scope_id)`. No-op (Ok) if no such row exists — a request whose
+    /// identity has no quota row simply isn't cost-tracked. Closes the M6
+    /// read-modify-write reconcile race: the increment is applied under the
+    /// backend's own atomicity (file: write lock; db: a single transaction).
+    async fn add_quota_cost(
+        &self,
+        scope: Scope,
+        scope_id: i64,
+        delta: rust_decimal::Decimal,
+    ) -> anyhow::Result<()>;
+
     // ── usage / logs (§8-D) ─────────────────────────────────────────────────
 
     /// Append a per-request usage row (append-only). Idempotent by
