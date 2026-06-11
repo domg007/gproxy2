@@ -153,15 +153,11 @@ fn apply_headers(req: &mut http::Request<Bytes>, access_token: &str) -> Result<(
     Ok(())
 }
 
-/// Fresh v4-shaped UUID string (`8-4-4-4-12` hex). `OsRng` is the cross-target
-/// randomness source the envelope channel uses, so this avoids uuid's
-/// native-only gate (the value is opaque to Kiro — only its shape matters).
+/// Fresh v4-shaped UUID string (`8-4-4-4-12` hex) from `crate::util::rand`
+/// (one cross-target RNG source; avoids uuid's native-only gate — the value is
+/// opaque to Kiro, only its shape matters).
 fn gen_uuid() -> String {
-    use chacha20poly1305::aead::OsRng;
-    use chacha20poly1305::aead::rand_core::RngCore;
-
-    let mut b = [0u8; 16];
-    OsRng.fill_bytes(&mut b);
+    let mut b = crate::util::rand::bytes::<16>();
     // RFC-4122 version/variant bits (cosmetic — Kiro treats it as opaque).
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;

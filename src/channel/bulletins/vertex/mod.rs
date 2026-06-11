@@ -126,27 +126,14 @@ impl Channel for VertexChannel {
         client: &Arc<dyn UpstreamClient>,
         secret: &Value,
     ) -> Result<Value, ChannelError> {
-        let _ = client;
-        // Signing depends on `jsonwebtoken` (native-only); the edge build cannot
-        // re-sign a service-account assertion, so refresh is unsupported there.
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            exchange_token(client, secret).await
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = secret;
-            Err(ChannelError::Unsupported(
-                "vertex refresh is native-only (edge cannot sign service-account JWTs)",
-            ))
-        }
+        // jsonwebtoken v10 `rust_crypto` backend signs on all targets (incl
+        // edge), so refresh works everywhere — no native gate.
+        exchange_token(client, secret).await
     }
 }
 
 /// Sign the SA assertion, exchange it at the token endpoint, and return the
 /// secret with `access_token` + `expires_at_ms` rotated (all other fields kept).
-/// NATIVE-only — see [`refresh`](VertexChannel::refresh).
-#[cfg(not(target_arch = "wasm32"))]
 async fn exchange_token(
     client: &Arc<dyn UpstreamClient>,
     secret: &Value,

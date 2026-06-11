@@ -11,20 +11,18 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
-use chacha20poly1305::aead::OsRng;
-use chacha20poly1305::aead::rand_core::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::channel::ChannelError;
 use crate::http::client::UpstreamClient;
+use crate::util::rand;
 
 /// Generate a PKCE `(verifier, challenge)` pair (RFC 7636, S256). The verifier
 /// is base64url(32 random bytes) → 43 chars (within the 43–128 spec range); the
 /// challenge is base64url_nopad(SHA-256(verifier)).
 pub fn pkce() -> (String, String) {
-    let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    let bytes = rand::bytes::<32>();
     let verifier = B64URL.encode(bytes);
     let challenge = B64URL.encode(Sha256::digest(verifier.as_bytes()));
     (verifier, challenge)

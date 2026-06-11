@@ -189,15 +189,10 @@ fn json_u64(value: &Value) -> Option<u64> {
         .or_else(|| value.as_str().and_then(|t| t.parse::<u64>().ok()))
 }
 
-/// Fresh `{prefix}_{hex}` id. `OsRng` is the same cross-target randomness source
-/// the envelope channel uses (resolves getrandom's js backend on wasm), so this
-/// avoids uuid's native-only gate.
+/// Fresh `{prefix}_{hex}` id from `crate::util::rand` (one cross-target RNG
+/// source; avoids uuid's native-only gate).
 pub(super) fn gen_id(prefix: &str) -> String {
-    use chacha20poly1305::aead::OsRng;
-    use chacha20poly1305::aead::rand_core::RngCore;
-
-    let mut bytes = [0u8; 16];
-    OsRng.fill_bytes(&mut bytes);
+    let bytes = crate::util::rand::bytes::<16>();
     let mut out = String::with_capacity(prefix.len() + 1 + 32);
     out.push_str(prefix);
     out.push('_');

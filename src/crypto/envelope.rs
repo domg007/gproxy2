@@ -7,13 +7,13 @@
 use anyhow::{Context, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
-use chacha20poly1305::aead::rand_core::RngCore;
-use chacha20poly1305::aead::{Aead, KeyInit, OsRng, Payload};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::kms::Kms;
+use crate::util::rand;
 
 /// Serialized envelope. Binary fields are standard base64.
 #[derive(Serialize, Deserialize)]
@@ -43,8 +43,8 @@ pub fn is_envelope(v: &Value) -> bool {
 pub fn seal_with(kms: &dyn Kms, plain: &Value) -> anyhow::Result<Value> {
     let mut dek = [0u8; 32];
     let mut nonce = [0u8; 24];
-    OsRng.fill_bytes(&mut dek);
-    OsRng.fill_bytes(&mut nonce);
+    rand::fill(&mut dek);
+    rand::fill(&mut nonce);
 
     let msg = serde_json::to_vec(plain).context("serializing secret for sealing")?;
     let kek_id = kms.kek_id();

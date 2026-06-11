@@ -3,9 +3,10 @@
 use anyhow::{Context, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
-use chacha20poly1305::aead::rand_core::RngCore;
-use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+
+use crate::util::rand;
 
 /// Wraps/unwraps per-secret data-encryption keys (DEKs) under a
 /// key-encryption key (KEK). Object-safe: ciphers hold `Box<dyn Kms>`.
@@ -55,7 +56,7 @@ impl Kms for LocalKms {
 
     fn wrap(&self, dek: &[u8; 32]) -> Vec<u8> {
         let mut nonce = [0u8; 24];
-        OsRng.fill_bytes(&mut nonce);
+        rand::fill(&mut nonce);
         let ct = self
             .kek
             .encrypt(&XNonce::from(nonce), dek.as_slice())

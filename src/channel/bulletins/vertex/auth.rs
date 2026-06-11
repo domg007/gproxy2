@@ -1,17 +1,15 @@
 //! Vertex service-account auth: parse the SA `secret_json` and sign an RS256
 //! JWT for the OAuth2 JWT-bearer grant.
 //!
-//! Signing depends on `jsonwebtoken` (→ `ring`), which lives in the native-only
-//! dependency table, so the entire parse-and-sign path below is gated to native.
-//! On the edge build [`refresh`](super::VertexChannel::refresh) short-circuits to
-//! `Unsupported` without ever reaching this code; a `prepare` that uses an
-//! already-cached `access_token` still works on wasm (it never signs).
+//! Signing uses `jsonwebtoken` v10 with the pure-Rust `rust_crypto` backend
+//! (no `ring`), so the parse-and-sign path compiles and runs on **all targets
+//! including wasm/edge**. A token is minted ~once per hour, so the pure-Rust
+//! RSA cost is irrelevant.
 
 /// Default region when neither provider settings nor the secret specify one.
 /// Used by `prepare` on both targets.
 pub(super) const DEFAULT_LOCATION: &str = "us-central1";
 
-#[cfg(not(target_arch = "wasm32"))]
 mod sign {
     use serde_json::Value;
 
@@ -102,5 +100,5 @@ mod sign {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[allow(unused_imports)]
 pub(super) use sign::{ServiceAccount, sign_jwt};
