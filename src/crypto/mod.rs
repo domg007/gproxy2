@@ -12,6 +12,7 @@
 
 pub mod envelope;
 pub mod kms;
+pub mod password;
 
 use std::sync::{Arc, Once};
 

@@ -16,6 +16,13 @@ pub fn bytes<const N: usize>() -> [u8; N] {
     b
 }
 
+/// A URL-safe random password of at least 24 chars (CSPRNG). Used for the
+/// first-boot admin (§14.2): 24 random bytes → 32 url-safe base64 chars.
+pub fn password() -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes::<24>())
+}
+
 /// A random RFC-4122 v4 UUID string (`8-4-4-4-12` hex). Cross-target and
 /// cryptographically random — replaces the `uuid` crate (native-only) and its
 /// weak `Date::now()` wasm fallback, so session/request ids are unpredictable

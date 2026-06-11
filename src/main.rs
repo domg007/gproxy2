@@ -56,6 +56,16 @@ struct Cli {
     #[arg(long, env = "GPROXY_MAX_ATTEMPTS", default_value_t = gproxy::config::DEFAULT_MAX_ATTEMPTS)]
     max_attempts: u32,
 
+    /// Admin username for the first-boot bootstrap / credential override (§14.2).
+    #[arg(long, env = "GPROXY_ADMIN_USER", default_value = "admin")]
+    admin_user: String,
+
+    /// Admin password override (§14.2): when set, force-resets this admin every
+    /// startup (host-level recovery). Prefer env over the CLI flag — the flag is
+    /// visible in /proc/*/cmdline. Never logged.
+    #[arg(long, env = "GPROXY_ADMIN_PASSWORD")]
+    admin_password: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -169,6 +179,17 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(path, "GPROXY_IMPORT_FILE set but store not empty; skipped");
         }
     }
+
+    // First-boot admin bootstrap (§14.2): runs after the import hook so an
+    // imported admin pre-empts random creation. The override (if set) force-
+    // resets the admin every startup. Only on the serve path — the import/
+    // export subcommands have already returned above.
+    gproxy::app::bootstrap::ensure_admin(
+        persistence.as_ref(),
+        &cli.admin_user,
+        cli.admin_password.as_deref(),
+    )
+    .await?;
 
     let cache: Arc<dyn CacheBackend> = match &config.cache {
         #[cfg(feature = "cache-memory")]
