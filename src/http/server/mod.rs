@@ -15,6 +15,9 @@ mod extract;
 #[cfg(not(target_arch = "wasm32"))]
 mod gateway;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod admin;
+
 /// Build the top-level axum router.
 ///
 /// On native the literal `/v1/...` aggregated route is registered before the

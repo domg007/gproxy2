@@ -1,6 +1,7 @@
 //! gproxy v2 library crate. The binary (`main.rs`) is a thin wiring
 //! layer over these modules.
 
+pub mod admin;
 pub mod app;
 pub mod billing;
 pub mod channel;
