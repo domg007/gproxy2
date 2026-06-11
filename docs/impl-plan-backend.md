@@ -711,8 +711,10 @@ Each lists new types/methods + the exact M1 seam they hook into.
   operations. A minimal bundle import (M9-lite: `gproxy import --in` +
   `GPROXY_IMPORT_FILE` first-boot hook) landed as the e2e enabler; the FILE
   backend's `upsert_*` now insert at explicit ids (advancing `next_id`); the
-  DB backend still errors on explicit-id-not-found — **M9 must port the same
-  upsert semantics to the DB backend before `import --persistence=db` works.**
+  DB backend still errors on explicit-id-not-found — **DB-backend explicit-id
+  upsert is still NOT ported (M9 landed without it); `import --persistence=db`
+  to an empty store fails until a dedicated db-upsert task lands it (see M9
+  bullet). The FILE backend round-trips fully.**
   **M2.5 landed (2026-06-10): transform surface completion.** classify covers
   models/count_tokens paths (`GET /v1/models` openai/claude collision resolved
   by credential form: `x-api-key` → claude); `request_target` synthesizes all
@@ -880,8 +882,9 @@ Each lists new types/methods + the exact M1 seam they hook into.
   schema). `admin.rs` deferred from M1 lands here. First-boot admin bootstrap
   lands here too, ordered AFTER the first-boot import (see post-review
   amendments).
-  Note: M2 landed an import enabler (see M2 bullet); port the file backend's
-  explicit-id upsert semantics to the DB backend here.
+  Note: M2 landed an import enabler (see M2 bullet); porting the file backend's
+  explicit-id upsert semantics to the DB backend is **still OPEN** (see the
+  Landed note below — deferred to a dedicated db-upsert task / M10).
   Landed (2026-06-11): export (`app/export.rs` + `export/mappers.rs`,
   `gproxy export --out`) round-trips import — full `Bundle` + `instance_settings`,
   scope-universe enumeration (orgs+teams+users) for quotas/limits/perms since
