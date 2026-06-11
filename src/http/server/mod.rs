@@ -38,6 +38,7 @@ pub fn router(state: AppState) -> Router {
             .route("/v1/{*rest}", any(gateway::aggregated))
             .route("/{provider}/v1/{*rest}", any(gateway::scoped))
             .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
+        router = router.merge(admin::admin_router(state.clone()));
     }
 
     router.with_state(state)
