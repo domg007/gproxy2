@@ -21,6 +21,10 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         // M10c — OAuth authcode login flow (start/complete), behind require_admin.
         .route("/admin/login-flows/start", post(login::start))
         .route("/admin/login-flows/complete", post(login::complete))
+        // M10c — device-code login (copilot) + cookie login (claudecode).
+        .route("/admin/login-flows/device/start", post(login::device_start))
+        .route("/admin/login-flows/device/poll", post(login::device_poll))
+        .route("/admin/login-flows/cookie", post(login::cookie))
         // M10b CRUD routes for the global config entities, all behind require_admin.
         .merge(crud::routes())
         .layer(from_fn_with_state(state, middleware::require_admin));

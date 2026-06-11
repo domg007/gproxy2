@@ -17,6 +17,11 @@ use crate::store::cache::CacheBackend;
 /// Lifetime of a pending login (matches the v1 codex state TTL).
 const LOGIN_TTL: Duration = Duration::from_secs(600);
 
+/// Lifetime of a pending device-code login — longer than the authcode TTL since
+/// the operator must visit a URL and enter a code (GitHub device codes expire
+/// in ~15 min).
+const DEVICE_TTL: Duration = Duration::from_secs(900);
+
 /// Server-side state of a pending OAuth login, keyed by an opaque session id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginSession {
@@ -59,4 +64,37 @@ pub async fn take(cache: &dyn CacheBackend, sid: &str) -> Option<LoginSession> {
 
 fn key(sid: &str) -> String {
     format!("login:{sid}")
+}
+
+/// Server-side state of a pending device-code login. The `device_code` is the
+/// secret the poll endpoint replays to the provider — it never reaches the
+/// browser (the operator only sees the user_code + verification URL).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceSession {
+    pub channel: String,
+    pub device_code: String,
+    pub provider_id: i64,
+    pub name: Option<String>,
+}
+
+/// Stash a pending device login → cache `login:{sid}` for [`DEVICE_TTL`].
+pub async fn device_start(cache: &dyn CacheBackend, session: DeviceSession) -> String {
+    let sid = crate::util::rand::uuid_v4();
+    if let Ok(bytes) = serde_json::to_vec(&session) {
+        cache.set(&key(&sid), bytes, Some(DEVICE_TTL)).await;
+    }
+    sid
+}
+
+/// Peek a pending device login WITHOUT deleting it — the poll endpoint reads it
+/// repeatedly while `Pending`, deleting only on a terminal outcome via
+/// [`device_clear`].
+pub async fn device_peek(cache: &dyn CacheBackend, sid: &str) -> Option<DeviceSession> {
+    let raw = cache.get(&key(sid)).await?;
+    serde_json::from_slice(&raw).ok()
+}
+
+/// Delete a device login session (on Ready/Denied).
+pub async fn device_clear(cache: &dyn CacheBackend, sid: &str) {
+    cache.delete(&key(sid)).await;
 }

@@ -6,6 +6,7 @@
 //! OAuth refresh + header injection (and documents the deferred cookie login).
 
 mod auth;
+mod cookie;
 
 use std::sync::Arc;
 
@@ -91,6 +92,14 @@ impl ChannelLogin for ClaudeCodeChannel {
         redirect_uri: &str,
     ) -> Result<Value, ChannelError> {
         auth::authcode_exchange(client, code, verifier, redirect_uri).await
+    }
+
+    async fn cookie_exchange(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        cookie: &str,
+    ) -> Result<Value, ChannelError> {
+        cookie::exchange(client, cookie).await
     }
 }
 

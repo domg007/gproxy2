@@ -683,6 +683,8 @@ Vercel/Cloudflare =
   | kiro | OAuth authcode(社交 portal / AWS IdC,粘 callback URL) |
 - **登录代码归属**:渠道知识(client_id / 授权 + token 端点 / PKCE 配置 / code↔token 换取 / device 轮询 / cookie 换取)在**各 channel**(可单测);登录编排(start/complete 状态机)是共享服务;实际 HTTP 入口端点在 **M10 管理 API**。M7b 用导入预置 token 的凭证测试 prepare+刷新+转换,不依赖 M10。
 
+**M10c 登录端点落地(2026-06-11)——获取 token 这半边已完成**:`ChannelLogin` trait(默认 unsupported 的 `authcode_start`/`authcode_exchange` + `device_start`/`device_poll` + `cookie_exchange`)+ `login_for(channel)` 注册表;`require_admin` 后的 admin `login-flows` 端点:`start`/`complete`(authcode,PKCE+state 存 cache、`complete` 校验 state)、`device/start`/`device/poll`(device-code,session 一次性存 cache、pending 时 peek 不删、终态才 clear)、`cookie`(一步换取)。按上表逐渠道:authcode = codex/claudecode/geminicli/antigravity/kiro-social;device = copilot_cli(GitHub device flow → `{github_token}`,refresh 再换 Copilot token);cookie = claudecode。成功即 seal+建 `kind="oauth"` 凭证并广播失效,返回 **脱敏的 `CredentialView`**(绝不回传 secret;verifier/device_code/cookie/code 全程不记日志)。codex device **跳过**——codex sample 走自有 app-server RPC(不可干净提取的公开 device 端点),authcode 已覆盖。后续:kiro AWS IdC(OIDC `RegisterClient`)、geminicli/antigravity project 解析、codex `account_id`(从 `id_token`)。
+
 **刷新——惰性按需 + 单飞锁**:
 - secret_json(信封加密)存 `{access_token, refresh_token, expires_at, ...}`。
 - 选中凭证时若 `now > expires_at - lead`(按 provider 设提前量)或上游返 **401** → 先刷新再用/重试。

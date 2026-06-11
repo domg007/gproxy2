@@ -15,7 +15,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
+use crate::channel::{
+    Channel, ChannelError, ChannelLogin, DeviceInit, DevicePoll, PrepareCtx, PreparedRequest,
+};
 use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
@@ -94,6 +96,28 @@ impl Channel for CopilotCliChannel {
             Value::Number(expires_at_ms.into()),
         );
         Ok(out)
+    }
+}
+
+/// GitHub device-code login: the operator visits the verification URL with the
+/// user code, and the poll mints `{github_token}` (which `refresh` later
+/// re-exchanges for the Copilot token). No authcode + no cookie flow.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl ChannelLogin for CopilotCliChannel {
+    async fn device_start(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+    ) -> Result<DeviceInit, ChannelError> {
+        auth::device_start(client).await
+    }
+
+    async fn device_poll(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        device_code: &str,
+    ) -> Result<DevicePoll, ChannelError> {
+        auth::device_poll(client, device_code).await
     }
 }
 

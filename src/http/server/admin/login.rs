@@ -13,8 +13,12 @@ use axum::extract::State;
 use crate::admin::{invalidate, login};
 use crate::api::credentials::CredentialView;
 use crate::api::error::ApiError;
-use crate::api::login::{LoginCompleteRequest, LoginStartRequest, LoginStartResponse};
+use crate::api::login::{
+    CookieLoginRequest, DevicePollRequest, DeviceStartRequest, DeviceStartResponse,
+    LoginCompleteRequest, LoginStartRequest, LoginStartResponse,
+};
 use crate::app::AppState;
+use crate::channel::DevicePoll;
 use crate::channel::oauth;
 use crate::store::persistence::records::CredentialInput;
 use crate::util::rand::uuid_v4;
@@ -86,10 +90,26 @@ pub async fn complete(
         .map_err(|_| bad())?;
 
     let sealed = state.cipher.seal(&secret).map_err(|_| bad())?;
+    let cred = seal_create(&state, req.provider_id, req.name, sealed)
+        .await
+        .map_err(|_| bad())?;
+    Ok(Json(cred))
+}
+
+/// Seal-then-persist is shared by all four login completions: a pre-sealed
+/// secret + the target provider/name → a redacted [`CredentialView`]. The
+/// credential is `kind="oauth"`, default weight, enabled; cache invalidated so
+/// the new credential is pickable at once.
+async fn seal_create(
+    state: &AppState,
+    provider_id: i64,
+    name: Option<String>,
+    sealed: serde_json::Value,
+) -> Result<CredentialView, ApiError> {
     let input = CredentialInput {
         id: None,
-        provider_id: req.provider_id,
-        name: req.name,
+        provider_id,
+        name,
         kind: "oauth".into(),
         secret_json: sealed,
         weight: 100,
@@ -104,8 +124,98 @@ pub async fn complete(
         .upsert_credential(input)
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    invalidate(&state).await;
-    Ok(Json(CredentialView::from(cred)))
+    invalidate(state).await;
+    Ok(CredentialView::from(cred))
+}
+
+/// `POST /admin/login-flows/device/start`. Asks the channel's device flow for a
+/// code, stashes the device_code server-side, and returns the user-facing code
+/// + verification URL the operator visits.
+pub async fn device_start(
+    State(state): State<AppState>,
+    Json(req): Json<DeviceStartRequest>,
+) -> Result<Json<DeviceStartResponse>, ApiError> {
+    let channel = state
+        .channels
+        .login_for(&req.channel)
+        .ok_or_else(|| ApiError::NotFound("unknown channel".into()))?;
+    let init = channel
+        .device_start(&state.upstream)
+        .await
+        .map_err(|_| ApiError::BadRequest("channel has no device login".into()))?;
+    let sid = login::device_start(
+        state.cache.as_ref(),
+        login::DeviceSession {
+            channel: req.channel,
+            device_code: init.device_code,
+            provider_id: req.provider_id,
+            name: req.name,
+        },
+    )
+    .await;
+    Ok(Json(DeviceStartResponse {
+        login_session_id: sid,
+        user_code: init.user_code,
+        verification_url: init.verification_url,
+        interval_secs: init.interval_secs,
+    }))
+}
+
+/// `POST /admin/login-flows/device/poll`. Polls the provider once with the
+/// stashed device_code: `pending` keeps the session; `ready` seals + creates
+/// the credential and clears the session; `denied`/error clears + 400s.
+pub async fn device_poll(
+    State(state): State<AppState>,
+    Json(req): Json<DevicePollRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let bad = || ApiError::BadRequest("device login failed".into());
+    let session = login::device_peek(state.cache.as_ref(), &req.login_session_id)
+        .await
+        .ok_or_else(bad)?;
+    let channel = state.channels.login_for(&session.channel).ok_or_else(bad)?;
+
+    match channel
+        .device_poll(&state.upstream, &session.device_code)
+        .await
+    {
+        Ok(DevicePoll::Pending) => Ok(Json(serde_json::json!({ "status": "pending" }))),
+        Ok(DevicePoll::Ready(secret)) => {
+            login::device_clear(state.cache.as_ref(), &req.login_session_id).await;
+            let sealed = state.cipher.seal(&secret).map_err(|_| bad())?;
+            let cred = seal_create(&state, session.provider_id, session.name, sealed)
+                .await
+                .map_err(|_| bad())?;
+            Ok(Json(
+                serde_json::json!({ "status": "ready", "credential": cred }),
+            ))
+        }
+        Ok(DevicePoll::Denied) | Err(_) => {
+            login::device_clear(state.cache.as_ref(), &req.login_session_id).await;
+            Err(bad())
+        }
+    }
+}
+
+/// `POST /admin/login-flows/cookie`. Exchanges a session cookie for a secret in
+/// one shot (no pending session) and persists it as a sealed credential.
+pub async fn cookie(
+    State(state): State<AppState>,
+    Json(req): Json<CookieLoginRequest>,
+) -> Result<Json<CredentialView>, ApiError> {
+    let channel = state
+        .channels
+        .login_for(&req.channel)
+        .ok_or_else(|| ApiError::NotFound("unknown channel".into()))?;
+    let secret = channel
+        .cookie_exchange(&state.upstream, &req.cookie)
+        .await
+        .map_err(|_| ApiError::BadRequest("cookie login failed".into()))?;
+    let sealed = state
+        .cipher
+        .seal(&secret)
+        .map_err(|_| ApiError::BadRequest("cookie login failed".into()))?;
+    let cred = seal_create(&state, req.provider_id, req.name, sealed).await?;
+    Ok(Json(cred))
 }
 
 /// Pull `code` + `state` out of a callback URL's query string. No `url` dep:

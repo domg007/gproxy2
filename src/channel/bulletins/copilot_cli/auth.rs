@@ -32,6 +32,117 @@ const USER_AGENT: &str = "GitHubCopilotChat/0.43.0";
 const API_VERSION: &str = "2025-04-01";
 const GITHUB_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 
+/// GitHub device-flow OAuth client (the public Copilot CLI / VS Code id) +
+/// endpoints, mined from the TS sample's `services/github/*.ts`.
+const DEVICE_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
+const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
+const DEVICE_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const DEVICE_SCOPE: &str = "read:user";
+
+/// `github.com/login/device/code` response (`Accept: application/json`).
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    #[serde(default = "default_interval")]
+    interval: u64,
+}
+
+fn default_interval() -> u64 {
+    5
+}
+
+/// `github.com/login/oauth/access_token` device-poll response: either an
+/// `access_token` (success) or an `error` (pending / slow_down / denied).
+#[derive(Debug, Deserialize)]
+struct DeviceTokenResponse {
+    access_token: Option<String>,
+    error: Option<String>,
+}
+
+/// Start the GitHub device flow: POST the client_id + scope, get back the
+/// device + user codes and the verification URL the operator visits.
+pub(super) async fn device_start(
+    client: &Arc<dyn UpstreamClient>,
+) -> Result<crate::channel::DeviceInit, ChannelError> {
+    let form = format!("client_id={DEVICE_CLIENT_ID}&scope={DEVICE_SCOPE}");
+    let req = Request::post(DEVICE_CODE_URL)
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(http::header::ACCEPT, "application/json")
+        .body(Bytes::from(form))
+        .map_err(|e| ChannelError::Build(format!("device code request build: {e}")))?;
+    let parsed: DeviceCodeResponse = send_json(client, req, "device code").await?;
+    Ok(crate::channel::DeviceInit {
+        device_code: parsed.device_code,
+        user_code: parsed.user_code,
+        verification_url: parsed.verification_uri,
+        interval_secs: parsed.interval,
+    })
+}
+
+/// Poll the GitHub device flow once. The token endpoint returns `access_token`
+/// on success or an `error` string; `authorization_pending` / `slow_down` map
+/// to `Pending`, `access_denied` / `expired_token` to `Denied`. The minted
+/// secret is `{github_token}` — the channel's `refresh` re-exchanges it for the
+/// short-lived Copilot token (M7b).
+pub(super) async fn device_poll(
+    client: &Arc<dyn UpstreamClient>,
+    device_code: &str,
+) -> Result<crate::channel::DevicePoll, ChannelError> {
+    use crate::channel::DevicePoll;
+    let form = format!(
+        "client_id={DEVICE_CLIENT_ID}&device_code={device_code}\
+         &grant_type=urn:ietf:params:oauth:grant-type:device_code"
+    );
+    let req = Request::post(DEVICE_TOKEN_URL)
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(http::header::ACCEPT, "application/json")
+        .body(Bytes::from(form))
+        .map_err(|e| ChannelError::Build(format!("device token request build: {e}")))?;
+    let parsed: DeviceTokenResponse = send_json(client, req, "device token").await?;
+
+    if let Some(token) = parsed.access_token.filter(|s| !s.is_empty()) {
+        return Ok(DevicePoll::Ready(
+            serde_json::json!({ "github_token": token }),
+        ));
+    }
+    match parsed.error.as_deref() {
+        Some("authorization_pending") | Some("slow_down") => Ok(DevicePoll::Pending),
+        Some("access_denied") | Some("expired_token") => Ok(DevicePoll::Denied),
+        // An unknown error is terminal — surface it rather than poll forever.
+        Some(other) => Err(ChannelError::Build(format!("device poll error: {other}"))),
+        None => Err(ChannelError::Build(
+            "device poll: neither access_token nor error".into(),
+        )),
+    }
+}
+
+/// Send `req` and parse a 2xx JSON body into `T`. Non-2xx → `Build` with the
+/// status + a truncated snippet (never the request form, which carries the
+/// device_code). GitHub's device endpoints answer 200 even for a `slow_down`
+/// payload, so the JSON `error` field — not the status — drives the decision.
+async fn send_json<T: serde::de::DeserializeOwned>(
+    client: &Arc<dyn UpstreamClient>,
+    req: Request<Bytes>,
+    what: &str,
+) -> Result<T, ChannelError> {
+    let resp: Response<Bytes> = client
+        .send(req)
+        .await
+        .map_err(|e| ChannelError::Build(format!("{what} request failed: {e}")))?;
+    let (parts, body) = resp.into_parts();
+    if !parts.status.is_success() {
+        let snippet: String = String::from_utf8_lossy(&body).chars().take(256).collect();
+        return Err(ChannelError::Build(format!(
+            "{what} endpoint {}: {snippet}",
+            parts.status
+        )));
+    }
+    serde_json::from_slice(&body)
+        .map_err(|e| ChannelError::Build(format!("{what} response parse: {e}")))
+}
+
 /// `api.github.com/copilot_internal/v2/token` response. Tolerant of unknown
 /// fields; `expires_at` is unix SECONDS, `refresh_in` is unused here (we key
 /// off `expires_at` with a skew in [`super`]).
@@ -180,4 +291,50 @@ fn has_assistant_or_tool_turn(body: &Bytes) -> bool {
 /// random).
 fn new_request_id() -> String {
     crate::util::rand::uuid_v4()
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::channel::DevicePoll;
+    use crate::http::client::ClientError;
+    use http::Response;
+    use std::sync::Mutex;
+
+    /// Returns the next queued body per `send`, so one mock drives the whole
+    /// pending → ready / denied poll sequence.
+    struct QueueUpstream(Mutex<Vec<&'static [u8]>>);
+    #[async_trait::async_trait]
+    impl UpstreamClient for QueueUpstream {
+        async fn send(&self, _req: Request<Bytes>) -> Result<Response<Bytes>, ClientError> {
+            let body = self.0.lock().unwrap().remove(0);
+            Ok(Response::builder()
+                .status(200)
+                .body(Bytes::from_static(body))
+                .unwrap())
+        }
+    }
+
+    /// device_poll maps GitHub's 200-with-`error` payloads to Pending/Denied and
+    /// an `access_token` payload to Ready with a `{github_token}` secret.
+    #[tokio::test]
+    async fn device_poll_maps_states() {
+        let client: Arc<dyn UpstreamClient> = Arc::new(QueueUpstream(Mutex::new(vec![
+            br#"{"error":"authorization_pending"}"#,
+            br#"{"error":"access_denied"}"#,
+            br#"{"access_token":"ghu_tok"}"#,
+        ])));
+        assert!(matches!(
+            device_poll(&client, "dc").await.unwrap(),
+            DevicePoll::Pending
+        ));
+        assert!(matches!(
+            device_poll(&client, "dc").await.unwrap(),
+            DevicePoll::Denied
+        ));
+        match device_poll(&client, "dc").await.unwrap() {
+            DevicePoll::Ready(secret) => assert_eq!(secret["github_token"], "ghu_tok"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
 }

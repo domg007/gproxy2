@@ -28,6 +28,28 @@ pub struct AuthCodeStart {
     pub redirect_uri: String,
 }
 
+/// The output of [`ChannelLogin::device_start`]: the device + user codes and
+/// the URL the operator visits to authorize, plus the poll interval the
+/// provider asked for (seconds).
+pub struct DeviceInit {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_url: String,
+    pub interval_secs: u64,
+}
+
+/// One poll tick of a device-code login.
+#[derive(Debug)]
+pub enum DevicePoll {
+    /// The user has not finished authorizing yet — poll again after the
+    /// interval (covers both `authorization_pending` and `slow_down`).
+    Pending,
+    /// Authorized: the PLAINTEXT secret Value the caller seals + persists.
+    Ready(serde_json::Value),
+    /// The user denied access or the device code expired — abandon the flow.
+    Denied,
+}
+
 /// Interactive OAuth authorization-code (+PKCE) login for a channel.
 ///
 /// Defaults make the trait opt-in: a channel that does not override returns
@@ -62,5 +84,37 @@ pub trait ChannelLogin: Send + Sync {
         _redirect_uri: &str,
     ) -> Result<serde_json::Value, ChannelError> {
         Err(ChannelError::Unsupported("authcode login"))
+    }
+
+    /// Begin a device-code login: ask the provider for a device + user code.
+    /// `None`-by-default channels return `Unsupported`. The caller stashes the
+    /// returned `device_code` server-side and polls [`device_poll`].
+    async fn device_start(
+        &self,
+        _client: &Arc<dyn UpstreamClient>,
+    ) -> Result<DeviceInit, ChannelError> {
+        Err(ChannelError::Unsupported("device login"))
+    }
+
+    /// Poll a pending device-code login with the `device_code` from
+    /// [`device_start`]. Returns [`DevicePoll::Ready`] with the PLAINTEXT secret
+    /// once authorized (the caller seals + persists), else `Pending`/`Denied`.
+    async fn device_poll(
+        &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _device_code: &str,
+    ) -> Result<DevicePoll, ChannelError> {
+        Err(ChannelError::Unsupported("device login"))
+    }
+
+    /// Exchange a session `cookie` for the PLAINTEXT secret Value (the caller
+    /// seals + persists). For channels whose first-credential bootstrap is a
+    /// browser session cookie rather than an interactive OAuth dance.
+    async fn cookie_exchange(
+        &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _cookie: &str,
+    ) -> Result<serde_json::Value, ChannelError> {
+        Err(ChannelError::Unsupported("cookie login"))
     }
 }

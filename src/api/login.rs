@@ -29,3 +29,40 @@ pub struct LoginCompleteRequest {
     #[serde(default)]
     pub name: Option<String>,
 }
+
+/// `POST /admin/login-flows/device/start` body. The minted credential lands in
+/// `provider_id`'s pool under the optional `name`.
+#[derive(serde::Deserialize)]
+pub struct DeviceStartRequest {
+    pub channel: String,
+    pub provider_id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// `device/start` response: the one-shot session id to poll with, plus the
+/// user-facing code + verification URL and the requested poll interval.
+#[derive(serde::Serialize)]
+pub struct DeviceStartResponse {
+    pub login_session_id: String,
+    pub user_code: String,
+    pub verification_url: String,
+    pub interval_secs: u64,
+}
+
+/// `POST /admin/login-flows/device/poll` body.
+#[derive(serde::Deserialize)]
+pub struct DevicePollRequest {
+    pub login_session_id: String,
+}
+
+/// `POST /admin/login-flows/cookie` body. The minted credential lands in
+/// `provider_id`'s pool under the optional `name`.
+#[derive(serde::Deserialize)]
+pub struct CookieLoginRequest {
+    pub channel: String,
+    pub cookie: String,
+    pub provider_id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+}

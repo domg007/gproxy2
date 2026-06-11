@@ -24,7 +24,7 @@ use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
 pub use disposition::Disposition;
-pub use login::{AuthCodeStart, ChannelLogin};
+pub use login::{AuthCodeStart, ChannelLogin, DeviceInit, DevicePoll};
 pub use prepared::PreparedRequest;
 
 /// Declared upstream transport, for capability-based degradation (§7.4).

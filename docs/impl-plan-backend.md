@@ -929,9 +929,27 @@ Each lists new types/methods + the exact M1 seam they hook into.
     `/admin/orgs/{id}/teams`, etc.; authz-scoped entities (`route-permissions`,
     `rate-limits`, `quotas`) are keyed by `?scope=&scope_id=`. Remaining M10:
     M10c OAuth login endpoints, M10d usage/health read API, M10e Console.
-  - **M10c** OAuth login endpoints — the M7b-deferred channel login flows
-    (cookie-login bootstrap).
-  - **M10d** usage / health read API.
+  - **M10c** OAuth login endpoints — **LANDED (2026-06-11)**. `ChannelLogin`
+    trait (default-unsupported `authcode_start`/`authcode_exchange` +
+    `device_start`/`device_poll` + `cookie_exchange`) with a `login_for(channel)`
+    registry; admin `login-flows` endpoints behind `require_admin`:
+    `start`/`complete` (authcode), `device/start`/`device/poll` (device-code,
+    one-shot session in cache, peek-while-pending + clear-on-terminal),
+    `cookie` (one-shot exchange). Per-channel coverage: **authcode** for
+    codex/claudecode/geminicli/antigravity/kiro-social; **device-code** for
+    copilot_cli (GitHub device flow → `{github_token}`, which the channel's
+    `refresh` re-exchanges to the Copilot token); **cookie** for claudecode
+    (sessionKey → `/api/bootstrap` org discovery → `/v1/oauth/{org}/authorize`
+    PKCE → `/v1/oauth/token`). On success the minted secret is sealed +
+    persisted as a `kind="oauth"` credential and the cache invalidated; the
+    endpoint returns the REDACTED `CredentialView` (never the secret). Codex
+    device flow SKIPPED — the codex sample drives device login through its own
+    app-server RPC (`LoginAccountParams::ChatgptDeviceCode` → opaque `login_id`),
+    not a cleanly extractable public OAuth device endpoint; authcode already
+    covers codex. Follow-ups: kiro AWS IdC (OIDC `RegisterClient`),
+    geminicli/antigravity project resolution (`loadCodeAssist`/`onboardUser`),
+    codex `account_id` from `id_token`.
+  - **M10d** usage / health read API — the remaining backend sub-block.
   - **M10e** Console — backend-first; the Console UI itself is deferred.
   - Hardening (rate-limit fairness, quota reset jobs) rides on existing
     `cache.incr` + snapshot configs.
