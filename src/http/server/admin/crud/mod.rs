@@ -5,7 +5,10 @@
 //! handlers are not hand-copied. Users are special-cased in [`users`] (password
 //! hashing + hash redaction). All routes mount behind `require_admin`.
 
+mod credentials;
 mod entities;
+mod nested;
+mod user_keys;
 mod users;
 
 use axum::Router;
@@ -67,6 +70,77 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/admin/users", get(users::list).post(users::upsert))
         .route("/admin/users/{id}", get(users::get).delete(users::delete))
+        // M10b T2 — credentials (sealed secret, redacted on read).
+        .route(
+            "/admin/providers/{provider_id}/credentials",
+            get(credentials::list).post(credentials::upsert),
+        )
+        .route(
+            "/admin/providers/{provider_id}/credentials/{id}",
+            get(credentials::get),
+        )
+        .route(
+            "/admin/credentials/{id}",
+            axum::routing::delete(credentials::delete),
+        )
+        // M10b T2 — user keys (digest + sealed ciphertext, redacted on read).
+        .route(
+            "/admin/users/{user_id}/keys",
+            get(user_keys::list).post(user_keys::upsert),
+        )
+        .route(
+            "/admin/user-keys/{id}",
+            axum::routing::delete(user_keys::delete),
+        )
+        // M10b T2 — parent-nested config entities (no secrets).
+        .route(
+            "/admin/orgs/{org_id}/teams",
+            get(nested::teams::list).post(nested::teams::upsert),
+        )
+        .route(
+            "/admin/teams/{id}",
+            axum::routing::delete(nested::teams::delete),
+        )
+        .route(
+            "/admin/providers/{provider_id}/models",
+            get(nested::provider_models::list).post(nested::provider_models::upsert),
+        )
+        .route(
+            "/admin/provider-models/{id}",
+            axum::routing::delete(nested::provider_models::delete),
+        )
+        .route(
+            "/admin/routes/{route_id}/members",
+            get(nested::route_members::list).post(nested::route_members::upsert),
+        )
+        .route(
+            "/admin/route-members/{id}",
+            axum::routing::delete(nested::route_members::delete),
+        )
+        .route(
+            "/admin/rule-sets/{rule_set_id}/rules",
+            get(nested::rules::list).post(nested::rules::upsert),
+        )
+        .route(
+            "/admin/rules/{id}",
+            axum::routing::delete(nested::rules::delete),
+        )
+        .route(
+            "/admin/providers/{provider_id}/routing-rules",
+            get(nested::routing_rules::list).post(nested::routing_rules::upsert),
+        )
+        .route(
+            "/admin/routing-rules/{id}",
+            axum::routing::delete(nested::routing_rules::delete),
+        )
+        .route(
+            "/admin/providers/{provider_id}/rule-sets",
+            get(nested::provider_rule_sets::list).post(nested::provider_rule_sets::upsert),
+        )
+        .route(
+            "/admin/provider-rule-sets/{id}",
+            axum::routing::delete(nested::provider_rule_sets::delete),
+        )
 }
 
 #[cfg(test)]
@@ -105,6 +179,14 @@ mod tests {
     /// AppState backed by a tempdir file store seeded with one admin
     /// (`admin` / `secret`). Returns the state, its tempdir, and the admin id.
     async fn seeded_state() -> (AppState, tempfile::TempDir, i64) {
+        seeded_state_with_cipher(Arc::new(crate::crypto::NoopCipher)).await
+    }
+
+    /// As [`seeded_state`] but with a caller-supplied cipher (so secret-bearing
+    /// tests can use a real envelope cipher).
+    async fn seeded_state_with_cipher(
+        cipher: Arc<dyn crate::crypto::SecretCipher>,
+    ) -> (AppState, tempfile::TempDir, i64) {
         let dir = tempfile::tempdir().expect("tempdir");
         let persistence: Arc<dyn crate::store::persistence::PersistenceBackend> = Arc::new(
             FilePersistence::open(dir.path().to_path_buf())
@@ -158,7 +240,7 @@ mod tests {
             Arc::new(NoUpstream),
             snapshot,
             channels,
-            Arc::new(crate::crypto::NoopCipher),
+            cipher,
         );
         (state, dir, admin.id)
     }
@@ -340,5 +422,229 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Seed a provider and return its id (file store, NoopCipher path uses the
+    /// state's persistence directly).
+    async fn seed_provider(state: &AppState) -> i64 {
+        use crate::store::persistence::records::ProviderInput;
+        state
+            .persistence
+            .upsert_provider(ProviderInput {
+                id: None,
+                name: "p1".into(),
+                channel: "openai".into(),
+                label: None,
+                settings_json: serde_json::json!({}),
+                credential_strategy: "weighted".into(),
+                proxy_url: None,
+                tls_fingerprint: None,
+                enabled: true,
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// Credentials seal the plaintext secret on write and redact it on read.
+    #[tokio::test]
+    async fn credential_sealed_and_redacted() {
+        use base64::Engine as _;
+        insecure_cookies();
+        let cipher = crate::crypto::cipher_from_master_key(Some(
+            &base64::engine::general_purpose::STANDARD.encode([9u8; 32]),
+        ))
+        .unwrap();
+        let (state, _dir, admin_id) = seeded_state_with_cipher(cipher).await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let provider_id = seed_provider(&state).await;
+        let persistence = state.persistence.clone();
+        let app = crate::http::server::router(state);
+
+        // POST a credential with a plaintext secret.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/admin/providers/{provider_id}/credentials"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"secret_json":{"api_key":"sk-x"}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let view: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(view.get("secret_json").is_none(), "must not leak secret");
+        assert_eq!(view["has_secret"], true);
+        let cred_id = view["id"].as_i64().unwrap();
+
+        // GET list is redacted too.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/admin/providers/{provider_id}/credentials"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(list[0].get("secret_json").is_none(), "list must redact");
+
+        // The persisted secret is a real envelope.
+        let stored = persistence.get_credential(cred_id).await.unwrap().unwrap();
+        assert!(crate::crypto::envelope::is_envelope(&stored.secret_json));
+
+        // Update WITHOUT secret_json (change weight) → stored secret unchanged.
+        let resp = app
+            .oneshot(
+                Request::post(format!("/admin/providers/{provider_id}/credentials"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(r#"{{"id":{cred_id},"weight":50}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let stored = persistence.get_credential(cred_id).await.unwrap().unwrap();
+        assert_eq!(stored.weight, 50);
+        let opened = persistence
+            .get_credential(cred_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .secret_json;
+        // Re-open through the same cipher proves it still holds "sk-x".
+        let key = base64::engine::general_purpose::STANDARD.encode([9u8; 32]);
+        let reopen = crate::crypto::cipher_from_master_key(Some(&key)).unwrap();
+        assert_eq!(reopen.open(&opened).unwrap()["api_key"], "sk-x");
+    }
+
+    /// User keys store a digest of the bare key and never echo it back.
+    #[tokio::test]
+    async fn user_key_digest_redacted() {
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let user_id = state.persistence.list_users().await.unwrap()[0].id;
+        let persistence = state.persistence.clone();
+        let app = crate::http::server::router(state);
+
+        let resp = app
+            .oneshot(
+                Request::post(format!("/admin/users/{user_id}/keys"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"api_key":"sk-test"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let view: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(view.get("api_key").is_none(), "no bare key in response");
+        let prefix = view["key_prefix"].as_str().unwrap();
+        assert_eq!(prefix.len(), 8);
+        let id = view["id"].as_i64().unwrap();
+
+        let stored = persistence.get_user_key(id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.api_key_digest,
+            crate::pipeline::auth::key_digest("sk-test")
+        );
+    }
+
+    /// Nested route-members CRUD: create → list → delete.
+    #[tokio::test]
+    async fn nested_route_members_crud() {
+        use crate::store::persistence::records::RouteInput;
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let provider_id = seed_provider(&state).await;
+        let route_id = state
+            .persistence
+            .upsert_route(RouteInput {
+                id: None,
+                name: "r1".into(),
+                strategy: "weighted".into(),
+                enabled: true,
+                description: None,
+            })
+            .await
+            .unwrap()
+            .id;
+        let app = crate::http::server::router(state);
+
+        // POST a member.
+        let payload = format!(
+            r#"{{"route_id":{route_id},"provider_id":{provider_id},"upstream_model_id":"gpt-4o","weight":1,"tier":0,"enabled":true}}"#
+        );
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/admin/routes/{route_id}/members"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let member: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let member_id = member["id"].as_i64().unwrap();
+
+        // List shows it.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/admin/routes/{route_id}/members"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            list.as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["id"] == member_id)
+        );
+
+        // Delete → 204, list empty.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::delete(format!("/admin/route-members/{member_id}"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        let resp = app
+            .oneshot(
+                Request::get(format!("/admin/routes/{route_id}/members"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(list.as_array().unwrap().is_empty());
     }
 }

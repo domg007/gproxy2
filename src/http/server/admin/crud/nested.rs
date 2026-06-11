@@ -1,0 +1,126 @@
+//! Macro-generated CRUD handlers for the parent-nested config entities
+//! (no secrets): `list_X(parent_id)` / `upsert_X(Input)` / `delete_X(id)`.
+//!
+//! [`crud_nested!`] emits a submodule with `list` (parent path param →
+//! `list_X(parent)`), `upsert` (takes the `*Input` directly), and `delete` (by
+//! id). Both `upsert` and `delete` invalidate the snapshot. These records carry
+//! no secrets, so the records are serialized directly (no redacting view).
+
+use super::internal;
+use crate::admin::invalidate;
+use crate::api::error::ApiError;
+use crate::app::AppState;
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+
+/// Generate the three nested CRUD handlers for one entity in a named submodule.
+macro_rules! crud_nested {
+    (
+        mod $modname:ident,
+        record = $record:ty,
+        input = $input:ty,
+        list = $list:ident,
+        upsert = $upsert:ident,
+        delete = $delete:ident $(,)?
+    ) => {
+        pub mod $modname {
+            #[allow(unused_imports)]
+            use super::*;
+
+            /// `GET /…/{parent}/…` — list the records under one parent.
+            pub async fn list(
+                State(state): State<AppState>,
+                Path(parent_id): Path<i64>,
+            ) -> Result<Json<Vec<$record>>, ApiError> {
+                Ok(Json(
+                    state.persistence.$list(parent_id).await.map_err(internal)?,
+                ))
+            }
+
+            /// `POST /…/{parent}/…` — upsert the `*Input` directly, then invalidate.
+            pub async fn upsert(
+                State(state): State<AppState>,
+                Path(_parent_id): Path<i64>,
+                Json(input): Json<$input>,
+            ) -> Result<Json<$record>, ApiError> {
+                let rec = state.persistence.$upsert(input).await.map_err(internal)?;
+                invalidate(&state).await;
+                Ok(Json(rec))
+            }
+
+            /// `DELETE /…/{id}` — 204 on removal, 404 otherwise; invalidate on hit.
+            pub async fn delete(
+                State(state): State<AppState>,
+                Path(id): Path<i64>,
+            ) -> Result<axum::response::Response, ApiError> {
+                if state.persistence.$delete(id).await.map_err(internal)? {
+                    invalidate(&state).await;
+                    Ok(StatusCode::NO_CONTENT.into_response())
+                } else {
+                    Err(ApiError::NotFound("not found".into()))
+                }
+            }
+        }
+    };
+}
+
+use crate::store::persistence::records::{
+    ProviderModel, ProviderModelInput, ProviderRuleSet, ProviderRuleSetInput, RouteMember,
+    RouteMemberInput, RoutingRule, RoutingRuleInput, Rule, RuleInput, Team, TeamInput,
+};
+
+crud_nested!(
+    mod teams,
+    record = Team,
+    input = TeamInput,
+    list = list_teams,
+    upsert = upsert_team,
+    delete = delete_team,
+);
+
+crud_nested!(
+    mod provider_models,
+    record = ProviderModel,
+    input = ProviderModelInput,
+    list = list_provider_models,
+    upsert = upsert_provider_model,
+    delete = delete_provider_model,
+);
+
+crud_nested!(
+    mod route_members,
+    record = RouteMember,
+    input = RouteMemberInput,
+    list = list_route_members,
+    upsert = upsert_route_member,
+    delete = delete_route_member,
+);
+
+crud_nested!(
+    mod rules,
+    record = Rule,
+    input = RuleInput,
+    list = list_rules,
+    upsert = upsert_rule,
+    delete = delete_rule,
+);
+
+crud_nested!(
+    mod routing_rules,
+    record = RoutingRule,
+    input = RoutingRuleInput,
+    list = list_routing_rules,
+    upsert = upsert_routing_rule,
+    delete = delete_routing_rule,
+);
+
+crud_nested!(
+    mod provider_rule_sets,
+    record = ProviderRuleSet,
+    input = ProviderRuleSetInput,
+    list = list_provider_rule_sets,
+    upsert = upsert_provider_rule_set,
+    delete = delete_provider_rule_set,
+);
