@@ -15,3 +15,22 @@ pub fn bytes<const N: usize>() -> [u8; N] {
     fill(&mut b);
     b
 }
+
+/// A random RFC-4122 v4 UUID string (`8-4-4-4-12` hex). Cross-target and
+/// cryptographically random — replaces the `uuid` crate (native-only) and its
+/// weak `Date::now()` wasm fallback, so session/request ids are unpredictable
+/// on edge too.
+pub fn uuid_v4() -> String {
+    let mut b = bytes::<16>();
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant 1
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}

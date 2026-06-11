@@ -263,18 +263,7 @@ fn collect_text(value: &Value, parts: &mut Vec<String>) {
     }
 }
 
-/// Fresh per-request v4 session id. `uuid` is a native-only dependency (Cargo
-/// target tables), so wasm falls back to a JS-clock + counter id — the same
-/// split as [`crate::channel::bulletins::claudecode`].
-#[cfg(not(target_arch = "wasm32"))]
+/// Fresh per-request v4 session id (cross-target, cryptographically random).
 fn new_session_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn new_session_id() -> String {
-    use core::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{:x}-{:x}", js_sys::Date::now() as u64, n)
+    crate::util::rand::uuid_v4()
 }

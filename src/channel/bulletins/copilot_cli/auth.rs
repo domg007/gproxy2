@@ -176,18 +176,8 @@ fn has_assistant_or_tool_turn(body: &Bytes) -> bool {
         })
 }
 
-/// Fresh per-request id for `x-request-id`. `uuid` is a native-only dependency
-/// (see Cargo.toml target tables), so wasm falls back to a JS-clock + counter
-/// id — same split as [`crate::http::server::extract`].
-#[cfg(not(target_arch = "wasm32"))]
+/// Fresh per-request id for `x-request-id` (cross-target, cryptographically
+/// random).
 fn new_request_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn new_request_id() -> String {
-    use core::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{:x}-{:x}", js_sys::Date::now() as u64, n)
+    crate::util::rand::uuid_v4()
 }

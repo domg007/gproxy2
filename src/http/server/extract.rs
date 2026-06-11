@@ -51,15 +51,9 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+/// Per-request correlation id (cross-target, cryptographically random). §15
+/// will migrate this to a ULID; for now a random v4 UUID is unique + opaque on
+/// both native and edge.
 fn gen_request_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn gen_request_id() -> String {
-    use core::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{:x}-{:x}", js_sys::Date::now() as u64, n)
+    crate::util::rand::uuid_v4()
 }

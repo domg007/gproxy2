@@ -153,23 +153,9 @@ fn apply_headers(req: &mut http::Request<Bytes>, access_token: &str) -> Result<(
     Ok(())
 }
 
-/// Fresh v4-shaped UUID string (`8-4-4-4-12` hex) from `crate::util::rand`
-/// (one cross-target RNG source; avoids uuid's native-only gate — the value is
-/// opaque to Kiro, only its shape matters).
+/// Fresh v4-shaped UUID string from `crate::util::rand` (opaque to Kiro).
 fn gen_uuid() -> String {
-    let mut b = crate::util::rand::bytes::<16>();
-    // RFC-4122 version/variant bits (cosmetic — Kiro treats it as opaque).
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    )
+    crate::util::rand::uuid_v4()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
