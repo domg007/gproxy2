@@ -63,23 +63,41 @@ pub async fn upsert(
     }
 
     let model = match input.id {
-        Some(id) => {
-            let existing = routing_rule::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match routing_rule::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: routing_rule::ActiveModel = existing.into();
+                am.provider_id = Set(input.provider_id);
+                am.operation = Set(input.operation);
+                am.kind = Set(input.kind);
+                am.implementation = Set(input.implementation);
+                am.dest_operation = Set(input.dest_operation);
+                am.dest_kind = Set(input.dest_kind);
+                am.sort_order = Set(input.sort_order);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (the unique (provider_id, operation, kind)
+                // precheck above already ensured no conflicting row exists).
+                routing_rule::ActiveModel {
+                    id: Set(id),
+                    provider_id: Set(input.provider_id),
+                    operation: Set(input.operation),
+                    kind: Set(input.kind),
+                    implementation: Set(input.implementation),
+                    dest_operation: Set(input.dest_operation),
+                    dest_kind: Set(input.dest_kind),
+                    sort_order: Set(input.sort_order),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("routing rule not found: {id}"))?;
-            let mut am: routing_rule::ActiveModel = existing.into();
-            am.provider_id = Set(input.provider_id);
-            am.operation = Set(input.operation);
-            am.kind = Set(input.kind);
-            am.implementation = Set(input.implementation);
-            am.dest_operation = Set(input.dest_operation);
-            am.dest_kind = Set(input.dest_kind);
-            am.sort_order = Set(input.sort_order);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             routing_rule::ActiveModel {
                 id: NotSet,

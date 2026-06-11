@@ -55,19 +55,33 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
     }
 
     let model = match input.id {
-        Some(id) => {
-            let existing = quota::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match quota::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: quota::ActiveModel = existing.into();
+                am.scope = Set(input.scope.as_str().to_owned());
+                am.scope_id = Set(input.scope_id);
+                am.quota_total = Set(input.quota_total.to_string());
+                am.cost_used = Set(input.cost_used.to_string());
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (the unique (scope, scope_id) precheck above
+                // already ensured no conflicting row exists).
+                quota::ActiveModel {
+                    id: Set(id),
+                    scope: Set(input.scope.as_str().to_owned()),
+                    scope_id: Set(input.scope_id),
+                    quota_total: Set(input.quota_total.to_string()),
+                    cost_used: Set(input.cost_used.to_string()),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("quota not found: {id}"))?;
-            let mut am: quota::ActiveModel = existing.into();
-            am.scope = Set(input.scope.as_str().to_owned());
-            am.scope_id = Set(input.scope_id);
-            am.quota_total = Set(input.quota_total.to_string());
-            am.cost_used = Set(input.cost_used.to_string());
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             quota::ActiveModel {
                 id: NotSet,

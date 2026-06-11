@@ -64,23 +64,39 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
         .transpose()?;
 
     let model = match input.id {
-        Some(id) => {
-            let existing = provider::Entity::find_by_id(id)
-                .one(conn)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("provider not found: {id}"))?;
-            let mut am: provider::ActiveModel = existing.into();
-            am.name = Set(input.name);
-            am.channel = Set(input.channel);
-            am.label = Set(input.label);
-            am.settings_json = Set(settings);
-            am.credential_strategy = Set(input.credential_strategy);
-            am.proxy_url = Set(input.proxy_url);
-            am.tls_fingerprint = Set(tls);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+        Some(id) => match provider::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: provider::ActiveModel = existing.into();
+                am.name = Set(input.name);
+                am.channel = Set(input.channel);
+                am.label = Set(input.label);
+                am.settings_json = Set(settings);
+                am.credential_strategy = Set(input.credential_strategy);
+                am.proxy_url = Set(input.proxy_url);
+                am.tls_fingerprint = Set(tls);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                let am = provider::ActiveModel {
+                    id: Set(id),
+                    name: Set(input.name),
+                    channel: Set(input.channel),
+                    label: Set(input.label),
+                    settings_json: Set(settings),
+                    credential_strategy: Set(input.credential_strategy),
+                    proxy_url: Set(input.proxy_url),
+                    tls_fingerprint: Set(tls),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                };
+                am.insert(conn).await?
+            }
+        },
         None => {
             let am = provider::ActiveModel {
                 id: NotSet,

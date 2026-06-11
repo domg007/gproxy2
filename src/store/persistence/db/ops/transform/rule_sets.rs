@@ -56,18 +56,31 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::R
     }
 
     let model = match input.id {
-        Some(id) => {
-            let existing = rule_set::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match rule_set::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: rule_set::ActiveModel = existing.into();
+                am.name = Set(input.name);
+                am.enabled = Set(input.enabled);
+                am.description = Set(input.description);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (the unique `name` precheck above already ensured
+                // no conflicting row exists).
+                rule_set::ActiveModel {
+                    id: Set(id),
+                    name: Set(input.name),
+                    enabled: Set(input.enabled),
+                    description: Set(input.description),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("rule set not found: {id}"))?;
-            let mut am: rule_set::ActiveModel = existing.into();
-            am.name = Set(input.name);
-            am.enabled = Set(input.enabled);
-            am.description = Set(input.description);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             rule_set::ActiveModel {
                 id: NotSet,

@@ -38,21 +38,36 @@ pub async fn upsert(
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = route_member::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match route_member::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: route_member::ActiveModel = existing.into();
+                am.route_id = Set(input.route_id);
+                am.provider_id = Set(input.provider_id);
+                am.upstream_model_id = Set(input.upstream_model_id);
+                am.weight = Set(input.weight);
+                am.tier = Set(input.tier);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                route_member::ActiveModel {
+                    id: Set(id),
+                    route_id: Set(input.route_id),
+                    provider_id: Set(input.provider_id),
+                    upstream_model_id: Set(input.upstream_model_id),
+                    weight: Set(input.weight),
+                    tier: Set(input.tier),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("route member not found: {id}"))?;
-            let mut am: route_member::ActiveModel = existing.into();
-            am.route_id = Set(input.route_id);
-            am.provider_id = Set(input.provider_id);
-            am.upstream_model_id = Set(input.upstream_model_id);
-            am.weight = Set(input.weight);
-            am.tier = Set(input.tier);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             route_member::ActiveModel {
                 id: NotSet,

@@ -47,19 +47,32 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = route::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match route::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: route::ActiveModel = existing.into();
+                am.name = Set(input.name);
+                am.strategy = Set(input.strategy);
+                am.enabled = Set(input.enabled);
+                am.description = Set(input.description);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                route::ActiveModel {
+                    id: Set(id),
+                    name: Set(input.name),
+                    strategy: Set(input.strategy),
+                    enabled: Set(input.enabled),
+                    description: Set(input.description),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("route not found: {id}"))?;
-            let mut am: route::ActiveModel = existing.into();
-            am.name = Set(input.name);
-            am.strategy = Set(input.strategy);
-            am.enabled = Set(input.enabled);
-            am.description = Set(input.description);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             route::ActiveModel {
                 id: NotSet,

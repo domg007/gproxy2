@@ -52,20 +52,34 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserKeyInput) -> anyhow::R
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = user_key::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match user_key::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: user_key::ActiveModel = existing.into();
+                am.user_id = Set(input.user_id);
+                am.api_key_ciphertext = Set(input.api_key_ciphertext);
+                am.api_key_digest = Set(input.api_key_digest);
+                am.label = Set(input.label);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                user_key::ActiveModel {
+                    id: Set(id),
+                    user_id: Set(input.user_id),
+                    api_key_ciphertext: Set(input.api_key_ciphertext),
+                    api_key_digest: Set(input.api_key_digest),
+                    label: Set(input.label),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("user key not found: {id}"))?;
-            let mut am: user_key::ActiveModel = existing.into();
-            am.user_id = Set(input.user_id);
-            am.api_key_ciphertext = Set(input.api_key_ciphertext);
-            am.api_key_digest = Set(input.api_key_digest);
-            am.label = Set(input.label);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             user_key::ActiveModel {
                 id: NotSet,

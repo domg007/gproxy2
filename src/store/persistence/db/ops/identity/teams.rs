@@ -51,18 +51,31 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
     }
 
     let model = match input.id {
-        Some(id) => {
-            let existing = team::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match team::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: team::ActiveModel = existing.into();
+                am.org_id = Set(input.org_id);
+                am.name = Set(input.name);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (the unique (org_id, name) precheck above already
+                // ensured no conflicting row exists).
+                team::ActiveModel {
+                    id: Set(id),
+                    org_id: Set(input.org_id),
+                    name: Set(input.name),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("team not found: {id}"))?;
-            let mut am: team::ActiveModel = existing.into();
-            am.org_id = Set(input.org_id);
-            am.name = Set(input.name);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             team::ActiveModel {
                 id: NotSet,

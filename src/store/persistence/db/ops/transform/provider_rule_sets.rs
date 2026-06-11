@@ -39,19 +39,32 @@ pub async fn upsert(
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = provider_rule_set::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match provider_rule_set::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: provider_rule_set::ActiveModel = existing.into();
+                am.provider_id = Set(input.provider_id);
+                am.rule_set_id = Set(input.rule_set_id);
+                am.sort_order = Set(input.sort_order);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                provider_rule_set::ActiveModel {
+                    id: Set(id),
+                    provider_id: Set(input.provider_id),
+                    rule_set_id: Set(input.rule_set_id),
+                    sort_order: Set(input.sort_order),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("provider rule set not found: {id}"))?;
-            let mut am: provider_rule_set::ActiveModel = existing.into();
-            am.provider_id = Set(input.provider_id);
-            am.rule_set_id = Set(input.rule_set_id);
-            am.sort_order = Set(input.sort_order);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             provider_rule_set::ActiveModel {
                 id: NotSet,

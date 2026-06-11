@@ -58,25 +58,44 @@ pub async fn upsert(
         .transpose()?;
 
     let model = match input.id {
-        Some(id) => {
-            let existing = credential::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match credential::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: credential::ActiveModel = existing.into();
+                am.provider_id = Set(input.provider_id);
+                am.name = Set(input.name);
+                am.kind = Set(input.kind);
+                am.secret_json = Set(secret);
+                am.weight = Set(input.weight);
+                am.rpm_limit = Set(input.rpm_limit);
+                am.tpm_limit = Set(input.tpm_limit);
+                am.proxy_url = Set(input.proxy_url);
+                am.tls_fingerprint = Set(tls);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                credential::ActiveModel {
+                    id: Set(id),
+                    provider_id: Set(input.provider_id),
+                    name: Set(input.name),
+                    kind: Set(input.kind),
+                    secret_json: Set(secret),
+                    weight: Set(input.weight),
+                    rpm_limit: Set(input.rpm_limit),
+                    tpm_limit: Set(input.tpm_limit),
+                    proxy_url: Set(input.proxy_url),
+                    tls_fingerprint: Set(tls),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("credential not found: {id}"))?;
-            let mut am: credential::ActiveModel = existing.into();
-            am.provider_id = Set(input.provider_id);
-            am.name = Set(input.name);
-            am.kind = Set(input.kind);
-            am.secret_json = Set(secret);
-            am.weight = Set(input.weight);
-            am.rpm_limit = Set(input.rpm_limit);
-            am.tpm_limit = Set(input.tpm_limit);
-            am.proxy_url = Set(input.proxy_url);
-            am.tls_fingerprint = Set(tls);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             credential::ActiveModel {
                 id: NotSet,

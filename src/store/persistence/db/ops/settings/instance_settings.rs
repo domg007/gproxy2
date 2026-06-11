@@ -53,26 +53,46 @@ pub async fn upsert(
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = instance_setting::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match instance_setting::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: instance_setting::ActiveModel = existing.into();
+                am.instance_name = Set(input.instance_name);
+                am.proxy = Set(input.proxy);
+                am.spoof_emulation = Set(input.spoof_emulation);
+                am.enable_usage = Set(input.enable_usage);
+                am.enable_upstream_log = Set(input.enable_upstream_log);
+                am.enable_upstream_log_body = Set(input.enable_upstream_log_body);
+                am.enable_downstream_log = Set(input.enable_downstream_log);
+                am.enable_downstream_log_body = Set(input.enable_downstream_log_body);
+                am.disable_log_redaction = Set(input.disable_log_redaction);
+                am.enable_tokenizer_download = Set(input.enable_tokenizer_download);
+                am.update_channel = Set(input.update_channel);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                instance_setting::ActiveModel {
+                    id: Set(id),
+                    instance_name: Set(input.instance_name),
+                    proxy: Set(input.proxy),
+                    spoof_emulation: Set(input.spoof_emulation),
+                    enable_usage: Set(input.enable_usage),
+                    enable_upstream_log: Set(input.enable_upstream_log),
+                    enable_upstream_log_body: Set(input.enable_upstream_log_body),
+                    enable_downstream_log: Set(input.enable_downstream_log),
+                    enable_downstream_log_body: Set(input.enable_downstream_log_body),
+                    disable_log_redaction: Set(input.disable_log_redaction),
+                    enable_tokenizer_download: Set(input.enable_tokenizer_download),
+                    update_channel: Set(input.update_channel),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("instance settings not found: {id}"))?;
-            let mut am: instance_setting::ActiveModel = existing.into();
-            am.instance_name = Set(input.instance_name);
-            am.proxy = Set(input.proxy);
-            am.spoof_emulation = Set(input.spoof_emulation);
-            am.enable_usage = Set(input.enable_usage);
-            am.enable_upstream_log = Set(input.enable_upstream_log);
-            am.enable_upstream_log_body = Set(input.enable_upstream_log_body);
-            am.enable_downstream_log = Set(input.enable_downstream_log);
-            am.enable_downstream_log_body = Set(input.enable_downstream_log_body);
-            am.disable_log_redaction = Set(input.disable_log_redaction);
-            am.enable_tokenizer_download = Set(input.enable_tokenizer_download);
-            am.update_channel = Set(input.update_channel);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             instance_setting::ActiveModel {
                 id: NotSet,

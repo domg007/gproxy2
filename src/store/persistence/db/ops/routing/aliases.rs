@@ -38,17 +38,28 @@ pub async fn upsert(conn: &DatabaseConnection, input: AliasInput) -> anyhow::Res
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = alias::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match alias::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: alias::ActiveModel = existing.into();
+                am.alias = Set(input.alias);
+                am.route_id = Set(input.route_id);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                alias::ActiveModel {
+                    id: Set(id),
+                    alias: Set(input.alias),
+                    route_id: Set(input.route_id),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("alias not found: {id}"))?;
-            let mut am: alias::ActiveModel = existing.into();
-            am.alias = Set(input.alias);
-            am.route_id = Set(input.route_id);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             alias::ActiveModel {
                 id: NotSet,

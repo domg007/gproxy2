@@ -55,21 +55,36 @@ pub async fn upsert(
         .transpose()?;
 
     let model = match input.id {
-        Some(id) => {
-            let existing = provider_model::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match provider_model::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: provider_model::ActiveModel = existing.into();
+                am.provider_id = Set(input.provider_id);
+                am.model_id = Set(input.model_id);
+                am.display_name = Set(input.display_name);
+                am.pricing_json = Set(pricing);
+                am.variants_json = Set(variants);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                provider_model::ActiveModel {
+                    id: Set(id),
+                    provider_id: Set(input.provider_id),
+                    model_id: Set(input.model_id),
+                    display_name: Set(input.display_name),
+                    pricing_json: Set(pricing),
+                    variants_json: Set(variants),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("provider model not found: {id}"))?;
-            let mut am: provider_model::ActiveModel = existing.into();
-            am.provider_id = Set(input.provider_id);
-            am.model_id = Set(input.model_id);
-            am.display_name = Set(input.display_name);
-            am.pricing_json = Set(pricing);
-            am.variants_json = Set(variants);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             provider_model::ActiveModel {
                 id: NotSet,

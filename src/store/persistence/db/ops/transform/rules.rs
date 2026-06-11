@@ -53,22 +53,38 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleInput) -> anyhow::Resu
         .transpose()?;
 
     let model = match input.id {
-        Some(id) => {
-            let existing = rule::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match rule::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: rule::ActiveModel = existing.into();
+                am.rule_set_id = Set(input.rule_set_id);
+                am.kind = Set(input.kind);
+                am.config_json = Set(config);
+                am.filter_model_pattern = Set(input.filter_model_pattern);
+                am.filter_operation_keys = Set(filter_keys);
+                am.sort_order = Set(input.sort_order);
+                am.enabled = Set(input.enabled);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                rule::ActiveModel {
+                    id: Set(id),
+                    rule_set_id: Set(input.rule_set_id),
+                    kind: Set(input.kind),
+                    config_json: Set(config),
+                    filter_model_pattern: Set(input.filter_model_pattern),
+                    filter_operation_keys: Set(filter_keys),
+                    sort_order: Set(input.sort_order),
+                    enabled: Set(input.enabled),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("rule not found: {id}"))?;
-            let mut am: rule::ActiveModel = existing.into();
-            am.rule_set_id = Set(input.rule_set_id);
-            am.kind = Set(input.kind);
-            am.config_json = Set(config);
-            am.filter_model_pattern = Set(input.filter_model_pattern);
-            am.filter_operation_keys = Set(filter_keys);
-            am.sort_order = Set(input.sort_order);
-            am.enabled = Set(input.enabled);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             rule::ActiveModel {
                 id: NotSet,

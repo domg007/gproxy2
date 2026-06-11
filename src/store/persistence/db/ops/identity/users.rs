@@ -46,21 +46,36 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserInput) -> anyhow::Resu
     let now = crate::store::persistence::db::ops::now_secs();
 
     let model = match input.id {
-        Some(id) => {
-            let existing = user::Entity::find_by_id(id)
-                .one(conn)
+        Some(id) => match user::Entity::find_by_id(id).one(conn).await? {
+            Some(existing) => {
+                let mut am: user::ActiveModel = existing.into();
+                am.name = Set(input.name);
+                am.org_id = Set(input.org_id);
+                am.team_id = Set(input.team_id);
+                am.password = Set(input.password);
+                am.enabled = Set(input.enabled);
+                am.is_admin = Set(input.is_admin);
+                am.updated_at = Set(now);
+                am.update(conn).await?
+            }
+            None => {
+                // Seeding an empty store from a pinned bundle: insert WITH the
+                // explicit id (matches the file backend's insert-with-id).
+                user::ActiveModel {
+                    id: Set(id),
+                    name: Set(input.name),
+                    org_id: Set(input.org_id),
+                    team_id: Set(input.team_id),
+                    password: Set(input.password),
+                    enabled: Set(input.enabled),
+                    is_admin: Set(input.is_admin),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                }
+                .insert(conn)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("user not found: {id}"))?;
-            let mut am: user::ActiveModel = existing.into();
-            am.name = Set(input.name);
-            am.org_id = Set(input.org_id);
-            am.team_id = Set(input.team_id);
-            am.password = Set(input.password);
-            am.enabled = Set(input.enabled);
-            am.is_admin = Set(input.is_admin);
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
+            }
+        },
         None => {
             user::ActiveModel {
                 id: NotSet,
