@@ -2,6 +2,7 @@
 //! login/logout are public; everything else sits behind an admin session.
 
 pub mod auth;
+pub mod crud;
 pub mod middleware;
 
 use axum::Router;
@@ -16,7 +17,8 @@ use crate::app::AppState;
 pub fn admin_router(state: AppState) -> Router<AppState> {
     let protected = Router::new()
         .route("/admin/me", get(auth::me))
-        // M10b CRUD routes mount here, all behind require_admin.
+        // M10b CRUD routes for the global config entities, all behind require_admin.
+        .merge(crud::routes())
         .layer(from_fn_with_state(state, middleware::require_admin));
     Router::new()
         .route("/admin/login", post(auth::login))
