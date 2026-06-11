@@ -15,8 +15,8 @@ use crate::channel::{Channel, ChannelLogin};
 /// Registry of channel adapters keyed by `Channel::id` (== `Provider.channel`).
 ///
 /// `login` is a parallel map holding only the channels that support the §14.5
-/// interactive OAuth authcode login (codex now; more in T2); a channel absent
-/// from it has no authcode flow.
+/// interactive OAuth authcode login (codex, claudecode, geminicli, antigravity,
+/// kiro); a channel absent from it has no authcode flow.
 pub struct ChannelRegistry {
     map: HashMap<&'static str, Arc<dyn Channel>>,
     login: HashMap<&'static str, Arc<dyn ChannelLogin>>,
@@ -87,7 +87,22 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
 /// Channels that support the §14.5 interactive OAuth authcode login, paired
 /// with their `Channel::id`. Only authcode-capable channels appear here.
 fn builtin_logins() -> Vec<(&'static str, Arc<dyn ChannelLogin>)> {
-    vec![("codex", Arc::new(bulletins::codex::CodexChannel))]
+    vec![
+        ("codex", Arc::new(bulletins::codex::CodexChannel)),
+        (
+            "claudecode",
+            Arc::new(bulletins::claudecode::ClaudeCodeChannel),
+        ),
+        (
+            "geminicli",
+            Arc::new(bulletins::geminicli::GeminiCliChannel),
+        ),
+        (
+            "antigravity",
+            Arc::new(bulletins::antigravity::AntigravityChannel),
+        ),
+        ("kiro", Arc::new(bulletins::kiro::KiroChannel)),
+    ]
 }
 
 impl Default for ChannelRegistry {

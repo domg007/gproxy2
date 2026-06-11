@@ -22,7 +22,10 @@ use serde_json::Value;
 
 use crate::channel::envelope::{self, CodeAssistStreamDecoder};
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::{Channel, ChannelError, ChannelStreamDecoder, PrepareCtx, PreparedRequest};
+use crate::channel::{
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
+    PreparedRequest,
+};
 use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
@@ -90,6 +93,34 @@ impl Channel for GeminiCliChannel {
         secret: &Value,
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl ChannelLogin for GeminiCliChannel {
+    fn authcode_start(
+        &self,
+        redirect_uri: &str,
+        state: &str,
+        pkce_challenge: &str,
+    ) -> Option<AuthCodeStart> {
+        let (authorize_url, redirect_uri) =
+            auth::authcode_start(redirect_uri, state, pkce_challenge);
+        Some(AuthCodeStart {
+            authorize_url,
+            redirect_uri,
+        })
+    }
+
+    async fn authcode_exchange(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<Value, ChannelError> {
+        auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
 }
 

@@ -12,7 +12,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
+use crate::channel::{
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
+};
 use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
@@ -61,6 +63,34 @@ impl Channel for ClaudeCodeChannel {
         secret: &Value,
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl ChannelLogin for ClaudeCodeChannel {
+    fn authcode_start(
+        &self,
+        redirect_uri: &str,
+        state: &str,
+        pkce_challenge: &str,
+    ) -> Option<AuthCodeStart> {
+        let (authorize_url, redirect_uri) =
+            auth::authcode_start(redirect_uri, state, pkce_challenge);
+        Some(AuthCodeStart {
+            authorize_url,
+            redirect_uri,
+        })
+    }
+
+    async fn authcode_exchange(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<Value, ChannelError> {
+        auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
 }
 
@@ -143,5 +173,45 @@ mod tests {
             "claude-cli/2.1.154 (external, cli)"
         );
         assert!(req.headers().get("x-claude-code-session-id").is_some());
+    }
+
+    #[test]
+    fn authcode_start_urls() {
+        // claudecode + geminicli authcode_start build provider authorize URLs
+        // carrying their client_id, the PKCE challenge, state, S256, a default
+        // redirect_uri, and their scopes.
+        let cc = ClaudeCodeChannel
+            .authcode_start("", "ST", "CH")
+            .expect("claudecode supports authcode");
+        let url = &cc.authorize_url;
+        assert!(
+            url.starts_with("https://claude.ai/oauth/authorize?"),
+            "{url}"
+        );
+        assert!(
+            url.contains("client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
+            "{url}"
+        );
+        assert!(url.contains("code_challenge=CH"), "{url}");
+        assert!(url.contains("state=ST"), "{url}");
+        assert!(url.contains("code_challenge_method=S256"), "{url}");
+        assert!(url.contains("redirect_uri="), "{url}");
+        assert!(url.contains("scope=user%3Aprofile"), "{url}");
+        assert_eq!(cc.redirect_uri, super::auth::DEFAULT_REDIRECT_URI);
+
+        let gc = crate::channel::bulletins::geminicli::GeminiCliChannel
+            .authcode_start("", "ST", "CH")
+            .expect("geminicli supports authcode");
+        let url = &gc.authorize_url;
+        assert!(
+            url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?"),
+            "{url}"
+        );
+        assert!(url.contains("681255809395-"), "{url}");
+        assert!(url.contains("code_challenge=CH"), "{url}");
+        assert!(url.contains("state=ST"), "{url}");
+        assert!(url.contains("code_challenge_method=S256"), "{url}");
+        assert!(url.contains("redirect_uri="), "{url}");
+        assert!(url.contains("cloud-platform"), "{url}");
     }
 }

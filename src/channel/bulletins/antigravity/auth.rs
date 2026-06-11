@@ -30,6 +30,16 @@ pub(super) const OAUTH_CLIENT_ID: &str =
 pub(super) const OAUTH_CLIENT_SECRET: &str = "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";
 pub(super) const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
+/// Google authorization endpoint for the interactive authcode+PKCE login.
+pub(super) const AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+/// Default redirect_uri the Antigravity login uses (mined from v1
+/// `ANTIGRAVITY_REDIRECT_URI`) — a loopback callback listener (distinct port
+/// from geminicli's).
+pub(super) const DEFAULT_REDIRECT_URI: &str = "http://localhost:51121/oauth-callback";
+/// OAuth scopes requested at login (mined from v1 `ANTIGRAVITY_OAUTH_SCOPE` — a
+/// superset of geminicli's, adding cclog / experimentsandconfigs / aicode).
+pub(super) const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs https://www.googleapis.com/auth/aicode";
+
 /// Code Assist API host (non-regional). Both verbs live under `/v1internal:`.
 pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 
@@ -47,6 +57,48 @@ fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
+}
+
+/// Build the authorize URL for the interactive authcode+PKCE login. An empty
+/// `redirect_uri` falls back to [`DEFAULT_REDIRECT_URI`]. Returns the URL plus
+/// the effective redirect_uri (so `complete` exchanges with the same value).
+pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -> (String, String) {
+    let redirect_uri = if redirect_uri.trim().is_empty() {
+        DEFAULT_REDIRECT_URI
+    } else {
+        redirect_uri
+    };
+    let url = oauth::google_authorize_url(
+        AUTHORIZE_URL,
+        OAUTH_CLIENT_ID,
+        redirect_uri,
+        OAUTH_SCOPE,
+        state,
+        challenge,
+    );
+    (url, redirect_uri.to_string())
+}
+
+/// Exchange a Google authcode (+PKCE verifier) for the plaintext secret. Same
+/// `project_id` caveat as `geminicli`: the minted secret carries tokens but NO
+/// `project_id` (Code Assist `loadCodeAssist` / `onboardUser` is a separate
+/// step), so the operator must set it before `prepare` can address the API.
+pub(super) async fn authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<Value, ChannelError> {
+    oauth::google_authcode_exchange(
+        client,
+        TOKEN_URL,
+        OAUTH_CLIENT_ID,
+        OAUTH_CLIENT_SECRET,
+        code,
+        verifier,
+        redirect_uri,
+    )
+    .await
 }
 
 /// The OAuth access token, required by [`super::AntigravityChannel::prepare`].

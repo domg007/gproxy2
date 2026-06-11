@@ -97,6 +97,82 @@ fn encode_form(pairs: &[(&str, &str)]) -> String {
     out
 }
 
+/// Build a Google OAuth2 authorize URL for an authcode+PKCE login, shared by the
+/// `geminicli` and `antigravity` channels (same `accounts.google.com` endpoint,
+/// differing only in client_id / scope / redirect_uri). Values are
+/// percent-encoded. `access_type=offline` + `prompt=consent` ensure a
+/// refresh_token is minted (mined from v1).
+pub fn google_authorize_url(
+    authorize_url: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    scope: &str,
+    state: &str,
+    challenge: &str,
+) -> String {
+    let query = [
+        ("response_type", "code"),
+        ("client_id", client_id),
+        ("redirect_uri", redirect_uri),
+        ("scope", scope),
+        ("access_type", "offline"),
+        ("prompt", "consent"),
+        ("code_challenge_method", "S256"),
+        ("code_challenge", challenge),
+        ("state", state),
+    ];
+    let mut out = String::new();
+    for (k, v) in query {
+        out.push(if out.is_empty() { '?' } else { '&' });
+        percent_encode_into(k, &mut out);
+        out.push('=');
+        percent_encode_into(v, &mut out);
+    }
+    format!("{authorize_url}{out}")
+}
+
+/// Exchange a Google authcode (+PKCE verifier) for the plaintext secret
+/// `{access_token, refresh_token?, expires_at_ms}`, shared by `geminicli` and
+/// `antigravity`. NOTE: `project_id` is NOT obtained here — Code Assist project
+/// resolution (`loadCodeAssist` / `onboardUser`) is a separate step; the minted
+/// secret carries tokens but no `project_id`, which the operator sets later (or
+/// a follow-up adds resolution) before the channel can address the API.
+pub async fn google_authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    token_url: &str,
+    client_id: &str,
+    client_secret: &str,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<serde_json::Value, ChannelError> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("code_verifier", verifier),
+    ];
+    let resp = token_post(client, token_url, &form, &[]).await?;
+
+    let access_token = resp
+        .access_token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::Build("token response missing access_token".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut secret = serde_json::json!({
+        "access_token": access_token,
+        "expires_at_ms": expires_at_ms,
+    });
+    if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
+        secret["refresh_token"] = serde_json::Value::String(rt);
+    }
+    Ok(secret)
+}
+
 /// Percent-encode `s` into `out`, leaving the RFC 3986 unreserved characters
 /// (`A-Za-z0-9-._~`) as-is and `%XX`-encoding every other byte.
 fn percent_encode_into(s: &str, out: &mut String) {

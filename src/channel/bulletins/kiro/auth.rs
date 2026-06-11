@@ -31,6 +31,12 @@ use crate::http::client::UpstreamClient;
 
 /// Default Kiro desktop auth host (social refresh + portal login).
 pub(super) const DEFAULT_AUTH_BASE_URL: &str = "https://prod.us-east-1.auth.desktop.kiro.dev";
+/// Default Kiro portal host hosting the social `/signin` consent page (mined
+/// from v1 `default_kiro_auth_portal_url`).
+pub(super) const DEFAULT_PORTAL_URL: &str = "https://app.kiro.dev";
+/// Default redirect_uri the social login uses when the caller passes none
+/// (mined from v1 `default_kiro_oauth_redirect_uri`) — a loopback listener.
+pub(super) const DEFAULT_REDIRECT_URI: &str = "http://localhost:3128";
 /// Kiro IDE user-agent the auth endpoints key behaviour off.
 const AUTH_USER_AGENT: &str = "KiroIDE-0.12.224-gproxy";
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
@@ -60,6 +66,114 @@ pub(super) fn profile_arn<'a>(secret: &'a Value, settings: &'a Value) -> Option<
 /// IdC when both `client_id` and `client_secret` are present, else social.
 fn is_idc(secret: &Value) -> bool {
     secret_str(secret, "client_id").is_some() && secret_str(secret, "client_secret").is_some()
+}
+
+/// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
+fn pct(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(
+                char::from_digit((b >> 4) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+            out.push(
+                char::from_digit((b & 0xf) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+        }
+    }
+    out
+}
+
+/// Build the SOCIAL authorize URL (`{portal}/signin?...`) for the interactive
+/// authcode+PKCE login. An empty `redirect_uri` falls back to
+/// [`DEFAULT_REDIRECT_URI`]. The query carries the recorded social params
+/// (`state`, `code_challenge` + S256, `redirect_uri`, `redirect_from=KiroIDE`),
+/// mined from v1 `build_kiro_portal_authorize_url`.
+///
+/// IdC (AWS OIDC client registration) login is OUT of scope here — it requires a
+/// `RegisterClient` round-trip before the authorize step, so only the social
+/// authcode flow is wired.
+pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -> (String, String) {
+    let redirect_uri = if redirect_uri.trim().is_empty() {
+        DEFAULT_REDIRECT_URI
+    } else {
+        redirect_uri
+    };
+    let query = [
+        ("state", state),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("redirect_uri", redirect_uri),
+        ("redirect_from", "KiroIDE"),
+    ]
+    .iter()
+    .map(|(k, v)| format!("{k}={}", pct(v)))
+    .collect::<Vec<_>>()
+    .join("&");
+    let portal = DEFAULT_PORTAL_URL.trim_end_matches('/');
+    (format!("{portal}/signin?{query}"), redirect_uri.to_string())
+}
+
+/// Social `/oauth/token` exchange response — snake_case (distinct from the
+/// camelCase [`TokenResponse`] the refresh endpoints return).
+#[derive(Debug, Deserialize)]
+struct SocialTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    profile_arn: Option<String>,
+    expires_in: Option<u64>,
+}
+
+/// Exchange a social authcode (+PKCE verifier) for the plaintext secret. Kiro's
+/// `{auth_base}/oauth/token` takes a JSON body (NOT form-urlencoded) and returns
+/// snake_case tokens. Maps to `{access_token, refresh_token, profile_arn?,
+/// expires_at_ms, auth_method:"social", provider:"social"}`.
+pub(super) async fn authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<Value, ChannelError> {
+    let url = format!(
+        "{}/oauth/token",
+        DEFAULT_AUTH_BASE_URL.trim_end_matches('/')
+    );
+    let body = json!({
+        "code": code,
+        "code_verifier": verifier,
+        "redirect_uri": redirect_uri,
+    });
+    let resp: SocialTokenResponse = json_post(client, &url, &body).await?;
+
+    let access_token = resp
+        .access_token
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("token response missing accessToken".into()))?;
+    let refresh_token = resp
+        .refresh_token
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("token response missing refreshToken".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut secret = json!({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_at_ms": expires_at_ms,
+        "auth_method": "social",
+        "provider": "social",
+    });
+    if let Some(arn) = resp.profile_arn.filter(|s| !s.trim().is_empty()) {
+        secret["profile_arn"] = Value::String(arn);
+    }
+    Ok(secret)
 }
 
 /// Whether the access token is absent or within the skew window of expiry.
@@ -126,7 +240,7 @@ pub(super) async fn refresh(
         )
     };
 
-    let resp = json_post(client, &url, &body).await?;
+    let resp: TokenResponse = json_post(client, &url, &body).await?;
 
     let new_access = resp
         .access_token
@@ -157,11 +271,11 @@ pub(super) async fn refresh(
 /// (the Kiro/OIDC token endpoints reject form-urlencoded). Rides the passed
 /// [`UpstreamClient`] (proxy pool / edge transport). Non-2xx →
 /// [`ChannelError::Build`] with the status + (truncated) body.
-async fn json_post(
+async fn json_post<T: serde::de::DeserializeOwned>(
     client: &Arc<dyn UpstreamClient>,
     url: &str,
     body: &Value,
-) -> Result<TokenResponse, ChannelError> {
+) -> Result<T, ChannelError> {
     let payload = serde_json::to_vec(body)
         .map_err(|e| ChannelError::Build(format!("refresh request serialize: {e}")))?;
     let req = http::Request::builder()

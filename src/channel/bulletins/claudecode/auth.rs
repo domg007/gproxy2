@@ -26,6 +26,17 @@ pub(super) const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 pub(super) const TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 pub(super) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 
+/// Authorization endpoint for the interactive authcode+PKCE login (§14.5).
+/// claude.ai hosts the consent page (mined from v1 `claudecode.rs`:
+/// `CLAUDECODE_CLAUDE_AI_BASE_URL` + `/oauth/authorize`).
+pub(super) const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
+/// Default redirect_uri the Claude Code login uses when the caller passes none
+/// (mined from v1 `CLAUDECODE_REDIRECT_URI`).
+pub(super) const DEFAULT_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
+/// OAuth scopes requested at login (mined from v1 `CLAUDECODE_OAUTH_SCOPE`).
+pub(super) const OAUTH_SCOPE: &str =
+    "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
 const USER_AGENT: &str = "claude-cli/2.1.154 (external, cli)";
@@ -54,6 +65,101 @@ fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
+}
+
+/// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
+fn pct(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(
+                char::from_digit((b >> 4) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+            out.push(
+                char::from_digit((b & 0xf) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+        }
+    }
+    out
+}
+
+/// Build the authorize URL for the interactive authcode+PKCE login. An empty
+/// `redirect_uri` falls back to [`DEFAULT_REDIRECT_URI`]. Returns the URL plus
+/// the effective redirect_uri (so `complete` exchanges with the same value).
+///
+/// The query mirrors v1 `claudecode.rs` (`code=true` flag + the standard PKCE
+/// set); Anthropic hosts the consent page on claude.ai.
+pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -> (String, String) {
+    let redirect_uri = if redirect_uri.trim().is_empty() {
+        DEFAULT_REDIRECT_URI
+    } else {
+        redirect_uri
+    };
+    let query = [
+        ("code", "true"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("response_type", "code"),
+        ("redirect_uri", redirect_uri),
+        ("scope", OAUTH_SCOPE),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("state", state),
+    ]
+    .iter()
+    .map(|(k, v)| format!("{k}={}", pct(v)))
+    .collect::<Vec<_>>()
+    .join("&");
+    (format!("{AUTHORIZE_URL}?{query}"), redirect_uri.to_string())
+}
+
+/// Exchange an authorization code (+PKCE verifier) for the plaintext secret.
+/// Anthropic's `/v1/oauth/token` rejects exchanges that omit `client_id` or the
+/// `anthropic-version` / `anthropic-beta` / CLI `user-agent` headers (same as
+/// [`refresh`]), so they are sent explicitly. Maps the response to
+/// `{access_token, refresh_token?, expires_at_ms}`; account/profile fields are a
+/// follow-up (the pipeline / `/api/oauth/profile` backfills them).
+pub(super) async fn authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<Value, ChannelError> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("code_verifier", verifier),
+    ];
+    let extra_headers = [
+        ("anthropic-version", ANTHROPIC_VERSION),
+        ("anthropic-beta", ANTHROPIC_BETA),
+        ("user-agent", USER_AGENT),
+    ];
+    let resp = oauth::token_post(client, TOKEN_URL, &form, &extra_headers).await?;
+
+    let access_token = resp
+        .access_token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::Build("token response missing access_token".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut secret = serde_json::json!({
+        "access_token": access_token,
+        "expires_at_ms": expires_at_ms,
+    });
+    if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
+        secret["refresh_token"] = Value::String(rt);
+    }
+    Ok(secret)
 }
 
 /// The OAuth access token, required by [`super::ClaudeCodeChannel::prepare`].
