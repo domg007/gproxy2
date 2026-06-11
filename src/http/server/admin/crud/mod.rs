@@ -18,7 +18,7 @@ use axum::routing::get;
 use crate::app::AppState;
 
 /// Map a persistence error to a 500 (the cause is logged, not leaked).
-fn internal<E: std::fmt::Display>(e: E) -> crate::api::error::ApiError {
+pub(crate) fn internal<E: std::fmt::Display>(e: E) -> crate::api::error::ApiError {
     crate::api::error::ApiError::Internal(e.to_string())
 }
 
@@ -745,5 +745,187 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(list.as_array().unwrap().is_empty());
+    }
+
+    /// M10d read API: seed usage rows via persistence, then read them back
+    /// through `/admin/usage` and `/admin/usage-rollups`; unauthed → 401.
+    #[tokio::test]
+    async fn usage_read_endpoints() {
+        use crate::store::persistence::records::UsageInput;
+        use rust_decimal::Decimal;
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let persistence = state.persistence.clone();
+        for i in 0..2 {
+            persistence
+                .append_usage(UsageInput {
+                    request_id: format!("req-{i}"),
+                    at: 100,
+                    route_name: Some("r".into()),
+                    provider_id: None,
+                    credential_id: None,
+                    org_id: None,
+                    team_id: None,
+                    user_id: None,
+                    user_key_id: None,
+                    operation: "chat".into(),
+                    kind: "openai".into(),
+                    model: Some("gpt-4o".into()),
+                    input_tokens: 10,
+                    output_tokens: 20,
+                    cache_read_tokens: 0,
+                    cache_creation_5m_tokens: 0,
+                    cache_creation_1h_tokens: 0,
+                    cost: Decimal::ZERO,
+                    usage_source: "counted".into(),
+                    ended: "complete".into(),
+                })
+                .await
+                .unwrap();
+        }
+        let app = crate::http::server::router(state);
+
+        // Unauthed → 401.
+        let resp = app
+            .clone()
+            .oneshot(Request::get("/admin/usage").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // GET /admin/usage → 200 + both seeded rows.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get("/admin/usage?limit=10")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 2);
+        assert!(list[0].get("secret_json").is_none());
+
+        // GET /admin/usage-rollups (valid granularity) → 200.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get("/admin/usage-rollups?granularity=day&from=0&to=9999999999")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Bad granularity → 400.
+        let resp = app
+            .oneshot(
+                Request::get("/admin/usage-rollups?granularity=decade&from=0&to=1")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// M10d read API: seed a credential status + an upstream request log via
+    /// persistence, then read them back through the credential-health and log
+    /// endpoints.
+    #[tokio::test]
+    async fn credential_status_and_logs() {
+        use crate::store::persistence::records::{
+            CredentialInput, CredentialStatusInput, UpstreamRequestInput,
+        };
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let provider_id = seed_provider(&state).await;
+        let persistence = state.persistence.clone();
+        let cred = persistence
+            .upsert_credential(CredentialInput {
+                id: None,
+                provider_id,
+                name: None,
+                kind: "api_key".into(),
+                secret_json: serde_json::json!({}),
+                weight: 1,
+                rpm_limit: None,
+                tpm_limit: None,
+                proxy_url: None,
+                tls_fingerprint: None,
+                enabled: true,
+            })
+            .await
+            .unwrap();
+        persistence
+            .upsert_credential_status(CredentialStatusInput {
+                id: None,
+                credential_id: cred.id,
+                channel: "openai".into(),
+                health_kind: "cooldown".into(),
+                health_json: Some(serde_json::json!({"until": 200})),
+                checked_at: Some(100),
+                last_error: Some("429".into()),
+            })
+            .await
+            .unwrap();
+        persistence
+            .append_upstream_request(UpstreamRequestInput {
+                request_id: "req-up".into(),
+                at: 100,
+                provider_id: Some(provider_id),
+                credential_id: Some(cred.id),
+                url: "https://api.example/v1".into(),
+                method: "POST".into(),
+                status: 200,
+                latency_ms: 42,
+                headers_json: None,
+                body: None,
+            })
+            .await
+            .unwrap();
+        let app = crate::http::server::router(state);
+
+        // GET /admin/credentials/{id}/status → 200 + the status row.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/admin/credentials/{}/status", cred.id))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 1);
+        assert_eq!(list[0]["health_kind"], "cooldown");
+
+        // GET /admin/logs/{rid}/upstream → 200 + the log row.
+        let resp = app
+            .oneshot(
+                Request::get("/admin/logs/req-up/upstream")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 1);
+        assert_eq!(list[0]["request_id"], "req-up");
     }
 }

@@ -5,6 +5,7 @@ pub mod auth;
 pub mod crud;
 pub mod login;
 pub mod middleware;
+pub mod usage;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
@@ -27,6 +28,21 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         .route("/admin/login-flows/cookie", post(login::cookie))
         // M10b CRUD routes for the global config entities, all behind require_admin.
         .merge(crud::routes())
+        // M10d read-only observability: usage, rollups, credential health, logs.
+        .route("/admin/usage", get(usage::list_usage))
+        .route("/admin/usage-rollups", get(usage::list_usage_rollups))
+        .route(
+            "/admin/credentials/{id}/status",
+            get(usage::credential_status),
+        )
+        .route(
+            "/admin/logs/{request_id}/downstream",
+            get(usage::downstream_logs),
+        )
+        .route(
+            "/admin/logs/{request_id}/upstream",
+            get(usage::upstream_logs),
+        )
         .layer(from_fn_with_state(state, middleware::require_admin));
     Router::new()
         .route("/admin/login", post(auth::login))

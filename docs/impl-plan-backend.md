@@ -817,6 +817,11 @@ Each lists new types/methods + the exact M1 seam they hook into.
   (`rlt:`) and credential tpm (`ctpm:`) counters now fed from settled usage —
   M3/M4 seams closed. Failed attempts audit to upstream_requests, never
   billed. Embeddings/images settlement deferred (pricing model differs).
+  **§15 read API landed (2026-06-11, M10d):** the captured usage rows, rollups,
+  and downstream/upstream request logs are now served read-only under
+  `/admin/usage`, `/admin/usage-rollups`, and `/admin/logs/{request_id}/{downstream,upstream}`
+  (request_id-correlated), behind `require_admin`. The §15 ULID middleware /
+  tracing / `/metrics` ingest side remains open.
 - **M7 Resilience.** Real `Channel::refresh`/`needs_refresh`; retry budgets. The
   `AuthDead` branch already calls `refresh` once then retries — M7 fills the body.
   `requires_tls_emulation`/`transport` drive §7.4 degradation.
@@ -949,7 +954,24 @@ Each lists new types/methods + the exact M1 seam they hook into.
     covers codex. Follow-ups: kiro AWS IdC (OIDC `RegisterClient`),
     geminicli/antigravity project resolution (`loadCodeAssist`/`onboardUser`),
     codex `account_id` from `id_token`.
-  - **M10d** usage / health read API — the remaining backend sub-block.
+  - **M10d** usage / health read API — **LANDED (2026-06-11)**. Read-only
+    `require_admin` endpoints in `src/http/server/admin/usage.rs`:
+    `GET /admin/usage?limit=N` (default 100, cap 1000) → recent `Usage` rows;
+    `GET /admin/usage-rollups?granularity=hour|day|week|month&from=&to=` →
+    `UsageRollup` buckets (granularity validated, else 400); `GET
+    /admin/credentials/{id}/status` → the PERSISTED `credential_statuses`
+    health history (§16.3 edge-triggered breaker/cooldown rows — the
+    authoritative last state, since in-memory `HealthState` has no enumerate
+    method); `GET /admin/logs/{request_id}/{downstream,upstream}` → the §15
+    request logs correlated by request_id. All five record types are
+    secret-free; log `headers_json`/`body` were §14.3-redacted at capture, so
+    reading them back is safe. Persistence error → 500, bad query → 400.
+    Follow-up: a real-time in-memory breaker-snapshot endpoint would need a
+    `HealthState::snapshot()` method (not added here).
+  - **M10 backend (a–d) COMPLETE.** Admin auth/session (M10a), config CRUD
+    (M10b), OAuth login flows (M10c), and the usage/health/logs read API
+    (M10d) all landed behind `require_admin`. M10e Console is the only
+    remaining M10 piece, deferred per backend-first.
   - **M10e** Console — backend-first; the Console UI itself is deferred.
   - Hardening (rate-limit fairness, quota reset jobs) rides on existing
     `cache.incr` + snapshot configs.
