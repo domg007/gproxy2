@@ -636,8 +636,18 @@ Vercel/Cloudflare =
 **获取(登录)——回传 callback URL(2026-06-11:只保留这一种)**:
 - 两步走 admin 操作:① `start`:服务端生成 **PKCE verifier + state**,存 cache(短 TTL,keyed by login-session),返回 auth URL;② `complete`:operator 在浏览器完成授权后,把跳转后的**整条 callback URL**(含 code+state)贴回,服务端用存的 verifier 换 token 入库。
 - **为什么只走回传 URL**:不建本地回调服务器、不自动开浏览器——那套假设代理跑在有浏览器、localhost 可达的机器上;远程 VPS / 容器 / **边缘 serverless** 上不成立。回传 URL 流程**到处可用、天然 edge 兼容**(纯 HTTP 两步)、攻击面最小。
-- **device flow**:不走 callback redirect 的 provider 另用 device flow(显示 code + 轮询)—— copilot **强制**(GitHub device flow);codex/kiro 端点支持则可选。
-- **登录代码归属**:渠道知识(client_id / 授权 + token 端点 / PKCE 配置 / code↔token 换取)在**各 channel**(M7b,可单测);登录编排(start/complete 状态机)是共享服务;实际 HTTP 入口端点在 **M10 管理 API**。M7b 用导入预置 token 的凭证测试 prepare+刷新+转换,不依赖 M10。
+- **device flow**:不走 callback redirect 的 provider 另用 device flow(显示 code + 轮询)—— copilot **强制**(GitHub device flow);codex 支持(`headless_chatgpt_login`,远程/headless 机器用);kiro 端点支持则可选。
+- **逐渠道登录机制(2026-06-11 核实 v1+sample;HTTP 入口 M10)**:
+  | 渠道 | 登录机制 |
+  |---|---|
+  | 全部 | **直接导入 token**(粘已有 access/refresh token,M9 导入天然支持——也是 M7b 测试方式) |
+  | vertex | service-account JSON(无 OAuth) |
+  | geminicli / antigravity | OAuth authcode(粘 callback URL)+ project 解析(loadCodeAssist/onboardUser) |
+  | codex | OAuth authcode(粘 callback URL)**+ device code**(headless) |
+  | copilot_cli | **device code**(GitHub 强制) |
+  | claudecode | OAuth authcode(粘 callback URL)**+ cookie 粘贴**(sessionKey → claude.ai org 发现 → authorize → 换 token) |
+  | kiro | OAuth authcode(社交 portal / AWS IdC,粘 callback URL) |
+- **登录代码归属**:渠道知识(client_id / 授权 + token 端点 / PKCE 配置 / code↔token 换取 / device 轮询 / cookie 换取)在**各 channel**(可单测);登录编排(start/complete 状态机)是共享服务;实际 HTTP 入口端点在 **M10 管理 API**。M7b 用导入预置 token 的凭证测试 prepare+刷新+转换,不依赖 M10。
 
 **刷新——惰性按需 + 单飞锁**:
 - secret_json(信封加密)存 `{access_token, refresh_token, expires_at, ...}`。
@@ -647,6 +657,8 @@ Vercel/Cloudflare =
 - 可选:轻量后台预刷(持锁的某实例扫临近过期的凭证提前刷)消除"过期后首请求"的延迟尖刺。
 
 **M7a 落地(2026-06-11)**:惰性 + 单飞(本地 mutex,redis 分布式锁 = M8 seam)已接入 failover;AuthDead 触发强制刷新 + 同候选重试一次。
+
+**vertex 边缘签名(2026-06-11 修正)**:vertex 的 SA-JWT(RS256)曾 native-only,**不是** Google/协议限制,是 `jsonwebtoken`→`ring` 不能编译到 wasm32。RS256=RSASSA-PKCS1v1.5+SHA-256 是纯数学,改用纯 Rust `rsa` crate(+sha2,wasm 可编)即可**全平台(含 edge)签名**,顺带统一为单一签名器、去掉 jsonwebtoken/ring。token 一小时签一次,性能无关。
 
 ## 15. 可观测性
 
