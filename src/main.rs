@@ -68,6 +68,13 @@ enum Command {
         #[arg(long = "in")]
         input: PathBuf,
     },
+    /// Export all control-plane config (with PLAINTEXT secrets) to a bundle
+    /// file that `import` consumes, then exit.
+    Export {
+        /// Path to write the bundle file.
+        #[arg(long = "out")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -122,14 +129,27 @@ async fn main() -> anyhow::Result<()> {
     }
     let cipher = gproxy::crypto::cipher_from_master_key(master_key.as_deref())?;
 
-    // Import subcommand: load bundle, upsert, exit — no server started.
-    if let Some(Command::Import { input }) = cli.command {
-        let json = std::fs::read_to_string(&input)?;
-        let stats =
-            gproxy::app::import::import_bundle(persistence.as_ref(), cipher.as_ref(), &json)
-                .await?;
-        tracing::info!(records = stats.records, "bundle imported");
-        return Ok(());
+    // Config subcommands: import / export, then exit — no server started.
+    match cli.command {
+        Some(Command::Import { input }) => {
+            let json = std::fs::read_to_string(&input)?;
+            let stats =
+                gproxy::app::import::import_bundle(persistence.as_ref(), cipher.as_ref(), &json)
+                    .await?;
+            tracing::info!(records = stats.records, "bundle imported");
+            return Ok(());
+        }
+        Some(Command::Export { output }) => {
+            let bundle =
+                gproxy::app::export::export_bundle(persistence.as_ref(), cipher.as_ref()).await?;
+            let json = serde_json::to_string_pretty(&bundle)?;
+            std::fs::write(&output, json)?;
+            tracing::warn!(
+                "exported config to {output:?} — contains PLAINTEXT secrets; chmod 600 and protect this file"
+            );
+            return Ok(());
+        }
+        None => {}
     }
 
     // First-boot hook: if GPROXY_IMPORT_FILE is set and the store is empty,

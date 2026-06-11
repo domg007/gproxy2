@@ -4,21 +4,23 @@
 //! provider_id, route_id, rule_set_id, user_id) are raw ids — bundles MUST
 //! set explicit ids on referenced records.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::crypto::SecretCipher;
 use crate::pipeline::auth::key_digest;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
-    AliasInput, CredentialInput, OrgInput, ProviderInput, ProviderModelInput, ProviderRuleSetInput,
-    QuotaInput, RateLimitInput, RouteInput, RouteMemberInput, RoutePermissionInput,
-    RoutingRuleInput, RuleInput, RuleSetInput, TeamInput, UserInput, UserKeyInput,
+    AliasInput, CredentialInput, InstanceSettingsInput, OrgInput, ProviderInput,
+    ProviderModelInput, ProviderRuleSetInput, QuotaInput, RateLimitInput, RouteInput,
+    RouteMemberInput, RoutePermissionInput, RoutingRuleInput, RuleInput, RuleSetInput, TeamInput,
+    UserInput, UserKeyInput,
 };
 
 // No `Debug` on Bundle / UserKeyImport / CredentialImport: they carry bare
 // api keys and plaintext secret_json pre-sealing — a derived Debug would let
-// one stray log line leak them (§14.1).
-#[derive(Deserialize)]
+// one stray log line leak them (§14.1). `Serialize` is for the inverse path
+// (`export::export_bundle` → JSON) so `export | import` round-trips.
+#[derive(Serialize, Deserialize)]
 pub struct Bundle {
     pub schema_version: u32,
     #[serde(default)]
@@ -55,11 +57,13 @@ pub struct Bundle {
     pub rules: Vec<RuleInput>,
     #[serde(default)]
     pub provider_rule_sets: Vec<ProviderRuleSetInput>,
+    #[serde(default)]
+    pub instance_settings: Vec<InstanceSettingsInput>,
 }
 
 /// `user_keys` import form: bare api key in, digest + ciphertext derived
 /// (sealed via the boot cipher; keyless boots store the bare key as before).
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct UserKeyImport {
     pub id: Option<i64>,
     pub user_id: i64,
@@ -72,7 +76,7 @@ pub struct UserKeyImport {
 
 /// `credentials` import form: accepts a `label` field (maps to `name`) and
 /// provides defaults for pool fields not needed at dev-bootstrap time.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct CredentialImport {
     pub id: Option<i64>,
     pub provider_id: i64,
@@ -222,6 +226,10 @@ pub async fn import_bundle(
     }
     for x in bundle.provider_rule_sets {
         db.upsert_provider_rule_set(x).await?;
+        n += 1;
+    }
+    for x in bundle.instance_settings {
+        db.upsert_instance_settings(x).await?;
         n += 1;
     }
     Ok(ImportStats { records: n })

@@ -44,24 +44,45 @@ pub(crate) async fn upsert(
 
     let stored = match input.id {
         Some(id) => {
-            let row = t
-                .rows
-                .iter_mut()
-                .find(|s| s.id == id)
-                .ok_or_else(|| anyhow::anyhow!("instance settings not found: {id}"))?;
-            row.instance_name = input.instance_name;
-            row.proxy = input.proxy;
-            row.spoof_emulation = input.spoof_emulation;
-            row.enable_usage = input.enable_usage;
-            row.enable_upstream_log = input.enable_upstream_log;
-            row.enable_upstream_log_body = input.enable_upstream_log_body;
-            row.enable_downstream_log = input.enable_downstream_log;
-            row.enable_downstream_log_body = input.enable_downstream_log_body;
-            row.disable_log_redaction = input.disable_log_redaction;
-            row.enable_tokenizer_download = input.enable_tokenizer_download;
-            row.update_channel = input.update_channel;
-            row.updated_at = now;
-            row.clone()
+            if let Some(row) = t.rows.iter_mut().find(|s| s.id == id) {
+                row.instance_name = input.instance_name;
+                row.proxy = input.proxy;
+                row.spoof_emulation = input.spoof_emulation;
+                row.enable_usage = input.enable_usage;
+                row.enable_upstream_log = input.enable_upstream_log;
+                row.enable_upstream_log_body = input.enable_upstream_log_body;
+                row.enable_downstream_log = input.enable_downstream_log;
+                row.enable_downstream_log_body = input.enable_downstream_log_body;
+                row.disable_log_redaction = input.disable_log_redaction;
+                row.enable_tokenizer_download = input.enable_tokenizer_download;
+                row.update_channel = input.update_channel;
+                row.updated_at = now;
+                row.clone()
+            } else {
+                // Insert-with-id (mirrors orgs/teams/users): lets an explicit-id
+                // import bundle (incl. `export | import`) seed a fresh store.
+                if id >= t.next_id {
+                    t.next_id = id + 1;
+                }
+                let settings = InstanceSettings {
+                    id,
+                    instance_name: input.instance_name,
+                    proxy: input.proxy,
+                    spoof_emulation: input.spoof_emulation,
+                    enable_usage: input.enable_usage,
+                    enable_upstream_log: input.enable_upstream_log,
+                    enable_upstream_log_body: input.enable_upstream_log_body,
+                    enable_downstream_log: input.enable_downstream_log,
+                    enable_downstream_log_body: input.enable_downstream_log_body,
+                    disable_log_redaction: input.disable_log_redaction,
+                    enable_tokenizer_download: input.enable_tokenizer_download,
+                    update_channel: input.update_channel,
+                    created_at: now,
+                    updated_at: now,
+                };
+                t.rows.push(settings.clone());
+                settings
+            }
         }
         None => {
             let id = t.next_id;
