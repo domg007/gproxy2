@@ -3,6 +3,7 @@
 
 pub mod auth;
 pub mod crud;
+pub mod login;
 pub mod middleware;
 
 use axum::Router;
@@ -17,6 +18,9 @@ use crate::app::AppState;
 pub fn admin_router(state: AppState) -> Router<AppState> {
     let protected = Router::new()
         .route("/admin/me", get(auth::me))
+        // M10c — OAuth authcode login flow (start/complete), behind require_admin.
+        .route("/admin/login-flows/start", post(login::start))
+        .route("/admin/login-flows/complete", post(login::complete))
         // M10b CRUD routes for the global config entities, all behind require_admin.
         .merge(crud::routes())
         .layer(from_fn_with_state(state, middleware::require_admin));

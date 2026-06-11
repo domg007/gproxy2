@@ -9,12 +9,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::channel::Channel;
 use crate::channel::bulletins;
+use crate::channel::{Channel, ChannelLogin};
 
 /// Registry of channel adapters keyed by `Channel::id` (== `Provider.channel`).
+///
+/// `login` is a parallel map holding only the channels that support the §14.5
+/// interactive OAuth authcode login (codex now; more in T2); a channel absent
+/// from it has no authcode flow.
 pub struct ChannelRegistry {
     map: HashMap<&'static str, Arc<dyn Channel>>,
+    login: HashMap<&'static str, Arc<dyn ChannelLogin>>,
 }
 
 impl ChannelRegistry {
@@ -25,12 +30,22 @@ impl ChannelRegistry {
         for ch in builtin_channels() {
             map.insert(ch.id(), ch);
         }
-        Self { map }
+        let mut login: HashMap<&'static str, Arc<dyn ChannelLogin>> = HashMap::new();
+        for (id, lg) in builtin_logins() {
+            login.insert(id, lg);
+        }
+        Self { map, login }
     }
 
     /// Look up a channel by id.
     pub fn get(&self, id: &str) -> Option<Arc<dyn Channel>> {
         self.map.get(id).cloned()
+    }
+
+    /// Look up a channel's interactive OAuth login, or `None` if it has no
+    /// authcode flow.
+    pub fn login_for(&self, id: &str) -> Option<Arc<dyn ChannelLogin>> {
+        self.login.get(id).cloned()
     }
 
     /// Test-only: build the full built-in set plus one extra (or overriding)
@@ -67,6 +82,12 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
         Arc::new(bulletins::kiro::KiroChannel),
         Arc::new(bulletins::copilot_cli::CopilotCliChannel),
     ]
+}
+
+/// Channels that support the §14.5 interactive OAuth authcode login, paired
+/// with their `Channel::id`. Only authcode-capable channels appear here.
+fn builtin_logins() -> Vec<(&'static str, Arc<dyn ChannelLogin>)> {
+    vec![("codex", Arc::new(bulletins::codex::CodexChannel))]
 }
 
 impl Default for ChannelRegistry {

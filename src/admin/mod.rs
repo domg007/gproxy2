@@ -1,5 +1,6 @@
 //! Admin control-plane: session store + config CRUD invalidation helper.
 
+pub mod login;
 pub mod session;
 
 /// After a config mutation: tell peers to reload (publish) and reload locally

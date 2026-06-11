@@ -8,6 +8,7 @@ pub mod bulletins;
 pub mod disposition;
 pub mod envelope;
 pub mod http_util;
+pub mod login;
 pub mod oauth;
 pub mod prepared;
 pub mod registry;
@@ -23,6 +24,7 @@ use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
 pub use disposition::Disposition;
+pub use login::{AuthCodeStart, ChannelLogin};
 pub use prepared::PreparedRequest;
 
 /// Declared upstream transport, for capability-based degradation (§7.4).

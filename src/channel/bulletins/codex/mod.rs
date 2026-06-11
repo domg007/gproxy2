@@ -17,7 +17,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
+use crate::channel::{
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
+};
 use crate::http::client::UpstreamClient;
 use crate::protocol::ContentGenerationKind;
 
@@ -82,6 +84,34 @@ impl Channel for CodexChannel {
         secret: &Value,
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl ChannelLogin for CodexChannel {
+    fn authcode_start(
+        &self,
+        redirect_uri: &str,
+        state: &str,
+        pkce_challenge: &str,
+    ) -> Option<AuthCodeStart> {
+        let (authorize_url, redirect_uri) =
+            auth::authcode_start(redirect_uri, state, pkce_challenge);
+        Some(AuthCodeStart {
+            authorize_url,
+            redirect_uri,
+        })
+    }
+
+    async fn authcode_exchange(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<Value, ChannelError> {
+        auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
 }
 
@@ -172,5 +202,24 @@ mod tests {
             req.headers().get("session_id").unwrap(),
             req.headers().get("x-client-request-id").unwrap()
         );
+    }
+
+    #[test]
+    fn codex_authcode_start_url() {
+        // Empty redirect_uri → codex default; URL carries the PKCE + state set.
+        let start = CodexChannel
+            .authcode_start("", "STATE", "CHAL")
+            .expect("codex supports authcode");
+        let url = &start.authorize_url;
+        assert!(url.starts_with("https://auth.openai.com/oauth/authorize?"));
+        assert!(
+            url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"),
+            "{url}"
+        );
+        assert!(url.contains("code_challenge=CHAL"), "{url}");
+        assert!(url.contains("state=STATE"), "{url}");
+        assert!(url.contains("code_challenge_method=S256"), "{url}");
+        assert!(url.contains("redirect_uri="), "{url}");
+        assert_eq!(start.redirect_uri, "http://localhost:1455/auth/callback");
     }
 }

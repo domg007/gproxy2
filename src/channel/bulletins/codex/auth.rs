@@ -29,6 +29,15 @@ use crate::http::client::UpstreamClient;
 /// Public Codex CLI OAuth client (the credentials the official CLI ships with).
 pub(super) const OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub(super) const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+/// Authorization endpoint for the interactive authcode+PKCE login (§14.5).
+pub(super) const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
+
+/// Default redirect_uri + scopes the Codex CLI uses (mined from v1 codex.rs).
+/// The CLI listens on `localhost:1455` and exchanges the code with this exact
+/// value, so `complete` must echo it back.
+pub(super) const DEFAULT_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+pub(super) const OAUTH_SCOPE: &str =
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
 
 /// ChatGPT codex-backend host. The Responses endpoint lives at `/responses`.
 pub(super) const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
@@ -53,6 +62,97 @@ const STRIP_KEYS: &[&str] = &[
     "safety_identifier",
     "truncation",
 ];
+
+/// Build the authorize URL for the interactive authcode+PKCE login. An empty
+/// `redirect_uri` falls back to [`DEFAULT_REDIRECT_URI`]. Returns the URL plus
+/// the effective redirect_uri (so `complete` exchanges with the same value).
+///
+/// The query carries the standard authcode+PKCE set plus the two codex-specific
+/// flags the CLI sends (`id_token_add_organizations`, `codex_cli_simplified_flow`)
+/// and `originator`, mined from v1 codex.rs.
+pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -> (String, String) {
+    let redirect_uri = if redirect_uri.trim().is_empty() {
+        DEFAULT_REDIRECT_URI
+    } else {
+        redirect_uri
+    };
+    let query = [
+        ("response_type", "code"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("redirect_uri", redirect_uri),
+        ("scope", OAUTH_SCOPE),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("id_token_add_organizations", "true"),
+        ("codex_cli_simplified_flow", "true"),
+        ("state", state),
+        ("originator", ORIGINATOR),
+    ]
+    .iter()
+    .map(|(k, v)| format!("{k}={}", pct(v)))
+    .collect::<Vec<_>>()
+    .join("&");
+    (format!("{AUTHORIZE_URL}?{query}"), redirect_uri.to_string())
+}
+
+/// Exchange an authorization code (+PKCE verifier) for the plaintext secret.
+/// Maps the token response to `{access_token, refresh_token?, expires_at_ms}`.
+/// (`id_token`/`account_id` are not surfaced by the shared `token_post`; the
+/// pipeline refresh / first usage backfills `account_id` — see module docs.)
+pub(super) async fn authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<Value, ChannelError> {
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("code_verifier", verifier),
+    ];
+    let resp = oauth::token_post(client, TOKEN_URL, &form, &[]).await?;
+
+    let access_token = resp
+        .access_token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::Build("token response missing access_token".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut secret = json!({
+        "access_token": access_token,
+        "expires_at_ms": expires_at_ms,
+    });
+    if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
+        secret["refresh_token"] = Value::String(rt);
+    }
+    Ok(secret)
+}
+
+/// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
+fn pct(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(
+                char::from_digit((b >> 4) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+            out.push(
+                char::from_digit((b & 0xf) as u32, 16)
+                    .unwrap()
+                    .to_ascii_uppercase(),
+            );
+        }
+    }
+    out
+}
 
 /// Read a trimmed, non-empty string field from the secret.
 fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {

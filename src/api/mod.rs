@@ -7,5 +7,6 @@
 pub mod auth;
 pub mod credentials;
 pub mod error;
+pub mod login;
 pub mod user_keys;
 pub mod users;
