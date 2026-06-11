@@ -1,8 +1,11 @@
 //! Single-flight OAuth credential refresh (§14.5). Lazy: only when the channel
 //! says the decrypted secret needs it. Per-credential local mutex serialises
-//! concurrent refreshes (many providers rotate refresh_token each call, so a
-//! double refresh kills the credential). Multi-instance distributed lock
-//! (redis, key = cred id) is an M8 seam — local mutex only for now.
+//! concurrent refreshes within an instance (many providers rotate refresh_token
+//! each call, so a double refresh kills the credential). Across instances, a
+//! best-effort redis lock (key = `gproxy:refresh:lock:{cred id}`) wraps the
+//! upstream refresh call so two instances cannot rotate a single-use token at
+//! once; the loser waits briefly, re-reads, and reuses the winner's result.
+//! The redis lock is a no-op `true` on memory/edge backends (single instance).
 //!
 //! The mutex is `futures_util::lock::Mutex` (runtime-agnostic): tokio is a
 //! native-only dependency, so the edge/wasm build cannot use `tokio::sync`.
@@ -76,9 +79,45 @@ impl RefreshOrchestrator {
         if force && current != opened {
             return Ok(current);
         }
+        // Cross-instance single-flight: the local mutex above serialises this
+        // instance, but a single-use refresh_token must not be rotated by two
+        // instances at once. Acquire a best-effort redis lock around the actual
+        // upstream refresh. Default-true on memory/edge, so single-instance and
+        // wasm builds take the fast path (always `acquired`).
+        let lock_key = format!("gproxy:refresh:lock:{}", credential.id);
+        let acquired = state
+            .cache
+            .try_lock(&lock_key, std::time::Duration::from_secs(30))
+            .await;
+        if !acquired {
+            // Another instance is rotating this credential. Wait briefly, re-read,
+            // and reuse its result if it landed — avoids a second rotation. The
+            // wait is native-only (tokio); on wasm `acquired` is always true via
+            // the default, so this branch is unreachable there.
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let peer = reread_open(state, credential)
+                .await
+                .unwrap_or_else(|| current.clone());
+            if !force && !channel.needs_refresh(&peer) {
+                return Ok(peer);
+            }
+            if force && peer != opened {
+                return Ok(peer);
+            }
+            // Still stale after the wait — fall through and refresh anyway
+            // (bounded: we tried once and the peer didn't land in time).
+        }
         // Refresh goes through the default client (no proxy pool needed).
         let client = Arc::clone(&state.upstream);
-        let fresh = channel.refresh(&client, &current).await?;
+        // Bind the Result so the redis lock is released on EVERY exit path —
+        // including the error path — before `?` propagates. Never hold the lock
+        // across seal/writeback/publish; release right after the upstream call.
+        let fresh = channel.refresh(&client, &current).await;
+        if acquired {
+            state.cache.unlock(&lock_key).await;
+        }
+        let fresh = fresh?;
         // seal + writeback + publish — channel error already propagated above so
         // the caller cools + skips the credential on a failed refresh.
         let sealed = state

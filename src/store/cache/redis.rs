@@ -155,6 +155,32 @@ impl CacheBackend for RedisCache {
         }
         tracing::warn!(channel, "redis subscription ended (connection dropped)");
     }
+
+    /// Acquire a best-effort distributed lock via `SET key 1 NX PX <ms>`.
+    /// Returns `true` only when the key was newly set (`OK`); a held lock
+    /// (`nil`) or any error returns `false`, so callers fall back to their
+    /// local mutex / bounded wait rather than blocking.
+    async fn try_lock(&self, key: &str, ttl: Duration) -> bool {
+        let mut cm = self.cm.clone();
+        let ms = ttl.as_millis().max(1) as u64;
+        let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
+            .arg(key)
+            .arg("1")
+            .arg("NX")
+            .arg("PX")
+            .arg(ms)
+            .query_async(&mut cm)
+            .await;
+        matches!(res, Ok(Some(_)))
+    }
+
+    /// Release a lock acquired via [`RedisCache::try_lock`] with a plain `DEL`.
+    /// The short lock TTL bounds a stuck lock if this never runs; a
+    /// token-scoped check-and-delete is a noted hardening for later.
+    async fn unlock(&self, key: &str) {
+        let mut cm = self.cm.clone();
+        let _: redis::RedisResult<i64> = redis::cmd("DEL").arg(key).query_async(&mut cm).await;
+    }
 }
 
 #[cfg(test)]

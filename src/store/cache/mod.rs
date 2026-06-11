@@ -95,4 +95,14 @@ pub trait CacheBackend: Send + Sync {
     /// the backend connection drops. memory/edge are no-ops (single instance
     /// needs no cross-instance invalidation). Lands in the multi-instance phase.
     async fn subscribe(&self, channel: &str, handler: InvalidationHandler);
+
+    /// Acquire a best-effort distributed lock (redis `SET NX PX`). Returns
+    /// `true` if acquired. Default `true` — single-instance backends rely on
+    /// the caller's local mutex; only redis needs cross-instance exclusion.
+    async fn try_lock(&self, _key: &str, _ttl: Duration) -> bool {
+        true
+    }
+
+    /// Release a lock acquired via [`CacheBackend::try_lock`]. Default no-op.
+    async fn unlock(&self, _key: &str) {}
 }

@@ -118,4 +118,14 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(25)).await;
         assert_eq!(cache.get("k").await, None);
     }
+
+    /// Memory inherits the default `try_lock` (always `true`): single-instance
+    /// exclusion is the caller's local mutex, so the refresh single-flight must
+    /// see the lock as always acquired and proceed.
+    #[tokio::test]
+    async fn try_lock_default_true_on_memory() {
+        let cache = MemoryCache::new();
+        assert!(cache.try_lock("lk", Duration::from_secs(30)).await);
+        cache.unlock("lk").await; // no-op, must not panic
+    }
 }
