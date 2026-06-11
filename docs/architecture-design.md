@@ -646,6 +646,12 @@ Vercel/Cloudflare =
   通用 401**(无用户枚举),`crypto::password::verify` 校验,口令/ token 不落日志。
   login/logout 公开,其余 `/admin/*` 在中间件之后(无自锁)。token 不透明、非 JWT,
   故吊销即时。
+- **配置 CRUD 落地(M10b,2026-06-11)**:`http/server/admin/crud/` 提供全量配置 CRUD
+  (全局 + 父级嵌套 + 含密 + authz 作用域),全部在 `require_admin` 之后。**读侧脱敏**
+  ——secret/password hash/api_key 密文永不出网,仅返回 `has_*` 标志
+  (`CredentialView` / `UserKeyView` / `UserView`;明文导出是唯一例外路径);**写侧密封**。
+  每次 mutation(upsert/delete)调用 `admin::invalidate` 广播 `INVALIDATE` 并重载本地
+  快照(收口 M8 admin-write 失效)。
 
 ### 14.3 日志正文脱敏
 - 开 `enable_*_log_body` 抓正文时,**强制剥离 Authorization / api-key 等密钥头与已知密钥字段**

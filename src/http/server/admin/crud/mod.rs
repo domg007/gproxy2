@@ -5,6 +5,7 @@
 //! handlers are not hand-copied. Users are special-cased in [`users`] (password
 //! hashing + hash redaction). All routes mount behind `require_admin`.
 
+mod authz;
 mod credentials;
 mod entities;
 mod nested;
@@ -140,6 +141,31 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/admin/provider-rule-sets/{id}",
             axum::routing::delete(nested::provider_rule_sets::delete),
+        )
+        // M10b T3 — authz scoped entities (no secrets), keyed by ?scope&scope_id.
+        .route(
+            "/admin/route-permissions",
+            get(authz::list_route_permissions).post(authz::upsert_route_permission),
+        )
+        .route(
+            "/admin/route-permissions/{id}",
+            axum::routing::delete(authz::delete_route_permission),
+        )
+        .route(
+            "/admin/rate-limits",
+            get(authz::list_rate_limits).post(authz::upsert_rate_limit),
+        )
+        .route(
+            "/admin/rate-limits/{id}",
+            axum::routing::delete(authz::delete_rate_limit),
+        )
+        .route(
+            "/admin/quotas",
+            get(authz::get_quota).post(authz::upsert_quota),
+        )
+        .route(
+            "/admin/quotas/{id}",
+            axum::routing::delete(authz::delete_quota),
         )
 }
 
@@ -640,6 +666,79 @@ mod tests {
                     .header(header::COOKIE, &cookie)
                     .body(Body::empty())
                     .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(list.as_array().unwrap().is_empty());
+    }
+
+    /// Authz scoped CRUD: create a user-scoped route permission → list by that
+    /// scope shows it → delete → list empty.
+    #[tokio::test]
+    async fn authz_route_permissions_crud() {
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let user_id = state.persistence.list_users().await.unwrap()[0].id;
+        let app = crate::http::server::router(state);
+
+        // POST create a user-scoped permission.
+        let payload = format!(r#"{{"scope":"user","scope_id":{user_id},"route_pattern":"gpt-*"}}"#);
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/route-permissions")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_i64().unwrap();
+
+        // GET list by that scope shows it.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/admin/route-permissions?scope=user&scope_id={user_id}"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(list.as_array().unwrap().iter().any(|p| p["id"] == id));
+
+        // DELETE → 204, then list empty.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::delete(format!("/admin/route-permissions/{id}"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        let resp = app
+            .oneshot(
+                Request::get(format!(
+                    "/admin/route-permissions?scope=user&scope_id={user_id}"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
             )
             .await
             .unwrap();

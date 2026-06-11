@@ -918,8 +918,17 @@ Each lists new types/methods + the exact M1 seam they hook into.
     `GPROXY_INSECURE_COOKIES=1` drops the `Secure` attr for local plaintext-HTTP
     dev. `api/` is axum-free (compiles wasm edge); only `ApiError::IntoResponse`
     is native-gated.
-  - **M10b** config CRUD over the snapshot configs + admin-write cache
-    invalidation.
+  - **M10b (config CRUD — LANDED 2026-06-11).** Full config CRUD (global +
+    parent-nested + secret-bearing + authz-scoped entities) behind
+    `require_admin`. Secrets are sealed-on-write + redacted-on-read
+    (`CredentialView` / `UserKeyView` / `UserView` carry a `has_*` flag, never
+    the secret/hash/ciphertext; export is the only plaintext path). Every
+    mutation publishes an `INVALIDATE` broadcast + reloads the local snapshot
+    (closes M8's admin-write-invalidation follow-up). Nested scheme is
+    `/admin/providers/{id}/credentials`, `/admin/users/{id}/keys`,
+    `/admin/orgs/{id}/teams`, etc.; authz-scoped entities (`route-permissions`,
+    `rate-limits`, `quotas`) are keyed by `?scope=&scope_id=`. Remaining M10:
+    M10c OAuth login endpoints, M10d usage/health read API, M10e Console.
   - **M10c** OAuth login endpoints — the M7b-deferred channel login flows
     (cookie-login bootstrap).
   - **M10d** usage / health read API.
