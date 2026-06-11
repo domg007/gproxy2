@@ -882,6 +882,26 @@ Each lists new types/methods + the exact M1 seam they hook into.
   amendments).
   Note: M2 landed an import enabler (see M2 bullet); port the file backend's
   explicit-id upsert semantics to the DB backend here.
+  Landed (2026-06-11): export (`app/export.rs` + `export/mappers.rs`,
+  `gproxy export --out`) round-trips import — full `Bundle` + `instance_settings`,
+  scope-universe enumeration (orgs+teams+users) for quotas/limits/perms since
+  there's no `list_quotas` (per-scope `get_quota`/`list_rate_limits`/
+  `list_route_permissions`), secrets opened to plaintext (credential `secret_json`
+  + bare `user_key` recovered from the envelope) with a chmod-600 warning carrying
+  no secret, ids preserved on every `*Input` so re-import upserts the same rows.
+  First-boot admin bootstrap (`app/bootstrap.rs`): default org `default` +
+  `admin` user, CSPRNG password printed once (argon2id PHC stored, never
+  persisted/logged as plaintext) + `--admin-user`/`--admin-password`
+  (env `GPROXY_ADMIN_USER`/`GPROXY_ADMIN_PASSWORD`) force-upsert recovery override,
+  run AFTER the first-boot import (imported admin pre-empts random creation).
+  `crypto::password::{hash,verify}` (argon2id, salt from `util::rand`,
+  all-targets incl. wasm edge) ready for M10 login.
+  Known: import/export round-trip works on the **FILE backend** (its `Some(id)`
+  upsert inserts-with-id on not-found); the **DB backend's** upserts still bail on
+  explicit-id-not-found (M2 gap) → seeding an empty `--persistence=db` store via
+  import is not yet supported — M10 or a dedicated db-upsert task must port the
+  insert-with-id semantics. Follow-ups: `--passphrase` whole-file AEAD, edge
+  import path.
 - **M10 (reserved/hardening).** Rate-limit fairness, quota reset jobs, admin
   console; over existing `cache.incr` + snapshot configs.
 
