@@ -221,6 +221,12 @@ async fn main() -> anyhow::Result<()> {
         state.tokenizers.set_download_enabled(enabled);
     }
 
+    // Multi-instance: listen for cross-instance config invalidation (redis only;
+    // memory cache is single-instance and its subscribe is a no-op).
+    if matches!(state.config.cache, CacheConfig::Redis { .. }) {
+        gproxy::app::invalidation::spawn_invalidation_listener(state.clone());
+    }
+
     let app = http::server::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;

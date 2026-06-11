@@ -90,7 +90,10 @@ impl RefreshOrchestrator {
             .map_err(|e| ChannelError::Build(format!("persist refreshed secret: {e}")))?;
         state
             .cache
-            .publish("cred", credential.id.to_string().as_bytes())
+            .publish(
+                crate::store::cache::INVALIDATE_CHANNEL,
+                format!("cred:{}", credential.id).as_bytes(),
+            )
             .await;
         Ok(fresh)
     }
