@@ -19,6 +19,9 @@ use super::{CacheBackend, InvalidationHandler};
 /// expiry is never reset by subsequent increments (unlike the old `v == delta`
 /// heuristic, which misfired whenever a live counter happened to equal `delta`).
 pub struct RedisCache {
+    /// Kept for opening dedicated pub/sub connections (a `ConnectionManager`
+    /// multiplexes and cannot enter subscribe mode).
+    client: redis::Client,
     cm: redis::aio::ConnectionManager,
 }
 
@@ -27,10 +30,10 @@ impl RedisCache {
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
         let client = redis::Client::open(url)
             .map_err(|e| anyhow::anyhow!("redis client open failed: {e}"))?;
-        let cm = redis::aio::ConnectionManager::new(client)
+        let cm = redis::aio::ConnectionManager::new(client.clone())
             .await
             .map_err(|e| anyhow::anyhow!("redis connection manager failed: {e}"))?;
-        Ok(Self { cm })
+        Ok(Self { client, cm })
     }
 
     /// Verify connectivity with a `PING`.
@@ -116,10 +119,42 @@ impl CacheBackend for RedisCache {
             })
     }
 
-    // TODO(multi-instance): real Redis PUBLISH / SUBSCRIBE for config invalidation.
-    async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+    /// Publish `payload` to `channel`. Best-effort: a failed publish is logged
+    /// but never propagated, so an invalidation hiccup can't break the caller.
+    async fn publish(&self, channel: &str, payload: &[u8]) {
+        let mut cm = self.cm.clone();
+        let r: Result<i64, _> = redis::cmd("PUBLISH")
+            .arg(channel)
+            .arg(payload)
+            .query_async(&mut cm)
+            .await;
+        if let Err(e) = r {
+            tracing::warn!(error = %e, channel, "redis publish failed");
+        }
+    }
 
-    async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
+    /// Subscribe to `channel`, invoking `handler` for each message until the
+    /// connection drops. Blocks for the lifetime of the subscription, so the
+    /// caller is expected to spawn this. Reconnection on drop is a follow-up.
+    async fn subscribe(&self, channel: &str, handler: InvalidationHandler) {
+        let mut pubsub = match self.client.get_async_pubsub().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(error = %e, "redis pubsub connect failed");
+                return;
+            }
+        };
+        if let Err(e) = pubsub.subscribe(channel).await {
+            tracing::warn!(error = %e, channel, "redis subscribe failed");
+            return;
+        }
+        let mut stream = pubsub.on_message();
+        use futures_util::StreamExt;
+        while let Some(msg) = stream.next().await {
+            handler(msg.get_payload_bytes().to_vec());
+        }
+        tracing::warn!(channel, "redis subscription ended (connection dropped)");
+    }
 }
 
 #[cfg(test)]
@@ -148,5 +183,52 @@ mod tests {
         assert_eq!(cache.incr(ctr, 1, None).await, 1);
         assert_eq!(cache.incr(ctr, 4, None).await, 5);
         cache.delete(ctr).await;
+    }
+
+    /// Round-trips one message through real PUBLISH/SUBSCRIBE. Skips (does not
+    /// fail) when no Redis is reachable, so it's safe to run unconditionally in
+    /// CI without a Redis service.
+    #[tokio::test]
+    async fn redis_publish_subscribe_roundtrip() {
+        let Ok(cache) = RedisCache::connect("redis://127.0.0.1:6379").await else {
+            eprintln!("skipping: no redis at 127.0.0.1:6379");
+            return;
+        };
+        if cache.health().await.is_err() {
+            eprintln!("skipping: redis unreachable");
+            return;
+        }
+
+        let channel = "gproxy_test_pubsub";
+        let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
+        let tx = std::sync::Mutex::new(Some(tx));
+        let sub = {
+            let cache = RedisCache::connect("redis://127.0.0.1:6379")
+                .await
+                .expect("subscriber connect");
+            tokio::spawn(async move {
+                cache
+                    .subscribe(
+                        channel,
+                        Box::new(move |payload| {
+                            if let Some(tx) = tx.lock().unwrap().take() {
+                                let _ = tx.send(payload);
+                            }
+                        }),
+                    )
+                    .await;
+            })
+        };
+
+        // Give the subscription time to establish before publishing.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        cache.publish(channel, b"ping").await;
+
+        let got = tokio::time::timeout(Duration::from_secs(1), rx)
+            .await
+            .expect("handler did not receive within 1s")
+            .expect("sender dropped");
+        assert_eq!(got, b"ping");
+        sub.abort();
     }
 }

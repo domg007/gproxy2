@@ -41,6 +41,11 @@ pub use libsql::LibsqlCache;
 #[cfg(all(target_arch = "wasm32", feature = "cache-upstash"))]
 pub use upstash::UpstashCache;
 
+/// Single Redis pub/sub channel for control-plane invalidation. A message on
+/// it tells every instance to `reload_snapshot` (§7.2). Payload is a hint
+/// (`cred:{id}` / `config`); the listener reloads the whole snapshot.
+pub const INVALIDATE_CHANNEL: &str = "gproxy:invalidate";
+
 /// Handler invoked for each message received on a subscribed channel.
 ///
 /// Boxed to keep [`CacheBackend`] object-safe. `Send + Sync` on native; unbounded
