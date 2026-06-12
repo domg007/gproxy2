@@ -147,18 +147,21 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 
     // Operational endpoints: no pipeline, no upstream. /healthz, /version and
     // /metrics all sit behind the SAME admin auth as /admin/* (session cookie
-    // or an admin user's API key — see admin_ok); none is public.
+    // or an admin user's API key — see admin_ok); none is public. Bodies match
+    // the native axum handlers byte-for-byte (JSON — see server::health).
     match path.as_str() {
         "/healthz" => {
             return if admin_ok(state, &parts.headers).await {
-                text_response(200, "text/plain", b"ok")
+                text_response(200, "application/json", br#"{"status":"ok"}"#)
             } else {
                 unauthorized()
             };
         }
         "/version" => {
             return if admin_ok(state, &parts.headers).await {
-                text_response(200, "text/plain", env!("CARGO_PKG_VERSION").as_bytes())
+                const VERSION_JSON: &str =
+                    concat!(r#"{"version":""#, env!("CARGO_PKG_VERSION"), r#""}"#);
+                text_response(200, "application/json", VERSION_JSON.as_bytes())
             } else {
                 unauthorized()
             };

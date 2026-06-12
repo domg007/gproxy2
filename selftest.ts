@@ -7,7 +7,11 @@
 //      Upstash endpoints and prints the per-step summary it returns, and
 //   2. exercises the INBOUND path — calls `init(...)` to build the real
 //      AppState, then drives `fetch(new Request(...))` through the SAME
-//      http::server::router native uses, asserting /healthz and /version.
+//      by-path dispatch the edge entry uses, asserting /healthz and /version.
+//      Both endpoints are admin-gated (fail closed): without credentials the
+//      expected answer is 401; set GPROXY_TEST_ADMIN_KEY to an enabled admin
+//      user's API key to assert the authenticated 200 JSON bodies instead.
+//      GPROXY_TEST_MASTER_KEY (optional) unseals encrypted stored secrets.
 //
 // Full reproduction (pkg/ is gitignored, regenerate it first):
 //   cargo build --lib --target wasm32-unknown-unknown --release
@@ -38,6 +42,10 @@ const tursoUrl = reqEnv("GPROXY_TEST_TURSO_URL");
 const tursoToken = reqEnv("GPROXY_TEST_TURSO_TOKEN");
 const upstashUrl = reqEnv("GPROXY_TEST_UPSTASH_URL");
 const upstashToken = reqEnv("GPROXY_TEST_UPSTASH_TOKEN");
+// Optional: master key (unseals encrypted secrets) and an admin user's API
+// key (authenticates the admin-gated ops endpoints).
+const masterKey = Deno.env.get("GPROXY_TEST_MASTER_KEY") || undefined;
+const adminKey = Deno.env.get("GPROXY_TEST_ADMIN_KEY") || undefined;
 
 // ── 1. storage backends ──────────────────────────────────────────────────────
 const summary: string = await storage_selftest(
@@ -50,14 +58,17 @@ const summary: string = await storage_selftest(
 console.log("=== gproxy v2 edge storage self-test ===");
 console.log(summary);
 
-// ── 2. inbound path through the REAL http::server::router ────────────────────
+// ── 2. inbound path through the edge by-path dispatch ────────────────────────
 console.log("\n=== gproxy v2 edge inbound self-test ===");
 
 // Build the AppState once (persistence = libSQL/Turso, cache = Upstash).
-await init(tursoUrl, tursoToken, upstashUrl, upstashToken);
+await init(tursoUrl, tursoToken, upstashUrl, upstashToken, masterKey);
 
 async function probe(path: string): Promise<string> {
-  const resp = await edgeFetch(new Request(`https://gproxy.local${path}`));
+  const headers = adminKey ? { "x-api-key": adminKey } : undefined;
+  const resp = await edgeFetch(
+    new Request(`https://gproxy.local${path}`, { headers }),
+  );
   return `GET ${path} -> ${resp.status} ${await resp.text()}`;
 }
 
@@ -66,14 +77,27 @@ const versionLine = await probe("/version");
 console.log(healthLine);
 console.log(versionLine);
 
+// /healthz and /version are admin-gated and FAIL CLOSED: anonymous probes
+// prove the gate (401); with GPROXY_TEST_ADMIN_KEY they prove the JSON bodies.
 let ok = true;
-if (!healthLine.endsWith('200 {"status":"ok"}')) {
-  console.error(`ASSERT FAIL: /healthz expected 200 {"status":"ok"}`);
-  ok = false;
-}
-if (!/-> 200 \{"version":".+"\}$/.test(versionLine)) {
-  console.error(`ASSERT FAIL: /version expected 200 {"version":"..."}`);
-  ok = false;
+if (adminKey) {
+  if (!healthLine.endsWith('200 {"status":"ok"}')) {
+    console.error(`ASSERT FAIL: /healthz expected 200 {"status":"ok"}`);
+    ok = false;
+  }
+  if (!/-> 200 \{"version":".+"\}$/.test(versionLine)) {
+    console.error(`ASSERT FAIL: /version expected 200 {"version":"..."}`);
+    ok = false;
+  }
+} else {
+  for (const line of [healthLine, versionLine]) {
+    if (!/-> 401 /.test(line)) {
+      console.error(
+        `ASSERT FAIL: expected 401 without GPROXY_TEST_ADMIN_KEY, got: ${line}`,
+      );
+      ok = false;
+    }
+  }
 }
 console.log(ok ? "inbound: ALL OK" : "inbound: FAILED");
 if (!ok) Deno.exit(1);
