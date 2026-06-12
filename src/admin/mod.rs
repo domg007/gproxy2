@@ -17,8 +17,9 @@ use crate::app::AppState;
 /// 2. API key of an enabled admin user (headless: curl / Prometheus / CI),
 ///    header forms only — no `?key=` fallback, admin URLs end up in logs.
 ///    Resolved against the control-plane snapshot exactly like gateway auth
-///    (native reloads it on every config mutation; an edge isolate keeps its
-///    boot snapshot until recycled).
+///    (native reloads it on every config mutation; an edge isolate lazily
+///    refreshes it via the §7.2 config-version poll, so key changes land
+///    within the poll interval).
 ///
 /// An expired/invalid cookie falls through to the key check, not straight 401.
 pub async fn authenticate_admin(
@@ -42,15 +43,14 @@ pub async fn authenticate_admin(
     })
 }
 
-/// After a config mutation: tell peers to reload (publish) and reload locally
-/// now (so this instance serves the change immediately). The write is already
-/// durable in persistence; a reload failure is logged, not surfaced.
+/// After a config mutation: tell peers to reload — version stamp + pub/sub
+/// (see [`invalidation::broadcast`](crate::app::invalidation::broadcast)) —
+/// and reload locally now (so this instance serves the change immediately).
+/// The write is already durable in persistence; a reload failure is logged,
+/// not surfaced.
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn invalidate(state: &crate::app::AppState) {
-    state
-        .cache
-        .publish(crate::store::cache::INVALIDATE_CHANNEL, b"config")
-        .await;
+    crate::app::invalidation::broadcast(state.cache.as_ref(), b"config").await;
     if let Err(e) = state.reload_snapshot().await {
         tracing::warn!(error = %e, "snapshot reload after admin mutation failed");
     }

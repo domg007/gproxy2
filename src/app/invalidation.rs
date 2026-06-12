@@ -1,10 +1,22 @@
-//! Cross-instance config invalidation (§7.2, M8): subscribe to the Redis
-//! invalidation channel; each message triggers a full snapshot rebuild + swap.
-//! Native-only — redis + tokio::spawn are native; edge is single-instance.
+//! Cross-instance config invalidation (§7.2, M8). Two halves:
+//! [`broadcast`] announces a change (version stamp + pub/sub message, both
+//! targets); [`spawn_invalidation_listener`] is the native push receiver
+//! (redis + tokio::spawn). Edge has no listener — its `subscribe` is a no-op —
+//! so it polls the version stamp instead (`http::edge::refresh_snapshot_if_stale`).
+
+use crate::store::cache::{CONFIG_VERSION_KEY, CacheBackend, INVALIDATE_CHANNEL};
+
+/// Announce a control-plane change to every other instance (§7.2): bump the
+/// shared config-version stamp (edge isolates poll it), then fire the pub/sub
+/// channel (native listeners reload at once; no-op on the REST cache
+/// backends). `payload` is the usual hint (`config` / `cred:{id}`).
+pub async fn broadcast(cache: &dyn CacheBackend, payload: &[u8]) {
+    cache.incr(CONFIG_VERSION_KEY, 1, None).await;
+    cache.publish(INVALIDATE_CHANNEL, payload).await;
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn spawn_invalidation_listener(state: crate::app::AppState) {
-    use crate::store::cache::INVALIDATE_CHANNEL;
     tokio::spawn(async move {
         let reloader = state.clone();
         state
@@ -41,6 +53,21 @@ mod tests {
     use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig, UpstreamConfig};
     use crate::store::cache::{CacheBackend, MemoryCache};
     use crate::store::persistence::{FilePersistence, PersistenceBackend};
+
+    /// §7.2: every broadcast must bump the shared config-version stamp the
+    /// edge isolates poll (incr-by-0 reads the counter).
+    #[tokio::test]
+    async fn broadcast_bumps_config_version() {
+        let cache = MemoryCache::new();
+        super::broadcast(&cache, b"config").await;
+        super::broadcast(&cache, b"cred:1").await;
+        assert_eq!(
+            cache
+                .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
+                .await,
+            2
+        );
+    }
 
     /// Spawning the listener over a memory cache must not panic and must leave
     /// the process healthy. Memory `subscribe` is a no-op, so the listener task

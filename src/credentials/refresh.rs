@@ -127,13 +127,11 @@ impl RefreshOrchestrator {
         writeback(state, credential, sealed)
             .await
             .map_err(|e| ChannelError::Build(format!("persist refreshed secret: {e}")))?;
-        state
-            .cache
-            .publish(
-                crate::store::cache::INVALIDATE_CHANNEL,
-                format!("cred:{}", credential.id).as_bytes(),
-            )
-            .await;
+        crate::app::invalidation::broadcast(
+            state.cache.as_ref(),
+            format!("cred:{}", credential.id).as_bytes(),
+        )
+        .await;
         Ok(fresh)
     }
 }

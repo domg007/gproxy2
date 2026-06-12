@@ -46,6 +46,13 @@ pub use upstash::UpstashCache;
 /// (`cred:{id}` / `config`); the listener reloads the whole snapshot.
 pub const INVALIDATE_CHANNEL: &str = "gproxy:invalidate";
 
+/// Cache key holding the monotonically-increasing control-plane config
+/// version (§7.2). [`broadcast`](crate::app::invalidation::broadcast) bumps it
+/// alongside the pub/sub message; edge isolates (whose `subscribe` is a no-op)
+/// poll it with a short throttle and lazily rebuild their snapshot when it
+/// moves.
+pub const CONFIG_VERSION_KEY: &str = "gproxy:cfg-version";
+
 /// Handler invoked for each message received on a subscribed channel.
 ///
 /// Boxed to keep [`CacheBackend`] object-safe. `Send + Sync` on native; unbounded

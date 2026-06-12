@@ -13,6 +13,7 @@
 //! runs before `init`, it returns a 503 with a clear message (an `AppState`
 //! cannot be synthesised inside wasm without host-supplied credentials).
 
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
@@ -29,6 +30,15 @@ use crate::store::persistence::{LibsqlPersistence, PersistenceBackend};
 
 /// Process-global app state, populated once by [`init`].
 static STATE: OnceLock<AppState> = OnceLock::new();
+
+/// §7.2 edge snapshot freshness: minimum interval between config-version
+/// polls. Within the window requests serve the current snapshot untouched.
+const SNAPSHOT_POLL_INTERVAL_MS: u64 = 10_000;
+
+/// Wall-clock millis of this isolate's last config-version poll.
+static LAST_POLL_MS: AtomicU64 = AtomicU64::new(0);
+/// Config version this isolate's snapshot was last built against.
+static SEEN_CFG_VERSION: AtomicI64 = AtomicI64::new(0);
 
 fn js_err(e: impl std::fmt::Debug) -> JsValue {
     JsValue::from_str(&format!("{e:?}"))
@@ -105,6 +115,17 @@ pub async fn init(
     ));
     let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
 
+    // §7.2 baseline: remember the config version this snapshot was built at so
+    // the first request doesn't trigger a spurious rebuild (incr-by-0 reads
+    // the counter, creating it at 0 when absent).
+    SEEN_CFG_VERSION.store(
+        cache
+            .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
+            .await,
+        Ordering::Relaxed,
+    );
+    LAST_POLL_MS.store(js_sys::Date::now() as u64, Ordering::Relaxed);
+
     let _ = STATE.set(AppState::new(
         config,
         cache,
@@ -131,6 +152,10 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
     let Some(state) = STATE.get() else {
         return service_unavailable("gproxy edge not initialised: call init() first");
     };
+
+    // §7.2 lazy snapshot refresh: edge has no pub/sub listener, so poll the
+    // shared config-version stamp (throttled) and rebuild when it moved.
+    refresh_snapshot_if_stale(state).await;
 
     // Body cap (shared with native's DefaultBodyLimit): reject via
     // content-length BEFORE buffering when the header is present…
@@ -202,6 +227,35 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 /// Build a 503 (init-not-called) plain-text response.
 fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     text_response(503, "text/plain", msg.as_bytes())
+}
+
+/// Edge replacement for the native pub/sub invalidation listener (§7.2): at
+/// most once per [`SNAPSHOT_POLL_INTERVAL_MS`], read the config-version stamp
+/// [`broadcast`](crate::app::invalidation::broadcast) bumps on every mutation
+/// and rebuild the snapshot when it moved. The poll slot is claimed BEFORE the
+/// awaits so interleaved requests (single-threaded event loop, but suspension
+/// points interleave) don't duplicate the work; a failed rebuild leaves the
+/// seen version untouched so the next window retries.
+async fn refresh_snapshot_if_stale(state: &AppState) {
+    let now_ms = js_sys::Date::now() as u64;
+    if now_ms.saturating_sub(LAST_POLL_MS.load(Ordering::Relaxed)) < SNAPSHOT_POLL_INTERVAL_MS {
+        return;
+    }
+    LAST_POLL_MS.store(now_ms, Ordering::Relaxed);
+    let version = state
+        .cache
+        .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
+        .await;
+    if version == SEEN_CFG_VERSION.load(Ordering::Relaxed) {
+        return;
+    }
+    match state.reload_snapshot().await {
+        Ok(()) => {
+            SEEN_CFG_VERSION.store(version, Ordering::Relaxed);
+            tracing::info!(version, "edge snapshot refreshed");
+        }
+        Err(e) => tracing::warn!(error = %e, "edge snapshot refresh failed"),
+    }
 }
 
 /// Build the 401 for missing/invalid admin auth on an ops endpoint.
