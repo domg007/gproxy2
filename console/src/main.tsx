@@ -14,7 +14,9 @@ const queryClient = new QueryClient({
       // Session expired mid-use: any query hitting 401 bounces to login.
       if (error instanceof ApiError && error.status === 401) {
         queryClient.removeQueries({ queryKey: ["session"] });
-        void router.navigate({ to: "/login" });
+        if (!router.state.location.pathname.endsWith("/login")) {
+          void router.navigate({ to: "/login" });
+        }
       }
     },
   }),
