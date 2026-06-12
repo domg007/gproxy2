@@ -30,14 +30,14 @@ pub use file::FilePersistence;
 pub use libsql::LibsqlPersistence;
 
 use records::{
-    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
-    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
-    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
-    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
-    RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
-    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
-    UserInput, UserKey, UserKeyInput,
+    Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
+    CredentialStatusInput, DownstreamRequest, DownstreamRequestInput, InstanceSettings,
+    InstanceSettingsInput, Org, OrgInput, Provider, ProviderInput, ProviderModel,
+    ProviderModelInput, ProviderRuleSet, ProviderRuleSetInput, Quota, QuotaInput, RateLimit,
+    RateLimitInput, Route, RouteInput, RouteMember, RouteMemberInput, RoutePermission,
+    RoutePermissionInput, RoutingRule, RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput,
+    Scope, Team, TeamInput, UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup,
+    UsageRollupInput, User, UserInput, UserKey, UserKeyInput,
 };
 
 /// Durable storage abstraction.
@@ -384,6 +384,14 @@ pub trait PersistenceBackend: Send + Sync {
         &self,
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>>;
+
+    // ── admin audit log (§ admin hardening) ─────────────────────────────────
+
+    /// Append an audit row (append-only); returns it with id/created_at set.
+    async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog>;
+
+    /// List the most recent audit rows (by id desc), up to `limit`.
+    async fn list_audit_logs(&self, limit: u64) -> anyhow::Result<Vec<AuditLog>>;
 
     // ── instance settings (§8) ──────────────────────────────────────────────
 

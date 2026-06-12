@@ -6,14 +6,14 @@ use super::DbPersistence;
 use super::ops;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
-    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
-    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
-    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
-    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
-    RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
-    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
-    UserInput, UserKey, UserKeyInput,
+    Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
+    CredentialStatusInput, DownstreamRequest, DownstreamRequestInput, InstanceSettings,
+    InstanceSettingsInput, Org, OrgInput, Provider, ProviderInput, ProviderModel,
+    ProviderModelInput, ProviderRuleSet, ProviderRuleSetInput, Quota, QuotaInput, RateLimit,
+    RateLimitInput, Route, RouteInput, RouteMember, RouteMemberInput, RoutePermission,
+    RoutePermissionInput, RoutingRule, RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput,
+    Scope, Team, TeamInput, UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup,
+    UsageRollupInput, User, UserInput, UserKey, UserKeyInput,
 };
 
 #[async_trait]
@@ -401,6 +401,14 @@ impl PersistenceBackend for DbPersistence {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
         ops::logs::upstream_requests::list(&self.conn, request_id).await
+    }
+
+    async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog> {
+        ops::logs::audit_logs::append(&self.conn, input).await
+    }
+
+    async fn list_audit_logs(&self, limit: u64) -> anyhow::Result<Vec<AuditLog>> {
+        ops::logs::audit_logs::list(&self.conn, limit).await
     }
 
     async fn list_instance_settings(&self) -> anyhow::Result<Vec<InstanceSettings>> {

@@ -4,6 +4,7 @@
 //! models, the `file` impl serializes them as JSON. Domain code only ever sees
 //! these types — never SeaORM entities.
 
+pub mod audit;
 pub mod authz;
 pub mod identity;
 pub mod logs;
@@ -13,6 +14,7 @@ pub mod settings;
 pub mod transform;
 pub mod usage;
 
+pub use audit::{AuditLog, AuditLogInput};
 pub use authz::{
     Quota, QuotaInput, RateLimit, RateLimitInput, RoutePermission, RoutePermissionInput, Scope,
 };

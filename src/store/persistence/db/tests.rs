@@ -436,3 +436,42 @@ async fn metrics_aggregate_sums_rollups_and_buckets_latency() {
     assert_eq!(m.latency_buckets[1], 1, "≤100ms");
     assert_eq!(m.latency_buckets[4], 2, "≤1000ms cumulative");
 }
+
+#[tokio::test]
+async fn audit_log_round_trip() {
+    let db = mem().await;
+    db.append_audit_log(AuditLogInput {
+        actor_id: Some(7),
+        actor_name: Some("admin".into()),
+        action: "DELETE".into(),
+        target: "/admin/credentials/5".into(),
+        status: 204,
+        source_ip: Some("203.0.113.9".into()),
+    })
+    .await
+    .expect("append 1");
+    db.append_audit_log(AuditLogInput {
+        actor_id: None,
+        actor_name: None,
+        action: "login.fail".into(),
+        target: "alice".into(),
+        status: 401,
+        source_ip: None,
+    })
+    .await
+    .expect("append 2");
+
+    let rows = db.list_audit_logs(10).await.expect("list");
+    assert_eq!(rows.len(), 2);
+    // Most-recent first (id desc): the login.fail row leads.
+    assert_eq!(rows[0].action, "login.fail");
+    assert_eq!(rows[0].target, "alice");
+    assert_eq!(rows[0].actor_id, None);
+    assert_eq!(rows[1].action, "DELETE");
+    assert_eq!(rows[1].actor_name.as_deref(), Some("admin"));
+    assert_eq!(rows[1].status, 204);
+    assert!(rows[0].id > rows[1].id);
+
+    // limit caps the result.
+    assert_eq!(db.list_audit_logs(1).await.expect("list 1").len(), 1);
+}

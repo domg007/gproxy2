@@ -13,7 +13,7 @@ use crate::api::auth::{LoginRequest, LoginResponse, MeResponse};
 use crate::api::error::ApiError;
 use crate::app::AppState;
 use crate::store::cache::CacheBackend;
-use crate::store::persistence::records::User;
+use crate::store::persistence::records::{AuditLogInput, User};
 
 /// Max consecutive failed logins per account / per source IP before lockout.
 const MAX_LOGIN_FAILS: i64 = 5;
@@ -48,6 +48,17 @@ pub async fn login(
                 cache.delete(k).await;
             }
             let token = session::create(cache, user.id).await;
+            record_audit(
+                &state,
+                AuditLogInput {
+                    actor_id: Some(user.id),
+                    actor_name: Some(user.name.clone()),
+                    action: "login.success".into(),
+                    target: req.username.clone(),
+                    status: 200,
+                    source_ip: client_ip(&headers),
+                },
+            );
             let body = LoginResponse {
                 user: MeResponse {
                     id: user.id,
@@ -63,9 +74,31 @@ pub async fn login(
             if let Some(k) = &ip_key {
                 cache.incr(k, 1, Some(LOGIN_WINDOW)).await;
             }
+            // Never log the password — only the attempted username.
+            record_audit(
+                &state,
+                AuditLogInput {
+                    actor_id: None,
+                    actor_name: None,
+                    action: "login.fail".into(),
+                    target: req.username.clone(),
+                    status: 401,
+                    source_ip: client_ip(&headers),
+                },
+            );
             ApiError::Unauthorized.into_response()
         }
     }
+}
+
+/// Fire-and-forget audit write so the login response isn't delayed.
+fn record_audit(state: &AppState, input: AuditLogInput) {
+    let persistence = state.persistence.clone();
+    tokio::spawn(async move {
+        if let Err(e) = persistence.append_audit_log(input).await {
+            tracing::warn!("audit log write failed: {e}");
+        }
+    });
 }
 
 /// Verify an admin password login, returning the user on success. `None` for

@@ -26,14 +26,14 @@ use crate::store::libsql::LibsqlClient;
 use super::PersistenceBackend;
 use super::metrics::MetricsAggregate;
 use super::records::{
-    Alias, AliasInput, Credential, CredentialInput, CredentialStatus, CredentialStatusInput,
-    DownstreamRequest, DownstreamRequestInput, InstanceSettings, InstanceSettingsInput, Org,
-    OrgInput, Provider, ProviderInput, ProviderModel, ProviderModelInput, ProviderRuleSet,
-    ProviderRuleSetInput, Quota, QuotaInput, RateLimit, RateLimitInput, Route, RouteInput,
-    RouteMember, RouteMemberInput, RoutePermission, RoutePermissionInput, RoutingRule,
-    RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput, Scope, Team, TeamInput,
-    UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup, UsageRollupInput, User,
-    UserInput, UserKey, UserKeyInput,
+    Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
+    CredentialStatusInput, DownstreamRequest, DownstreamRequestInput, InstanceSettings,
+    InstanceSettingsInput, Org, OrgInput, Provider, ProviderInput, ProviderModel,
+    ProviderModelInput, ProviderRuleSet, ProviderRuleSetInput, Quota, QuotaInput, RateLimit,
+    RateLimitInput, Route, RouteInput, RouteMember, RouteMemberInput, RoutePermission,
+    RoutePermissionInput, RoutingRule, RoutingRuleInput, Rule, RuleInput, RuleSet, RuleSetInput,
+    Scope, Team, TeamInput, UpstreamRequest, UpstreamRequestInput, Usage, UsageInput, UsageRollup,
+    UsageRollupInput, User, UserInput, UserKey, UserKeyInput,
 };
 
 /// Edge persistence backend backed by a Turso/libSQL database via Hrana HTTP.
@@ -384,6 +384,13 @@ impl PersistenceBackend for LibsqlPersistence {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
         logs::upstream_requests::list(&self.client, request_id).await
+    }
+
+    async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog> {
+        logs::audit_logs::append(&self.client, input).await
+    }
+    async fn list_audit_logs(&self, limit: u64) -> anyhow::Result<Vec<AuditLog>> {
+        logs::audit_logs::list(&self.client, limit).await
     }
 
     // ── instance settings ──

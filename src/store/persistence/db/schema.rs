@@ -10,7 +10,7 @@ use crate::store::persistence::migrations::{
 
 use super::entities::authz::{quota, rate_limit, route_permission};
 use super::entities::identity::{org, team, user, user_key};
-use super::entities::logs::{downstream_request, upstream_request};
+use super::entities::logs::{audit_log, downstream_request, upstream_request};
 use super::entities::provider::{credential, credential_status, provider, provider_model};
 use super::entities::routing::{alias, route, route_member};
 use super::entities::settings::instance_setting;
@@ -50,6 +50,7 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
     create_table(conn, &schema, usage_rollup::Entity).await?;
     create_table(conn, &schema, downstream_request::Entity).await?;
     create_table(conn, &schema, upstream_request::Entity).await?;
+    create_table(conn, &schema, audit_log::Entity).await?;
 
     // §8-E settings
     create_table(conn, &schema, instance_setting::Entity).await?;

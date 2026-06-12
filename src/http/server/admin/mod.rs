@@ -1,6 +1,7 @@
 //! Admin HTTP surface (native-only — uses axum). The `/admin/*` subrouter:
 //! login/logout are public; everything else sits behind an admin session.
 
+pub mod audit;
 pub mod auth;
 pub mod crud;
 pub mod login;
@@ -43,6 +44,11 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
             "/admin/logs/{request_id}/upstream",
             get(usage::upstream_logs),
         )
+        // M10d audit log: most-recent mutating-admin-action trail.
+        .route("/admin/audit", get(usage::list_audit))
+        // Audit middleware runs INNER to require_admin (added first = innermost),
+        // so the AdminUser extension is set when it records a mutating request.
+        .layer(from_fn_with_state(state.clone(), audit::audit))
         .layer(from_fn_with_state(state, middleware::require_admin));
     Router::new()
         .route("/admin/login", post(auth::login))
@@ -253,5 +259,91 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(good.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn mutating_request_and_failed_login_are_audited() {
+        insecure_cookies();
+        let (state, _dir) = seeded_state().await;
+        let persistence = state.persistence.clone();
+        let app = crate::http::server::router(state);
+
+        // A failed login records a `login.fail` row (no cookie needed; public).
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"username":"ghost","password":"nope"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // Log in to get a session cookie for the mutating request.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"username":"admin","password":"secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        // A mutating (DELETE) admin request flows through the audit middleware.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::delete("/admin/orgs/99999")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Whatever the outcome, the request was authenticated and audited.
+        assert!(resp.status().is_success() || resp.status().is_client_error());
+
+        // Audit writes are fire-and-forget; give the spawned tasks a moment.
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+            if persistence.list_audit_logs(100).await.unwrap().len() >= 3 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let rows = persistence.list_audit_logs(100).await.unwrap();
+
+        // The DELETE was recorded with method=action and path=target.
+        assert!(
+            rows.iter()
+                .any(|r| r.action == "DELETE" && r.target == "/admin/orgs/99999"),
+            "expected DELETE audit row, got {rows:?}"
+        );
+        // The failed login was recorded; never the password.
+        assert!(
+            rows.iter()
+                .any(|r| r.action == "login.fail" && r.target == "ghost" && r.actor_id.is_none()),
+            "expected login.fail audit row, got {rows:?}"
+        );
+        // The successful login was recorded too.
+        assert!(
+            rows.iter()
+                .any(|r| r.action == "login.success" && r.actor_name.as_deref() == Some("admin")),
+            "expected login.success audit row, got {rows:?}"
+        );
     }
 }

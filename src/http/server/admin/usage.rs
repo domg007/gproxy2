@@ -15,7 +15,7 @@ use super::crud::internal;
 use crate::api::error::ApiError;
 use crate::app::AppState;
 use crate::store::persistence::records::{
-    CredentialStatus, DownstreamRequest, UpstreamRequest, Usage, UsageRollup,
+    AuditLog, CredentialStatus, DownstreamRequest, UpstreamRequest, Usage, UsageRollup,
 };
 
 /// `?limit=N` for the usage listing; defaults to 100, capped at 1000.
@@ -65,6 +65,22 @@ pub async fn list_usage_rollups(
         state
             .persistence
             .list_usage_rollups(&q.granularity, q.from, q.to)
+            .await
+            .map_err(internal)?,
+    ))
+}
+
+/// `GET /admin/audit?limit=N` — the most recent audit rows (id desc). Audit
+/// rows carry only method/path/actor/status/ip; never a secret.
+pub async fn list_audit(
+    State(state): State<AppState>,
+    Query(q): Query<UsageQuery>,
+) -> Result<Json<Vec<AuditLog>>, ApiError> {
+    let limit = q.limit.unwrap_or(DEFAULT_USAGE_LIMIT).min(MAX_USAGE_LIMIT);
+    Ok(Json(
+        state
+            .persistence
+            .list_audit_logs(limit)
             .await
             .map_err(internal)?,
     ))

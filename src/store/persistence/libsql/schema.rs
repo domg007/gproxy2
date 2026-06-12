@@ -1,5 +1,5 @@
 //! Schema creation on connect. Hand-written `CREATE TABLE IF NOT EXISTS` for
-//! the 25 tables defined by the SeaORM entities (`db/entities/`), in SQLite
+//! the 26 tables defined by the SeaORM entities (`db/entities/`), in SQLite
 //! dialect. Ids are `INTEGER PRIMARY KEY` (autoincrement-by-default rowid);
 //! bools/timestamps are INTEGER; strings/decimals/JSON are TEXT; blobs BLOB.
 
@@ -254,6 +254,16 @@ const TABLES: &[&str] = &[
         body TEXT, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS audit_logs (\
+        id INTEGER PRIMARY KEY, \
+        at INTEGER NOT NULL, \
+        actor_id INTEGER, \
+        actor_name TEXT, \
+        action TEXT NOT NULL, \
+        target TEXT NOT NULL, \
+        status INTEGER NOT NULL, \
+        source_ip TEXT, \
+        created_at INTEGER NOT NULL)",
     // ── settings ──
     "CREATE TABLE IF NOT EXISTS instance_settings (\
         id INTEGER PRIMARY KEY, \
