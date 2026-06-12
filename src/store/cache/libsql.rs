@@ -11,8 +11,8 @@
 //!
 //! # TTL
 //! TTL expiry-on-read filters `WHERE expires_ms IS NULL OR expires_ms > <now>`.
-//! `now` is obtained from JS via `js_sys::Date::now()` (milliseconds since epoch).
-//! TODO: TTL on edge needs a JS clock (no `std::time::Instant` on wasm32).
+//! `now` is obtained from JS via `js_sys::Date::now()` (milliseconds since epoch),
+//! mirroring [`crate::util::time`] — wasm32 has no `std::time::Instant`.
 //!
 //! # `incr` atomicity
 //! Uses a single SQL statement with `ON CONFLICT DO UPDATE` to atomically
