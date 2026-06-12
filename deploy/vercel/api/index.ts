@@ -26,6 +26,8 @@
 // NEVER hard-coded. Set them with `vercel env add … production`:
 //   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache)
+//   GPROXY_MASTER_KEY               (optional — unseals encrypted stored
+//                                    secrets; absent → plaintext mode)
 //
 // The generated glue (_lib/gproxy.js + gproxy_bg.wasm + *.d.ts) is gitignored;
 // only this file + vercel.json are hand-written source. Build from the crate
@@ -73,6 +75,7 @@ function ensureReady(): Promise<void> {
         reqEnv("TURSO_TOKEN"),
         optEnv("UPSTASH_URL"),
         optEnv("UPSTASH_TOKEN"),
+        optEnv("GPROXY_MASTER_KEY"),
       );
     })();
   }

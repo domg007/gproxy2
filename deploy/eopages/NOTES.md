@@ -165,7 +165,8 @@ cargo build --lib --target wasm32-unknown-unknown --release --no-default-feature
 bash deploy/eopages/build.sh                 # deno-target glue + lazy base64-inline patch
 edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -e production
 edgeone pages link                           # (enter: gproxy-v2) -> .edgeone/project.json
-edgeone pages env set TURSO_URL   <REDACTED> -t <TOK>     # + TURSO_TOKEN, UPSTASH_URL, UPSTASH_TOKEN
+edgeone pages env set TURSO_URL   <REDACTED> -t <TOK>     # + TURSO_TOKEN, UPSTASH_URL, UPSTASH_TOKEN,
+                                                          #   GPROXY_MASTER_KEY (optional — unseals stored secrets)
 edgeone pages deploy deploy/eopages/gproxy   --name gproxy-v2 -e production
 curl -L -c jar -b jar "https://gproxy-v2-g1yrgdxl.edgeone.run/healthz?eo_token=<…>&eo_time=<…>"
 #   -> {"status":"ok"}

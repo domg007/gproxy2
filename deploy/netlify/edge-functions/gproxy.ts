@@ -15,6 +15,8 @@
 //   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache; falls
 //                                    back to the libSQL kv table when absent)
+//   GPROXY_MASTER_KEY               (optional — unseals encrypted stored
+//                                    secrets; absent → plaintext mode)
 //
 // Build recipe (run from the crate root; pkg/ and the generated glue copies in
 // this dir are gitignored — regenerate after rebuilding the wasm):
@@ -34,7 +36,8 @@
 //
 // Deploy from deploy/netlify/ (storage creds become site env vars; the Netlify
 // auth token is NOT):
-//   netlify env:set TURSO_URL …  (and TURSO_TOKEN / UPSTASH_URL / UPSTASH_TOKEN)
+//   netlify env:set TURSO_URL …  (and TURSO_TOKEN / UPSTASH_URL / UPSTASH_TOKEN
+//                                 / GPROXY_MASTER_KEY)
 //   netlify deploy --prod --dir public
 //
 // `wasmFetch` is aliased from the wasm `fetch` export so it does not shadow the
@@ -80,6 +83,7 @@ function ensureInit(): Promise<void> {
       reqEnv("TURSO_TOKEN"),
       getEnv("UPSTASH_URL"),
       getEnv("UPSTASH_TOKEN"),
+      getEnv("GPROXY_MASTER_KEY"),
     );
   }
   return initialised;

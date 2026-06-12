@@ -1,3 +1,10 @@
+// gproxy v2 — EdgeOne Pages edge-function entry.
+//
+// Env vars come from `context.env` (set with `edgeone pages env set …`):
+//   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
+//   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache)
+//   GPROXY_MASTER_KEY               (optional — unseals encrypted stored
+//                                    secrets; absent → plaintext mode)
 import {
   __gproxy_load,
   fetch as wasmFetch,
@@ -28,6 +35,7 @@ function ensureInit(env) {
         reqEnv(env, "TURSO_TOKEN"),
         optEnv(env, "UPSTASH_URL"),
         optEnv(env, "UPSTASH_TOKEN"),
+        optEnv(env, "GPROXY_MASTER_KEY"),
       );
     })();
   }

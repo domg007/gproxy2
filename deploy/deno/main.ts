@@ -11,6 +11,8 @@
 //   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache; falls
 //                                    back to the libSQL kv table when absent)
+//   GPROXY_MASTER_KEY               (optional — unseals encrypted stored
+//                                    secrets; absent → plaintext mode)
 //
 // Build recipe (run from the crate root before deploying; pkg/ is gitignored):
 //   cargo build --lib --target wasm32-unknown-unknown --release --no-default-features --features edge
@@ -52,6 +54,7 @@ await init(
   reqEnv("TURSO_TOKEN"),
   optEnv("UPSTASH_URL"),
   optEnv("UPSTASH_TOKEN"),
+  optEnv("GPROXY_MASTER_KEY"),
 );
 
 Deno.serve((req: Request) => wasmFetch(req));

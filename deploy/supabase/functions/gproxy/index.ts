@@ -11,6 +11,8 @@
 //   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
 //   UPSTASH_URL, UPSTASH_TOKEN      (optional — Upstash Redis cache; falls
 //                                    back to the libSQL kv table when absent)
+//   GPROXY_MASTER_KEY               (optional — unseals encrypted stored
+//                                    secrets; absent → plaintext mode)
 //
 // Build recipe (run from the crate root; pkg/ is gitignored, so are the copies
 // of the glue + .wasm placed alongside this file):
@@ -29,6 +31,7 @@
 // Deploy from deploy/supabase/ (storage creds become function secrets; the
 // access token is NOT):
 //   supabase secrets set TURSO_URL=… TURSO_TOKEN=… UPSTASH_URL=… UPSTASH_TOKEN=… \
+//     GPROXY_MASTER_KEY=… \
 //     --project-ref "$SUPABASE_PROJECT_REF"
 //   supabase functions deploy gproxy --project-ref "$SUPABASE_PROJECT_REF" \
 //     --use-api --no-verify-jwt
@@ -57,6 +60,7 @@ await init(
   reqEnv("TURSO_TOKEN"),
   optEnv("UPSTASH_URL"),
   optEnv("UPSTASH_TOKEN"),
+  optEnv("GPROXY_MASTER_KEY"),
 );
 
 // Supabase routes invocations to `/<function-name>/<rest>` (it strips the

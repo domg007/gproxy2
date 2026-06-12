@@ -29,6 +29,7 @@ TURSO_URL
 TURSO_TOKEN
 UPSTASH_URL
 UPSTASH_TOKEN
+GPROXY_MASTER_KEY   (optional — unseals encrypted stored secrets)
 ```
 
 ## Important CLI Notes
