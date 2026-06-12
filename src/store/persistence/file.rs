@@ -27,10 +27,19 @@ mod usage;
 pub struct FilePersistence {
     root: PathBuf,
     write: Mutex<()>,
+    /// Exclusive cross-process lock on the data dir, held for the backend's
+    /// lifetime (the OS releases it on drop or crash). The `write` mutex only
+    /// serializes within this process — a second process sharing the same dir
+    /// would silently lose whole-file rewrites, so refuse to start instead.
+    _lock: std::fs::File,
 }
 
 impl FilePersistence {
     /// Open (and create if absent) the data directory at `data_dir`.
+    ///
+    /// Takes an exclusive advisory lock on `data_dir/.gproxy.lock`; fails if
+    /// another process already holds it (the file backend is single-instance —
+    /// use the db backend to share state across processes).
     ///
     /// Only ensures the directory exists; write-permission is verified by
     /// [`health`](FilePersistence::health), which callers should invoke at startup.
@@ -38,12 +47,45 @@ impl FilePersistence {
         tokio::fs::create_dir_all(&data_dir).await.map_err(|e| {
             anyhow::anyhow!("failed to create data dir {}: {e}", data_dir.display())
         })?;
+        let lock = lock_data_dir(&data_dir)?;
         stamp_schema_version(&data_dir).await?;
         Ok(Self {
             root: data_dir,
             write: Mutex::new(()),
+            _lock: lock,
         })
     }
+}
+
+/// Acquire the exclusive data-dir lock. `WouldBlock` (another live process owns
+/// the dir) is a hard error; a filesystem that does not support advisory locks
+/// degrades to a warning rather than blocking startup.
+fn lock_data_dir(data_dir: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    let path = data_dir.join(".gproxy.lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| anyhow::anyhow!("failed to open lock file {}: {e}", path.display()))?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => anyhow::bail!(
+            "data dir {} is already in use by another gproxy process; \
+             the file backend is single-instance — use --persistence=db \
+             to share state across instances",
+            data_dir.display()
+        ),
+        Err(std::fs::TryLockError::Error(e)) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "data-dir lock unsupported on this filesystem; concurrent \
+                 gproxy processes on this dir WILL corrupt data"
+            );
+        }
+    }
+    Ok(lock)
 }
 
 /// The file backend is schemaless JSON, so there are no table migrations — but

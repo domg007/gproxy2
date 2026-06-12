@@ -19,6 +19,22 @@ async fn open_and_health_ok() {
     fp.health().await.expect("health");
 }
 
+/// Regression: the data dir is single-instance — a second open of the same dir
+/// while the first is alive must fail (flock), not silently share state.
+#[tokio::test]
+async fn second_open_of_same_dir_fails() {
+    let (dir, fp) = open().await;
+    let err = match FilePersistence::open(dir.path().to_path_buf()).await {
+        Ok(_) => panic!("second open must fail"),
+        Err(e) => e,
+    };
+    assert!(err.to_string().contains("already in use"), "{err}");
+    drop(fp);
+    FilePersistence::open(dir.path().to_path_buf())
+        .await
+        .expect("re-open after release");
+}
+
 #[tokio::test]
 async fn provider_round_trip() {
     let (_dir, fp) = open().await;

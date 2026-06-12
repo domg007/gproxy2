@@ -269,6 +269,15 @@ async fn main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "cache-redis")]
         CacheConfig::Redis { url } => {
+            // Redis signals a multi-instance fleet; the file backend has no
+            // cross-process coordination, so every instance would need its own
+            // (divergent) data dir.
+            if matches!(config.persistence, PersistenceConfig::File { .. }) {
+                tracing::warn!(
+                    "redis cache + file persistence: the file backend is \
+                     single-instance — multi-node fleets must use --persistence=db"
+                );
+            }
             let c = gproxy::store::cache::RedisCache::connect(url).await?;
             c.health().await?;
             tracing::info!("cache backend: redis ready");
