@@ -1,0 +1,19 @@
+{
+  "app": { "name": "gproxy" },
+  "nav": { "dashboard": "Dashboard" },
+  "login": {
+    "title": "Sign in to gproxy",
+    "subtitle": "Admin console",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "required": "Required",
+    "failed": "Invalid username or password",
+    "throttled": "Too many attempts. Retry in {{seconds}}s."
+  },
+  "user": { "signedInAs": "Signed in as", "logout": "Sign out" },
+  "theme": { "label": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
+  "lang": { "label": "Language" },
+  "errors": { "network": "Network error — is the server reachable?", "internal": "Server error" },
+  "dashboard": { "placeholder": "Dashboard coming in F4." }
+}
