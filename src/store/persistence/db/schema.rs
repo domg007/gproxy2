@@ -48,6 +48,7 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
     // §8-D usage
     create_table(conn, &schema, usage::Entity).await?;
     create_table(conn, &schema, usage_rollup::Entity).await?;
+    create_rollup_unique_index(conn).await?;
     create_table(conn, &schema, downstream_request::Entity).await?;
     create_table(conn, &schema, upstream_request::Entity).await?;
     create_table(conn, &schema, audit_log::Entity).await?;
@@ -70,6 +71,36 @@ async fn create_table<E: EntityTrait>(
     stmt.if_not_exists();
     conn.execute(&stmt).await?;
     Ok(())
+}
+
+/// One `usage_rollups` row per dimension bucket: two instances racing the
+/// first insert for a bucket must collide here (the loser retries into the
+/// accumulate path). COALESCE folds the nullable dimensions, which unique
+/// indexes otherwise treat as distinct. Raw SQL because the entity derive
+/// can't express a multi-column expression index; MySQL needs each expression
+/// parenthesized and has no `IF NOT EXISTS` for indexes, so its duplicate-name
+/// error is treated as already-created.
+async fn create_rollup_unique_index(conn: &DatabaseConnection) -> anyhow::Result<()> {
+    let mysql = matches!(conn.get_database_backend(), sea_orm::DatabaseBackend::MySql);
+    let sql = if mysql {
+        "CREATE UNIQUE INDEX uq_usage_rollups_dims ON usage_rollups (\
+         granularity, bucket_start, \
+         (COALESCE(provider_id, 0)), (COALESCE(org_id, 0)), \
+         (COALESCE(team_id, 0)), (COALESCE(user_id, 0)), \
+         (COALESCE(route_name, '')), (COALESCE(model, '')))"
+    } else {
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_usage_rollups_dims ON usage_rollups (\
+         granularity, bucket_start, \
+         COALESCE(provider_id, 0), COALESCE(org_id, 0), \
+         COALESCE(team_id, 0), COALESCE(user_id, 0), \
+         COALESCE(route_name, ''), COALESCE(model, ''))"
+    };
+    match conn.execute_unprepared(sql).await {
+        Ok(_) => Ok(()),
+        // MySQL 1061 = duplicate key name: the index already exists.
+        Err(e) if mysql && e.to_string().contains("1061") => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Stamp the baseline (if unstamped) and apply any pending ordered migrations.

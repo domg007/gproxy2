@@ -1,8 +1,9 @@
 //! Usage-rollup ops for the `db` backend (accumulate by dimension bucket).
 
 use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::{Expr, ExprTrait};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Select,
 };
 
 use crate::store::persistence::records::{UsageRollup, UsageRollupInput};
@@ -29,14 +30,9 @@ fn to_record(m: usage_rollup::Model) -> anyhow::Result<UsageRollup> {
     })
 }
 
-pub async fn add(
-    conn: &DatabaseConnection,
-    input: UsageRollupInput,
-) -> anyhow::Result<UsageRollup> {
-    let now = crate::store::persistence::db::ops::now_secs();
-
-    // Locate the existing bucket matching ALL dimensions (incl. None).
-    let existing = usage_rollup::Entity::find()
+/// Select the bucket matching ALL of `input`'s dimensions (incl. None).
+fn find_bucket(input: &UsageRollupInput) -> Select<usage_rollup::Entity> {
+    usage_rollup::Entity::find()
         .filter(usage_rollup::Column::Granularity.eq(input.granularity.clone()))
         .filter(usage_rollup::Column::BucketStart.eq(input.bucket_start))
         .filter(match input.provider_id {
@@ -63,34 +59,35 @@ pub async fn add(
             Some(v) => usage_rollup::Column::Model.eq(v),
             None => usage_rollup::Column::Model.is_null(),
         })
-        .one(conn)
-        .await?;
+}
 
-    let model = match existing {
-        Some(existing) => {
-            let requests = existing.requests + input.requests;
-            let input_tokens = existing.input_tokens + input.input_tokens;
-            let output_tokens = existing.output_tokens + input.output_tokens;
-            let cost = existing.cost.parse::<rust_decimal::Decimal>()? + input.cost;
-            let mut am: usage_rollup::ActiveModel = existing.into();
-            am.requests = Set(requests);
-            am.input_tokens = Set(input_tokens);
-            am.output_tokens = Set(output_tokens);
-            am.cost = Set(cost.to_string());
-            am.updated_at = Set(now);
-            am.update(conn).await?
-        }
-        None => {
-            usage_rollup::ActiveModel {
+/// Accumulate `input` into its dimension bucket. The integer columns add IN
+/// SQL (atomic regardless of concurrent writers — a plain read-add-write loses
+/// increments across instances sharing one database); `cost` is a TEXT decimal,
+/// so it rides a compare-and-swap on the raw stored text, retried on
+/// contention. A failed CAS applies nothing (single guarded UPDATE), so a
+/// retry never double-counts the integer columns. First-insert races collide
+/// on the `uq_usage_rollups_dims` unique index — the loser retries into the
+/// accumulate path.
+pub async fn add(
+    conn: &DatabaseConnection,
+    input: UsageRollupInput,
+) -> anyhow::Result<UsageRollup> {
+    const CAS_RETRIES: u32 = 5;
+    let now = crate::store::persistence::db::ops::now_secs();
+
+    for _ in 0..CAS_RETRIES {
+        let Some(existing) = find_bucket(&input).one(conn).await? else {
+            let insert = usage_rollup::ActiveModel {
                 id: NotSet,
-                granularity: Set(input.granularity),
+                granularity: Set(input.granularity.clone()),
                 bucket_start: Set(input.bucket_start),
                 provider_id: Set(input.provider_id),
                 org_id: Set(input.org_id),
                 team_id: Set(input.team_id),
                 user_id: Set(input.user_id),
-                route_name: Set(input.route_name),
-                model: Set(input.model),
+                route_name: Set(input.route_name.clone()),
+                model: Set(input.model.clone()),
                 requests: Set(input.requests),
                 input_tokens: Set(input.input_tokens),
                 output_tokens: Set(input.output_tokens),
@@ -99,11 +96,52 @@ pub async fn add(
                 updated_at: Set(now),
             }
             .insert(conn)
-            .await?
-        }
-    };
+            .await;
+            match insert {
+                Ok(model) => return to_record(model),
+                // Concurrent first insert won the bucket: re-find → CAS update.
+                Err(e) if is_unique_violation(&e) => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
 
-    to_record(model)
+        let cost = existing.cost.parse::<rust_decimal::Decimal>()? + input.cost;
+        let res = usage_rollup::Entity::update_many()
+            .col_expr(
+                usage_rollup::Column::Requests,
+                Expr::col(usage_rollup::Column::Requests).add(input.requests),
+            )
+            .col_expr(
+                usage_rollup::Column::InputTokens,
+                Expr::col(usage_rollup::Column::InputTokens).add(input.input_tokens),
+            )
+            .col_expr(
+                usage_rollup::Column::OutputTokens,
+                Expr::col(usage_rollup::Column::OutputTokens).add(input.output_tokens),
+            )
+            .col_expr(usage_rollup::Column::Cost, Expr::value(cost.to_string()))
+            .col_expr(usage_rollup::Column::UpdatedAt, Expr::value(now))
+            .filter(usage_rollup::Column::Id.eq(existing.id))
+            .filter(usage_rollup::Column::Cost.eq(existing.cost.clone()))
+            .exec(conn)
+            .await?;
+        if res.rows_affected > 0 {
+            let model = usage_rollup::Entity::find_by_id(existing.id)
+                .one(conn)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("rollup bucket vanished after update"))?;
+            return to_record(model);
+        }
+    }
+    anyhow::bail!("usage_rollup add: persistent write contention")
+}
+
+/// `true` when the error is a unique-constraint violation, across dialects:
+/// sqlite "UNIQUE constraint failed", postgres "duplicate key value violates
+/// unique constraint", mysql "Duplicate entry".
+fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
+    let msg = e.to_string().to_ascii_lowercase();
+    msg.contains("unique") || msg.contains("duplicate")
 }
 
 pub async fn list(

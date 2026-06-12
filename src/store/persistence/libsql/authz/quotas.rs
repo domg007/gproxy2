@@ -134,28 +134,47 @@ pub async fn delete_by_scope(
 }
 
 /// Add `delta` to `cost_used` for the `(scope, scope_id)` row. No-op when the
-/// row is absent. `cost_used` is a TEXT decimal, so we read-add-write; the edge
-/// runs single-threaded per isolate, so the round-trip is effectively atomic
-/// for this backend.
+/// row is absent. `cost_used` is a TEXT decimal, so SQL `+` can't do exact
+/// arithmetic; instead the read-add-write is guarded by a compare-and-swap on
+/// the RAW stored text (retried on contention) — Turso is shared across
+/// isolates/instances, so concurrent settles must not lose increments.
 pub async fn add_cost(
     client: &LibsqlClient,
     scope: Scope,
     scope_id: i64,
     delta: rust_decimal::Decimal,
 ) -> anyhow::Result<()> {
-    let Some(existing) = get(client, scope, scope_id).await? else {
-        return Ok(()); // no quota row → nothing to charge
-    };
-    let updated = existing.cost_used + delta;
-    exec(
-        client,
-        "UPDATE quotas SET cost_used = ?, updated_at = ? WHERE id = ?",
-        &[
-            arg_text(&updated.to_string()),
-            arg_integer(now_secs()),
-            arg_integer(existing.id),
-        ],
+    const CAS_RETRIES: u32 = 5;
+    for _ in 0..CAS_RETRIES {
+        let Some(row) = query_one(
+            client,
+            "SELECT id, cost_used FROM quotas WHERE scope = ? AND scope_id = ?",
+            &[arg_text(scope.as_str()), arg_integer(scope_id)],
+        )
+        .await?
+        else {
+            return Ok(()); // no quota row → nothing to charge
+        };
+        let id = col_i64(&row, 0)?;
+        let raw = col_str(&row, 1)?;
+        let updated = raw.parse::<rust_decimal::Decimal>()? + delta;
+        let n = exec(
+            client,
+            "UPDATE quotas SET cost_used = ?, updated_at = ? WHERE id = ? AND cost_used = ?",
+            &[
+                arg_text(&updated.to_string()),
+                arg_integer(now_secs()),
+                arg_integer(id),
+                arg_text(&raw),
+            ],
+        )
+        .await?;
+        if n > 0 {
+            return Ok(());
+        }
+    }
+    anyhow::bail!(
+        "quota add_cost: persistent write contention for {}:{scope_id}",
+        scope.as_str()
     )
-    .await?;
-    Ok(())
 }

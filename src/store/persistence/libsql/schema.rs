@@ -228,6 +228,14 @@ const TABLES: &[&str] = &[
         cost TEXT NOT NULL, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
+    // One row per dimension bucket — two isolates racing the first insert must
+    // collide here (the loser retries into the accumulate path). COALESCE
+    // folds NULL dimensions, which unique indexes otherwise treat as distinct.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_usage_rollups_dims ON usage_rollups (\
+        granularity, bucket_start, \
+        COALESCE(provider_id, 0), COALESCE(org_id, 0), \
+        COALESCE(team_id, 0), COALESCE(user_id, 0), \
+        COALESCE(route_name, ''), COALESCE(model, ''))",
     "CREATE TABLE IF NOT EXISTS downstream_requests (\
         id INTEGER PRIMARY KEY, \
         request_id TEXT NOT NULL, \

@@ -1,9 +1,8 @@
 //! Quota ops for the `db` backend. Unique per `(scope, scope_id)`.
 
 use sea_orm::ActiveValue::{NotSet, Set};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
-};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 use crate::store::persistence::records::{Quota, QuotaInput, Scope};
 
@@ -108,42 +107,44 @@ pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> 
 /// Atomically add `delta` to `cost_used` for the `(scope, scope_id)` row.
 ///
 /// `cost_used` is a TEXT column holding the exact decimal string, so SQL `+`
-/// cannot do the arithmetic. We do a read-add-write inside a single
-/// transaction instead: SQLite serialises the txn and Postgres/MySQL row-lock
-/// the selected row under it, so the increment is atomic against concurrent
-/// reconciles. No-op when the row is absent (the request isn't cost-tracked).
+/// cannot do the arithmetic. The read-add-write is guarded by a compare-and-
+/// swap on the raw stored text (retried on contention) — a plain transaction
+/// is NOT enough on Postgres/MySQL at READ COMMITTED, where two concurrent
+/// SELECT-then-UPDATE transactions still lose one increment. No-op when the
+/// row is absent (the request isn't cost-tracked).
 pub async fn add_cost(
     conn: &DatabaseConnection,
     scope: Scope,
     scope_id: i64,
     delta: rust_decimal::Decimal,
 ) -> anyhow::Result<()> {
+    const CAS_RETRIES: u32 = 5;
     let now = crate::store::persistence::db::ops::now_secs();
-    let scope_label = scope.as_str().to_owned();
-    conn.transaction::<_, (), sea_orm::DbErr>(|txn| {
-        Box::pin(async move {
-            let Some(existing) = quota::Entity::find()
-                .filter(quota::Column::Scope.eq(scope_label.as_str()))
-                .filter(quota::Column::ScopeId.eq(scope_id))
-                .one(txn)
-                .await?
-            else {
-                return Ok(()); // no quota row → nothing to charge
-            };
-            let updated = existing
-                .cost_used
-                .parse::<rust_decimal::Decimal>()
-                .map_err(|e| sea_orm::DbErr::Custom(format!("parse cost_used: {e}")))?
-                + delta;
-            let mut am: quota::ActiveModel = existing.into();
-            am.cost_used = Set(updated.to_string());
-            am.updated_at = Set(now);
-            am.update(txn).await?;
-            Ok(())
-        })
-    })
-    .await?;
-    Ok(())
+    for _ in 0..CAS_RETRIES {
+        let Some(existing) = quota::Entity::find()
+            .filter(quota::Column::Scope.eq(scope.as_str()))
+            .filter(quota::Column::ScopeId.eq(scope_id))
+            .one(conn)
+            .await?
+        else {
+            return Ok(()); // no quota row → nothing to charge
+        };
+        let updated = existing.cost_used.parse::<rust_decimal::Decimal>()? + delta;
+        let res = quota::Entity::update_many()
+            .col_expr(quota::Column::CostUsed, Expr::value(updated.to_string()))
+            .col_expr(quota::Column::UpdatedAt, Expr::value(now))
+            .filter(quota::Column::Id.eq(existing.id))
+            .filter(quota::Column::CostUsed.eq(existing.cost_used.clone()))
+            .exec(conn)
+            .await?;
+        if res.rows_affected > 0 {
+            return Ok(());
+        }
+    }
+    anyhow::bail!(
+        "quota add_cost: persistent write contention for {}:{scope_id}",
+        scope.as_str()
+    )
 }
 
 pub async fn delete_by_scope(

@@ -96,65 +96,105 @@ async fn get(client: &LibsqlClient, id: i64) -> anyhow::Result<Option<UsageRollu
     .transpose()
 }
 
+/// Accumulate `input` into its dimension bucket. First-insert races collide on
+/// the `uq_usage_rollups_dims` unique index — the loser retries into the
+/// accumulate path.
 pub async fn add(client: &LibsqlClient, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
+    const INSERT_RETRIES: u32 = 5;
     let now = now_secs();
 
-    let id = match find_bucket_id(client, &input).await? {
-        Some(id) => {
-            let existing = get(client, id)
+    for _ in 0..INSERT_RETRIES {
+        if let Some(id) = find_bucket_id(client, &input).await? {
+            accumulate(client, id, &input, now).await?;
+            return get(client, id)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("rollup bucket vanished"))?;
-            let cost = existing.cost + input.cost;
-            exec(
-                client,
-                "UPDATE usage_rollups SET requests=?, input_tokens=?, output_tokens=?, cost=?, \
-                 updated_at=? WHERE id=?",
+                .ok_or_else(|| anyhow::anyhow!("usage_rollup vanished after add"));
+        }
+        let insert = client
+            .execute(
+                "INSERT INTO usage_rollups \
+                 (granularity, bucket_start, provider_id, org_id, team_id, user_id, \
+                  route_name, model, requests, input_tokens, output_tokens, cost, \
+                  created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 &[
-                    arg_integer(existing.requests + input.requests),
-                    arg_integer(existing.input_tokens + input.input_tokens),
-                    arg_integer(existing.output_tokens + input.output_tokens),
-                    arg_text(&cost.to_string()),
+                    arg_text(&input.granularity),
+                    arg_integer(input.bucket_start),
+                    arg_opt_i64(input.provider_id),
+                    arg_opt_i64(input.org_id),
+                    arg_opt_i64(input.team_id),
+                    arg_opt_i64(input.user_id),
+                    arg_opt_text(input.route_name.as_deref()),
+                    arg_opt_text(input.model.as_deref()),
+                    arg_integer(input.requests),
+                    arg_integer(input.input_tokens),
+                    arg_integer(input.output_tokens),
+                    arg_text(&input.cost.to_string()),
                     arg_integer(now),
-                    arg_integer(id),
+                    arg_integer(now),
                 ],
             )
-            .await?;
-            id
+            .await;
+        match insert {
+            Ok(qr) => {
+                let id = last_rowid(&qr)?;
+                return get(client, id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("usage_rollup vanished after add"));
+            }
+            // Concurrent first insert won the bucket: re-find → accumulate.
+            Err(e) if e.to_string().to_ascii_lowercase().contains("unique") => continue,
+            Err(e) => return Err(anyhow::anyhow!("libsql insert usage_rollup: {e}")),
         }
-        None => {
-            let qr = client
-                .execute(
-                    "INSERT INTO usage_rollups \
-                     (granularity, bucket_start, provider_id, org_id, team_id, user_id, \
-                      route_name, model, requests, input_tokens, output_tokens, cost, \
-                      created_at, updated_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    &[
-                        arg_text(&input.granularity),
-                        arg_integer(input.bucket_start),
-                        arg_opt_i64(input.provider_id),
-                        arg_opt_i64(input.org_id),
-                        arg_opt_i64(input.team_id),
-                        arg_opt_i64(input.user_id),
-                        arg_opt_text(input.route_name.as_deref()),
-                        arg_opt_text(input.model.as_deref()),
-                        arg_integer(input.requests),
-                        arg_integer(input.input_tokens),
-                        arg_integer(input.output_tokens),
-                        arg_text(&input.cost.to_string()),
-                        arg_integer(now),
-                        arg_integer(now),
-                    ],
-                )
-                .await
-                .map_err(|e| anyhow::anyhow!("libsql insert usage_rollup: {e}"))?;
-            last_rowid(&qr)?
-        }
-    };
+    }
+    anyhow::bail!("usage_rollup add: persistent insert contention")
+}
 
-    get(client, id)
+/// Accumulate `input` into bucket `id`. The integer columns add IN SQL (atomic
+/// regardless of concurrent writers); `cost` is a TEXT decimal, so it rides a
+/// compare-and-swap on the raw stored text, retried on contention — Turso is
+/// shared across isolates/instances. A failed CAS applies nothing (single-row
+/// guarded UPDATE), so the retry never double-counts the integer columns.
+async fn accumulate(
+    client: &LibsqlClient,
+    id: i64,
+    input: &UsageRollupInput,
+    now: i64,
+) -> anyhow::Result<()> {
+    const CAS_RETRIES: u32 = 5;
+    for _ in 0..CAS_RETRIES {
+        let raw_cost = query_one(
+            client,
+            "SELECT cost FROM usage_rollups WHERE id = ?",
+            &[arg_integer(id)],
+        )
         .await?
-        .ok_or_else(|| anyhow::anyhow!("usage_rollup vanished after add"))
+        .as_ref()
+        .map(|r| col_str(r, 0))
+        .transpose()?
+        .ok_or_else(|| anyhow::anyhow!("rollup bucket vanished"))?;
+        let cost = raw_cost.parse::<rust_decimal::Decimal>()? + input.cost;
+        let n = exec(
+            client,
+            "UPDATE usage_rollups SET requests = requests + ?, \
+             input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, \
+             cost = ?, updated_at = ? WHERE id = ? AND cost = ?",
+            &[
+                arg_integer(input.requests),
+                arg_integer(input.input_tokens),
+                arg_integer(input.output_tokens),
+                arg_text(&cost.to_string()),
+                arg_integer(now),
+                arg_integer(id),
+                arg_text(&raw_cost),
+            ],
+        )
+        .await?;
+        if n > 0 {
+            return Ok(());
+        }
+    }
+    anyhow::bail!("usage_rollup accumulate: persistent write contention for bucket {id}")
 }
 
 pub async fn list(
