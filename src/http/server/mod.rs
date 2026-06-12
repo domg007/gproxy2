@@ -20,6 +20,9 @@ mod gateway;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod admin;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod console;
+
 /// Build the top-level axum router.
 ///
 /// On native the literal `/v1/...` aggregated route is registered before the
@@ -77,6 +80,9 @@ pub fn router(state: AppState) -> Router {
             ));
         router = router.merge(ops);
         router = router.merge(admin::admin_router(state.clone()));
+        // Console SPA — public routes (the login page must load pre-auth); the
+        // data it fetches is gated by /admin/* auth, not by asset serving.
+        router = router.merge(console::router());
     }
 
     router.with_state(state)
