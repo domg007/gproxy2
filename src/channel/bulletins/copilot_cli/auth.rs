@@ -6,7 +6,7 @@
 //! issues `client.send` directly. There is no `refresh_token`: every refresh
 //! re-exchanges from the GitHub token.
 //!
-//! Login (M10, out of scope here): GitHub device flow — `POST
+//! Login — GitHub device flow ([`device_start`] / [`device_poll`]): `POST
 //! github.com/login/device/code` with `client_id = Iv1.b507a08c87ecfe98` and
 //! `scope = read:user`, show the `user_code`, poll
 //! `github.com/login/oauth/access_token` until the user authorizes, then store

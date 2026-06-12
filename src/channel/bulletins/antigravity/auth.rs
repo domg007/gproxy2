@@ -130,9 +130,9 @@ pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
         .ok_or_else(|| ChannelError::InvalidCredential("missing access_token".into()))
 }
 
-/// The Code Assist `project_id`. REQUIRED for M7b — resolution via
-/// `loadCodeAssist` / `onboardUser` is a login-time (M10) concern, so a
-/// credential that lacks it cannot address the API.
+/// The Code Assist `project_id`. Resolved at login by [`authcode_exchange`]
+/// (via `resolve_google_project_id`) and required on every request, so a
+/// credential that somehow lacks it cannot address the API.
 pub(super) fn project_id(secret: &Value) -> Result<&str, ChannelError> {
     secret_str(secret, "project_id")
         .ok_or_else(|| ChannelError::InvalidCredential("missing project_id (run login)".into()))

@@ -6,7 +6,8 @@
 //! token's expiry and `refresh` always re-exchanges from the GitHub token. The
 //! request is plain OpenAI chat completions (`target_kind` stays
 //! `OpenAiChatCompletions`): NO envelope, NO stream decoder, NO normalize, body
-//! verbatim. Login (M10 device flow) is documented in [`auth`].
+//! verbatim. Login is the GitHub device flow ([`auth::device_start`] /
+//! [`auth::device_poll`]).
 
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
