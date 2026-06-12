@@ -223,4 +223,35 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
+
+    #[tokio::test]
+    async fn login_brute_force_locks_out_after_threshold() {
+        insecure_cookies();
+        let (state, _dir) = seeded_state().await;
+        let app = crate::http::server::router(state);
+        let bad = || {
+            Request::post("/admin/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"username":"admin","password":"wrong"}"#))
+                .unwrap()
+        };
+        // 5 wrong passwords → 401 each; the 6th is locked out with 429.
+        for _ in 0..5 {
+            let resp = app.clone().oneshot(bad()).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+        let resp = app.clone().oneshot(bad()).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        // Even the CORRECT password is throttled while locked out.
+        let good = app
+            .oneshot(
+                Request::post("/admin/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"username":"admin","password":"secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(good.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
 }
