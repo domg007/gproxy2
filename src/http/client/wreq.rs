@@ -4,6 +4,8 @@
 
 use bytes::Bytes;
 
+use crate::config::{UPSTREAM_CONNECT_TIMEOUT, UPSTREAM_READ_TIMEOUT, UPSTREAM_TOTAL_TIMEOUT};
+
 use super::{ClientError, RespStream, UpstreamClient};
 
 /// Default upstream User-Agent for requests that don't set one and aren't
@@ -12,6 +14,15 @@ use super::{ClientError, RespStream, UpstreamClient};
 /// proxy honestly instead. A configured `tls_fingerprint` (its
 /// `headers.user-agent`) or a channel that injects its own UA overrides it.
 const DEFAULT_USER_AGENT: &str = concat!("gproxy/", env!("CARGO_PKG_VERSION"));
+
+/// Apply the shared transport bounds: connect cap + per-read idle cap (the
+/// latter kills silent stalls without capping an active stream's total
+/// duration). Total non-stream duration is bounded in [`WreqClient::send`].
+fn with_timeouts(builder: wreq::ClientBuilder) -> wreq::ClientBuilder {
+    builder
+        .connect_timeout(UPSTREAM_CONNECT_TIMEOUT)
+        .read_timeout(UPSTREAM_READ_TIMEOUT)
+}
 
 /// Upstream client backed by [`wreq::Client`] (native, TLS-emulation capable).
 #[derive(Clone)]
@@ -27,7 +38,7 @@ impl WreqClient {
     /// transform/billing logic always sees the plaintext body.
     pub fn new() -> Self {
         Self {
-            inner: wreq::Client::builder()
+            inner: with_timeouts(wreq::Client::builder())
                 .user_agent(DEFAULT_USER_AGENT)
                 .build()
                 .expect("default wreq client builds"),
@@ -46,7 +57,7 @@ impl WreqClient {
         proxy_url: Option<&str>,
         emulation: Option<wreq::Emulation>,
     ) -> wreq::Result<Self> {
-        let mut builder = wreq::Client::builder();
+        let mut builder = with_timeouts(wreq::Client::builder());
         if let Some(proxy_url) = proxy_url {
             builder = builder.proxy(wreq::Proxy::all(proxy_url)?);
         }
@@ -69,7 +80,7 @@ impl WreqClient {
     /// Cloudflare's checks evolve.
     pub fn browser() -> wreq::Result<Self> {
         Ok(Self {
-            inner: wreq::Client::builder()
+            inner: with_timeouts(wreq::Client::builder())
                 .emulation(wreq_util::Emulation::Chrome142)
                 .build()?,
         })
@@ -88,18 +99,32 @@ impl UpstreamClient for WreqClient {
         // http::Request<Bytes> -> wreq::Request via From impl (Bytes: Into<wreq::Body>).
         let wreq_req: wreq::Request = req.into();
 
-        let resp = self
-            .inner
-            .execute(wreq_req)
-            .await
-            .map_err(|e| ClientError::Transport(e.to_string()))?;
+        // Non-stream: the whole exchange (connect → full body) is bounded, on
+        // top of the builder's connect/read caps — a trickling upstream can't
+        // hold a gateway slot indefinitely.
+        let fut = async {
+            let resp = self
+                .inner
+                .execute(wreq_req)
+                .await
+                .map_err(|e| ClientError::Transport(e.to_string()))?;
 
-        let status = resp.status();
-        let headers = resp.headers().clone();
-        let body_bytes = resp
-            .bytes()
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let body_bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| ClientError::Transport(e.to_string()))?;
+            Ok::<_, ClientError>((status, headers, body_bytes))
+        };
+        let (status, headers, body_bytes) = tokio::time::timeout(UPSTREAM_TOTAL_TIMEOUT, fut)
             .await
-            .map_err(|e| ClientError::Transport(e.to_string()))?;
+            .map_err(|_| {
+                ClientError::Transport(format!(
+                    "upstream exceeded {}s total timeout",
+                    UPSTREAM_TOTAL_TIMEOUT.as_secs()
+                ))
+            })??;
 
         let mut builder = http::Response::builder().status(status);
         if let Some(hmap) = builder.headers_mut() {

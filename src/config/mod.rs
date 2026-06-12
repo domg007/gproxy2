@@ -157,6 +157,18 @@ pub const DEFAULT_MAX_IN_FLIGHT: usize = 1024;
 /// `http::edge` (content-length pre-check + post-read length check) → 413.
 pub const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
+/// Upstream transport bounds (§16.2 slow-upstream guard — without them a dead
+/// or deliberately slow upstream holds a gateway concurrency slot forever).
+/// TCP/TLS connect cap.
+pub const UPSTREAM_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Per-read idle cap: bounds silent stalls (header wait, dead streams) while
+/// leaving actively-streaming responses uncapped in total duration.
+pub const UPSTREAM_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+/// Total cap for NON-streaming upstream calls (connect → full body buffered).
+/// Streaming is bounded by the read timeout only — long active streams are
+/// legitimate.
+pub const UPSTREAM_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 impl RuntimeConfig {
     /// Resolve the `host:port` bind address.
     pub fn bind_addr(&self) -> anyhow::Result<SocketAddr> {
