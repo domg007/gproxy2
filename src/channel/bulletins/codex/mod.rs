@@ -74,6 +74,8 @@ impl Channel for CodexChannel {
                 "x-codex-turn-metadata",
                 "x-codex-window-id",
                 "thread-id",
+                "session-id",
+                "x-client-request-id",
             ],
         );
         let mut req = build_request(ctx.method, uri, headers, body)?;
@@ -204,11 +206,53 @@ mod tests {
         );
         assert_eq!(req.headers().get("originator").unwrap(), "codex_exec");
         assert_eq!(req.headers().get("chatgpt-account-id").unwrap(), "acct-9");
-        // session id and x-client-request-id share the same generated value.
+        // session-id and x-client-request-id share the same generated value.
         assert_eq!(
-            req.headers().get("session_id").unwrap(),
+            req.headers().get("session-id").unwrap(),
             req.headers().get("x-client-request-id").unwrap()
         );
+    }
+
+    #[test]
+    fn forwards_codex_client_headers() {
+        let secret = json!({ "access_token": "tok-abc" });
+        let settings = json!({});
+        let id = "019ebb45-a25d-7520-a8e3-fda4ebc99692";
+        let mut headers = HeaderMap::new();
+        headers.insert("session-id", id.parse().unwrap());
+        headers.insert("thread-id", id.parse().unwrap());
+        headers.insert("x-client-request-id", id.parse().unwrap());
+        headers.insert("x-codex-window-id", format!("{id}:0").parse().unwrap());
+        headers.insert(
+            "x-codex-beta-features",
+            "terminal_resize_reflow,memories".parse().unwrap(),
+        );
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "gpt-5.4",
+            method: Method::POST,
+            path: "/v1/responses",
+            query: None,
+            headers: &headers,
+            body: Bytes::from_static(br#"{"input":"hi"}"#),
+        };
+        let req = CodexChannel.prepare(ctx).unwrap().request;
+        // A codex-aware client's protocol headers pass through verbatim — gproxy
+        // does NOT regenerate them (so they stay consistent with turn-metadata).
+        assert_eq!(req.headers().get("session-id").unwrap(), id);
+        assert_eq!(req.headers().get("thread-id").unwrap(), id);
+        assert_eq!(req.headers().get("x-client-request-id").unwrap(), id);
+        assert_eq!(
+            req.headers().get("x-codex-window-id").unwrap(),
+            &format!("{id}:0")
+        );
+        assert_eq!(
+            req.headers().get("x-codex-beta-features").unwrap(),
+            "terminal_resize_reflow,memories"
+        );
+        // gproxy still owns auth/originator/UA.
+        assert_eq!(req.headers().get("originator").unwrap(), "codex_exec");
     }
 
     #[test]

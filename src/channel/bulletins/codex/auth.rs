@@ -292,8 +292,13 @@ pub(super) fn apply(
         HeaderName::from_static("originator"),
         HeaderValue::from_static(ORIGINATOR),
     );
-    h.insert(HeaderName::from_static("session_id"), session_id.clone());
-    h.insert(HeaderName::from_static("x-client-request-id"), session_id);
+    // `session-id` / `x-client-request-id`: forward a codex-aware client's own
+    // values (allow-listed in `prepare`, kept consistent with its turn-metadata);
+    // generate a matching pair only as a fallback when the client omits them.
+    h.entry(HeaderName::from_static("session-id"))
+        .or_insert_with(|| session_id.clone());
+    h.entry(HeaderName::from_static("x-client-request-id"))
+        .or_insert(session_id);
     if let Some(acct) = account_id {
         let acct = HeaderValue::from_str(acct)
             .map_err(|e| ChannelError::InvalidCredential(format!("bad account_id: {e}")))?;
