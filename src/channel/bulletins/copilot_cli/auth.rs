@@ -27,9 +27,9 @@ use crate::http::client::UpstreamClient;
 /// Editor identity the GitHub/Copilot endpoints expect (mirrors the VS Code
 /// Copilot Chat extension; from the TS sample's `lib/api-config.ts`).
 const DEFAULT_VSCODE_VERSION: &str = "1.95.3";
-const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.43.0";
-const USER_AGENT: &str = "copilot/1.0.61 (linux v24.16.0) term/unknown";
-const API_VERSION: &str = "2025-04-01";
+pub(super) const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.43.0";
+pub(super) const USER_AGENT: &str = "copilot/1.0.61 (linux v24.16.0) term/unknown";
+pub(super) const API_VERSION: &str = "2025-04-01";
 
 /// Copilot CLI model-path identity (captured from `copilot/1.0.61`), distinct
 /// from the VS Code Copilot Chat extension the token-exchange flow mimics.

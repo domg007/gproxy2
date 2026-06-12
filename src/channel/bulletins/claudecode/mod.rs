@@ -11,6 +11,7 @@ mod cch;
 mod cookie;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod usage;
 
 use std::sync::Arc;
 
@@ -105,23 +106,43 @@ impl Channel for ClaudeCodeChannel {
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
     }
+
+    fn prepare_usage_request(
+        &self,
+        secret: &Value,
+        settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        usage::request(secret, settings)
+    }
+
+    fn parse_usage(
+        &self,
+        status: http::StatusCode,
+        _headers: &http::HeaderMap,
+        body: &Bytes,
+    ) -> Option<crate::channel::UsageSnapshot> {
+        usage::parse(status, body)
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for ClaudeCodeChannel {
-    fn authcode_start(
+    async fn authcode_start(
         &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _params: &Value,
         redirect_uri: &str,
         state: &str,
         pkce_challenge: &str,
-    ) -> Option<AuthCodeStart> {
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
         let (authorize_url, redirect_uri) =
             auth::authcode_start(redirect_uri, state, pkce_challenge);
-        Some(AuthCodeStart {
+        Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
-        })
+            extra: None,
+        }))
     }
 
     async fn authcode_exchange(
@@ -130,6 +151,7 @@ impl ChannelLogin for ClaudeCodeChannel {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
+        _extra: Option<&Value>,
     ) -> Result<Value, ChannelError> {
         auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
@@ -251,13 +273,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn authcode_start_urls() {
+    #[tokio::test]
+    async fn authcode_start_urls() {
         // claudecode + geminicli authcode_start build provider authorize URLs
         // carrying their client_id, the PKCE challenge, state, S256, a default
-        // redirect_uri, and their scopes.
+        // redirect_uri, and their scopes. (Social: the client/params are unused.)
+        let client: Arc<dyn UpstreamClient> = Arc::new(MockUpstream);
         let cc = ClaudeCodeChannel
-            .authcode_start("", "ST", "CH")
+            .authcode_start(&client, &json!({}), "", "ST", "CH")
+            .await
+            .expect("authcode_start ok")
             .expect("claudecode supports authcode");
         let url = &cc.authorize_url;
         assert!(
@@ -276,7 +301,9 @@ mod tests {
         assert_eq!(cc.redirect_uri, super::auth::DEFAULT_REDIRECT_URI);
 
         let gc = crate::channel::bulletins::geminicli::GeminiCliChannel
-            .authcode_start("", "ST", "CH")
+            .authcode_start(&client, &json!({}), "", "ST", "CH")
+            .await
+            .expect("authcode_start ok")
             .expect("geminicli supports authcode");
         let url = &gc.authorize_url;
         assert!(

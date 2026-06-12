@@ -37,12 +37,17 @@ pub async fn start(
 
     let (verifier, challenge) = oauth::pkce();
     let state_tok = uuid_v4();
+    let params = req.params.clone().unwrap_or_else(|| serde_json::json!({}));
     let started = channel
         .authcode_start(
+            &state.upstream,
+            &params,
             req.redirect_uri.as_deref().unwrap_or_default(),
             &state_tok,
             &challenge,
         )
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?
         .ok_or_else(|| ApiError::BadRequest("channel has no authcode login".into()))?;
 
     let sid = login::start(
@@ -51,6 +56,7 @@ pub async fn start(
         verifier,
         state_tok,
         started.redirect_uri,
+        started.extra,
     )
     .await
     .map_err(|e| ApiError::Internal(e.to_string()))?;
@@ -86,6 +92,7 @@ pub async fn complete(
             &code,
             &session.verifier,
             &session.redirect_uri,
+            session.extra.as_ref(),
         )
         .await
         .map_err(|_| bad())?;

@@ -12,8 +12,10 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod usage;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
@@ -103,6 +105,23 @@ impl Channel for CopilotCliChannel {
             Value::Number(expires_at_ms.into()),
         );
         Ok(out)
+    }
+
+    fn prepare_usage_request(
+        &self,
+        secret: &Value,
+        settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        usage::request(secret, settings)
+    }
+
+    fn parse_usage(
+        &self,
+        status: http::StatusCode,
+        _headers: &http::HeaderMap,
+        body: &Bytes,
+    ) -> Option<crate::channel::UsageSnapshot> {
+        usage::parse(status, body)
     }
 }
 

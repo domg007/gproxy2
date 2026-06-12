@@ -14,11 +14,12 @@
 //! fit — [`json_post`] posts a JSON body via the same [`UpstreamClient`] and
 //! parses the camelCase token response.
 //!
-//! The login-time PKCE authorize/exchange + OIDC client registration are an M10
-//! concern; this module covers the per-request bearer + the refresh the pipeline
-//! drives. Refresh maps camelCase → secret fields, rotates `refresh_token` when
-//! the response carries one, recomputes `expires_at_ms` from `expiresIn`, and
-//! stores `profile_arn` when returned (else preserves the existing one).
+//! Login covers both methods: [`authcode_start`]/[`authcode_exchange`] for the
+//! social portal flow, and [`idc_authcode_start`]/[`idc_authcode_exchange`] for
+//! AWS SSO-OIDC (dynamic `RegisterClient` → authorize → token). Refresh maps
+//! camelCase → secret fields, rotates `refresh_token` when the response carries
+//! one, recomputes `expires_at_ms` from `expiresIn`, and stores `profile_arn`
+//! when returned (else preserves the existing one).
 
 use std::sync::Arc;
 
@@ -41,6 +42,20 @@ pub(super) const DEFAULT_REDIRECT_URI: &str = "http://localhost:3128";
 const AUTH_USER_AGENT: &str = "KiroIDE-0.12.224";
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
+
+/// AWS SSO-OIDC IdC login constants (ported from v1 `kiro.rs`).
+const IDC_DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1/oauth/callback";
+const BUILDER_ID_START_URL: &str = "https://view.awsapps.com/start";
+const INTERNAL_SSO_START_URL: &str = "https://amzn.awsapps.com/start";
+/// Grant scopes requested at register/authorize; sent as `{prefix}:{scope}`.
+const IDC_GRANT_SCOPES: &[&str] = &[
+    "completions",
+    "analysis",
+    "conversations",
+    "transformations",
+    "taskassist",
+];
+const IDC_DEFAULT_SCOPE_PREFIX: &str = "codewhisperer";
 
 /// Read a trimmed, non-empty string field from the secret.
 fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
@@ -97,9 +112,8 @@ fn pct(s: &str) -> String {
 /// (`state`, `code_challenge` + S256, `redirect_uri`, `redirect_from=KiroIDE`),
 /// mined from v1 `build_kiro_portal_authorize_url`.
 ///
-/// IdC (AWS OIDC client registration) login is OUT of scope here — it requires a
-/// `RegisterClient` round-trip before the authorize step, so only the social
-/// authcode flow is wired.
+/// This is the SOCIAL flow (static authorize URL). The IdC (AWS OIDC) flow needs
+/// an async `RegisterClient` round-trip first — see [`idc_authcode_start`].
 pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -> (String, String) {
     let redirect_uri = if redirect_uri.trim().is_empty() {
         DEFAULT_REDIRECT_URI
@@ -169,6 +183,218 @@ pub(super) async fn authcode_exchange(
         "expires_at_ms": expires_at_ms,
         "auth_method": "social",
         "provider": "social",
+    });
+    if let Some(arn) = resp.profile_arn.filter(|s| !s.trim().is_empty()) {
+        secret["profile_arn"] = Value::String(arn);
+    }
+    Ok(secret)
+}
+
+// ── IdC (AWS SSO-OIDC) login (ported from v1 `kiro.rs`) ──────────────────────
+
+/// OIDC base host for a region (matches the IdC refresh endpoint).
+fn oidc_base(region: &str) -> String {
+    format!("https://oidc.{}.amazonaws.com", region.trim())
+}
+
+/// Whether the operator requested the IdC flow: `auth_method`/`login_option` is
+/// an IdC alias, or a `start_url` was supplied.
+pub(super) fn idc_requested(params: &Value) -> bool {
+    let method = secret_str(params, "auth_method")
+        .or_else(|| secret_str(params, "login_option"))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(
+        method.as_str(),
+        "idc" | "iam_sso" | "awsidc" | "builderid" | "internal"
+    ) || secret_str(params, "start_url").is_some()
+}
+
+/// Provider label: `BuilderId` | `Internal` | `Enterprise` (default).
+fn idc_provider(params: &Value) -> String {
+    let value = secret_str(params, "provider")
+        .or_else(|| secret_str(params, "login_option"))
+        .or_else(|| secret_str(params, "auth_provider"))
+        .unwrap_or("Enterprise");
+    match value.to_ascii_lowercase().as_str() {
+        "builderid" | "builder_id" | "builder" => "BuilderId".to_string(),
+        "internal" => "Internal".to_string(),
+        _ => "Enterprise".to_string(),
+    }
+}
+
+/// IdC issuer/start URL: explicit `start_url`/`issuer_url`, else the per-provider
+/// default. Enterprise/AWS IdC has no default and requires one.
+fn idc_start_url(params: &Value, provider: &str) -> Result<String, ChannelError> {
+    if let Some(url) = secret_str(params, "start_url").or_else(|| secret_str(params, "issuer_url"))
+    {
+        return Ok(url.to_string());
+    }
+    match provider {
+        "BuilderId" => Ok(BUILDER_ID_START_URL.to_string()),
+        "Internal" => Ok(INTERNAL_SSO_START_URL.to_string()),
+        _ => Err(ChannelError::Build(
+            "kiro idc login requires start_url for Enterprise/AWS IdC".into(),
+        )),
+    }
+}
+
+/// Grant scopes as `{prefix}:{scope}` (prefix defaults to `codewhisperer`).
+fn idc_scopes(params: &Value) -> Vec<String> {
+    let prefix = secret_str(params, "scope_prefix").unwrap_or(IDC_DEFAULT_SCOPE_PREFIX);
+    IDC_GRANT_SCOPES
+        .iter()
+        .map(|scope| format!("{prefix}:{scope}"))
+        .collect()
+}
+
+/// AWS SSO-OIDC `RegisterClient` response (`clientId`/`clientSecret`).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OidcRegisterResponse {
+    client_id: Option<String>,
+    client_secret: Option<String>,
+}
+
+/// `POST {oidc}/client/register`: dynamically register a public OIDC client.
+/// Returns `(client_id, client_secret)`.
+async fn register_oidc_client(
+    client: &Arc<dyn UpstreamClient>,
+    region: &str,
+    start_url: &str,
+    redirect_uri: &str,
+    scopes: &[String],
+) -> Result<(String, String), ChannelError> {
+    let url = format!("{}/client/register", oidc_base(region));
+    let body = json!({
+        "clientName": "Kiro IDE",
+        "clientType": "public",
+        "scopes": scopes,
+        "grantTypes": ["authorization_code", "refresh_token"],
+        "redirectUris": [redirect_uri],
+        "issuerUrl": start_url,
+    });
+    let resp: OidcRegisterResponse = json_post(client, &url, &body).await?;
+    let client_id = resp
+        .client_id
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("oidc register missing clientId".into()))?;
+    let client_secret = resp
+        .client_secret
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("oidc register missing clientSecret".into()))?;
+    Ok((client_id, client_secret))
+}
+
+/// Build the IdC authorize URL (`{oidc}/authorize?...`), scopes comma-joined.
+fn build_idc_authorize_url(
+    region: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    scopes: &[String],
+    state: &str,
+    challenge: &str,
+) -> String {
+    let scope_param = scopes.join(",");
+    let query = [
+        ("response_type", "code"),
+        ("client_id", client_id),
+        ("redirect_uri", redirect_uri),
+        ("scopes", scope_param.as_str()),
+        ("state", state),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+    ]
+    .iter()
+    .map(|(k, v)| format!("{k}={}", pct(v)))
+    .collect::<Vec<_>>()
+    .join("&");
+    format!("{}/authorize?{query}", oidc_base(region))
+}
+
+/// IdC authorize start: register a dynamic client, build the authorize URL, and
+/// return `(authorize_url, redirect_uri, extra)` where `extra` carries the
+/// registered client creds for the later exchange. An empty `redirect_uri` falls
+/// back to [`IDC_DEFAULT_REDIRECT_URI`].
+pub(super) async fn idc_authcode_start(
+    client: &Arc<dyn UpstreamClient>,
+    params: &Value,
+    redirect_uri: &str,
+    state: &str,
+    challenge: &str,
+) -> Result<(String, String, Value), ChannelError> {
+    let region = secret_str(params, "region")
+        .unwrap_or("us-east-1")
+        .to_string();
+    let provider = idc_provider(params);
+    let start_url = idc_start_url(params, &provider)?;
+    let redirect = if redirect_uri.trim().is_empty() {
+        IDC_DEFAULT_REDIRECT_URI.to_string()
+    } else {
+        redirect_uri.trim().to_string()
+    };
+    let scopes = idc_scopes(params);
+    let (client_id, client_secret) =
+        register_oidc_client(client, &region, &start_url, &redirect, &scopes).await?;
+    let authorize_url =
+        build_idc_authorize_url(&region, &client_id, &redirect, &scopes, state, challenge);
+    let extra = json!({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "region": region,
+        "provider": provider,
+    });
+    Ok((authorize_url, redirect, extra))
+}
+
+/// IdC code exchange using the creds stashed at start (`extra`). Maps to the
+/// secret `{access_token, refresh_token, profile_arn?, expires_at_ms,
+/// auth_method:"IdC", provider, client_id, client_secret, region}`.
+pub(super) async fn idc_authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+    extra: &Value,
+) -> Result<Value, ChannelError> {
+    let client_id = secret_str(extra, "client_id")
+        .ok_or_else(|| ChannelError::Build("idc exchange: missing client_id".into()))?;
+    let client_secret = secret_str(extra, "client_secret")
+        .ok_or_else(|| ChannelError::Build("idc exchange: missing client_secret".into()))?;
+    let region = secret_str(extra, "region").unwrap_or("us-east-1");
+    let provider = secret_str(extra, "provider").unwrap_or("Enterprise");
+
+    let url = format!("{}/token", oidc_base(region));
+    let body = json!({
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "grantType": "authorization_code",
+        "redirectUri": redirect_uri,
+        "code": code,
+        "codeVerifier": verifier,
+    });
+    let resp: TokenResponse = json_post(client, &url, &body).await?;
+
+    let access_token = resp
+        .access_token
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("idc token response missing accessToken".into()))?;
+    let refresh_token = resp
+        .refresh_token
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ChannelError::Build("idc token response missing refreshToken".into()))?;
+    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
+        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
+
+    let mut secret = json!({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_at_ms": expires_at_ms,
+        "auth_method": "IdC",
+        "provider": provider,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "region": region,
     });
     if let Some(arn) = resp.profile_arn.filter(|s| !s.trim().is_empty()) {
         secret["profile_arn"] = Value::String(arn);
@@ -277,7 +503,7 @@ async fn json_post<T: serde::de::DeserializeOwned>(
     body: &Value,
 ) -> Result<T, ChannelError> {
     let payload = serde_json::to_vec(body)
-        .map_err(|e| ChannelError::Build(format!("refresh request serialize: {e}")))?;
+        .map_err(|e| ChannelError::Build(format!("kiro auth request serialize: {e}")))?;
     let req = http::Request::builder()
         .method(http::Method::POST)
         .uri(url)
@@ -285,20 +511,20 @@ async fn json_post<T: serde::de::DeserializeOwned>(
         .header(http::header::ACCEPT, "application/json")
         .header(http::header::USER_AGENT, AUTH_USER_AGENT)
         .body(Bytes::from(payload))
-        .map_err(|e| ChannelError::Build(format!("refresh request build: {e}")))?;
+        .map_err(|e| ChannelError::Build(format!("kiro auth request build: {e}")))?;
 
     let resp = client
         .send(req)
         .await
-        .map_err(|e| ChannelError::Build(format!("refresh request failed: {e}")))?;
+        .map_err(|e| ChannelError::Build(format!("kiro auth request failed: {e}")))?;
     let (parts, body) = resp.into_parts();
     if !parts.status.is_success() {
         let snippet: String = String::from_utf8_lossy(&body).chars().take(256).collect();
         return Err(ChannelError::Build(format!(
-            "refresh endpoint {}: {snippet}",
+            "kiro auth endpoint {}: {snippet}",
             parts.status
         )));
     }
     serde_json::from_slice(&body)
-        .map_err(|e| ChannelError::Build(format!("refresh response parse: {e}")))
+        .map_err(|e| ChannelError::Build(format!("kiro auth response parse: {e}")))
 }

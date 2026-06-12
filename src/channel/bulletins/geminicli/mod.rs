@@ -101,23 +101,53 @@ impl Channel for GeminiCliChannel {
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
     }
+
+    fn prepare_usage_request(
+        &self,
+        secret: &Value,
+        settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        let access_token = auth::access_token(secret)?;
+        let project_id = auth::project_id(secret)?;
+        let base = settings
+            .get("base_url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(auth::BASE_URL);
+        // The usage call carries no model; the UA embeds a representative one.
+        let ua = auth::user_agent("gemini-2.5-pro");
+        envelope::user_quota_request(base, access_token, project_id, &ua)
+    }
+
+    fn parse_usage(
+        &self,
+        status: http::StatusCode,
+        _headers: &http::HeaderMap,
+        body: &Bytes,
+    ) -> Option<crate::channel::UsageSnapshot> {
+        envelope::parse_user_quota(status, body)
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for GeminiCliChannel {
-    fn authcode_start(
+    async fn authcode_start(
         &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _params: &Value,
         redirect_uri: &str,
         state: &str,
         pkce_challenge: &str,
-    ) -> Option<AuthCodeStart> {
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
         let (authorize_url, redirect_uri) =
             auth::authcode_start(redirect_uri, state, pkce_challenge);
-        Some(AuthCodeStart {
+        Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
-        })
+            extra: None,
+        }))
     }
 
     async fn authcode_exchange(
@@ -126,6 +156,7 @@ impl ChannelLogin for GeminiCliChannel {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
+        _extra: Option<&Value>,
     ) -> Result<Value, ChannelError> {
         auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }

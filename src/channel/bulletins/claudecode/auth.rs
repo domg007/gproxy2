@@ -38,8 +38,8 @@ pub(super) const OAUTH_SCOPE: &str =
     "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
-const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
+pub(super) const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
+pub(super) const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;

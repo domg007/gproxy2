@@ -13,6 +13,7 @@ pub mod oauth;
 pub mod prepared;
 pub mod registry;
 pub mod resolve;
+pub mod usage;
 
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ use crate::protocol::ContentGenerationKind;
 pub use disposition::Disposition;
 pub use login::{AuthCodeStart, ChannelLogin, DeviceInit, DevicePoll};
 pub use prepared::PreparedRequest;
+pub use usage::{UsageCredits, UsageSnapshot, UsageWindow};
 
 /// Declared upstream transport, for capability-based degradation (§7.4).
 /// M1 uses `Http` only.
@@ -130,6 +132,34 @@ pub trait Channel: Send + Sync {
 
     fn transport(&self) -> TransportKind {
         TransportKind::Http
+    }
+
+    /// Build a request to this channel's per-credential upstream usage / quota
+    /// endpoint, given an already-fresh decrypted `secret` and provider
+    /// `settings`. `None` (the default) means the channel exposes no usage
+    /// endpoint (api-key / vertex channels). The driver sends it through the
+    /// credential's resolved client (same proxy + TLS profile as traffic) and
+    /// feeds the response to [`parse_usage`](Channel::parse_usage). Pure access:
+    /// no persistence, no body shaping beyond what the endpoint needs.
+    fn prepare_usage_request(
+        &self,
+        _secret: &Value,
+        _settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        Ok(None)
+    }
+
+    /// Parse this channel's usage-endpoint response into the normalized
+    /// [`UsageSnapshot`]. Called only with the response to the request from
+    /// [`prepare_usage_request`](Channel::prepare_usage_request). `None` on a
+    /// non-success status or an unparseable body.
+    fn parse_usage(
+        &self,
+        _status: StatusCode,
+        _headers: &HeaderMap,
+        _body: &Bytes,
+    ) -> Option<UsageSnapshot> {
+        None
     }
 
     /// Built-in TLS + HTTP/2 impersonation profile for this channel (§7.4),

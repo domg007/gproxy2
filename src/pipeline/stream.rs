@@ -139,16 +139,11 @@ pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
                 Some(Err(e)) => {
                     st.inner = None;
                     let kind = st.guard.as_ref().and_then(StreamGuard::inbound_kind);
+                    tracing::warn!(error = %e, "upstream stream failed");
                     // dropping the guard settles Interrupted (after the frame)
                     drop(st.guard.take());
                     match kind {
-                        Some(k) => Some((
-                            Ok(crate::pipeline::settle::frames::error_frame(
-                                k,
-                                &e.to_string(),
-                            )),
-                            st,
-                        )),
+                        Some(k) => Some((Ok(crate::pipeline::settle::frames::error_frame(k)), st)),
                         None => Some((Err(e), st)),
                     }
                 }

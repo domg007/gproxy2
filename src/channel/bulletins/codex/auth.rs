@@ -49,8 +49,8 @@ pub(super) const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex
 /// Captured from `codex exec` (docs/agent-tls-fingerprints.md §5); the
 /// interactive TUI would instead be `codex_cli_rs` — keep UA + originator in
 /// sync if switching forms.
-const ORIGINATOR: &str = "codex_exec";
-const USER_AGENT_VALUE: &str =
+pub(super) const ORIGINATOR: &str = "codex_exec";
+pub(super) const USER_AGENT_VALUE: &str =
     "codex_exec/0.137.0 (Debian 13.0.0; x86_64) xterm-256color (codex_exec; 0.137.0)";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.

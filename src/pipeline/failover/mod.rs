@@ -135,7 +135,14 @@ pub async fn run_failover(
         // failure is treated like an unreadable secret — cool + audit + skip.
         let mut secret = match state
             .refresh
-            .ensure_fresh(state, &channel, &cand.credential, opened, false)
+            .ensure_fresh(
+                state,
+                &channel,
+                &cand.credential,
+                &cand.provider,
+                opened,
+                false,
+            )
             .await
         {
             Ok(v) => v,
@@ -177,7 +184,14 @@ pub async fn run_failover(
         {
             match state
                 .refresh
-                .ensure_fresh(state, &channel, &cand.credential, secret.clone(), true)
+                .ensure_fresh(
+                    state,
+                    &channel,
+                    &cand.credential,
+                    &cand.provider,
+                    secret.clone(),
+                    true,
+                )
                 .await
             {
                 Ok(fresh) => {

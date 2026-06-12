@@ -1,7 +1,8 @@
 //! Read-only admin observability endpoints (§15, native-only): usage rows,
-//! usage rollups, persisted credential health, and the request logs.
+//! usage rollups, persisted credential health, and the request logs. Plus one
+//! LIVE endpoint — `credential_usage` queries the upstream usage API on demand.
 //!
-//! All handlers are read-only and serialize their records directly — none of
+//! The read-only handlers serialize their records directly — none of
 //! `Usage` / `UsageRollup` / `CredentialStatus` / `DownstreamRequest` /
 //! `UpstreamRequest` carries a secret. The log records' `headers_json` / `body`
 //! are §14.3-redacted at capture, so reading them back is safe. Mounted behind
@@ -14,6 +15,7 @@ use serde::Deserialize;
 use super::crud::internal;
 use crate::api::error::ApiError;
 use crate::app::AppState;
+use crate::channel::UsageSnapshot;
 use crate::store::persistence::records::{
     AuditLog, CredentialStatus, DownstreamRequest, UpstreamRequest, Usage, UsageRollup,
 };
@@ -99,6 +101,35 @@ pub async fn credential_status(
             .await
             .map_err(internal)?,
     ))
+}
+
+/// `GET /admin/credentials/{id}/usage` — LIVE per-credential upstream usage /
+/// quota for OAuth subscription channels. Resolves the credential's client,
+/// refreshes the token if stale, and queries the provider's usage endpoint on
+/// demand. NOT cached — call sparingly (some upstreams rate-limit it). Channels
+/// without a usage endpoint (api-key / vertex) return 400.
+pub async fn credential_usage(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<UsageSnapshot>, ApiError> {
+    crate::credentials::usage::fetch_usage(&state, id)
+        .await
+        .map(Json)
+        .map_err(usage_error)
+}
+
+/// Map a [`UsageError`](crate::credentials::usage::UsageError) onto the admin
+/// API status set: missing entities → 404, no-endpoint / bad credential → 400,
+/// transport / decrypt / non-2xx upstream → 500.
+fn usage_error(e: crate::credentials::usage::UsageError) -> ApiError {
+    use crate::credentials::usage::UsageError as U;
+    match e {
+        U::CredentialNotFound | U::ProviderNotFound | U::UnknownChannel(_) => {
+            ApiError::NotFound(e.to_string())
+        }
+        U::Unsupported | U::Channel(_) => ApiError::BadRequest(e.to_string()),
+        U::Decrypt(_) | U::Upstream(_) | U::Status(_) => ApiError::Internal(e.to_string()),
+    }
 }
 
 /// `GET /admin/logs/{request_id}/downstream` — downstream (client → proxy) log

@@ -61,6 +61,23 @@ impl PersistenceBackend for DbPersistence {
         ops::provider::credentials::upsert(&self.conn, input).await
     }
 
+    async fn update_credential_secret_if_current(
+        &self,
+        id: i64,
+        provider_id: i64,
+        expected_updated_at: i64,
+        secret_json: serde_json::Value,
+    ) -> anyhow::Result<bool> {
+        ops::provider::credentials::update_secret_if_current(
+            &self.conn,
+            id,
+            provider_id,
+            expected_updated_at,
+            secret_json,
+        )
+        .await
+    }
+
     async fn delete_credential(&self, id: i64) -> anyhow::Result<bool> {
         ops::provider::credentials::delete(&self.conn, id).await
     }

@@ -26,6 +26,7 @@ mod response;
 mod smithy;
 mod sse;
 mod tool_calls;
+mod usage;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -112,23 +113,55 @@ impl Channel for KiroChannel {
         // defaults inside `auth::refresh` when absent (the common case).
         auth::refresh(client, &Value::Null, secret).await
     }
+
+    fn prepare_usage_request(
+        &self,
+        secret: &Value,
+        settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        usage::request(secret, settings)
+    }
+
+    fn parse_usage(
+        &self,
+        status: http::StatusCode,
+        _headers: &http::HeaderMap,
+        body: &Bytes,
+    ) -> Option<crate::channel::UsageSnapshot> {
+        usage::parse(status, body)
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for KiroChannel {
-    fn authcode_start(
+    async fn authcode_start(
         &self,
+        client: &Arc<dyn UpstreamClient>,
+        params: &Value,
         redirect_uri: &str,
         state: &str,
         pkce_challenge: &str,
-    ) -> Option<AuthCodeStart> {
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
+        // IdC (AWS SSO-OIDC) needs an async RegisterClient before the authorize
+        // URL; the registered creds ride `extra` to the exchange. Else: social.
+        if auth::idc_requested(params) {
+            let (authorize_url, redirect_uri, extra) =
+                auth::idc_authcode_start(client, params, redirect_uri, state, pkce_challenge)
+                    .await?;
+            return Ok(Some(AuthCodeStart {
+                authorize_url,
+                redirect_uri,
+                extra: Some(extra),
+            }));
+        }
         let (authorize_url, redirect_uri) =
             auth::authcode_start(redirect_uri, state, pkce_challenge);
-        Some(AuthCodeStart {
+        Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
-        })
+            extra: None,
+        }))
     }
 
     async fn authcode_exchange(
@@ -137,7 +170,12 @@ impl ChannelLogin for KiroChannel {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
+        extra: Option<&Value>,
     ) -> Result<Value, ChannelError> {
+        // IdC when start stashed registered client creds; else social.
+        if let Some(extra) = extra.filter(|e| e.get("client_id").is_some()) {
+            return auth::idc_authcode_exchange(client, code, verifier, redirect_uri, extra).await;
+        }
         auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
 }
@@ -305,10 +343,14 @@ mod tests {
         assert_eq!(user["modelId"], "claude-sonnet-4.5");
     }
 
-    #[test]
-    fn kiro_social_authcode_start() {
+    #[tokio::test]
+    async fn kiro_social_authcode_start() {
+        // Social path: client/params unused; builds the static portal URL.
+        let client: Arc<dyn UpstreamClient> = mock(json!({}));
         let start = KiroChannel
-            .authcode_start("", "ST", "CH")
+            .authcode_start(&client, &json!({}), "", "ST", "CH")
+            .await
+            .expect("authcode_start ok")
             .expect("kiro supports social authcode");
         let url = &start.authorize_url;
         assert!(url.starts_with("https://app.kiro.dev/signin?"), "{url}");
@@ -317,5 +359,72 @@ mod tests {
         assert!(url.contains("code_challenge_method=S256"), "{url}");
         assert!(url.contains("redirect_uri="), "{url}");
         assert!(url.contains("redirect_from=KiroIDE"), "{url}");
+    }
+
+    #[tokio::test]
+    async fn kiro_idc_authcode_start_registers_and_builds_url() {
+        // IdC: the mock answers the RegisterClient call; the registered client_id
+        // must flow into the authorize URL and the stashed `extra`.
+        let client: Arc<dyn UpstreamClient> = mock(json!({
+            "clientId": "cid-123",
+            "clientSecret": "csec-456",
+        }));
+        let params = json!({
+            "auth_method": "idc",
+            "start_url": "https://my.awsapps.com/start",
+            "region": "us-west-2",
+        });
+        let start = KiroChannel
+            .authcode_start(&client, &params, "", "ST", "CH")
+            .await
+            .expect("authcode_start ok")
+            .expect("kiro idc authcode");
+        let url = &start.authorize_url;
+        assert!(
+            url.starts_with("https://oidc.us-west-2.amazonaws.com/authorize?"),
+            "{url}"
+        );
+        assert!(url.contains("response_type=code"), "{url}");
+        assert!(url.contains("client_id=cid-123"), "{url}");
+        assert!(url.contains("code_challenge=CH"), "{url}");
+        assert!(url.contains("code_challenge_method=S256"), "{url}");
+        let extra = start.extra.expect("idc extra");
+        assert_eq!(extra["client_id"], "cid-123");
+        assert_eq!(extra["client_secret"], "csec-456");
+        assert_eq!(extra["region"], "us-west-2");
+        assert_eq!(extra["provider"], "Enterprise");
+    }
+
+    #[tokio::test]
+    async fn kiro_idc_authcode_exchange_shapes_secret() {
+        // IdC exchange uses the stashed creds and mints an `auth_method:"IdC"`
+        // secret carrying client_id/client_secret/region for later refresh.
+        let client: Arc<dyn UpstreamClient> = mock(json!({
+            "accessToken": "at-idc",
+            "refreshToken": "rt-idc",
+            "expiresIn": 3600,
+        }));
+        let extra = json!({
+            "client_id": "cid",
+            "client_secret": "csec",
+            "region": "us-west-2",
+            "provider": "Enterprise",
+        });
+        let secret = KiroChannel
+            .authcode_exchange(
+                &client,
+                "code-1",
+                "verifier-1",
+                "http://127.0.0.1/oauth/callback",
+                Some(&extra),
+            )
+            .await
+            .expect("idc exchange");
+        assert_eq!(secret["access_token"], "at-idc");
+        assert_eq!(secret["refresh_token"], "rt-idc");
+        assert_eq!(secret["auth_method"], "IdC");
+        assert_eq!(secret["client_id"], "cid");
+        assert_eq!(secret["client_secret"], "csec");
+        assert_eq!(secret["region"], "us-west-2");
     }
 }

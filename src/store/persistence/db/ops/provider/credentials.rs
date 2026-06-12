@@ -1,7 +1,9 @@
 //! Credential ops for the `db` backend.
 
 use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use serde_json::Value;
 
 use crate::store::persistence::records::{Credential, CredentialInput};
 
@@ -118,6 +120,27 @@ pub async fn upsert(
     };
 
     to_record(model)
+}
+
+pub async fn update_secret_if_current(
+    conn: &DatabaseConnection,
+    id: i64,
+    provider_id: i64,
+    expected_updated_at: i64,
+    secret_json: Value,
+) -> anyhow::Result<bool> {
+    let now = crate::store::persistence::db::ops::now_secs();
+    let secret = serde_json::to_string(&secret_json)?;
+    let res = credential::Entity::update_many()
+        .col_expr(credential::Column::SecretJson, Expr::value(secret))
+        .col_expr(credential::Column::UpdatedAt, Expr::value(now))
+        .filter(credential::Column::Id.eq(id))
+        .filter(credential::Column::ProviderId.eq(provider_id))
+        .filter(credential::Column::Enabled.eq(true))
+        .filter(credential::Column::UpdatedAt.eq(expected_updated_at))
+        .exec(conn)
+        .await?;
+    Ok(res.rows_affected > 0)
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {

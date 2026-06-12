@@ -46,7 +46,7 @@ pub struct TeamInput {
 }
 
 /// A user belonging to an org and (optionally) a team (§8-C).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     /// Unique user name.
@@ -60,8 +60,26 @@ pub struct User {
     pub updated_at: i64,
 }
 
+/// Redacts the password hash from debug output (presence only), so a stray
+/// `{:?}` can never leak the stored hash into logs.
+impl std::fmt::Debug for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("org_id", &self.org_id)
+            .field("team_id", &self.team_id)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("enabled", &self.enabled)
+            .field("is_admin", &self.is_admin)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Upsert input for a user.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserInput {
     pub id: Option<i64>,
     pub name: String,
@@ -70,6 +88,22 @@ pub struct UserInput {
     pub password: Option<String>,
     pub enabled: bool,
     pub is_admin: bool,
+}
+
+/// Redacts the (plaintext) new password from debug output — even more
+/// sensitive than the stored hash, so never serialize it via `{:?}`.
+impl std::fmt::Debug for UserInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UserInput")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("org_id", &self.org_id)
+            .field("team_id", &self.team_id)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("enabled", &self.enabled)
+            .field("is_admin", &self.is_admin)
+            .finish()
+    }
 }
 
 /// An API key issued to a user (§8-C). `api_key_digest` is unique.

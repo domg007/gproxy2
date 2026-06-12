@@ -100,6 +100,10 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
             get(usage::credential_status),
         )
         .route(
+            "/admin/credentials/{id}/usage",
+            get(usage::credential_usage),
+        )
+        .route(
             "/admin/logs/{request_id}/downstream",
             get(usage::downstream_logs),
         )

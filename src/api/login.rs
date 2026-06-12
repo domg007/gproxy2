@@ -8,6 +8,11 @@ pub struct LoginStartRequest {
     pub channel: String,
     #[serde(default)]
     pub redirect_uri: Option<String>,
+    /// Opaque channel-specific login inputs forwarded to `authcode_start` (e.g.
+    /// `{"auth_method":"idc","region":"…","start_url":"…"}` for Kiro IdC). Static
+    /// social/OAuth flows omit it.
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
 }
 
 /// `start` response: the one-shot session id to feed back into `complete`, and

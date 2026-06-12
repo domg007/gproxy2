@@ -21,6 +21,16 @@ use crate::app::AppState;
 ///    refreshes it via the §7.2 config-version poll, so key changes land
 ///    within the poll interval).
 ///
+/// SECURITY — revocation lag on edge: because the API-key form resolves against
+/// the cached snapshot, **disabling/deleting an admin key only takes effect on
+/// an edge isolate at the next config-version poll** — bounded staleness, not a
+/// permanent bypass. Native invalidates the snapshot synchronously on every
+/// admin mutation, so revocation there is immediate. The session-cookie form
+/// (1) is unaffected on both: [`session::validate`] re-reads persistence every
+/// request and re-checks `enabled`/`is_admin` live, so a revoked session dies
+/// at once. Operators needing instant key revocation on edge should shorten the
+/// poll interval or revoke via the cookie/session path.
+///
 /// An expired/invalid cookie falls through to the key check, not straight 401.
 pub async fn authenticate_admin(
     state: &AppState,

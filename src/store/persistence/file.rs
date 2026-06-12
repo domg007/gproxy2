@@ -47,6 +47,18 @@ impl FilePersistence {
         tokio::fs::create_dir_all(&data_dir).await.map_err(|e| {
             anyhow::anyhow!("failed to create data dir {}: {e}", data_dir.display())
         })?;
+        // The data dir holds credential ciphertext + key digests; keep it
+        // owner-only on Unix so other local users can't read the store.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            if let Err(e) =
+                tokio::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o700)).await
+            {
+                tracing::warn!(error = %e, dir = %data_dir.display(),
+                    "could not restrict data dir to 0700");
+            }
+        }
         let lock = lock_data_dir(&data_dir)?;
         stamp_schema_version(&data_dir).await?;
         Ok(Self {

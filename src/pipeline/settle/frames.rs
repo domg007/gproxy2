@@ -87,17 +87,18 @@ fn frame_text(kind: ContentGenerationKind, frame: &SseFrame) -> Option<String> {
 /// INBOUND family's wire shape, so the client sees a clean protocol-level end
 /// instead of a bare transport break. Native-only (wasm never streams).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn error_frame(kind: ContentGenerationKind, message: &str) -> Bytes {
+pub fn error_frame(kind: ContentGenerationKind) -> Bytes {
+    const MESSAGE: &str = "upstream request failed";
     let encoded = match kind {
         ContentGenerationKind::ClaudeMessages => SseFrame::event(
             "error",
-            json!({"type": "error", "error": {"type": "upstream_error", "message": message}})
+            json!({"type": "error", "error": {"type": "upstream_error", "message": MESSAGE}})
                 .to_string(),
         )
         .encode(),
         ContentGenerationKind::OpenAiChatCompletions => {
             let err = SseFrame::data(
-                json!({"error": {"type": "upstream_error", "message": message}}).to_string(),
+                json!({"error": {"type": "upstream_error", "message": MESSAGE}}).to_string(),
             )
             .encode();
             format!("{err}{}", SseFrame::data("[DONE]").encode())
@@ -108,14 +109,14 @@ pub fn error_frame(kind: ContentGenerationKind, message: &str) -> Bytes {
                 "type": "response.failed",
                 "response": {
                     "status": "failed",
-                    "error": {"code": "upstream_error", "message": message}
+                    "error": {"code": "upstream_error", "message": MESSAGE}
                 }
             })
             .to_string(),
         )
         .encode(),
         ContentGenerationKind::GeminiGenerateContent => SseFrame::data(
-            json!({"error": {"code": 502, "status": "UNAVAILABLE", "message": message}})
+            json!({"error": {"code": 502, "status": "UNAVAILABLE", "message": MESSAGE}})
                 .to_string(),
         )
         .encode(),
@@ -146,5 +147,13 @@ mod tests {
             produced_text(ContentGenerationKind::ClaudeMessages, &frames),
             "hi"
         );
+    }
+
+    #[test]
+    fn error_frame_uses_generic_message() {
+        let frame = error_frame(ContentGenerationKind::OpenAiChatCompletions);
+        let text = String::from_utf8(frame.to_vec()).unwrap();
+        assert!(text.contains("upstream request failed"));
+        assert!(!text.contains("internal.example"));
     }
 }

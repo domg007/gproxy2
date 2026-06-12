@@ -81,6 +81,17 @@ pub trait PersistenceBackend: Send + Sync {
     /// Insert or update a credential.
     async fn upsert_credential(&self, input: CredentialInput) -> anyhow::Result<Credential>;
 
+    /// Refresh-only compare-and-set: update only `secret_json` when the
+    /// credential still exists, belongs to the same provider, is enabled, and
+    /// has not changed since `expected_updated_at`.
+    async fn update_credential_secret_if_current(
+        &self,
+        id: i64,
+        provider_id: i64,
+        expected_updated_at: i64,
+        secret_json: serde_json::Value,
+    ) -> anyhow::Result<bool>;
+
     /// Delete a credential; cascades to its status snapshots.
     async fn delete_credential(&self, id: i64) -> anyhow::Result<bool>;
 

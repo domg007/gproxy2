@@ -20,6 +20,8 @@
 //! [`manifest`] are pure and unit-tested.
 
 #[cfg(not(target_arch = "wasm32"))]
+mod applied;
+#[cfg(not(target_arch = "wasm32"))]
 mod download;
 #[cfg(not(target_arch = "wasm32"))]
 mod manifest;
@@ -115,6 +117,23 @@ pub enum UpdateError {
     Swap(String),
     #[error("current version is not valid semver: {0}")]
     Version(String),
+    #[error("update refused — incompatible data version: {0}")]
+    Incompatible(String),
+    #[error("update refused — downgrade/rollback blocked: {0}")]
+    Downgrade(String),
+}
+
+/// The data/schema version this binary operates at — the floor the manifest's
+/// `min_compatible_data_version` is checked against (§19.7). Sourced from the
+/// migration list (the running binary migrated the store to this version on
+/// boot). `0` in a no-persistence build, so the check simply never fires there.
+#[cfg(not(target_arch = "wasm32"))]
+fn current_data_version() -> u32 {
+    #[cfg(any(feature = "persist-db", feature = "persist-file"))]
+    let v = crate::store::persistence::migrations::latest_version().max(0) as u32;
+    #[cfg(not(any(feature = "persist-db", feature = "persist-file")))]
+    let v = 0u32;
+    v
 }
 
 /// Result of a `check` (§19.10 `GET /admin/update/check` shape).
@@ -185,17 +204,47 @@ pub async fn apply(ctx: &UpdateContext, restart: Restart) -> Result<String, Upda
         .ok_or_else(|| UpdateError::NoArtifact(triple.clone()))?
         .clone();
 
+    // §19.7 data-compat floor (any channel): refuse a binary that requires a
+    // newer on-disk data schema than this deployment has — it would boot against
+    // data it can't read. The field is signed into the manifest, so this gate is
+    // as trustworthy as the signature.
+    let required = manifest.min_compatible_data_version;
+    let have = current_data_version();
+    if required > have {
+        return Err(UpdateError::Incompatible(format!(
+            "manifest needs data version >= {required}, but this store is at {have}; \
+             migrate data before updating"
+        )));
+    }
+
+    // The running binary's sha256 — for staging it drives both the
+    // already-up-to-date gate and the rollback guard, so compute it once.
+    let local_sha = match ctx.channel {
+        Channel::Staging => Some(swap::current_exe_sha256()?),
+        Channel::Releases => None,
+    };
+
     // Gate: only proceed if there is actually something to install.
-    let available = match ctx.channel {
-        Channel::Releases => version::releases_decision(&manifest.version)?.available,
-        Channel::Staging => {
-            let local = swap::current_exe_sha256()?;
-            version::staging_decision(&local, &artifact.sha256).available
-        }
+    let available = match &local_sha {
+        Some(local) => version::staging_decision(local, &artifact.sha256).available,
+        None => version::releases_decision(&manifest.version)?.available,
     };
     if !available {
         tracing::info!(channel = ctx.channel.as_str(), "already up to date");
         return Ok(manifest.version.clone());
+    }
+
+    // Staging rollback guard (§19.3): `staging` decides by sha and has no version
+    // ordering, so a replayed older-but-validly-signed manifest could roll the
+    // binary backward. Refuse a sha we've already superseded. `releases` is
+    // ordered by semver vs the compiled-in version and needs no ledger.
+    if let Some(local) = &local_sha
+        && applied::is_rollback(&applied::load(&ctx.data_dir), local, &artifact.sha256)
+    {
+        return Err(UpdateError::Downgrade(format!(
+            "staging artifact {} was already superseded by a newer build",
+            applied::short(&artifact.sha256)
+        )));
     }
 
     // 1. Download to a temp file on the same filesystem as the binary.
@@ -210,6 +259,11 @@ pub async fn apply(ctx: &UpdateContext, restart: Restart) -> Result<String, Upda
 
     // 4. Atomic swap, retaining `<exe>.prev` for rollback (§19.5 / §19.8).
     swap::install(&staged)?;
+    // Record the applied sha so a later replay of this (now-superseded) build is
+    // caught by the rollback guard above. Staging only; best-effort.
+    if let Some(local) = &local_sha {
+        applied::record(&ctx.data_dir, local, &artifact.sha256);
+    }
     tracing::info!(
         channel = ctx.channel.as_str(),
         version = %manifest.version,

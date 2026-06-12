@@ -125,6 +125,32 @@ pub async fn upsert(client: &LibsqlClient, input: CredentialInput) -> anyhow::Re
         .ok_or_else(|| anyhow::anyhow!("credential vanished after upsert"))
 }
 
+pub async fn update_secret_if_current(
+    client: &LibsqlClient,
+    id: i64,
+    provider_id: i64,
+    expected_updated_at: i64,
+    secret_json: serde_json::Value,
+) -> anyhow::Result<bool> {
+    let now = now_secs();
+    let secret = serde_json::to_string(&secret_json)?;
+    let n = exec(
+        client,
+        "UPDATE credentials SET secret_json=?, updated_at=? \
+         WHERE id=? AND provider_id=? AND enabled=? AND updated_at=?",
+        &[
+            arg_text(&secret),
+            arg_integer(now),
+            arg_integer(id),
+            arg_integer(provider_id),
+            arg_bool(true),
+            arg_integer(expected_updated_at),
+        ],
+    )
+    .await?;
+    Ok(n > 0)
+}
+
 pub async fn delete(client: &LibsqlClient, id: i64) -> anyhow::Result<bool> {
     super::credential_statuses::delete_by_credential(client, id).await?;
     let n = exec(

@@ -40,7 +40,7 @@ pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 /// Gemini CLI model-path User-Agent; `model` = the requested model id (e.g.
 /// `gemini-2.5-pro`), which the real CLI embeds. See
 /// `docs/agent-tls-fingerprints.md` §5. Some Code Assist paths key off this.
-fn user_agent(model: &str) -> String {
+pub(super) fn user_agent(model: &str) -> String {
     format!("GeminiCLI-tui/0.46.0/{model} (linux; x64; terminal) google-api-nodejs-client/9.15.1")
 }
 /// `x-goog-api-client` on the model path is just the Node runtime tag (the real

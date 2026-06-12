@@ -26,6 +26,12 @@ use crate::http::client::UpstreamClient;
 pub struct AuthCodeStart {
     pub authorize_url: String,
     pub redirect_uri: String,
+    /// Opaque channel-owned state minted at start (e.g. a dynamically-registered
+    /// OAuth client's `client_id`/`client_secret`/`region` for AWS IdC) that the
+    /// matching `complete` must hand back to
+    /// [`authcode_exchange`](ChannelLogin::authcode_exchange). `None` for static
+    /// flows whose authorize URL needs no prior network call.
+    pub extra: Option<serde_json::Value>,
 }
 
 /// The output of [`ChannelLogin::device_start`]: the device + user codes and
@@ -59,29 +65,38 @@ pub enum DevicePoll {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait ChannelLogin: Send + Sync {
-    /// Build the provider authorize URL for an authcode+PKCE login. `None` means
-    /// the channel has no authcode flow. An empty `redirect_uri` tells the
+    /// Build the provider authorize URL for an authcode+PKCE login. `Ok(None)`
+    /// means the channel has no authcode flow. An empty `redirect_uri` tells the
     /// channel to use its own default (returned in [`AuthCodeStart`]).
-    fn authcode_start(
+    ///
+    /// Async + client-bearing so a channel can do a pre-authorize round-trip
+    /// (e.g. AWS IdC dynamic client registration) before producing the URL.
+    /// `params` is opaque operator-supplied input (`auth_method`, `region`,
+    /// `start_url`, …); `{}` for the common static flow.
+    async fn authcode_start(
         &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _params: &serde_json::Value,
         _redirect_uri: &str,
         _state: &str,
         _pkce_challenge: &str,
-    ) -> Option<AuthCodeStart> {
-        None
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
+        Ok(None)
     }
 
     /// Exchange an authorization `code` (+ the PKCE `verifier`) for the
     /// PLAINTEXT secret Value. `redirect_uri` MUST equal the one
-    /// [`authcode_start`](ChannelLogin::authcode_start) used. The caller seals +
-    /// persists the returned Value (purity: the channel never touches
-    /// cipher/persistence).
+    /// [`authcode_start`](ChannelLogin::authcode_start) used. `extra` is the
+    /// `AuthCodeStart::extra` that start stashed (e.g. the registered IdC client
+    /// creds); `None` for static flows. The caller seals + persists the returned
+    /// Value (purity: the channel never touches cipher/persistence).
     async fn authcode_exchange(
         &self,
         _client: &Arc<dyn UpstreamClient>,
         _code: &str,
         _verifier: &str,
         _redirect_uri: &str,
+        _extra: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value, ChannelError> {
         Err(ChannelError::Unsupported("authcode login"))
     }

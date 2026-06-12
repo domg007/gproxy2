@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use crate::app::AppState;
 use crate::channel::{Channel, ChannelError};
-use crate::store::persistence::records::{Credential, CredentialInput};
+use crate::store::persistence::records::{Credential, Provider};
 
 /// Serialises refreshes per credential id so concurrent requests cannot rotate
 /// the same credential twice.
@@ -47,6 +47,7 @@ impl RefreshOrchestrator {
         state: &AppState,
         channel: &Arc<dyn Channel>,
         credential: &Credential,
+        provider: &Provider,
         opened: Value,
         force: bool,
     ) -> Result<Value, ChannelError> {
@@ -70,15 +71,53 @@ impl RefreshOrchestrator {
         //     rotated it → use that (a 2nd rotation would double-spend a single-use
         //     refresh_token and kill the cred). If unchanged, this caller is the
         //     winner and must honor `force`.
-        let current = reread_open(state, credential)
+        let mut current = reread_open_enabled(state, credential)
             .await
-            .unwrap_or_else(|| opened.clone());
-        if !force && !channel.needs_refresh(&current) {
-            return Ok(current);
+            .map_err(|e| ChannelError::Build(format!("reread credential: {e}")))?
+            .ok_or_else(|| {
+                ChannelError::Build("credential changed or disabled during refresh".into())
+            })?;
+        if !force && !channel.needs_refresh(&current.secret) {
+            return Ok(current.secret);
         }
-        if force && current != opened {
-            return Ok(current);
+        if force && current.secret != opened {
+            return Ok(current.secret);
         }
+        // §7.4: resolve the effective (proxy, TLS fingerprint) for THIS
+        // credential and refresh through the matching pooled client — mirroring
+        // `failover::attempt`. A credential pinned to an egress proxy / TLS
+        // profile then refreshes from the same identity it serves traffic from
+        // (some providers risk-score token refreshes by source IP, and a
+        // refresh from the host's bare IP can trip revocation + leaks that IP to
+        // the token endpoint). Resolved BEFORE the redis lock so a bad-target
+        // failure never leaks the lock; an unusable target fails the refresh
+        // (cool + skip), never a silent downgrade to the default client. wasm /
+        // non-wreq builds always use the default client.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+        let client = {
+            let proxy = crate::channel::resolve::effective_proxy(
+                credential,
+                provider,
+                state.config.upstream.proxy_url.as_deref(),
+            );
+            let fingerprint =
+                crate::channel::resolve::effective_tls_fingerprint(credential, provider);
+            let resolved = if let Some(fp) = fingerprint.as_ref() {
+                state.client_pool.for_target(proxy.as_deref(), Some(fp))
+            } else if let Some(emu) = channel.default_emulation() {
+                state
+                    .client_pool
+                    .for_channel(proxy.as_deref(), channel.id(), emu)
+            } else {
+                state.client_pool.for_target(proxy.as_deref(), None)
+            };
+            resolved.map_err(|e| ChannelError::Build(format!("resolve refresh client: {e}")))?
+        };
+        #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
+        let client = {
+            let _ = provider; // proxy/fingerprint policy is native+wreq only
+            Arc::clone(&state.upstream)
+        };
         // Cross-instance single-flight: the local mutex above serialises this
         // instance, but a single-use refresh_token must not be rotated by two
         // instances at once. Acquire a best-effort redis lock around the actual
@@ -96,24 +135,26 @@ impl RefreshOrchestrator {
             // the default, so this branch is unreachable there.
             #[cfg(not(target_arch = "wasm32"))]
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            let peer = reread_open(state, credential)
+            let peer = reread_open_enabled(state, credential)
                 .await
-                .unwrap_or_else(|| current.clone());
-            if !force && !channel.needs_refresh(&peer) {
-                return Ok(peer);
+                .map_err(|e| ChannelError::Build(format!("reread credential: {e}")))?
+                .ok_or_else(|| {
+                    ChannelError::Build("credential changed or disabled during refresh".into())
+                })?;
+            if !force && !channel.needs_refresh(&peer.secret) {
+                return Ok(peer.secret);
             }
-            if force && peer != opened {
-                return Ok(peer);
+            if force && peer.secret != opened {
+                return Ok(peer.secret);
             }
             // Still stale after the wait — fall through and refresh anyway
             // (bounded: we tried once and the peer didn't land in time).
+            current = peer;
         }
-        // Refresh goes through the default client (no proxy pool needed).
-        let client = Arc::clone(&state.upstream);
         // Bind the Result so the redis lock is released on EVERY exit path —
         // including the error path — before `?` propagates. Never hold the lock
         // across seal/writeback/publish; release right after the upstream call.
-        let fresh = channel.refresh(&client, &current).await;
+        let fresh = channel.refresh(&client, &current.secret).await;
         if acquired {
             state.cache.unlock(&lock_key).await;
         }
@@ -124,7 +165,7 @@ impl RefreshOrchestrator {
             .cipher
             .seal(&fresh)
             .map_err(|e| ChannelError::Build(format!("seal refreshed secret: {e}")))?;
-        writeback(state, credential, sealed)
+        writeback(state, credential, current.updated_at, sealed)
             .await
             .map_err(|e| ChannelError::Build(format!("persist refreshed secret: {e}")))?;
         crate::app::invalidation::broadcast(
@@ -136,36 +177,49 @@ impl RefreshOrchestrator {
     }
 }
 
-/// Re-read the credential from persistence and decrypt its secret. Returns
-/// `None` if the credential was deleted mid-refresh (caller falls back to the
-/// secret it already holds) or if the re-read/open fails.
-async fn reread_open(state: &AppState, credential: &Credential) -> Option<Value> {
-    let creds = state
-        .persistence
-        .list_credentials(credential.provider_id)
-        .await
-        .ok()?;
-    let stored = creds.into_iter().find(|c| c.id == credential.id)?;
-    state.cipher.open(&stored.secret_json).ok()
+struct OpenCredential {
+    secret: Value,
+    updated_at: i64,
 }
 
-/// Persist the re-sealed secret, copying every other field from the current
-/// credential record (id = Some → update in place).
-async fn writeback(state: &AppState, credential: &Credential, sealed: Value) -> anyhow::Result<()> {
-    let input = CredentialInput {
-        id: Some(credential.id),
-        provider_id: credential.provider_id,
-        name: credential.name.clone(),
-        kind: credential.kind.clone(),
-        secret_json: sealed,
-        weight: credential.weight,
-        rpm_limit: credential.rpm_limit,
-        tpm_limit: credential.tpm_limit,
-        proxy_url: credential.proxy_url.clone(),
-        tls_fingerprint: credential.tls_fingerprint.clone(),
-        enabled: credential.enabled,
+/// Re-read the credential from persistence and decrypt its secret. Missing,
+/// disabled, or provider-mismatched credentials mean an admin changed the
+/// record while refresh was in flight; callers must stop using it.
+async fn reread_open_enabled(
+    state: &AppState,
+    credential: &Credential,
+) -> anyhow::Result<Option<OpenCredential>> {
+    let Some(stored) = state.persistence.get_credential(credential.id).await? else {
+        return Ok(None);
     };
-    state.persistence.upsert_credential(input).await?;
+    if stored.provider_id != credential.provider_id || !stored.enabled {
+        return Ok(None);
+    }
+    Ok(Some(OpenCredential {
+        secret: state.cipher.open(&stored.secret_json)?,
+        updated_at: stored.updated_at,
+    }))
+}
+
+/// Persist only the re-sealed secret. This is deliberately not a generic
+/// upsert: it must not insert a deleted credential, re-enable a disabled one,
+/// or overwrite any admin-edited fields from the stale snapshot.
+async fn writeback(
+    state: &AppState,
+    credential: &Credential,
+    expected_updated_at: i64,
+    sealed: Value,
+) -> anyhow::Result<()> {
+    let updated = state
+        .persistence
+        .update_credential_secret_if_current(
+            credential.id,
+            credential.provider_id,
+            expected_updated_at,
+            sealed,
+        )
+        .await?;
+    anyhow::ensure!(updated, "credential changed or disabled during refresh");
     Ok(())
 }
 
@@ -190,6 +244,24 @@ mod tests {
     use crate::protocol::ContentGenerationKind;
     use crate::store::persistence::FilePersistence;
     use crate::store::persistence::records::CredentialInput;
+
+    /// Minimal provider record for refresh tests (no proxy / TLS override, so
+    /// the resolved refresh client is the default pooled client).
+    fn test_provider() -> Provider {
+        Provider {
+            id: 1,
+            name: "p".into(),
+            channel: "fake_refresh".into(),
+            label: None,
+            settings_json: json!({}),
+            credential_strategy: "round_robin".into(),
+            proxy_url: None,
+            tls_fingerprint: None,
+            enabled: true,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
 
     /// Channel whose refresh emits `{"access_token":"new"}` and is "stale" until
     /// the secret carries that marker — so a loser's re-check short-circuits.
@@ -340,6 +412,7 @@ mod tests {
                 &state,
                 &channel,
                 &cred,
+                &test_provider(),
                 json!({"access_token": "old"}),
                 false,
             )
@@ -358,6 +431,112 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refresh_does_not_recreate_deleted_credential() {
+        let cipher = cipher();
+        let (state, cred, _dir) =
+            state_with_cred(cipher.clone(), json!({"access_token": "old"})).await;
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let channel: Arc<dyn Channel> = Arc::new(FakeRefreshChannel {
+            refreshes: refreshes.clone(),
+            sleep_ms: 50,
+        });
+        let provider = test_provider();
+
+        let (result, _) = tokio::join!(
+            state.refresh.ensure_fresh(
+                &state,
+                &channel,
+                &cred,
+                &provider,
+                json!({"access_token": "old"}),
+                false,
+            ),
+            async {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                state
+                    .persistence
+                    .delete_credential(cred.id)
+                    .await
+                    .expect("delete credential");
+            },
+        );
+
+        assert!(result.is_err(), "refresh must not use a deleted credential");
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+        assert!(
+            state
+                .persistence
+                .get_credential(cred.id)
+                .await
+                .unwrap()
+                .is_none(),
+            "refresh writeback must not reinsert the credential"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_does_not_reenable_disabled_credential() {
+        let cipher = cipher();
+        let (state, cred, _dir) =
+            state_with_cred(cipher.clone(), json!({"access_token": "old"})).await;
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let channel: Arc<dyn Channel> = Arc::new(FakeRefreshChannel {
+            refreshes: refreshes.clone(),
+            sleep_ms: 50,
+        });
+        let provider = test_provider();
+        let original_secret = cred.secret_json.clone();
+
+        let (result, _) = tokio::join!(
+            state.refresh.ensure_fresh(
+                &state,
+                &channel,
+                &cred,
+                &provider,
+                json!({"access_token": "old"}),
+                false,
+            ),
+            async {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                state
+                    .persistence
+                    .upsert_credential(CredentialInput {
+                        id: Some(cred.id),
+                        provider_id: cred.provider_id,
+                        name: cred.name.clone(),
+                        kind: cred.kind.clone(),
+                        secret_json: original_secret,
+                        weight: cred.weight,
+                        rpm_limit: cred.rpm_limit,
+                        tpm_limit: cred.tpm_limit,
+                        proxy_url: cred.proxy_url.clone(),
+                        tls_fingerprint: cred.tls_fingerprint.clone(),
+                        enabled: false,
+                    })
+                    .await
+                    .expect("disable credential");
+            },
+        );
+
+        assert!(
+            result.is_err(),
+            "refresh must not use a disabled credential"
+        );
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+        let stored = state
+            .persistence
+            .get_credential(cred.id)
+            .await
+            .unwrap()
+            .expect("credential remains disabled");
+        assert!(!stored.enabled, "refresh writeback must not re-enable");
+        assert_eq!(
+            cipher.open(&stored.secret_json).unwrap(),
+            json!({"access_token": "old"})
+        );
+    }
+
+    #[tokio::test]
     async fn no_refresh_when_fresh() {
         let cipher = cipher();
         let fresh = json!({"access_token": "new"});
@@ -371,7 +550,14 @@ mod tests {
 
         let got = state
             .refresh
-            .ensure_fresh(&state, &channel, &cred, fresh.clone(), false)
+            .ensure_fresh(
+                &state,
+                &channel,
+                &cred,
+                &test_provider(),
+                fresh.clone(),
+                false,
+            )
             .await
             .unwrap();
 
@@ -393,13 +579,14 @@ mod tests {
         });
 
         let stale = json!({"access_token": "old"});
+        let provider = test_provider();
         let (a, b) = tokio::join!(
             state
                 .refresh
-                .ensure_fresh(&state, &channel, &cred, stale.clone(), false),
+                .ensure_fresh(&state, &channel, &cred, &provider, stale.clone(), false),
             state
                 .refresh
-                .ensure_fresh(&state, &channel, &cred, stale.clone(), false),
+                .ensure_fresh(&state, &channel, &cred, &provider, stale.clone(), false),
         );
 
         assert_eq!(a.unwrap(), json!({"access_token": "new"}));
@@ -471,13 +658,14 @@ mod tests {
         });
 
         let orig = json!({"access_token": "orig"});
+        let provider = test_provider();
         let (a, b) = tokio::join!(
             state
                 .refresh
-                .ensure_fresh(&state, &channel, &cred, orig.clone(), true),
+                .ensure_fresh(&state, &channel, &cred, &provider, orig.clone(), true),
             state
                 .refresh
-                .ensure_fresh(&state, &channel, &cred, orig.clone(), true),
+                .ensure_fresh(&state, &channel, &cred, &provider, orig.clone(), true),
         );
 
         // Exactly one rotation; both callers see the same rotated token.

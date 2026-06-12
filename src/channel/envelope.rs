@@ -15,8 +15,13 @@
 //! mis-routed body from being corrupted).
 
 use bytes::Bytes;
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
+use http::{HeaderMap, Method, Request, StatusCode};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::channel::http_util::{build_request, join_url};
+use crate::channel::usage::{UsageSnapshot, UsageWindow};
 use crate::channel::{ChannelError, ChannelStreamDecoder};
 use crate::transform::common::sse::SseDecoder;
 
@@ -130,6 +135,97 @@ impl ChannelStreamDecoder for CodeAssistStreamDecoder {
     }
 }
 
+/// Build `POST {base}/v1internal:retrieveUserQuota` with `{"project":<id>}` and
+/// the given Code Assist User-Agent. Shared by `geminicli` + `antigravity` (the
+/// per-credential usage query); the response is parsed by [`parse_user_quota`].
+pub fn user_quota_request(
+    base: &str,
+    access_token: &str,
+    project_id: &str,
+    user_agent: &str,
+) -> Result<Option<Request<Bytes>>, ChannelError> {
+    let body = serde_json::to_vec(&json!({ "project": project_id }))
+        .map_err(|e| ChannelError::Build(e.to_string()))?;
+    let uri = join_url(base, "/v1internal:retrieveUserQuota", None)?;
+    let mut req = build_request(Method::POST, uri, HeaderMap::new(), Bytes::from(body))?;
+    let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
+        .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
+    let ua = HeaderValue::from_str(user_agent)
+        .map_err(|e| ChannelError::Build(format!("bad user-agent: {e}")))?;
+    let h = req.headers_mut();
+    h.insert(AUTHORIZATION, bearer);
+    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(USER_AGENT, ua);
+    Ok(Some(req))
+}
+
+/// Parse a Code Assist `retrieveUserQuota` response (`{"buckets":[…]}`) into a
+/// snapshot: one window per bucket, `used_percent` derived from
+/// `remainingFraction`, the ISO `resetTime` kept verbatim.
+pub fn parse_user_quota(status: StatusCode, body: &Bytes) -> Option<UsageSnapshot> {
+    if !status.is_success() {
+        return None;
+    }
+    let raw: Value = serde_json::from_slice(body).ok()?;
+    let resp: RetrieveUserQuotaResponse = serde_json::from_value(raw.clone()).ok()?;
+    let windows = resp
+        .buckets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| b.to_window(i))
+        .collect();
+    Some(UsageSnapshot {
+        plan: None,
+        windows,
+        credits: None,
+        raw,
+    })
+}
+
+#[derive(Deserialize)]
+struct RetrieveUserQuotaResponse {
+    #[serde(default)]
+    buckets: Vec<BucketInfo>,
+}
+
+/// One per-model quota bucket. `remainingFraction` is the fraction LEFT [0,1];
+/// `resetTime` an ISO-8601 timestamp.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BucketInfo {
+    #[serde(default)]
+    model_id: Option<String>,
+    #[serde(default)]
+    token_type: Option<String>,
+    #[serde(default)]
+    remaining_fraction: Option<f64>,
+    #[serde(default)]
+    reset_time: Option<String>,
+}
+
+impl BucketInfo {
+    fn to_window(&self, i: usize) -> UsageWindow {
+        let name = self
+            .model_id
+            .clone()
+            .or_else(|| self.token_type.clone())
+            .unwrap_or_else(|| format!("bucket_{i}"));
+        let used_percent = self
+            .remaining_fraction
+            .map(|f| ((1.0 - f) * 100.0).clamp(0.0, 100.0));
+        let mut w = UsageWindow {
+            name,
+            used_percent,
+            ..Default::default()
+        };
+        if let Some(rt) = &self.reset_time {
+            w = w.resets_iso(rt.clone());
+        }
+        w
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +256,24 @@ mod tests {
         let mut out = dec.push(b"data: {\"response\":{\"t\":\"a\"}}\n\n");
         out.extend(dec.finish());
         assert_eq!(String::from_utf8(out).unwrap(), "data: {\"t\":\"a\"}\n\n");
+    }
+
+    #[test]
+    fn parses_user_quota_buckets() {
+        let body = Bytes::from_static(
+            br#"{"buckets":[
+              {"modelId":"gemini-2.5-pro","tokenType":"REQUESTS","remainingFraction":0.75,
+               "resetTime":"2026-06-22T16:01:15Z"}
+            ]}"#,
+        );
+        let snap = parse_user_quota(StatusCode::OK, &body).expect("snapshot");
+        assert_eq!(snap.windows.len(), 1);
+        assert_eq!(snap.windows[0].name, "gemini-2.5-pro");
+        // remainingFraction 0.75 → 25% used.
+        assert_eq!(snap.windows[0].used_percent, Some(25.0));
+        assert_eq!(
+            snap.windows[0].resets_at.as_deref(),
+            Some("2026-06-22T16:01:15Z")
+        );
     }
 }

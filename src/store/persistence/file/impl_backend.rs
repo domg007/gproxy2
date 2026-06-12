@@ -76,6 +76,24 @@ impl PersistenceBackend for FilePersistence {
         credentials::upsert(&self.root, input).await
     }
 
+    async fn update_credential_secret_if_current(
+        &self,
+        id: i64,
+        provider_id: i64,
+        expected_updated_at: i64,
+        secret_json: serde_json::Value,
+    ) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        credentials::update_secret_if_current(
+            &self.root,
+            id,
+            provider_id,
+            expected_updated_at,
+            secret_json,
+        )
+        .await
+    }
+
     async fn delete_credential(&self, id: i64) -> anyhow::Result<bool> {
         let _guard = self.write.lock().await;
         credentials::delete(&self.root, id).await

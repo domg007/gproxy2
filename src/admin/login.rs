@@ -29,6 +29,10 @@ pub struct LoginSession {
     pub verifier: String,
     pub state: String,
     pub redirect_uri: String,
+    /// Opaque channel state from `AuthCodeStart::extra` (e.g. registered IdC
+    /// client creds), handed back to `authcode_exchange` at `complete`.
+    #[serde(default)]
+    pub extra: Option<serde_json::Value>,
 }
 
 /// Stash a pending login → cache `login:{sid}` for [`LOGIN_TTL`]. Returns the
@@ -41,6 +45,7 @@ pub async fn start(
     verifier: String,
     state: String,
     redirect_uri: String,
+    extra: Option<serde_json::Value>,
 ) -> Result<String, CacheError> {
     let sid = crate::util::rand::uuid_v4();
     let session = LoginSession {
@@ -48,6 +53,7 @@ pub async fn start(
         verifier,
         state,
         redirect_uri,
+        extra,
     };
     // Serialization of this fixed shape cannot fail.
     let bytes = serde_json::to_vec(&session).map_err(|_| CacheError)?;

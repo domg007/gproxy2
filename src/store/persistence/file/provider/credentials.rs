@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
+
 use crate::store::persistence::records::{Credential, CredentialInput};
 
 use crate::store::persistence::file::table::{self, now_secs};
@@ -95,6 +97,29 @@ pub(crate) async fn upsert(root: &Path, input: CredentialInput) -> anyhow::Resul
 
     table::store(&file, &t).await?;
     Ok(stored)
+}
+
+pub(crate) async fn update_secret_if_current(
+    root: &Path,
+    id: i64,
+    provider_id: i64,
+    expected_updated_at: i64,
+    secret_json: Value,
+) -> anyhow::Result<bool> {
+    let file = path(root);
+    let mut t = table::load::<Credential>(&file).await?;
+    let Some(row) = t.rows.iter_mut().find(|c| {
+        c.id == id
+            && c.provider_id == provider_id
+            && c.enabled
+            && c.updated_at == expected_updated_at
+    }) else {
+        return Ok(false);
+    };
+    row.secret_json = secret_json;
+    row.updated_at = now_secs();
+    table::store(&file, &t).await?;
+    Ok(true)
 }
 
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {

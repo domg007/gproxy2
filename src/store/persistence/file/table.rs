@@ -31,11 +31,19 @@ pub(super) async fn load<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Tab
     }
 }
 
-/// Write a table to `path` atomically (temp file + rename).
+/// Write a table to `path` atomically (temp file + rename). On Unix the file is
+/// created `0600` before the rename — these tables hold credential ciphertext
+/// and key digests, so they must not be world-readable on a shared host even
+/// when envelope encryption is off (keyless/plaintext mode).
 pub(super) async fn store<T: Serialize>(path: &Path, table: &Table<T>) -> anyhow::Result<()> {
     let bytes = serde_json::to_vec_pretty(table)?;
     let tmp = path.with_extension("json.tmp");
     tokio::fs::write(&tmp, &bytes).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).await?;
+    }
     tokio::fs::rename(&tmp, path).await?;
     Ok(())
 }

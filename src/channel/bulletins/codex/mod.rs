@@ -13,9 +13,11 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod usage;
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
@@ -94,23 +96,43 @@ impl Channel for CodexChannel {
     ) -> Result<Value, ChannelError> {
         auth::refresh(client, secret).await
     }
+
+    fn prepare_usage_request(
+        &self,
+        secret: &Value,
+        settings: &Value,
+    ) -> Result<Option<http::Request<Bytes>>, ChannelError> {
+        usage::request(secret, settings)
+    }
+
+    fn parse_usage(
+        &self,
+        status: http::StatusCode,
+        _headers: &http::HeaderMap,
+        body: &Bytes,
+    ) -> Option<crate::channel::UsageSnapshot> {
+        usage::parse(status, body)
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for CodexChannel {
-    fn authcode_start(
+    async fn authcode_start(
         &self,
+        _client: &Arc<dyn UpstreamClient>,
+        _params: &Value,
         redirect_uri: &str,
         state: &str,
         pkce_challenge: &str,
-    ) -> Option<AuthCodeStart> {
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
         let (authorize_url, redirect_uri) =
             auth::authcode_start(redirect_uri, state, pkce_challenge);
-        Some(AuthCodeStart {
+        Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
-        })
+            extra: None,
+        }))
     }
 
     async fn authcode_exchange(
@@ -119,6 +141,7 @@ impl ChannelLogin for CodexChannel {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
+        _extra: Option<&Value>,
     ) -> Result<Value, ChannelError> {
         auth::authcode_exchange(client, code, verifier, redirect_uri).await
     }
@@ -130,6 +153,18 @@ mod tests {
     use bytes::Bytes;
     use http::{HeaderMap, Method};
     use serde_json::json;
+
+    /// Social `authcode_start` ignores the client; this never sends.
+    struct NoopUpstream;
+    #[async_trait::async_trait]
+    impl UpstreamClient for NoopUpstream {
+        async fn send(
+            &self,
+            _req: http::Request<Bytes>,
+        ) -> Result<http::Response<Bytes>, crate::http::client::ClientError> {
+            Err(crate::http::client::ClientError::Transport("noop".into()))
+        }
+    }
 
     fn prepared_body(body: &'static [u8]) -> Value {
         let secret = json!({ "access_token": "tok-abc" });
@@ -255,11 +290,14 @@ mod tests {
         assert_eq!(req.headers().get("originator").unwrap(), "codex_exec");
     }
 
-    #[test]
-    fn codex_authcode_start_url() {
+    #[tokio::test]
+    async fn codex_authcode_start_url() {
         // Empty redirect_uri → codex default; URL carries the PKCE + state set.
+        let client: Arc<dyn UpstreamClient> = Arc::new(NoopUpstream);
         let start = CodexChannel
-            .authcode_start("", "STATE", "CHAL")
+            .authcode_start(&client, &json!({}), "", "STATE", "CHAL")
+            .await
+            .expect("authcode_start ok")
             .expect("codex supports authcode");
         let url = &start.authorize_url;
         assert!(url.starts_with("https://auth.openai.com/oauth/authorize?"));
