@@ -19,6 +19,7 @@
 
 mod auth;
 mod request;
+mod request_tools;
 mod response;
 mod smithy;
 mod sse;

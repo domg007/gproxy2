@@ -25,9 +25,10 @@ use serde_json::{Map, Value, json};
 
 use crate::channel::ChannelError;
 
+use super::request_tools;
+
 const DEFAULT_ORIGIN: &str = "AI_EDITOR";
 const DEFAULT_AGENT_TASK_TYPE: &str = "vibe";
-const MAX_TOOL_DESCRIPTION_LEN: usize = 10_237;
 
 /// Build the Kiro `conversationState` request body from an OpenAI Responses
 /// body. `model` is the upstream-mapped model id; `conversation_id` is a fresh
@@ -109,7 +110,25 @@ fn conversation_state(
         }
         Value::Array(items) => {
             let mut pending_system = instructions.unwrap_or_default();
+            let mut pending_results: Vec<Value> = Vec::new();
             for item in items {
+                // Responses tool items fold into Kiro's shape: `function_call` →
+                // the assistant turn's toolUses; `function_call_output` → a tool
+                // result on the next user turn.
+                let mut fc = false;
+                match item.get("type").and_then(Value::as_str) {
+                    Some("function_call") => fc = true,
+                    Some("function_call_output") => {
+                        pending_results.push(request_tools::tool_result_entry(item));
+                        continue;
+                    }
+                    _ => {}
+                }
+                if fc {
+                    request_tools::flush_tool_results(&mut messages, &mut pending_results, &model);
+                    request_tools::append_tool_use(&mut messages, item);
+                    continue;
+                }
                 let role = item.get("role").and_then(Value::as_str).unwrap_or("user");
                 let (text, images) = text_and_images(item.get("content").unwrap_or(item))?;
                 if matches!(role, "system" | "developer") {
@@ -121,10 +140,25 @@ fn conversation_state(
                     pending_system.clear();
                 }
                 match role {
-                    "assistant" => messages.push(assistant_message(text)),
+                    "assistant" => {
+                        // tool results precede the assistant turn → own user turn
+                        request_tools::flush_tool_results(
+                            &mut messages,
+                            &mut pending_results,
+                            &model,
+                        );
+                        messages.push(assistant_message(text));
+                    }
                     "user" => {
                         let content = fallback_content(&text, !images.is_empty());
-                        messages.push(user_message(content, &model, images));
+                        let mut msg = user_message(content, &model, images);
+                        if !pending_results.is_empty() {
+                            request_tools::attach_tool_results(
+                                &mut msg,
+                                std::mem::take(&mut pending_results),
+                            );
+                        }
+                        messages.push(msg);
                     }
                     other => {
                         return Err(ChannelError::Build(format!(
@@ -136,6 +170,9 @@ fn conversation_state(
             if !pending_system.is_empty() {
                 push_system_priming(&mut messages, &pending_system, &model);
             }
+            // Trailing tool results (a "continue after tool execution" request)
+            // become the current user turn.
+            request_tools::flush_tool_results(&mut messages, &mut pending_results, &model);
         }
         Value::Object(_) => {
             let (text, images) = text_and_images(input.get("content").unwrap_or(input))?;
@@ -163,9 +200,9 @@ fn conversation_state(
             "kiro request requires the final message to be a user message".into(),
         ));
     }
-    let tools = tools_from(value.get("tools"))?;
+    let tools = request_tools::tools_from(value.get("tools"))?;
     if !tools.is_empty() {
-        insert_tools(&mut current, tools);
+        request_tools::insert_tools(&mut current, tools);
     }
 
     Ok(json!({
@@ -179,7 +216,7 @@ fn conversation_state(
 
 /// Build a `userInputMessage` wrapper carrying content, model, origin, an empty
 /// editor state, and any image blocks.
-fn user_message(content: String, model: &str, images: Vec<Value>) -> Value {
+pub(super) fn user_message(content: String, model: &str, images: Vec<Value>) -> Value {
     let mut message = json!({
         "origin": DEFAULT_ORIGIN,
         "content": content,
@@ -197,7 +234,7 @@ fn user_message(content: String, model: &str, images: Vec<Value>) -> Value {
 }
 
 /// Build an `assistantResponseMessage` wrapper.
-fn assistant_message(content: String) -> Value {
+pub(super) fn assistant_message(content: String) -> Value {
     json!({ "assistantResponseMessage": { "content": content } })
 }
 
@@ -215,7 +252,7 @@ fn push_system_priming(messages: &mut Vec<Value>, system: &str, model: &str) {
 }
 
 /// Non-empty user content, or a placeholder (Kiro rejects empty content).
-fn fallback_content(text: &str, has_images: bool) -> String {
+pub(super) fn fallback_content(text: &str, has_images: bool) -> String {
     let text = text.trim();
     if !text.is_empty() {
         text.to_string()
@@ -313,144 +350,6 @@ fn image_block(data_url: &str) -> Result<Value, ChannelError> {
         .unwrap_or("jpeg")
         .to_ascii_lowercase();
     Ok(json!({ "format": format, "source": { "bytes": bytes } }))
-}
-
-/// Convert OpenAI `tools` into Kiro `toolSpecification` entries. Names are
-/// sanitized to camelCase + length-capped; descriptions truncated; schemas
-/// cleaned of `additionalProperties` / empty `required`.
-fn tools_from(tools: Option<&Value>) -> Result<Vec<Value>, ChannelError> {
-    let Some(tools) = tools.and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut out = Vec::new();
-    for tool in tools {
-        let function = tool.get("function");
-        let tool_type = tool.get("type").and_then(Value::as_str);
-        if tool_type.is_some_and(|t| t != "function")
-            && function.is_none()
-            && tool.get("name").is_none()
-        {
-            continue;
-        }
-        let name = function
-            .and_then(|f| f.get("name"))
-            .or_else(|| tool.get("name"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| ChannelError::Build("kiro tool requires a name".into()))?;
-        let sanitized = shorten_name(&sanitize_name(name));
-        let description = function
-            .and_then(|f| f.get("description"))
-            .or_else(|| tool.get("description"))
-            .and_then(Value::as_str)
-            .map(truncate_description)
-            .filter(|d| !d.trim().is_empty())
-            .unwrap_or_else(|| format!("Tool: {sanitized}"));
-        let schema = function
-            .and_then(|f| f.get("parameters"))
-            .or_else(|| tool.get("parameters"))
-            .or_else(|| tool.get("input_schema"))
-            .or_else(|| tool.get("inputSchema"));
-        out.push(json!({
-            "toolSpecification": {
-                "name": sanitized,
-                "description": description,
-                "inputSchema": { "json": object_schema(schema) }
-            }
-        }));
-    }
-    Ok(out)
-}
-
-/// Attach the tool specs to the current message's `userInputMessageContext`.
-fn insert_tools(current: &mut Value, tools: Vec<Value>) {
-    let Some(user_input) = current
-        .get_mut("userInputMessage")
-        .and_then(Value::as_object_mut)
-    else {
-        return;
-    };
-    let context = user_input
-        .entry("userInputMessageContext")
-        .or_insert_with(|| json!({ "editorState": {} }));
-    if let Some(obj) = context.as_object_mut() {
-        obj.insert("tools".into(), Value::Array(tools));
-    }
-}
-
-/// Coerce a JSON-schema value to a cleaned object schema (Kiro requires an
-/// object root and rejects `additionalProperties`).
-fn object_schema(schema: Option<&Value>) -> Value {
-    let mut schema = schema
-        .cloned()
-        .unwrap_or_else(|| json!({ "type": "object" }));
-    if !schema.is_object() {
-        return json!({ "type": "object" });
-    }
-    clean_schema(&mut schema);
-    if let Some(obj) = schema.as_object_mut() {
-        obj.entry("type")
-            .or_insert_with(|| Value::String("object".into()));
-    }
-    schema
-}
-
-/// Recursively strip `additionalProperties` and empty `required` arrays.
-fn clean_schema(value: &mut Value) {
-    match value {
-        Value::Object(obj) => {
-            obj.remove("additionalProperties");
-            if obj
-                .get("required")
-                .is_some_and(|r| r.as_array().is_none_or(|a| a.is_empty()))
-            {
-                obj.remove("required");
-            }
-            for child in obj.values_mut() {
-                clean_schema(child);
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(clean_schema),
-        _ => {}
-    }
-}
-
-/// Sanitize a tool name to camelCase alphanumerics (Kiro's accepted charset).
-fn sanitize_name(name: &str) -> String {
-    let mut out = String::new();
-    for (index, part) in name
-        .split(['_', '-', ' ', '.', '/', ':'])
-        .filter(|p| !p.is_empty())
-        .enumerate()
-    {
-        let mut chars = part.chars().filter(|c| c.is_ascii_alphanumeric());
-        let Some(first) = chars.next() else { continue };
-        if index == 0 {
-            out.push(first.to_ascii_lowercase());
-        } else {
-            out.push(first.to_ascii_uppercase());
-        }
-        out.extend(chars);
-    }
-    if out.is_empty() {
-        "tool".to_string()
-    } else {
-        out
-    }
-}
-
-/// Cap a tool name at 64 chars.
-fn shorten_name(name: &str) -> String {
-    name.chars().take(64).collect()
-}
-
-/// Cap a tool description, appending an ellipsis when truncated.
-fn truncate_description(desc: &str) -> String {
-    if desc.chars().count() <= MAX_TOOL_DESCRIPTION_LEN {
-        return desc.to_string();
-    }
-    let mut out: String = desc.chars().take(MAX_TOOL_DESCRIPTION_LEN).collect();
-    out.push_str("...");
-    out
 }
 
 /// Map Responses sampling fields to Kiro's `inferenceConfig` (camelCase).
