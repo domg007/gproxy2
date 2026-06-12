@@ -39,7 +39,14 @@ pub fn api_key() -> String {
 /// weak `Date::now()` wasm fallback, so session/request ids are unpredictable
 /// on edge too.
 pub fn uuid_v4() -> String {
-    let mut b = bytes::<16>();
+    uuid_v4_from(&bytes::<16>())
+}
+
+/// Format 16 seed bytes as an RFC-4122 v4 UUID string, forcing the version (4)
+/// and variant (1) bits. Use with the high 16 bytes of a hash to derive a
+/// *deterministic* v4-shaped id (e.g. a session id from a conversation digest).
+pub fn uuid_v4_from(seed: &[u8; 16]) -> String {
+    let mut b = *seed;
     b[6] = (b[6] & 0x0f) | 0x40; // version 4
     b[8] = (b[8] & 0x3f) | 0x80; // variant 1
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();

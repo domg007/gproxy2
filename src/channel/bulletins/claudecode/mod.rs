@@ -52,20 +52,18 @@ impl Channel for ClaudeCodeChannel {
             .filter(|s| !s.is_empty())
             .unwrap_or(auth::DEFAULT_BASE_URL);
 
-        // One session id is shared by the `x-claude-code-session-id` header and
-        // the `metadata.user_id` body field (the real CLI keeps them equal).
-        let session_id = crate::util::rand::uuid_v4();
+        // Stable per-credential `device_id`; `session_id` is deterministic per
+        // (device, conversation, hour) and capped at ≤1000 slots — the SAME value
+        // is sent as `x-claude-code-session-id` and inside `metadata.user_id`.
+        let device_id = auth::device_id(ctx.secret);
+        let now_secs = crate::util::time::unix_now().max(0) as u64;
+        let session_id = cch::session_id(&device_id, &ctx.body, now_secs);
 
         // The model call (`POST /v1/messages*`) carries the CLI billing header +
         // `metadata.user_id`; the `cch` checksum is computed over the final body.
         // Other paths (e.g. token-count GET) pass through unchanged.
         let is_messages = ctx.method == http::Method::POST && ctx.path.starts_with("/v1/messages");
         let body = if is_messages {
-            let device_id = ctx
-                .secret
-                .get("device_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
             let account_uuid = ctx
                 .secret
                 .get("account_uuid")
@@ -73,7 +71,7 @@ impl Channel for ClaudeCodeChannel {
                 .unwrap_or_default();
             Bytes::from(cch::apply(
                 &ctx.body,
-                device_id,
+                &device_id,
                 account_uuid,
                 &session_id,
                 "cli",

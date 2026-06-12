@@ -59,6 +59,7 @@ pub(super) async fn exchange(
         obj.insert("cookie".into(), Value::String(cookie.to_string()));
         obj.insert("account_uuid".into(), Value::String(org_uuid));
     }
+    super::auth::ensure_device_id(&mut secret);
     Ok(secret)
 }
 

@@ -87,6 +87,55 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+/// At most this many distinct session ids per credential (a real user keeps a
+/// bounded set of sessions; an unbounded one is itself a tell).
+const SESSION_SLOTS: u32 = 1000;
+
+/// Deterministic per-credential session id: a v4-shaped UUID for the conversation
+/// (`system` + first message) within a 1-hour bucket, mapped onto ≤1000 stable
+/// slots per `device_id`. Same conversation in the same hour → same id. This is
+/// also the value sent as `x-claude-code-session-id` and inside `metadata.user_id`.
+pub(super) fn session_id(device_id: &str, body: &[u8], now_secs: u64) -> String {
+    let bucket = now_secs / 3600;
+    let (system, first_msg) = conversation_key(body);
+
+    // Pick the slot from (device, conversation, hour).
+    let mut h = blake3::Hasher::new();
+    h.update(device_id.as_bytes());
+    h.update(b"\0");
+    h.update(&system);
+    h.update(b"\0");
+    h.update(&first_msg);
+    h.update(&bucket.to_le_bytes());
+    let digest = h.finalize();
+    let slot = u32::from_le_bytes(digest.as_bytes()[..4].try_into().unwrap()) % SESSION_SLOTS;
+
+    // Stable UUID for (device, slot): ≤ SESSION_SLOTS distinct ids per credential.
+    let seed = blake3::hash(format!("claudecode-session:{device_id}:{slot}").as_bytes());
+    let mut s16 = [0u8; 16];
+    s16.copy_from_slice(&seed.as_bytes()[..16]);
+    crate::util::rand::uuid_v4_from(&s16)
+}
+
+/// `(system, first-message)` serialized bytes — the conversation identity used to
+/// key the session slot. Missing fields hash as empty.
+fn conversation_key(body: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let Ok(v) = serde_json::from_slice::<Value>(body) else {
+        return (Vec::new(), Vec::new());
+    };
+    let system = v
+        .get("system")
+        .map(|s| serde_json::to_vec(s).unwrap_or_default())
+        .unwrap_or_default();
+    let first = v
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .map(|m| serde_json::to_vec(m).unwrap_or_default())
+        .unwrap_or_default();
+    (system, first)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +183,27 @@ mod tests {
         zeroed[pos + 4..pos + 9].copy_from_slice(b"00000");
         let expect = xxhash_rust::xxh64::xxh64(&zeroed, CCH_SEED) & 0xf_ffff;
         assert_eq!(format!("{expect:05x}"), cch);
+    }
+
+    #[test]
+    fn session_id_deterministic_per_cred_conversation_hour() {
+        let body = br#"{"system":[{"type":"text","text":"sys"}],"messages":[{"role":"user","content":"hi"}]}"#;
+        // Same (device, conversation, hour) → identical id, v4-shaped.
+        let a = session_id("dev1", body, 1_000_000);
+        assert_eq!(a, session_id("dev1", body, 1_000_000 + 100)); // same 1h bucket
+        assert_eq!(a.len(), 36);
+        assert_eq!(a.as_bytes()[14], b'4'); // version nibble
+        // Different credential (device) → different id.
+        assert_ne!(a, session_id("dev2", body, 1_000_000));
+    }
+
+    #[test]
+    fn session_id_capped_at_1000_per_credential() {
+        let mut set = std::collections::HashSet::new();
+        for i in 0..5000 {
+            let b = format!(r#"{{"messages":[{{"role":"user","content":"m{i}"}}]}}"#);
+            set.insert(session_id("devX", b.as_bytes(), 1_000_000));
+        }
+        assert!(set.len() <= SESSION_SLOTS as usize, "got {} ids", set.len());
     }
 }

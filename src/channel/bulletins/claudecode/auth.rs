@@ -67,6 +67,35 @@ fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
+/// Stable per-credential `device_id` (a 64-hex string, mirroring the real CLI).
+/// The persisted `device_id` wins; otherwise it is derived deterministically
+/// from the most stable identifier the secret carries (account_uuid → refresh →
+/// access token), so it stays constant for the credential's life.
+pub(super) fn device_id(secret: &Value) -> String {
+    if let Some(d) = secret_str(secret, "device_id") {
+        return d.to_owned();
+    }
+    let seed = secret_str(secret, "account_uuid")
+        .or_else(|| secret_str(secret, "refresh_token"))
+        .or_else(|| secret_str(secret, "access_token"))
+        .unwrap_or("");
+    blake3::hash(format!("claudecode-device:{seed}").as_bytes())
+        .to_hex()
+        .to_string()
+}
+
+/// Lock the derived `device_id` into the secret once, so later token rotations
+/// don't change it. Called from the secret-producing paths (login / refresh).
+pub(super) fn ensure_device_id(secret: &mut Value) {
+    if secret_str(secret, "device_id").is_some() {
+        return;
+    }
+    let d = device_id(secret);
+    if let Some(obj) = secret.as_object_mut() {
+        obj.insert("device_id".into(), Value::String(d));
+    }
+}
+
 /// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
 fn pct(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -159,6 +188,7 @@ pub(super) async fn authcode_exchange(
     if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
         secret["refresh_token"] = Value::String(rt);
     }
+    ensure_device_id(&mut secret);
     Ok(secret)
 }
 
@@ -246,6 +276,7 @@ pub(super) async fn refresh(
         obj.insert("refresh_token".into(), Value::String(rt));
     }
     obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
+    ensure_device_id(&mut out);
     Ok(out)
 }
 
