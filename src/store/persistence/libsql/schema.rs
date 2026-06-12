@@ -287,6 +287,7 @@ const TABLES: &[&str] = &[
         disable_log_redaction INTEGER NOT NULL, \
         enable_tokenizer_download INTEGER NOT NULL, \
         update_channel TEXT, \
+        retention_days INTEGER, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
     // ── tokenizer vocabs ──

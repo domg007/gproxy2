@@ -456,6 +456,15 @@ impl PersistenceBackend for FilePersistence {
         upstream_requests::list(&self.root, request_id).await
     }
 
+    async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {
+        let _guard = self.write.lock().await;
+        let mut removed = 0u64;
+        removed += usages::purge_before(&self.root, cutoff_ts).await?;
+        removed += downstream_requests::purge_before(&self.root, cutoff_ts).await?;
+        removed += upstream_requests::purge_before(&self.root, cutoff_ts).await?;
+        Ok(removed)
+    }
+
     async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog> {
         let _guard = self.write.lock().await;
         audit_logs::append(&self.root, input).await

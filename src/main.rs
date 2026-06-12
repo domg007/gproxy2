@@ -343,6 +343,10 @@ async fn main() -> anyhow::Result<()> {
         gproxy::app::invalidation::spawn_invalidation_listener(state.clone());
     }
 
+    // §8-D: periodically purge usage/request-log rows past the retention window
+    // (no-op until an operator sets `instance_settings.retention_days`).
+    gproxy::app::retention::spawn_retention_task(state.clone());
+
     let app = http::server::router(state);
 
     let listener = tokio::net::TcpListener::bind(bind).await?;

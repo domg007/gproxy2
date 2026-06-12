@@ -78,11 +78,18 @@ pub const SELECT_MAX_VERSION: &str = "SELECT COALESCE(MAX(version), 0) AS v FROM
 /// Ordered list of migrations to apply *after* the baseline. Append new
 /// entries here (see the module docs). `ADD COLUMN` is portable across
 /// sqlite/pg/mysql; keep the DDL dialect-neutral.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 2,
-    description: "routes.settings_json: per-route circuit-breaker override (§3.2)",
-    sql: &["ALTER TABLE routes ADD COLUMN settings_json TEXT"],
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 2,
+        description: "routes.settings_json: per-route circuit-breaker override (§3.2)",
+        sql: &["ALTER TABLE routes ADD COLUMN settings_json TEXT"],
+    },
+    Migration {
+        version: 3,
+        description: "instance_settings.retention_days: usage/log purge window (§8-D)",
+        sql: &["ALTER TABLE instance_settings ADD COLUMN retention_days INTEGER"],
+    },
+];
 
 /// Migrations with `version > current`, in ascending order — the work a runner
 /// must apply. Pulled out as a pure function so the ordering logic is unit-

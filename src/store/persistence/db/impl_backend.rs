@@ -403,6 +403,28 @@ impl PersistenceBackend for DbPersistence {
         ops::logs::upstream_requests::list(&self.conn, request_id).await
     }
 
+    async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {
+        use crate::store::persistence::db::entities::{logs, usage};
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        let mut removed = 0u64;
+        removed += usage::usage::Entity::delete_many()
+            .filter(usage::usage::Column::CreatedAt.lt(cutoff_ts))
+            .exec(&self.conn)
+            .await?
+            .rows_affected;
+        removed += logs::downstream_request::Entity::delete_many()
+            .filter(logs::downstream_request::Column::CreatedAt.lt(cutoff_ts))
+            .exec(&self.conn)
+            .await?
+            .rows_affected;
+        removed += logs::upstream_request::Entity::delete_many()
+            .filter(logs::upstream_request::Column::CreatedAt.lt(cutoff_ts))
+            .exec(&self.conn)
+            .await?
+            .rows_affected;
+        Ok(removed)
+    }
+
     async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog> {
         ops::logs::audit_logs::append(&self.conn, input).await
     }

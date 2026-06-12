@@ -386,6 +386,21 @@ impl PersistenceBackend for LibsqlPersistence {
         logs::upstream_requests::list(&self.client, request_id).await
     }
 
+    async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {
+        use crate::store::libsql::arg_integer;
+        use crate::store::persistence::libsql::util::exec;
+        let mut removed = 0u64;
+        for table in ["usages", "downstream_requests", "upstream_requests"] {
+            removed += exec(
+                &self.client,
+                &format!("DELETE FROM {table} WHERE created_at < ?"),
+                &[arg_integer(cutoff_ts)],
+            )
+            .await?;
+        }
+        Ok(removed)
+    }
+
     async fn append_audit_log(&self, input: AuditLogInput) -> anyhow::Result<AuditLog> {
         logs::audit_logs::append(&self.client, input).await
     }

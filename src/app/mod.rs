@@ -5,6 +5,7 @@ pub mod export;
 pub mod import;
 pub mod invalidation;
 pub mod models_index;
+pub mod retention;
 pub mod snapshot;
 
 use std::sync::Arc;

@@ -10,6 +10,20 @@ fn path(root: &Path) -> PathBuf {
     root.join("upstream_requests.json")
 }
 
+/// Remove rows with `created_at < cutoff_ts` (§8-D retention). Returns the count
+/// removed; rewrites the file only when something was dropped.
+pub(crate) async fn purge_before(root: &Path, cutoff_ts: i64) -> anyhow::Result<u64> {
+    let file = path(root);
+    let mut t = table::load::<UpstreamRequest>(&file).await?;
+    let before = t.rows.len();
+    t.rows.retain(|r| r.created_at >= cutoff_ts);
+    let removed = (before - t.rows.len()) as u64;
+    if removed > 0 {
+        table::store(&file, &t).await?;
+    }
+    Ok(removed)
+}
+
 pub(crate) async fn append(
     root: &Path,
     input: UpstreamRequestInput,

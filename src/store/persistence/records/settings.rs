@@ -31,6 +31,10 @@ pub struct InstanceSettings {
     pub enable_tokenizer_download: bool,
     /// Update channel, e.g. `stable` | `beta`; `None` = default.
     pub update_channel: Option<String>,
+    /// Purge usage/request-log rows older than this many days (§8-D). `None`
+    /// or `<= 0` = retain forever (the historical behaviour).
+    #[serde(default)]
+    pub retention_days: Option<i64>,
     /// Unix seconds.
     pub created_at: i64,
     /// Unix seconds.
@@ -55,4 +59,6 @@ pub struct InstanceSettingsInput {
     #[serde(default)]
     pub enable_tokenizer_download: bool,
     pub update_channel: Option<String>,
+    #[serde(default)]
+    pub retention_days: Option<i64>,
 }

@@ -189,5 +189,6 @@ pub(super) fn settings_to_input(r: InstanceSettings) -> InstanceSettingsInput {
         disable_log_redaction: r.disable_log_redaction,
         enable_tokenizer_download: r.enable_tokenizer_download,
         update_channel: r.update_channel,
+        retention_days: r.retention_days,
     }
 }

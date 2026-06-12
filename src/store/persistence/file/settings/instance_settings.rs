@@ -56,6 +56,7 @@ pub(crate) async fn upsert(
                 row.disable_log_redaction = input.disable_log_redaction;
                 row.enable_tokenizer_download = input.enable_tokenizer_download;
                 row.update_channel = input.update_channel;
+                row.retention_days = input.retention_days;
                 row.updated_at = now;
                 row.clone()
             } else {
@@ -77,6 +78,7 @@ pub(crate) async fn upsert(
                     disable_log_redaction: input.disable_log_redaction,
                     enable_tokenizer_download: input.enable_tokenizer_download,
                     update_channel: input.update_channel,
+                    retention_days: input.retention_days,
                     created_at: now,
                     updated_at: now,
                 };
@@ -100,6 +102,7 @@ pub(crate) async fn upsert(
                 disable_log_redaction: input.disable_log_redaction,
                 enable_tokenizer_download: input.enable_tokenizer_download,
                 update_channel: input.update_channel,
+                retention_days: input.retention_days,
                 created_at: now,
                 updated_at: now,
             };

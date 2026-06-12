@@ -21,6 +21,7 @@ fn to_record(m: instance_setting::Model) -> InstanceSettings {
         disable_log_redaction: m.disable_log_redaction,
         enable_tokenizer_download: m.enable_tokenizer_download,
         update_channel: m.update_channel,
+        retention_days: m.retention_days,
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
@@ -67,6 +68,7 @@ pub async fn upsert(
                 am.disable_log_redaction = Set(input.disable_log_redaction);
                 am.enable_tokenizer_download = Set(input.enable_tokenizer_download);
                 am.update_channel = Set(input.update_channel);
+                am.retention_days = Set(input.retention_days);
                 am.updated_at = Set(now);
                 am.update(conn).await?
             }
@@ -86,6 +88,7 @@ pub async fn upsert(
                     disable_log_redaction: Set(input.disable_log_redaction),
                     enable_tokenizer_download: Set(input.enable_tokenizer_download),
                     update_channel: Set(input.update_channel),
+                    retention_days: Set(input.retention_days),
                     created_at: Set(now),
                     updated_at: Set(now),
                 }
@@ -107,6 +110,7 @@ pub async fn upsert(
                 disable_log_redaction: Set(input.disable_log_redaction),
                 enable_tokenizer_download: Set(input.enable_tokenizer_download),
                 update_channel: Set(input.update_channel),
+                retention_days: Set(input.retention_days),
                 created_at: Set(now),
                 updated_at: Set(now),
             }

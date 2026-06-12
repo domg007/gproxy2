@@ -2,7 +2,7 @@
 
 use crate::store::libsql::{LibsqlClient, arg_integer, arg_text};
 use crate::store::persistence::libsql::row::{
-    Row, col_bool, col_i64, col_opt_bool, col_opt_str, col_str,
+    Row, col_bool, col_i64, col_opt_bool, col_opt_i64, col_opt_str, col_str,
 };
 use crate::store::persistence::libsql::util::{
     arg_bool, arg_opt_bool, arg_opt_i64, arg_opt_text, exec, last_rowid, now_secs, query, query_one,
@@ -11,7 +11,8 @@ use crate::store::persistence::records::{InstanceSettings, InstanceSettingsInput
 
 const COLS: &str = "id, instance_name, proxy, spoof_emulation, enable_usage, enable_upstream_log, \
      enable_upstream_log_body, enable_downstream_log, enable_downstream_log_body, \
-     disable_log_redaction, enable_tokenizer_download, update_channel, created_at, updated_at";
+     disable_log_redaction, enable_tokenizer_download, update_channel, retention_days, \
+     created_at, updated_at";
 
 fn decode(row: &Row) -> anyhow::Result<InstanceSettings> {
     Ok(InstanceSettings {
@@ -27,8 +28,9 @@ fn decode(row: &Row) -> anyhow::Result<InstanceSettings> {
         disable_log_redaction: col_bool(row, 9)?,
         enable_tokenizer_download: col_bool(row, 10)?,
         update_channel: col_opt_str(row, 11)?,
-        created_at: col_i64(row, 12)?,
-        updated_at: col_i64(row, 13)?,
+        retention_days: col_opt_i64(row, 12)?,
+        created_at: col_i64(row, 13)?,
+        updated_at: col_i64(row, 14)?,
     })
 }
 
@@ -84,7 +86,8 @@ pub async fn upsert(
                 "UPDATE instance_settings SET instance_name=?, proxy=?, spoof_emulation=?, \
                  enable_usage=?, enable_upstream_log=?, enable_upstream_log_body=?, \
                  enable_downstream_log=?, enable_downstream_log_body=?, disable_log_redaction=?, \
-                 enable_tokenizer_download=?, update_channel=?, updated_at=? WHERE id=?",
+                 enable_tokenizer_download=?, update_channel=?, retention_days=?, updated_at=? \
+                 WHERE id=?",
                 &[
                     arg_text(&input.instance_name),
                     arg_opt_text(input.proxy.as_deref()),
@@ -97,6 +100,7 @@ pub async fn upsert(
                     arg_bool(input.disable_log_redaction),
                     arg_bool(input.enable_tokenizer_download),
                     arg_opt_text(input.update_channel.as_deref()),
+                    arg_opt_i64(input.retention_days),
                     arg_integer(now),
                     arg_integer(id),
                 ],
@@ -111,8 +115,9 @@ pub async fn upsert(
                      (id, instance_name, proxy, spoof_emulation, enable_usage, \
                       enable_upstream_log, enable_upstream_log_body, enable_downstream_log, \
                       enable_downstream_log_body, disable_log_redaction, \
-                      enable_tokenizer_download, update_channel, created_at, updated_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      enable_tokenizer_download, update_channel, retention_days, \
+                      created_at, updated_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     &[
                         arg_opt_i64(maybe_id),
                         arg_text(&input.instance_name),
@@ -126,6 +131,7 @@ pub async fn upsert(
                         arg_bool(input.disable_log_redaction),
                         arg_bool(input.enable_tokenizer_download),
                         arg_opt_text(input.update_channel.as_deref()),
+                        arg_opt_i64(input.retention_days),
                         arg_integer(now),
                         arg_integer(now),
                     ],

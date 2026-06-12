@@ -385,6 +385,14 @@ pub trait PersistenceBackend: Send + Sync {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>>;
 
+    /// Purge append-only usage/request-log rows older than `cutoff_ts`
+    /// (`created_at < cutoff_ts`; §8-D retention). Covers the high-volume raw
+    /// tables — `usages`, `downstream_requests`, `upstream_requests` — and keeps
+    /// the compact `usage_rollups` aggregates and `audit_logs`. Returns the total
+    /// rows removed. Edge isolates are short-lived, so the edge backend is a
+    /// no-op (server-side cleanup is expected).
+    async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64>;
+
     // ── admin audit log (§ admin hardening) ─────────────────────────────────
 
     /// Append an audit row (append-only); returns it with id/created_at set.
