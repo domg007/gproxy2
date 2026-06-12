@@ -36,6 +36,9 @@ pub struct TokenResponse {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub expires_in: Option<u64>,
+    /// OpenID Connect id_token (JWT). Surfaced for channels that decode claims
+    /// from it (e.g. codex extracts the ChatGPT account id); ignored elsewhere.
+    pub id_token: Option<String>,
 }
 
 /// POST `application/x-www-form-urlencoded` `form` pairs to `token_url` and

@@ -17,6 +17,8 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use bytes::Bytes;
 use http::Request;
 use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
@@ -95,10 +97,10 @@ pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -
     (format!("{AUTHORIZE_URL}?{query}"), redirect_uri.to_string())
 }
 
-/// Exchange an authorization code (+PKCE verifier) for the plaintext secret.
-/// Maps the token response to `{access_token, refresh_token?, expires_at_ms}`.
-/// (`id_token`/`account_id` are not surfaced by the shared `token_post`; the
-/// pipeline refresh / first usage backfills `account_id` — see module docs.)
+/// Exchange an authorization code (+PKCE verifier) for the plaintext secret
+/// `{access_token, refresh_token?, expires_at_ms, account_id?, id_token?}`. The
+/// `account_id` is decoded from the id_token's `chatgpt_account_id` claim so
+/// `prepare` can send the `chatgpt-account-id` header.
 pub(super) async fn authcode_exchange(
     client: &Arc<dyn UpstreamClient>,
     code: &str,
@@ -127,6 +129,14 @@ pub(super) async fn authcode_exchange(
     });
     if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
         secret["refresh_token"] = Value::String(rt);
+    }
+    // Extract the ChatGPT account id from the id_token (JWT) so prepare can send
+    // `chatgpt-account-id`; keep the id_token for a later refresh re-extract.
+    if let Some(id_token) = resp.id_token.filter(|s| !s.is_empty()) {
+        if let Some(account_id) = account_id_from_id_token(&id_token) {
+            secret["account_id"] = Value::String(account_id);
+        }
+        secret["id_token"] = Value::String(id_token);
     }
     Ok(secret)
 }
@@ -172,6 +182,23 @@ pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
 /// The ChatGPT account id, sent as `chatgpt-account-id` when present.
 pub(super) fn account_id(secret: &Value) -> Option<&str> {
     secret_str(secret, "account_id")
+}
+
+/// Decode the ChatGPT account id from an OAuth `id_token` (a JWT). The payload
+/// is base64url-decoded WITHOUT signature verification — we trust our own OAuth
+/// token exchange transport, not the token itself — and the id lives at the
+/// claim `https://api.openai.com/auth` → `chatgpt_account_id`.
+fn account_id_from_id_token(id_token: &str) -> Option<String> {
+    let payload_b64 = id_token.split('.').nth(1)?;
+    let bytes = B64URL.decode(payload_b64).ok()?;
+    let payload: Value = serde_json::from_slice(&bytes).ok()?;
+    payload
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 /// Whether the access token is absent or within the skew window of expiry.
@@ -226,8 +253,14 @@ pub(super) async fn refresh(
     if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
         obj.insert("refresh_token".into(), Value::String(rt));
     }
-    // `account_id` / `id_token` are preserved by the clone (the shared
-    // `token_post` does not surface a rotated `id_token`).
+    // A rotated id_token re-backfills `account_id` (and is itself preserved);
+    // otherwise the clone keeps the existing account_id from login.
+    if let Some(id_token) = resp.id_token.filter(|s| !s.is_empty()) {
+        if let Some(account_id) = account_id_from_id_token(&id_token) {
+            obj.insert("account_id".into(), Value::String(account_id));
+        }
+        obj.insert("id_token".into(), Value::String(id_token));
+    }
     obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
     Ok(out)
 }
@@ -366,4 +399,27 @@ fn collect_text(value: &Value, parts: &mut Vec<String>) {
 /// Fresh per-request v4 session id (cross-target, cryptographically random).
 fn new_session_id() -> String {
     crate::util::rand::uuid_v4()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn account_id_decoded_from_id_token_claim() {
+        // A JWT whose payload carries the OpenAI auth claim (header/sig are
+        // opaque — we never verify the signature, only base64-decode the payload).
+        let payload = json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acct-xyz" },
+            "email": "u@example.com"
+        });
+        let payload_b64 = B64URL.encode(serde_json::to_vec(&payload).unwrap());
+        let jwt = format!("eyJhbG.{payload_b64}.sig");
+        assert_eq!(account_id_from_id_token(&jwt).as_deref(), Some("acct-xyz"));
+
+        // Missing claim / malformed token → None (not an error).
+        let no_claim = B64URL.encode(br#"{"email":"x"}"#);
+        assert_eq!(account_id_from_id_token(&format!("h.{no_claim}.s")), None);
+        assert_eq!(account_id_from_id_token("not-a-jwt"), None);
+    }
 }
