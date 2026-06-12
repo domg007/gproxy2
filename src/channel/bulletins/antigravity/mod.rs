@@ -8,7 +8,7 @@
 //! wraps via [`envelope::wrap_code_assist`]; [`normalize`] and
 //! [`stream_decoder`] unwrap the non-stream body and each SSE frame — all shared
 //! with `geminicli`. [`auth`] owns the OAuth bearer + refresh + Antigravity's
-//! distinct fingerprint (UA + `requestId`/`requestType`).
+//! distinct fingerprint (the `antigravity/cli` User-Agent).
 //!
 //! [`normalize`]: AntigravityChannel::normalize
 //! [`stream_decoder`]: AntigravityChannel::stream_decoder
@@ -51,7 +51,6 @@ impl Channel for AntigravityChannel {
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let project_id = auth::project_id(ctx.secret)?;
-        let request_type = auth::request_type(ctx.upstream_model_id);
 
         // Wrap the gemini body in the Code Assist envelope. `ctx.body` is moved
         // out here (the request body becomes the wrapped bytes).
@@ -77,7 +76,7 @@ impl Channel for AntigravityChannel {
         // inbound headers beyond the base content-type/accept allow-list.
         let headers = allow_headers(ctx.headers, &[]);
         let mut req = build_request(ctx.method, uri, headers, Bytes::from(wrapped))?;
-        auth::apply(&mut req, &access_token, request_type)?;
+        auth::apply(&mut req, &access_token)?;
         Ok(PreparedRequest::new(req))
     }
 
@@ -167,8 +166,10 @@ mod tests {
             req.headers().get("user-agent").unwrap(),
             "antigravity/cli/1.0.6 linux/amd64"
         );
-        assert_eq!(req.headers().get("requesttype").unwrap(), "agent");
-        assert!(req.headers().get("requestid").is_some());
+        // The real 1.0.6 inference call sends no requestId/requestType/Accept.
+        assert!(req.headers().get("requesttype").is_none());
+        assert!(req.headers().get("requestid").is_none());
+        assert!(req.headers().get("accept").is_none());
 
         // Body is the Code Assist envelope carrying the original request.
         let v: Value = serde_json::from_slice(req.body()).unwrap();

@@ -61,16 +61,17 @@
 
 > ✅ **干净**:无 UUID/会话动态头。除凭证外都可静态注入。
 
-## antigravity — `POST (daily-)cloudcode-pa.googleapis.com/v1internal:*`
+## antigravity — `POST (daily-)cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse`
 
 | 头 | 值 / 形态 | 类 |
 |---|---|---|
 | `User-Agent` | `antigravity/cli/1.0.6 linux/amd64` | 静态 |
 | `Content-Type` | `application/json` | 静态 |
-| `Accept-Encoding` | `gzip` | 静态 |
+| `Transfer-Encoding` | `chunked`(流式请求体) | 传输 |
+| `Accept-Encoding` | `gzip` | 传输 |
 | `Authorization` | `Bearer …` | 凭证 |
 
-> ✅ **最干净**:除凭证只有 UA + 标准头。
+> ✅ **已抓真实推理调用 `streamGenerateContent` 确认**:除凭证只有 UA + Content-Type(Host/Transfer-Encoding/Accept-Encoding 由 http 客户端加)。**没有 `requestId` / `requestType` / `Accept`** —— 代码原本注入的这三个(从旧版 mined)真实 1.0.6 CLI 不发,已移除。无动态 id 头。
 
 ## copilot_cli — `api.individual.githubcopilot.com`(`/models`、`/mcp/readonly`、chat)
 

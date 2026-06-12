@@ -1,8 +1,8 @@
 //! Antigravity auth — Google OAuth2 `refresh_token` grant against
 //! `oauth2.googleapis.com/token`; base `https://cloudcode-pa.googleapis.com`.
 //! Same Code Assist envelope and `/v1internal:` shape as `geminicli` (see
-//! [`crate::channel::envelope`]); differs only in the OAuth client_id/secret,
-//! the User-Agent, and two extra request headers (`requestId`/`requestType`).
+//! [`crate::channel::envelope`]); differs only in the OAuth client_id/secret
+//! and the User-Agent.
 //!
 //! The login-time authorization-code + PKCE flow (6 scopes, remote-paste login,
 //! `project_id` resolution via `loadCodeAssist` / `onboardUser`) is an M10
@@ -15,11 +15,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http::Request;
-use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
+use http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
 use serde_json::Value;
 
 use crate::channel::ChannelError;
-use crate::channel::envelope;
 use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
 
@@ -195,42 +194,18 @@ pub(super) async fn refresh(
     Ok(out)
 }
 
-/// `requestType` Antigravity tags each request with: `image_gen` for image
-/// models, else `agent` (v1 keys this off the model name).
-pub(super) fn request_type(model: &str) -> &'static str {
-    if model.to_ascii_lowercase().contains("image") {
-        "image_gen"
-    } else {
-        "agent"
-    }
-}
-
 /// Inject the OAuth bearer + Antigravity fingerprint headers onto the prepared
-/// upstream request. `content-type`/`accept` are forced to `application/json`
-/// (the stream still arrives as SSE — selected by `alt=sse`, not Accept). Unlike
-/// `geminicli`, Antigravity also sends `requestId` (a fresh opaque id) and
-/// `requestType` (`agent`/`image_gen`). v1 derives `requestId` from a uuid-v5
-/// content fingerprint; the M7b pipeline has no route handle here, so a fresh
-/// random id (same cross-target `OsRng` hex source as `user_prompt_id`, so it
-/// avoids uuid's native-only gate) is used — Code Assist treats it as opaque.
-pub(super) fn apply(
-    req: &mut Request<Bytes>,
-    access_token: &str,
-    request_type: &str,
-) -> Result<(), ChannelError> {
+/// upstream request. The real `antigravity/cli` 1.0.6 inference call
+/// (`:streamGenerateContent`) sends a MINIMAL set — `authorization`,
+/// `content-type: application/json`, and the `User-Agent` — with NO `requestId`
+/// / `requestType` / `Accept` (those, mined from an older build, are a tell). See
+/// `docs/agent-request-headers.md`.
+pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), ChannelError> {
     let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
-    let request_id = format!("req-{}", envelope::random_user_prompt_id());
-    let request_id = HeaderValue::from_str(&request_id)
-        .map_err(|e| ChannelError::Build(format!("bad requestId: {e}")))?;
-    let request_type = HeaderValue::from_str(request_type)
-        .map_err(|e| ChannelError::Build(format!("bad requestType: {e}")))?;
     let h = req.headers_mut();
     h.insert(AUTHORIZATION, bearer);
     h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
     h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
-    h.insert(HeaderName::from_static("requestid"), request_id);
-    h.insert(HeaderName::from_static("requesttype"), request_type);
     Ok(())
 }
