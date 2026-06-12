@@ -30,6 +30,12 @@ const DEFAULT_VSCODE_VERSION: &str = "1.95.3";
 const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.43.0";
 const USER_AGENT: &str = "copilot/1.0.61 (linux v24.16.0) term/unknown";
 const API_VERSION: &str = "2025-04-01";
+
+/// Copilot CLI model-path identity (captured from `copilot/1.0.61`), distinct
+/// from the VS Code Copilot Chat extension the token-exchange flow mimics.
+const EDITOR_VERSION: &str = "copilot/1.0.61";
+const CHAT_API_VERSION: &str = "2026-06-01";
+const COPILOT_INTEGRATION_ID: &str = "copilot-developer-cli";
 const GITHUB_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 
 /// GitHub device-flow OAuth client (the public Copilot CLI / VS Code id) +
@@ -218,34 +224,50 @@ pub(super) async fn exchange_copilot_token(
 /// Inject the Copilot OpenAI-chat headers onto the prepared upstream request.
 /// `body` is the already-assembled upstream body, inspected only to pick
 /// `X-Initiator` (agent when assistant/tool turns are present, else user).
+/// Stable per-credential `x-client-machine-id` (v4-shaped UUID) the Copilot CLI
+/// persists per machine. Derived from the long-lived `github_token` so it stays
+/// constant for the credential (the short-lived copilot_token rotates).
+pub(super) fn machine_id(secret: &Value) -> String {
+    let seed = secret
+        .get("github_token")
+        .and_then(Value::as_str)
+        .or_else(|| secret.get("copilot_token").and_then(Value::as_str))
+        .unwrap_or("");
+    let d = blake3::hash(format!("copilot-machine:{seed}").as_bytes());
+    let mut b = [0u8; 16];
+    b.copy_from_slice(&d.as_bytes()[..16]);
+    crate::util::rand::uuid_v4_from(&b)
+}
+
 pub(super) fn apply_chat_headers(
     req: &mut Request<Bytes>,
     copilot_token: &str,
-    vscode_version: &str,
+    machine_id: &str,
 ) -> Result<(), ChannelError> {
     let bearer = HeaderValue::from_str(&format!("Bearer {copilot_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad copilot_token: {e}")))?;
-    let editor = HeaderValue::from_str(&format!("vscode/{vscode_version}"))
-        .map_err(|e| ChannelError::Build(format!("bad editor-version: {e}")))?;
-    let request_id = HeaderValue::from_str(&new_request_id())
-        .map_err(|e| ChannelError::Build(format!("bad x-request-id: {e}")))?;
+    let machine = HeaderValue::from_str(machine_id)
+        .map_err(|e| ChannelError::Build(format!("bad x-client-machine-id: {e}")))?;
+    let interaction = HeaderValue::from_str(&new_request_id())
+        .map_err(|e| ChannelError::Build(format!("bad x-interaction-id: {e}")))?;
     let initiator = if has_assistant_or_tool_turn(req.body()) {
         "agent"
     } else {
         "user"
     };
 
+    // Copilot CLI model-path header set (captured from copilot/1.0.61), NOT the
+    // VS Code Copilot Chat extension's.
     let h = req.headers_mut();
     h.insert(http::header::AUTHORIZATION, bearer);
     h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     h.insert(
         HeaderName::from_static("copilot-integration-id"),
-        HeaderValue::from_static("vscode-chat"),
+        HeaderValue::from_static(COPILOT_INTEGRATION_ID),
     );
-    h.insert(HeaderName::from_static("editor-version"), editor);
     h.insert(
-        HeaderName::from_static("editor-plugin-version"),
-        HeaderValue::from_static(EDITOR_PLUGIN_VERSION),
+        HeaderName::from_static("editor-version"),
+        HeaderValue::from_static(EDITOR_VERSION),
     );
     h.insert(
         http::header::USER_AGENT,
@@ -253,13 +275,14 @@ pub(super) fn apply_chat_headers(
     );
     h.insert(
         HeaderName::from_static("openai-intent"),
-        HeaderValue::from_static("conversation-panel"),
+        HeaderValue::from_static("conversation-agent"),
     );
     h.insert(
         HeaderName::from_static("x-github-api-version"),
-        HeaderValue::from_static(API_VERSION),
+        HeaderValue::from_static(CHAT_API_VERSION),
     );
-    h.insert(HeaderName::from_static("x-request-id"), request_id);
+    h.insert(HeaderName::from_static("x-interaction-id"), interaction);
+    h.insert(HeaderName::from_static("x-client-machine-id"), machine);
     h.insert(
         HeaderName::from_static("x-initiator"),
         HeaderValue::from_static(initiator),

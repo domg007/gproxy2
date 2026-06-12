@@ -53,14 +53,14 @@ impl Channel for CopilotCliChannel {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| ChannelError::InvalidCredential("missing copilot_token".into()))?;
-        let vscode_version = auth::vscode_version(ctx.secret).to_string();
+        let machine_id = auth::machine_id(ctx.secret);
         let base = auth::base_url(ctx.secret);
 
         let uri = join_url(&base, "/chat/completions", None)?;
         // Copilot injects its own auth + editor headers; no inbound forwards.
         let headers = allow_headers(ctx.headers, &[]);
         let mut req = build_request(ctx.method, uri, headers, ctx.body)?;
-        auth::apply_chat_headers(&mut req, copilot_token, &vscode_version)?;
+        auth::apply_chat_headers(&mut req, copilot_token, &machine_id)?;
         Ok(PreparedRequest::new(req))
     }
 
@@ -196,13 +196,18 @@ mod tests {
         );
         assert_eq!(
             req.headers().get("copilot-integration-id").unwrap(),
-            "vscode-chat"
+            "copilot-developer-cli"
         );
         assert_eq!(
             req.headers().get("editor-version").unwrap(),
-            "vscode/1.95.3"
+            "copilot/1.0.61"
         );
-        assert!(req.headers().get("x-request-id").is_some());
+        assert_eq!(
+            req.headers().get("openai-intent").unwrap(),
+            "conversation-agent"
+        );
+        assert!(req.headers().get("x-interaction-id").is_some());
+        assert!(req.headers().get("x-client-machine-id").is_some());
         // No assistant/tool turn → X-Initiator user.
         assert_eq!(req.headers().get("x-initiator").unwrap(), "user");
     }

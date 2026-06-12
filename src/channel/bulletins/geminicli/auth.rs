@@ -43,8 +43,9 @@ pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 fn user_agent(model: &str) -> String {
     format!("GeminiCLI-tui/0.46.0/{model} (linux; x64; terminal) google-api-nodejs-client/9.15.1")
 }
-/// `x-goog-api-client` mirrors the genai SDK fingerprint (optional but cheap).
-const GOOG_API_CLIENT: &str = "google-genai-sdk/1.30.0 gl-node/20";
+/// `x-goog-api-client` on the model path is just the Node runtime tag (the real
+/// CLI sends `gl-node/<nodeversion>`, no genai-sdk prefix).
+const GOOG_API_CLIENT: &str = "gl-node/22.20.0";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
@@ -215,7 +216,7 @@ pub(super) fn apply(
     let h = req.headers_mut();
     h.insert(AUTHORIZATION, bearer);
     h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    h.insert(ACCEPT, HeaderValue::from_static("*/*"));
     let ua = HeaderValue::from_str(&user_agent(model))
         .map_err(|e| ChannelError::Build(format!("bad user-agent: {e}")))?;
     h.insert(USER_AGENT, ua);
