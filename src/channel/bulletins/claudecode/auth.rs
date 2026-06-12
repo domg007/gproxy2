@@ -96,6 +96,21 @@ pub(super) fn ensure_device_id(secret: &mut Value) {
     }
 }
 
+/// Merge the oauth `anthropic-beta` marker (placed FIRST) with any
+/// client-supplied betas, comma-joined and deduped. The client may already
+/// carry the oauth beta — it is not re-added.
+fn merge_anthropic_beta(client: Option<&str>) -> String {
+    let mut out: Vec<&str> = vec![ANTHROPIC_BETA];
+    if let Some(c) = client {
+        for b in c.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if !out.contains(&b) {
+                out.push(b);
+            }
+        }
+    }
+    out.join(",")
+}
+
 /// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
 fn pct(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -299,10 +314,16 @@ pub(super) fn apply(
         HeaderName::from_static("anthropic-version"),
         HeaderValue::from_static(ANTHROPIC_VERSION),
     );
-    h.insert(
-        HeaderName::from_static("anthropic-beta"),
-        HeaderValue::from_static(ANTHROPIC_BETA),
-    );
+    // anthropic-beta: keep the oauth marker FIRST, then any client-supplied
+    // betas (forwarded by the allow-list), deduped — the client may itself
+    // already include the oauth beta, in which case it is not re-added.
+    let client_beta = h
+        .get("anthropic-beta")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let beta = HeaderValue::from_str(&merge_anthropic_beta(client_beta.as_deref()))
+        .map_err(|e| ChannelError::Build(format!("bad anthropic-beta: {e}")))?;
+    h.insert(HeaderName::from_static("anthropic-beta"), beta);
     h.insert(
         HeaderName::from_static("anthropic-dangerous-direct-browser-access"),
         HeaderValue::from_static("true"),

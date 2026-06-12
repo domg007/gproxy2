@@ -129,6 +129,7 @@ mod emulation_tests {
     fn channel_default_emulations_build() {
         let expected = [
             "claudecode",
+            "codex",
             "geminicli",
             "antigravity",
             "kiro",

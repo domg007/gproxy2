@@ -225,6 +225,33 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_beta_oauth_first_then_client_deduped() {
+        let secret = json!({ "access_token": "tok" });
+        let settings = json!({});
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            "feat-x,oauth-2025-04-20,feat-y".parse().unwrap(),
+        );
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "claude-sonnet-4",
+            method: Method::POST,
+            path: "/v1/messages",
+            query: None,
+            headers: &headers,
+            body: Bytes::from_static(b"{\"messages\":[]}"),
+        };
+        let req = ClaudeCodeChannel.prepare(ctx).unwrap().request;
+        // oauth marker first, client betas after, client's own oauth not duped.
+        assert_eq!(
+            req.headers().get("anthropic-beta").unwrap(),
+            "oauth-2025-04-20,feat-x,feat-y"
+        );
+    }
+
+    #[test]
     fn authcode_start_urls() {
         // claudecode + geminicli authcode_start build provider authorize URLs
         // carrying their client_id, the PKCE challenge, state, S256, a default

@@ -61,7 +61,15 @@ pub(super) fn apply(
         "text": format!("x-anthropic-billing-header: cc_version={CC_VERSION}; cc_entrypoint={entrypoint}; cch=00000;"),
     });
     match obj.get_mut("system") {
-        Some(Value::Array(arr)) => arr.insert(0, billing),
+        // Replace an existing billing-header block in place (idempotent — a
+        // re-proxied claude-code body already carries one); else prepend.
+        Some(Value::Array(arr)) => {
+            if let Some(b) = arr.iter_mut().find(|b| is_billing_block(b)) {
+                *b = billing;
+            } else {
+                arr.insert(0, billing);
+            }
+        }
         Some(s @ Value::String(_)) => {
             let orig = s.take();
             *s = Value::Array(vec![billing, json!({ "type": "text", "text": orig })]);
@@ -80,6 +88,14 @@ pub(super) fn apply(
         bytes[pos + 4..pos + 9].copy_from_slice(hex.as_bytes());
     }
     bytes
+}
+
+/// Whether a `system` block already carries the billing header — so we replace
+/// it in place rather than prepend a duplicate.
+fn is_billing_block(b: &Value) -> bool {
+    b.get("text")
+        .and_then(Value::as_str)
+        .is_some_and(|t| t.contains("x-anthropic-billing-header"))
 }
 
 /// First index of `needle` in `haystack` (small, single-use; avoids a dep).
@@ -205,5 +221,25 @@ mod tests {
             set.insert(session_id("devX", b.as_bytes(), 1_000_000));
         }
         assert!(set.len() <= SESSION_SLOTS as usize, "got {} ids", set.len());
+    }
+
+    #[test]
+    fn apply_replaces_existing_billing_block() {
+        // Re-proxy case: the inbound body already carries a billing block.
+        let body = br#"{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=old; cc_entrypoint=x; cch=fffff;"},{"type":"text","text":"real system"}],"messages":[]}"#;
+        let out = apply(body, "d", "a", "s", "cli");
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let sys = v["system"].as_array().unwrap();
+        // Replaced in place, not duplicated → still exactly one billing block.
+        assert_eq!(sys.iter().filter(|b| is_billing_block(b)).count(), 1);
+        // The original non-billing block survives.
+        assert!(sys.iter().any(|b| b["text"] == "real system"));
+        // Our version with a fresh valid cch.
+        let txt = sys.iter().find(|b| is_billing_block(b)).unwrap()["text"]
+            .as_str()
+            .unwrap();
+        assert!(txt.contains("cc_version=2.1.162.553"));
+        assert!(!txt.contains("cch=00000"));
+        assert!(!txt.contains("cch=fffff"));
     }
 }
