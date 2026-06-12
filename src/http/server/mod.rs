@@ -6,12 +6,14 @@ use axum::routing::get;
 use crate::app::AppState;
 
 mod health;
+pub mod metrics;
 
 // The gateway request path is `?Send` on wasm (FetchClient / libSQL), which axum
-// 0.8's `Handler` (requires `Send` futures) rejects. M1 wires the gateway on
-// native only; edge serves health until the edge phase resolves the Send seam.
-#[cfg(not(target_arch = "wasm32"))]
-mod extract;
+// 0.8's `Handler` (requires `Send` futures) rejects. Native wires the gateway as
+// axum handlers; the edge fetch entry (`http::edge`) calls the same pipeline
+// directly via `extract::build_ctx` + `pipeline::execute`, bypassing the router.
+// `extract` is pure (http types only), so it compiles on both targets.
+pub mod extract;
 #[cfg(not(target_arch = "wasm32"))]
 mod gateway;
 
@@ -38,6 +40,7 @@ pub fn router(state: AppState) -> Router {
             .route("/v1/{*rest}", any(gateway::aggregated))
             .route("/{provider}/v1/{*rest}", any(gateway::scoped))
             .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
+        router = router.route("/metrics", get(metrics::metrics));
         router = router.merge(admin::admin_router(state.clone()));
     }
 

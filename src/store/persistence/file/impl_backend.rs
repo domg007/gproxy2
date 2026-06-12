@@ -420,6 +420,12 @@ impl PersistenceBackend for FilePersistence {
         usage_rollups::list(&self.root, granularity, from, to).await
     }
 
+    async fn metrics_aggregate(
+        &self,
+    ) -> anyhow::Result<crate::store::persistence::metrics::MetricsAggregate> {
+        super::metrics::aggregate(&self.root).await
+    }
+
     async fn append_downstream_request(
         &self,
         input: DownstreamRequestInput,

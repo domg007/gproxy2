@@ -2,7 +2,11 @@
 //! SeaORM entities for whatever dialect the connection uses (single source of
 //! truth = the entity definitions; no separate migration crate yet).
 
-use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema};
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema, Statement};
+
+use crate::store::persistence::migrations::{
+    BASELINE_VERSION, CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, pending,
+};
 
 use super::entities::authz::{quota, rate_limit, route_permission};
 use super::entities::identity::{org, team, user, user_key};
@@ -64,5 +68,55 @@ async fn create_table<E: EntityTrait>(
     let mut stmt = schema.create_table_from_entity(entity);
     stmt.if_not_exists();
     conn.execute(&stmt).await?;
+    Ok(())
+}
+
+/// Stamp the baseline (if unstamped) and apply any pending ordered migrations.
+///
+/// Assumes [`create_all`] has already run, so a fresh DB and a DB created by the
+/// old auto-create both already hold the baseline tables. We therefore detect
+/// the "no `schema_migrations` row" case and stamp [`BASELINE_VERSION`] WITHOUT
+/// re-running any creation/destructive step, then apply `version >` baseline
+/// migrations in order.
+pub(super) async fn run_migrations(conn: &DatabaseConnection) -> anyhow::Result<()> {
+    let backend = conn.get_database_backend();
+
+    // Writes go through `execute_unprepared` (raw SQL, dialect-portable). The
+    // version read uses `query_one_raw`, which takes a `Statement` by value.
+    conn.execute_unprepared(CREATE_MIGRATIONS_TABLE).await?;
+
+    let current = conn
+        .query_one_raw(Statement::from_string(backend, SELECT_MAX_VERSION))
+        .await?
+        .map(|row| row.try_get::<i64>("", "v"))
+        .transpose()?
+        .unwrap_or(0);
+
+    // Empty table → stamp the baseline the existing create routine just ensured.
+    let current = if current == 0 {
+        record_version(conn, BASELINE_VERSION).await?;
+        BASELINE_VERSION
+    } else {
+        current
+    };
+
+    for m in pending(current) {
+        for sql in m.sql {
+            conn.execute_unprepared(sql).await?;
+        }
+        record_version(conn, m.version).await?;
+    }
+    Ok(())
+}
+
+async fn record_version(conn: &DatabaseConnection, version: i64) -> anyhow::Result<()> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    conn.execute_unprepared(&format!(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES ({version}, {now})"
+    ))
+    .await?;
     Ok(())
 }

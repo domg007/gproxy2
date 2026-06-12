@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 
+use tracing::Instrument;
+
 use crate::app::AppState;
 use crate::billing::pending;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
@@ -14,8 +16,25 @@ use crate::pipeline::{auth, authz, balance, classify, failover, ingress, preproc
 use crate::protocol::{Operation, OperationKind};
 use crate::util::time::unix_now;
 
-/// Drive one request to an [`ExecOutcome`].
-pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
+/// Drive one request to an [`ExecOutcome`], wrapped in a per-request tracing
+/// span (§15.2) carrying `request_id` and — recorded as they resolve —
+/// `op` / `kind` / `route` / `provider`.
+pub async fn execute(state: &AppState, ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
+    let span = tracing::info_span!(
+        "request",
+        request_id = %ctx.request_id,
+        op = tracing::field::Empty,
+        kind = tracing::field::Empty,
+        route = tracing::field::Empty,
+        provider = tracing::field::Empty,
+    );
+    run(state, ctx).instrument(span).await
+}
+
+/// Inner orchestrator (§6.3). Sequences the already-separated steps for both
+/// routing modes; stream & non-stream share every step and diverge only at the
+/// body tail inside [`failover`](crate::pipeline::failover).
+async fn run(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, PipelineError> {
     let cp = state.cp();
 
     // auth (401 short-circuit before any upstream candidate is built)
@@ -30,6 +49,9 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     let classified = classify::classify(&ctx.method, &ctx.path, &ctx.headers, &ctx.body)?;
     ctx.op = Some(classified.op);
     ctx.stream = classified.stream;
+    let span = tracing::Span::current();
+    span.record("op", tracing::field::debug(classified.op.operation));
+    span.record("kind", tracing::field::debug(classified.op.kind));
 
     // Aggregated models surface (§6.3): the gateway's own view — alias + route
     // names — served before preprocess/route (there is no model to route) and
@@ -53,6 +75,7 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
     let (candidates, est_micros) = match &ctx.mode {
         RoutingMode::Aggregated => {
             let route_name = preprocess::preprocess(&cp, &ctx)?;
+            span.record("route", route_name.as_str());
             let resolved = route::route(&cp, &route_name)?;
             let identity = ctx.identity.as_ref().expect("auth ran first");
             authz::authorize(&cp, state.cache.as_ref(), identity, &route_name, unix_now()).await?;
@@ -79,6 +102,7 @@ pub async fn execute(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcom
                 .get(provider.as_str())
                 .filter(|p| p.enabled)
                 .ok_or_else(|| PipelineError::UnknownProvider(provider.clone()))?;
+            span.record("provider", provider.name.as_str());
             let identity = ctx.identity.as_ref().expect("auth ran first");
             authz::authorize(
                 &cp,

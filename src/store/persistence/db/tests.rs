@@ -17,6 +17,36 @@ async fn sqlite_memory_connect_and_health() {
 }
 
 #[tokio::test]
+async fn connect_stamps_baseline_and_applies_migrations() {
+    use crate::store::persistence::migrations::{BASELINE_VERSION, MIGRATIONS};
+    use sea_orm::{ConnectionTrait, Statement};
+
+    let db = mem().await;
+    let backend = db.conn.get_database_backend();
+    let row = db
+        .conn
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations".to_string(),
+        ))
+        .await
+        .expect("query")
+        .expect("row");
+    let max = row.try_get::<i64>("", "v").expect("v");
+
+    // Fresh connect stamps the baseline and then applies every listed
+    // migration, so the max version is the highest in MIGRATIONS (or the
+    // baseline when the list is empty).
+    let expected = MIGRATIONS
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .unwrap_or(BASELINE_VERSION);
+    assert_eq!(max, expected);
+    assert!(max >= BASELINE_VERSION);
+}
+
+#[tokio::test]
 async fn provider_round_trip() {
     let db = mem().await;
     let created = db
@@ -345,4 +375,64 @@ async fn upsert_with_existing_id_updates_not_duplicates() {
     assert_eq!(updated.name, "acme-renamed");
     assert!(!updated.enabled);
     assert_eq!(db.list_orgs().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn metrics_aggregate_sums_rollups_and_buckets_latency() {
+    let db = mem().await;
+    // Two settled requests with measured latency (60ms, 600ms) + an hour rollup.
+    for (rid, lat) in [("r1", 60i64), ("r2", 600)] {
+        db.append_usage(UsageInput {
+            request_id: rid.to_owned(),
+            at: 100,
+            route_name: None,
+            provider_id: None,
+            credential_id: None,
+            org_id: None,
+            team_id: None,
+            user_id: None,
+            user_key_id: None,
+            operation: "chat".into(),
+            kind: "openai".into(),
+            model: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_5m_tokens: 0,
+            cache_creation_1h_tokens: 0,
+            cost: rust_decimal::Decimal::ZERO,
+            latency_ms: lat,
+            usage_source: "upstream".into(),
+            ended: "complete".into(),
+        })
+        .await
+        .expect("usage");
+    }
+    db.add_usage_rollup(UsageRollupInput {
+        granularity: "hour".into(),
+        bucket_start: 0,
+        provider_id: None,
+        org_id: None,
+        team_id: None,
+        user_id: None,
+        route_name: None,
+        model: None,
+        requests: 5,
+        input_tokens: 1000,
+        output_tokens: 400,
+        cost: rust_decimal::Decimal::ZERO,
+    })
+    .await
+    .expect("rollup");
+
+    let m = db.metrics_aggregate().await.expect("aggregate");
+    assert_eq!(m.requests_total, 5);
+    assert_eq!(m.input_tokens_total, 1000);
+    assert_eq!(m.output_tokens_total, 400);
+    assert_eq!(m.latency_count, 2);
+    assert_eq!(m.latency_sum_ms, 660);
+    // buckets are [50,100,250,500,1000,...]: 60ms → first ≤100 bucket; 600ms → ≤1000.
+    assert_eq!(m.latency_buckets[0], 0, "≤50ms");
+    assert_eq!(m.latency_buckets[1], 1, "≤100ms");
+    assert_eq!(m.latency_buckets[4], 2, "≤1000ms cumulative");
 }

@@ -51,9 +51,8 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
     })
 }
 
-/// Per-request correlation id (cross-target, cryptographically random). §15
-/// will migrate this to a ULID; for now a random v4 UUID is unique + opaque on
-/// both native and edge.
+/// Per-request correlation id (§15.1): a ULID — lexicographically sortable by
+/// creation time, unique + opaque on both native and edge.
 fn gen_request_id() -> String {
-    crate::util::rand::uuid_v4()
+    crate::util::id::ulid()
 }

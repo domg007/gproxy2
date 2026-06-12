@@ -369,6 +369,12 @@ impl PersistenceBackend for DbPersistence {
         ops::usage::usage_rollups::list(&self.conn, granularity, from, to).await
     }
 
+    async fn metrics_aggregate(
+        &self,
+    ) -> anyhow::Result<crate::store::persistence::metrics::MetricsAggregate> {
+        ops::metrics::aggregate(&self.conn).await
+    }
+
     async fn append_downstream_request(
         &self,
         input: DownstreamRequestInput,

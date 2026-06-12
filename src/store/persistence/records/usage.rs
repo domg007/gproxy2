@@ -28,6 +28,10 @@ pub struct Usage {
     pub cache_creation_1h_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
+    /// §15.3: upstream latency (ms, time-to-first-response) of the settled
+    /// attempt; 0 when unmeasured (wasm has no monotonic clock).
+    #[serde(default)]
+    pub latency_ms: i64,
     /// §17: `upstream` | `counted` | `estimated` (empty on pre-M6 rows).
     #[serde(default)]
     pub usage_source: String,
@@ -62,6 +66,9 @@ pub struct UsageInput {
     pub cache_creation_1h_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
+    /// §15.3: upstream latency (ms) of the settled attempt; 0 when unmeasured.
+    #[serde(default)]
+    pub latency_ms: i64,
     /// §17: `upstream` | `counted` | `estimated`.
     #[serde(default)]
     pub usage_source: String,

@@ -63,6 +63,9 @@ pub struct SettleCtx {
     credential: Arc<Credential>,
     /// §17 pre-deducted pending (micro-dollars) to refund exactly at settle.
     pending_micros: i64,
+    /// §15.3: upstream latency (ms, time-to-first-response) of this attempt;
+    /// 0 when unmeasured (wasm has no monotonic clock).
+    latency_ms: i64,
     /// Scopes with a quota row, resolved at capture time (reconcile targets).
     quota_scopes: Vec<(Scope, i64)>,
     /// rate_limits row ids with a `total_tokens` budget matching this
@@ -79,6 +82,7 @@ impl SettleCtx {
         cand: &Candidate,
         channel: &Arc<dyn Channel>,
         request_body: Bytes,
+        latency_ms: i64,
     ) -> Option<Self> {
         let op = ctx.op?;
         let OperationKind::ContentGeneration(inbound) = op.kind else {
@@ -124,6 +128,7 @@ impl SettleCtx {
             provider: Arc::clone(&cand.provider),
             credential: Arc::clone(&cand.credential),
             pending_micros: ctx.pending_micros,
+            latency_ms,
             quota_scopes,
             token_rlt_ids,
         })
@@ -327,6 +332,7 @@ async fn record(ctx: &SettleCtx, usage: NormalizedUsage, source: UsageSource, en
         model: Some(&ctx.model),
         usage: &usage,
         cost,
+        latency_ms: ctx.latency_ms,
         source,
         ended,
     };

@@ -15,3 +15,18 @@ pub fn unix_now() -> i64 {
 pub fn unix_now() -> i64 {
     (js_sys::Date::now() / 1000.0) as i64
 }
+
+/// Current unix time in milliseconds.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Current unix time in milliseconds (JS host clock).
+#[cfg(target_arch = "wasm32")]
+pub fn unix_now_ms() -> u64 {
+    js_sys::Date::now() as u64
+}

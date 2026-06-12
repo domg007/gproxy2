@@ -976,6 +976,33 @@ Each lists new types/methods + the exact M1 seam they hook into.
   - Hardening (rate-limit fairness, quota reset jobs) rides on existing
     `cache.incr` + snapshot configs.
 
+- **§15 observability + edge serving — LANDED (2026-06-11).**
+  - §15.1 `request_id` → ULID (`util::id::ulid`, hand-rolled Crockford base32,
+    wasm-safe single-RNG source). §15.2 per-request tracing span in
+    `pipeline::execute` (request_id + op/kind/route/provider). §15.3
+    persistence-derived `/metrics` (zero in-memory): `metrics_aggregate` trait op
+    (db/file/libsql) computes token/request totals (hour rollups), upstream
+    latency histogram (`usages.latency_ms > 0`), credential-health counts, quota
+    gauges via aggregate SQL; `http::server::metrics::render` emits Prometheus
+    text. Works native (axum `/metrics`) AND edge (fetch dispatch) off the same
+    renderer → cross-instance-global. in-flight gauge dropped (memory-only).
+    OTLP export = env seam, deferred.
+  - A4: `usages.latency_ms` column added (db entity + file + libsql DDL);
+    settle writes the successful attempt's TTFB (`send_ms`) so the histogram
+    covers successes, not just failure audits.
+  - **Edge now actually serves** (was: router-only health). `http::edge::fetch`
+    dispatches BY PATH directly to `pipeline::execute` / `metrics::render` /
+    health, bypassing the axum router (whose `Handler: Send` bound the wasm
+    gateway path can't meet). `init` builds the control-plane snapshot from
+    persistence + wires `master_key` (5th arg; deploy wasm-bindgen bundles need
+    regen). **libSQL persistence fully implemented** (`store/persistence/libsql/`,
+    ~40 ops hand-written SQLite over Hrana mirroring `db/ops`; `ensure_schema`
+    self-creates all 25 tables; typed-value row decode). `PipelineError` gained
+    target-agnostic `error_json`/`retry_after_secs` shared by native+edge.
+  - Verified: native full+minimal build, wasm edge `--lib` build, clippy (both,
+    0 findings), 174 lib tests pass. Edge live round-trip (real Turso) is the
+    remaining manual verification.
+
 ---
 
 ## 6. Risks / open decisions

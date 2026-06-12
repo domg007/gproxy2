@@ -10,6 +10,7 @@ mod table;
 mod authz;
 mod identity;
 mod logs;
+mod metrics;
 mod provider;
 mod routing;
 mod settings;
@@ -37,11 +38,34 @@ impl FilePersistence {
         tokio::fs::create_dir_all(&data_dir).await.map_err(|e| {
             anyhow::anyhow!("failed to create data dir {}: {e}", data_dir.display())
         })?;
+        stamp_schema_version(&data_dir).await?;
         Ok(Self {
             root: data_dir,
             write: Mutex::new(()),
         })
     }
+}
+
+/// The file backend is schemaless JSON, so there are no table migrations — but
+/// for symmetry with the SQL backends we record a version stamp. Written once;
+/// left untouched if it already exists (an existing store is already at this
+/// version's on-disk shape).
+async fn stamp_schema_version(root: &std::path::Path) -> anyhow::Result<()> {
+    use crate::store::persistence::migrations::BASELINE_VERSION;
+
+    let path = root.join("schema_version.json");
+    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        return Ok(());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let body = serde_json::json!({ "version": BASELINE_VERSION, "applied_at": now });
+    tokio::fs::write(&path, serde_json::to_vec_pretty(&body)?)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to write schema_version.json: {e}"))?;
+    Ok(())
 }
 
 #[cfg(test)]

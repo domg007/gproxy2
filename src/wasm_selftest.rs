@@ -33,9 +33,15 @@ pub async fn storage_selftest(
     out.join("\n")
 }
 
-/// LibsqlPersistence: connect (sync) then health() → record ok/err.
+/// LibsqlPersistence: connect (ensures schema) then health() → record ok/err.
 async fn libsql_persistence(out: &mut Vec<String>, url: String, token: String) {
-    let backend = LibsqlPersistence::connect(url, token);
+    let backend = match LibsqlPersistence::connect(url, token).await {
+        Ok(b) => b,
+        Err(e) => {
+            out.push(format!("libsql.connect: ERR {e}"));
+            return;
+        }
+    };
     match backend.health().await {
         Ok(()) => out.push("libsql.health: OK".into()),
         Err(e) => out.push(format!("libsql.health: ERR {e}")),

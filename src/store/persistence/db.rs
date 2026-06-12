@@ -25,6 +25,7 @@ impl DbPersistence {
             .await
             .map_err(|e| anyhow::anyhow!("db connect failed: {e}"))?;
         schema::create_all(&conn).await?;
+        schema::run_migrations(&conn).await?;
         Ok(Self { conn })
     }
 }

@@ -778,6 +778,7 @@ mod tests {
                     cache_creation_5m_tokens: 0,
                     cache_creation_1h_tokens: 0,
                     cost: Decimal::ZERO,
+                    latency_ms: 0,
                     usage_source: "counted".into(),
                     ended: "complete".into(),
                 })

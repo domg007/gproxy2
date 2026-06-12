@@ -1,6 +1,5 @@
 //! Pipeline error → HTTP response mapping (handler boundary).
 
-use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
@@ -62,17 +61,23 @@ impl PipelineError {
             RateLimited { .. } | QuotaExceeded => StatusCode::TOO_MANY_REQUESTS,
         }
     }
-}
 
-impl IntoResponse for PipelineError {
-    fn into_response(self) -> Response {
-        let status = self.status();
-        // Variants whose Display embeds upstream/internal detail (URLs, transport
-        // causes, possibly proxy info) are collapsed to a generic client message
-        // and the real cause is logged server-side (CWE-209). The remaining
-        // variants reveal nothing sensitive (client-supplied names / fixed text /
-        // client-actionable request-transform detail).
-        let message = match &self {
+    /// `Retry-After` value (seconds) for rate-limited errors, else `None`.
+    pub fn retry_after_secs(&self) -> Option<u64> {
+        match self {
+            PipelineError::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            _ => None,
+        }
+    }
+
+    /// Client-facing JSON error body. Variants whose `Display` embeds
+    /// upstream/internal detail (URLs, transport causes, possibly proxy info)
+    /// collapse to a generic message and log the real cause server-side
+    /// (CWE-209); the rest reveal nothing sensitive. Shared by the native axum
+    /// [`IntoResponse`] and the edge fetch entry, so both surfaces redact
+    /// identically.
+    pub fn error_json(&self) -> String {
+        let message = match self {
             PipelineError::Channel(_)
             | PipelineError::Transport(_)
             | PipelineError::AllAttemptsFailed
@@ -82,15 +87,25 @@ impl IntoResponse for PipelineError {
             }
             other => other.to_string(),
         };
-        let body = json!({ "error": { "message": message, "type": "gproxy_error" } });
-        if let PipelineError::RateLimited { retry_after_secs } = &self {
-            return (
-                status,
-                [(header::RETRY_AFTER, retry_after_secs.to_string())],
-                Json(body),
-            )
-                .into_response();
+        json!({ "error": { "message": message, "type": "gproxy_error" } }).to_string()
+    }
+}
+
+impl IntoResponse for PipelineError {
+    fn into_response(self) -> Response {
+        let status = self.status();
+        let retry = self.retry_after_secs();
+        let mut resp = (status, self.error_json()).into_response();
+        let h = resp.headers_mut();
+        h.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+        if let Some(secs) = retry
+            && let Ok(v) = header::HeaderValue::from_str(&secs.to_string())
+        {
+            h.insert(header::RETRY_AFTER, v);
         }
-        (status, Json(body)).into_response()
+        resp
     }
 }

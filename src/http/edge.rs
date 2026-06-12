@@ -1,9 +1,13 @@
-//! Edge inbound entry: bridges a WinterCG `fetch` event into the axum router.
+//! Edge inbound entry: bridges a WinterCG `fetch` event into the request
+//! pipeline.
 //!
-//! `init` builds the shared [`AppState`] from JS-host-passed credentials and
-//! stashes it in a process-global `OnceLock`; `fetch` then routes every inbound
-//! request through the SAME [`crate::http::server::router`] that native uses —
-//! proving the inbound seam is shared across targets.
+//! `init` builds the shared [`AppState`] from JS-host-passed credentials
+//! (libSQL/Turso persistence — schema ensured on connect — + Upstash/libSQL
+//! cache + optional master key) and stashes it in a process-global `OnceLock`.
+//! `fetch` then dispatches each request BY PATH directly to the same
+//! [`pipeline`](crate::pipeline) / [`metrics`](crate::http::server::metrics)
+//! code native uses — NOT through the axum router, whose `Handler` requires
+//! `Send` futures the wasm gateway path (FetchClient / libSQL) cannot satisfy.
 //!
 //! `init` MUST be called exactly once before the first `fetch`. If `fetch`
 //! runs before `init`, it returns a 503 with a clear message (an `AppState`
@@ -12,9 +16,7 @@
 use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
-use http_body_util::BodyExt;
 use js_sys::Uint8Array;
-use tower::ServiceExt;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Response, ResponseInit};
@@ -46,15 +48,19 @@ pub async fn init(
     turso_token: String,
     upstash_url: Option<String>,
     upstash_token: Option<String>,
+    master_key: Option<String>,
 ) -> Result<(), JsValue> {
     if STATE.get().is_some() {
         return Ok(());
     }
 
-    let persistence: Arc<dyn PersistenceBackend> = Arc::new(LibsqlPersistence::connect(
-        turso_url.clone(),
-        turso_token.clone(),
-    ));
+    // `connect` also ensures the schema (CREATE TABLE IF NOT EXISTS), so an
+    // empty edge-first Turso database is usable immediately.
+    let persistence: Arc<dyn PersistenceBackend> = Arc::new(
+        LibsqlPersistence::connect(turso_url.clone(), turso_token.clone())
+            .await
+            .map_err(js_err)?,
+    );
 
     let (cache, cache_cfg): (Arc<dyn CacheBackend>, CacheConfig) =
         match (upstash_url, upstash_token) {
@@ -87,11 +93,13 @@ pub async fn init(
 
     let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());
 
-    // M1: the libSQL backend ops are still stubs, so the control-plane snapshot
-    // starts empty here; building it from persistence lands in the edge phase
-    // once the libSQL ops are implemented.
+    // Build the control-plane snapshot from persistence (libSQL read ops). An
+    // un-provisioned database yields an empty snapshot; provisioning via the
+    // admin API or `import` (into the same Turso DB) makes routing live.
     let snapshot = Arc::new(arc_swap::ArcSwap::from_pointee(
-        crate::app::snapshot::ControlPlaneSnapshot::empty(1),
+        crate::app::snapshot::ControlPlaneSnapshot::build(persistence.as_ref(), 1)
+            .await
+            .map_err(js_err)?,
     ));
     let channels = Arc::new(crate::channel::registry::ChannelRegistry::with_builtin());
 
@@ -102,15 +110,18 @@ pub async fn init(
         upstream,
         snapshot,
         channels,
-        // Edge has no master-key config surface yet — NoopCipher (plaintext)
-        // until edge config lands; sealed secrets then need a real key here.
-        crate::crypto::cipher_from_master_key(None).map_err(js_err)?,
+        // Host-supplied master key (base64) unseals stored secrets; absent →
+        // NoopCipher (plaintext), for a plaintext-secret edge deployment.
+        crate::crypto::cipher_from_master_key(master_key.as_deref()).map_err(js_err)?,
     ));
     Ok(())
 }
 
-/// WinterCG fetch entry-point: receives an inbound Request, routes it through
-/// the real [`crate::http::server::router`], and returns a Response.
+/// WinterCG fetch entry-point: receives an inbound Request, dispatches it
+/// through the SAME pipeline native uses — directly, NOT via the axum router.
+/// axum 0.8's `Handler` requires `Send` futures, which the wasm gateway path
+/// (FetchClient / libSQL) is not; so the edge routes by path here and calls
+/// [`pipeline::execute`] / [`metrics`](crate::http::server::metrics) itself.
 ///
 /// Returns 503 if [`init`] has not yet been called.
 #[wasm_bindgen]
@@ -119,29 +130,120 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
         return service_unavailable("gproxy edge not initialised: call init() first");
     };
 
-    let http_req = ws_request_to_http(req).await?;
-    let app = crate::http::server::router(state.clone());
-    let resp = app.oneshot(http_req).await.map_err(js_err)?;
-    http_response_to_ws(resp).await
+    let (parts, body) = ws_request_to_parts(req).await?;
+    let path = parts.uri.path().to_string();
+
+    // Operational endpoints: no pipeline, no upstream.
+    match path.as_str() {
+        "/healthz" => return text_response(200, "text/plain", b"ok"),
+        "/version" => {
+            return text_response(200, "text/plain", env!("CARGO_PKG_VERSION").as_bytes());
+        }
+        "/metrics" => {
+            return match state.persistence.metrics_aggregate().await {
+                Ok(agg) => text_response(
+                    200,
+                    "text/plain; version=0.0.4",
+                    crate::http::server::metrics::render(&agg).as_bytes(),
+                ),
+                Err(e) => {
+                    tracing::warn!(error = %e, "metrics aggregate failed");
+                    text_response(500, "text/plain", b"metrics unavailable")
+                }
+            };
+        }
+        _ => {}
+    }
+
+    // Gateway: `/v1/...` is aggregated; anything else is `/{provider}/v1/...`
+    // scoped (build_ctx validates and rejects malformed paths).
+    let scoped = !(path == "/v1" || path.starts_with("/v1/"));
+    let ctx = match crate::http::server::extract::build_ctx(parts, body, scoped) {
+        Ok(c) => c,
+        Err(e) => return error_to_ws(&e),
+    };
+    let request_id = ctx.request_id.clone();
+    match crate::pipeline::execute(state, ctx).await {
+        Ok(outcome) => outcome_to_ws(outcome, &request_id),
+        Err(e) => error_to_ws(&e),
+    }
 }
 
-/// Build a plain-text 503 Response.
+/// Build a 503 (init-not-called) plain-text response.
 fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
+    text_response(503, "text/plain", msg.as_bytes())
+}
+
+/// Build a response with a single `Content-Type` header and a body.
+fn text_response(status: u16, content_type: &str, body: &[u8]) -> Result<Response, JsValue> {
+    let headers = Headers::new().map_err(js_err)?;
+    headers
+        .append("content-type", content_type)
+        .map_err(js_err)?;
+    js_response(status, &headers, body)
+}
+
+/// Render a [`PipelineError`](crate::pipeline::error::PipelineError) to a JSON
+/// error response, redacted identically to the native axum surface.
+fn error_to_ws(e: &crate::pipeline::error::PipelineError) -> Result<Response, JsValue> {
+    let headers = Headers::new().map_err(js_err)?;
+    headers
+        .append("content-type", "application/json")
+        .map_err(js_err)?;
+    if let Some(secs) = e.retry_after_secs() {
+        headers
+            .append("retry-after", &secs.to_string())
+            .map_err(js_err)?;
+    }
+    js_response(e.status().as_u16(), &headers, e.error_json().as_bytes())
+}
+
+/// Map an [`ExecOutcome`](crate::pipeline::outcome::ExecOutcome) to a Response:
+/// status + hop-by-hop-sanitized headers + the buffered body + the request id.
+/// On wasm the body is always `Full` (the streaming variant is native-only).
+fn outcome_to_ws(
+    outcome: crate::pipeline::outcome::ExecOutcome,
+    request_id: &str,
+) -> Result<Response, JsValue> {
+    use crate::channel::http_util::sanitize_response_headers;
+    use crate::pipeline::outcome::ResponseBody;
+
+    let sanitized = sanitize_response_headers(&outcome.headers);
+    let headers = Headers::new().map_err(js_err)?;
+    for (name, value) in &sanitized {
+        if let Ok(v) = value.to_str() {
+            headers.append(name.as_str(), v).map_err(js_err)?;
+        }
+    }
+    headers
+        .append("x-gproxy-request-id", request_id)
+        .map_err(js_err)?;
+
+    let ResponseBody::Full(bytes) = outcome.body;
+    js_response(outcome.status.as_u16(), &headers, &bytes)
+}
+
+/// Core response builder: status + headers + a JS-OWNED body copy.
+///
+/// The body is copied into a JS-owned `Uint8Array` (its own ArrayBuffer) rather
+/// than handing `new Response(...)` a `&mut [u8]` view into wasm linear memory.
+/// Vercel's Edge Runtime retains that view lazily, so a later wasm allocation
+/// detaches/overwrites the buffer and the body comes out garbled or never
+/// completes. Deno copies eagerly so a view worked there, but an owned copy is
+/// correct everywhere.
+fn js_response(status: u16, headers: &Headers, body: &[u8]) -> Result<Response, JsValue> {
     let init = ResponseInit::new();
-    init.set_status(503);
-    let mut body = msg.as_bytes().to_vec();
-    // JS-owned copy — see http_response_to_ws for why a wasm-memory view breaks
-    // on Vercel's Edge Runtime.
+    init.set_status(status);
+    init.set_headers_headers(headers);
     let js_body = Uint8Array::new_with_length(body.len() as u32);
-    js_body.copy_from(&body);
-    body.clear();
+    js_body.copy_from(body);
     Response::new_with_opt_js_u8_array_and_init(Some(&js_body), &init).map_err(js_err)
 }
 
-/// Convert `web_sys::Request` → `http::Request<axum::body::Body>`.
-async fn ws_request_to_http(
+/// Convert `web_sys::Request` → `(http::request::Parts, Bytes)`.
+async fn ws_request_to_parts(
     req: web_sys::Request,
-) -> Result<http::Request<axum::body::Body>, JsValue> {
+) -> Result<(http::request::Parts, Bytes), JsValue> {
     let method = http::Method::from_bytes(req.method().as_bytes()).map_err(js_err)?;
     let uri: http::Uri = req.url().parse().map_err(js_err)?;
 
@@ -152,18 +254,16 @@ async fn ws_request_to_http(
         Uint8Array::new(&buf_val).to_vec().into()
     };
 
-    // Copy headers.
+    // Copy headers; skip empty/unparseable names so a bad header can't poison
+    // the whole builder.
     let mut builder = http::Request::builder().method(method).uri(uri);
     let ws_headers = req.headers();
-    let header_iter = js_sys::try_iter(&ws_headers).map_err(js_err)?;
-    if let Some(iter) = header_iter {
+    if let Some(iter) = js_sys::try_iter(&ws_headers).map_err(js_err)? {
         for entry in iter {
             let entry = entry.map_err(js_err)?;
             let arr: js_sys::Array = entry.unchecked_into();
             let name = arr.get(0).as_string().unwrap_or_default();
             let val = arr.get(1).as_string().unwrap_or_default();
-            // Skip entries with empty or unparseable names — a bad header must not
-            // poison the whole builder (builder.header("", …) marks it as errored).
             if name.is_empty() {
                 continue;
             }
@@ -173,39 +273,6 @@ async fn ws_request_to_http(
         }
     }
 
-    builder
-        .body(axum::body::Body::from(body_bytes))
-        .map_err(js_err)
-}
-
-/// Convert `http::Response<axum::body::Body>` → `web_sys::Response`.
-async fn http_response_to_ws(resp: http::Response<axum::body::Body>) -> Result<Response, JsValue> {
-    let (parts, body) = resp.into_parts();
-
-    // Collect body bytes.
-    let bytes: Bytes = body.collect().await.map_err(js_err)?.to_bytes();
-
-    // Build ResponseInit with status + headers.
-    let init = ResponseInit::new();
-    init.set_status(parts.status.as_u16());
-
-    let js_headers = Headers::new().map_err(js_err)?;
-    for (name, value) in &parts.headers {
-        if let Ok(v) = value.to_str() {
-            js_headers.append(name.as_str(), v).map_err(js_err)?;
-        }
-    }
-    init.set_headers_headers(&js_headers);
-
-    let mut body_vec = bytes.to_vec();
-    // Copy the body into a JS-OWNED `Uint8Array` (its own ArrayBuffer) rather
-    // than handing `new Response(...)` a `&mut [u8]` view into wasm linear
-    // memory. Vercel's Edge Runtime retains that view lazily, so a later wasm
-    // allocation detaches/overwrites the buffer and the streamed body comes out
-    // garbled or never completes. Deno copies eagerly so a view worked there,
-    // but an owned copy is correct everywhere.
-    let js_body = Uint8Array::new_with_length(body_vec.len() as u32);
-    js_body.copy_from(&body_vec);
-    body_vec.clear();
-    Response::new_with_opt_js_u8_array_and_init(Some(&js_body), &init).map_err(js_err)
+    let (parts, _) = builder.body(()).map_err(js_err)?.into_parts();
+    Ok((parts, body_bytes))
 }

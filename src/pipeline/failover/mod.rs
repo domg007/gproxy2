@@ -233,11 +233,21 @@ pub async fn run_failover(
                 source,
                 sent_body,
                 disposition,
+                send_ms,
                 ..
             } = outcome;
             let settle_ctx = status
                 .is_success()
-                .then(|| settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body))
+                .then(|| {
+                    settle::SettleCtx::capture(
+                        state,
+                        ctx,
+                        cand,
+                        &channel,
+                        sent_body,
+                        send_ms.map(|ms| ms as i64).unwrap_or(0),
+                    )
+                })
                 .flatten();
             let body = materialize(&channel, source, &plan, ctx, status)?;
             if plan.is_transform() {

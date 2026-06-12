@@ -43,6 +43,7 @@ pub(crate) async fn append(root: &Path, input: UsageInput) -> anyhow::Result<Opt
         cache_creation_5m_tokens: input.cache_creation_5m_tokens,
         cache_creation_1h_tokens: input.cache_creation_1h_tokens,
         cost: input.cost,
+        latency_ms: input.latency_ms,
         usage_source: input.usage_source,
         ended: input.ended,
         created_at: now,

@@ -27,6 +27,8 @@ pub struct UsageRecord<'a> {
     pub model: Option<&'a str>,
     pub usage: &'a NormalizedUsage,
     pub cost: Decimal,
+    /// §15.3: upstream latency (ms) of the settled attempt; 0 when unmeasured.
+    pub latency_ms: i64,
     pub source: UsageSource,
     pub ended: Ended,
 }
@@ -77,6 +79,7 @@ pub async fn record_success(
         cache_creation_5m_tokens: tok(rec.usage.cache_creation),
         cache_creation_1h_tokens: 0,
         cost: rec.cost,
+        latency_ms: rec.latency_ms,
         usage_source: rec.source.as_str().to_owned(),
         ended: rec.ended.as_str().to_owned(),
     };
@@ -156,6 +159,7 @@ mod tests {
             model: Some("claude-x"),
             usage: &usage,
             cost: "0.0045".parse().unwrap(),
+            latency_ms: 123,
             source: UsageSource::Upstream,
             ended: Ended::Complete,
         };

@@ -12,6 +12,13 @@ pub mod file;
 #[cfg(all(target_arch = "wasm32", feature = "persist-libsql"))]
 pub mod libsql;
 
+pub mod metrics;
+#[cfg(any(
+    all(not(target_arch = "wasm32"), feature = "persist-db"),
+    all(not(target_arch = "wasm32"), feature = "persist-file"),
+    all(target_arch = "wasm32", feature = "persist-libsql")
+))]
+pub mod migrations;
 pub mod records;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "persist-db"))]
@@ -345,6 +352,14 @@ pub trait PersistenceBackend: Send + Sync {
         from: i64,
         to: i64,
     ) -> anyhow::Result<Vec<UsageRollup>>;
+
+    /// §15.3: a persistence-derived metrics snapshot (token/request totals from
+    /// rollups, upstream-latency histogram from usages, credential-health
+    /// counts, per-scope quota gauges) for the `/metrics` endpoint. Computed by
+    /// backend-side aggregate queries, never in-memory counters.
+    async fn metrics_aggregate(
+        &self,
+    ) -> anyhow::Result<crate::store::persistence::metrics::MetricsAggregate>;
 
     /// Append a raw downstream (client → proxy) request log entry.
     async fn append_downstream_request(

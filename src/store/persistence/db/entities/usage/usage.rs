@@ -31,6 +31,9 @@ pub struct Model {
     pub cache_creation_1h_tokens: i64,
     #[sea_orm(column_type = "Text")]
     pub cost: String,
+    /// §15.3: upstream latency (ms) of the settled attempt; 0 when unmeasured.
+    #[sea_orm(default_value = 0)]
+    pub latency_ms: i64,
     /// §17: `upstream` | `counted` | `estimated`.
     #[sea_orm(default_value = "")]
     pub usage_source: String,
