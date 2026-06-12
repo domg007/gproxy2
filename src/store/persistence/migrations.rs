@@ -13,20 +13,35 @@
 //!      DB at the current schema, and is a no-op on an already-created DB;
 //!   2. ensures `schema_migrations` exists;
 //!   3. reads `MAX(version)` (0 when the table is empty);
-//!   4. if the table is empty, **stamps the baseline** ([`BASELINE_VERSION`])
-//!      without running any SQL — both a fresh DB and a DB created by the old
-//!      auto-create already have the baseline tables, so re-running destructive
-//!      steps must be avoided;
+//!   4. if the table is empty, **stamps [`latest_version`]** without running
+//!      any SQL — step 1 just ensured the *current* schema, so every listed
+//!      migration is already reflected in the tables and replaying one (e.g. an
+//!      `ALTER TABLE ADD COLUMN`) would fail on the fresh DB;
 //!   5. applies every [`MIGRATIONS`] entry with `version >` the stamped max, in
 //!      ascending order, recording each in `schema_migrations`.
 //!
 //! Idempotent and safe to run on every boot.
 //!
+//! ## Support boundary
+//!
+//! A previously-unstamped DB is assumed to already match the current schema
+//! (step 4). That holds for any DB first booted on or after this framework
+//! landed; DBs created by *earlier* builds whose tables predate later column
+//! changes are **not upgradable in place** — recreate them (or `ALTER` by
+//! hand).
+//!
 //! ## Adding a migration
 //!
-//! Append a [`Migration`] to [`MIGRATIONS`] with the next integer version (keep
-//! the list sorted ascending). Use dialect-portable SQL (sqlite/pg/mysql) since
-//! the same `sql` runs on both backends. Example:
+//! Every schema change must land in **three places**, or it breaks on one
+//! class of database:
+//!
+//!   - the SeaORM entity (`db/entities/`) — fresh DBs on the `db` backend;
+//!   - the `libsql` `TABLES` list (`libsql/schema.rs`) — fresh edge DBs;
+//!   - a [`Migration`] entry here — **existing** DBs on both backends.
+//!
+//! Append the [`Migration`] with the next integer version (keep the list
+//! sorted ascending). Use dialect-portable SQL (sqlite/pg/mysql) since the
+//! same `sql` runs on both backends. Example:
 //!
 //! ```ignore
 //! Migration {
@@ -80,6 +95,19 @@ pub fn pending(current: i64) -> Vec<&'static Migration> {
     out
 }
 
+/// The version to stamp on a previously-unstamped DB: the highest listed
+/// migration ([`BASELINE_VERSION`] when the list is empty). The runners call
+/// this right after their create routine ensured the *current* schema, so
+/// every listed migration is already reflected in the tables — stamping
+/// anything lower would replay DDL against a schema that already has it.
+pub fn latest_version() -> i64 {
+    MIGRATIONS
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .unwrap_or(BASELINE_VERSION)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,12 +127,14 @@ mod tests {
             assert!(m.version > BASELINE_VERSION, "must be above baseline");
             prev = m.version;
         }
-        // Already at the top → nothing pending.
+        // Already at the top → nothing pending. This is also what a fresh DB
+        // is stamped with: nothing may replay against the just-created schema.
         let top = MIGRATIONS
             .iter()
             .map(|m| m.version)
             .max()
             .unwrap_or(BASELINE_VERSION);
-        assert!(pending(top).is_empty());
+        assert_eq!(latest_version(), top);
+        assert!(pending(latest_version()).is_empty());
     }
 }

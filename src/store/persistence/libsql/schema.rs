@@ -6,7 +6,7 @@
 use crate::store::libsql::LibsqlClient;
 use crate::store::persistence::libsql::row::col_i64;
 use crate::store::persistence::migrations::{
-    BASELINE_VERSION, CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, pending,
+    CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, latest_version, pending,
 };
 
 /// All `CREATE TABLE IF NOT EXISTS` statements, mirroring `db/schema.rs`.
@@ -307,11 +307,11 @@ pub async fn ensure_schema(client: &LibsqlClient) -> anyhow::Result<()> {
     run_migrations(client).await
 }
 
-/// Stamp the baseline (if unstamped) and apply any pending ordered migrations,
-/// mirroring the `db` backend over `LibsqlClient::execute`. Runs after
-/// [`ensure_schema`]'s `CREATE TABLE IF NOT EXISTS`, so the baseline tables
-/// already exist; an empty `schema_migrations` is stamped at
-/// [`BASELINE_VERSION`] without re-running any destructive step.
+/// Stamp an unstamped DB at the latest version, then apply pending ordered
+/// migrations — mirroring the `db` backend over `LibsqlClient::execute`. Runs
+/// after [`ensure_schema`]'s `CREATE TABLE IF NOT EXISTS`, so an empty
+/// `schema_migrations` means the tables already hold the *current* schema; it
+/// is stamped at [`latest_version`] without replaying any DDL.
 async fn run_migrations(client: &LibsqlClient) -> anyhow::Result<()> {
     let exec = |sql: String| async move {
         client
@@ -332,8 +332,9 @@ async fn run_migrations(client: &LibsqlClient) -> anyhow::Result<()> {
     };
 
     let current = if current == 0 {
-        record_version(client, BASELINE_VERSION).await?;
-        BASELINE_VERSION
+        let latest = latest_version();
+        record_version(client, latest).await?;
+        latest
     } else {
         current
     };

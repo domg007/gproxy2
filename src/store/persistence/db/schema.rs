@@ -5,7 +5,7 @@
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema, Statement};
 
 use crate::store::persistence::migrations::{
-    BASELINE_VERSION, CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, pending,
+    CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, latest_version, pending,
 };
 
 use super::entities::authz::{quota, rate_limit, route_permission};
@@ -103,13 +103,15 @@ async fn create_rollup_unique_index(conn: &DatabaseConnection) -> anyhow::Result
     }
 }
 
-/// Stamp the baseline (if unstamped) and apply any pending ordered migrations.
+/// Stamp an unstamped DB at the latest version, then apply pending migrations.
 ///
-/// Assumes [`create_all`] has already run, so a fresh DB and a DB created by the
-/// old auto-create both already hold the baseline tables. We therefore detect
-/// the "no `schema_migrations` row" case and stamp [`BASELINE_VERSION`] WITHOUT
-/// re-running any creation/destructive step, then apply `version >` baseline
-/// migrations in order.
+/// Assumes [`create_all`] has already run, so an unstamped DB holds the
+/// *current* schema with every listed migration already reflected in it. We
+/// therefore stamp the "no `schema_migrations` row" case at
+/// [`latest_version`] WITHOUT running any DDL (replaying e.g. an `ADD COLUMN`
+/// would fail against the fresh tables), then apply `version >` migrations in
+/// order. DBs created by builds older than this framework are not upgradable
+/// in place (see the `migrations` module docs).
 pub(super) async fn run_migrations(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let backend = conn.get_database_backend();
 
@@ -124,10 +126,11 @@ pub(super) async fn run_migrations(conn: &DatabaseConnection) -> anyhow::Result<
         .transpose()?
         .unwrap_or(0);
 
-    // Empty table → stamp the baseline the existing create routine just ensured.
+    // Empty table → stamp the current schema the create routine just ensured.
     let current = if current == 0 {
-        record_version(conn, BASELINE_VERSION).await?;
-        BASELINE_VERSION
+        let latest = latest_version();
+        record_version(conn, latest).await?;
+        latest
     } else {
         current
     };

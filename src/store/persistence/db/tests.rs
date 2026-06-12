@@ -17,8 +17,8 @@ async fn sqlite_memory_connect_and_health() {
 }
 
 #[tokio::test]
-async fn connect_stamps_baseline_and_applies_migrations() {
-    use crate::store::persistence::migrations::{BASELINE_VERSION, MIGRATIONS};
+async fn connect_stamps_latest_and_leaves_nothing_pending() {
+    use crate::store::persistence::migrations::latest_version;
     use sea_orm::{ConnectionTrait, Statement};
 
     let db = mem().await;
@@ -34,16 +34,10 @@ async fn connect_stamps_baseline_and_applies_migrations() {
         .expect("row");
     let max = row.try_get::<i64>("", "v").expect("v");
 
-    // Fresh connect stamps the baseline and then applies every listed
-    // migration, so the max version is the highest in MIGRATIONS (or the
-    // baseline when the list is empty).
-    let expected = MIGRATIONS
-        .iter()
-        .map(|m| m.version)
-        .max()
-        .unwrap_or(BASELINE_VERSION);
-    assert_eq!(max, expected);
-    assert!(max >= BASELINE_VERSION);
+    // Fresh connect creates the current schema and stamps the latest listed
+    // version directly — replaying a migration (e.g. ADD COLUMN) against the
+    // just-created tables would fail.
+    assert_eq!(max, latest_version());
 }
 
 #[tokio::test]
