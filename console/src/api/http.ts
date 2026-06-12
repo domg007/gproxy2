@@ -23,14 +23,17 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function api<T>(
+  path: string,
+  init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {},
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       credentials: "include",
       ...init,
       headers: {
-        ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(typeof init.body === "string" ? { "content-type": "application/json" } : {}),
         ...init.headers,
       },
     });
@@ -42,7 +45,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const retryAfterRaw = Number(res.headers.get("retry-after"));
     const retryAfter = Number.isFinite(retryAfterRaw) && retryAfterRaw > 0 ? retryAfterRaw : undefined;
     let type: ApiErrorType = "internal";
-    let message = res.statusText;
+    let message = res.statusText || `HTTP ${res.status}`;
     try {
       const body = (await res.json()) as ErrorBody;
       if (body.error?.type) type = body.error.type as ApiErrorType;

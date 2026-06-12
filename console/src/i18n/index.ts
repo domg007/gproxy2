@@ -25,6 +25,10 @@ void i18n
     interpolation: { escapeValue: false },
   });
 
+i18n.on("languageChanged", (lng) => {
+  document.documentElement.lang = lng;
+});
+
 export function setLanguage(code: LangCode) {
   try { localStorage.setItem(STORAGE_KEY, code); } catch { /* ignore */ }
   void i18n.changeLanguage(code);

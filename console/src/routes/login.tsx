@@ -65,7 +65,7 @@ function LoginPage() {
     }
     const timer = setTimeout(() => setRetryIn((s) => (s === null ? null : s - 1)), 1000);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // mutation.reset is referentially stable; only retryIn drives this effect
   }, [retryIn]);
 
   const errorText = (() => {
