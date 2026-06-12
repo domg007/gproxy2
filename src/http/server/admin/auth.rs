@@ -52,7 +52,15 @@ pub async fn login(State(state): State<AppState>, request: Request) -> Response 
             if let Some(k) = &ip_key {
                 cache.delete(k).await;
             }
-            let token = session::create(cache, user.id).await;
+            let token = match session::create(cache, user.id).await {
+                Ok(t) => t,
+                // Credentials verified but the session never landed in the
+                // cache — the cookie would 401 on every use. Surface a 500.
+                Err(e) => {
+                    tracing::error!(error = %e, "admin session create failed");
+                    return ApiError::Internal(e.to_string()).into_response();
+                }
+            };
             record_audit(
                 &state,
                 AuditLogInput {

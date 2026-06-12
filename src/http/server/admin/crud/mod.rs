@@ -280,7 +280,9 @@ mod tests {
 
     /// Mint a session for `admin_id` and return the `gproxy_session=…` cookie.
     async fn admin_cookie(state: &AppState, admin_id: i64) -> String {
-        let token = crate::admin::session::create(state.cache.as_ref(), admin_id).await;
+        let token = crate::admin::session::create(state.cache.as_ref(), admin_id)
+            .await
+            .expect("session create");
         format!("{}={token}", crate::admin::session::cookie_name())
     }
 

@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use redis::AsyncCommands;
 
-use super::{CacheBackend, CounterError, InvalidationHandler};
+use super::{CacheBackend, CacheError, CounterError, InvalidationHandler};
 
 /// First reconnect backoff after a dropped subscription.
 const RECONNECT_BASE: Duration = Duration::from_millis(500);
@@ -123,19 +123,28 @@ impl CacheBackend for RedisCache {
         cm.get::<_, Option<Vec<u8>>>(key).await.ok().flatten()
     }
 
-    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
+    async fn set(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+        ttl: Option<Duration>,
+    ) -> Result<(), CacheError> {
         let mut cm = self.cm.clone();
-        if let Some(d) = ttl {
+        let result: Result<(), _> = if let Some(d) = ttl {
             // Duration::ZERO treated as no-expiry (PSETEX 0 is rejected by Redis).
             let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
             if ms == 0 {
-                let _: Result<(), _> = cm.set(key, value).await;
+                cm.set(key, value).await
             } else {
-                let _: Result<(), _> = cm.pset_ex(key, value, ms).await;
+                cm.pset_ex(key, value, ms).await
             }
         } else {
-            let _: Result<(), _> = cm.set(key, value).await;
-        }
+            cm.set(key, value).await
+        };
+        result.map_err(|e| {
+            tracing::error!(key, error = %e, "redis set failed");
+            CacheError
+        })
     }
 
     async fn delete(&self, key: &str) {
@@ -302,7 +311,7 @@ mod tests {
         cache.health().await.expect("health");
 
         let key = "gproxy_test_integration";
-        cache.set(key, b"hello".to_vec(), None).await;
+        cache.set(key, b"hello".to_vec(), None).await.expect("set");
         assert_eq!(cache.get(key).await, Some(b"hello".to_vec()));
 
         cache.delete(key).await;

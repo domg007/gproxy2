@@ -31,7 +31,7 @@ use serde_json::Value;
 use crate::store::libsql::{LibsqlClient, arg_blob, arg_integer, arg_null, arg_text};
 
 use super::b64;
-use super::{CacheBackend, CounterError, InvalidationHandler};
+use super::{CacheBackend, CacheError, CounterError, InvalidationHandler};
 
 /// Edge cache backend backed by a libSQL/Turso kv table.
 pub struct LibsqlCache {
@@ -86,16 +86,25 @@ impl CacheBackend for LibsqlCache {
         hrana_value_to_bytes(&cell)
     }
 
-    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
+    async fn set(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+        ttl: Option<Duration>,
+    ) -> Result<(), CacheError> {
         let expires = Self::expiry(ttl);
-        let _ = self
-            .client
+        self.client
             .execute(
                 "INSERT INTO gproxy_kv(k, v, expires_ms) VALUES(?, ?, ?) \
                  ON CONFLICT(k) DO UPDATE SET v = excluded.v, expires_ms = excluded.expires_ms",
                 &[arg_text(key), arg_blob(&value), expires],
             )
-            .await;
+            .await
+            .map(|_| ())
+            .map_err(|e| {
+                tracing::error!(key, error = %e, "libsql set failed");
+                CacheError
+            })
     }
 
     async fn delete(&self, key: &str) {
@@ -195,7 +204,7 @@ mod tests {
         let url = std::env::var("GPROXY_TEST_TURSO_URL").expect("GPROXY_TEST_TURSO_URL");
         let token = std::env::var("GPROXY_TEST_TURSO_TOKEN").expect("GPROXY_TEST_TURSO_TOKEN");
         let cache = LibsqlCache::connect(url, token).await.expect("connect");
-        cache.set("k", b"hello".to_vec(), None).await;
+        cache.set("k", b"hello".to_vec(), None).await.expect("set");
         assert_eq!(cache.get("k").await, Some(b"hello".to_vec()));
         cache.delete("k").await;
         assert_eq!(cache.get("k").await, None);

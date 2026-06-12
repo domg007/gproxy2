@@ -365,7 +365,14 @@ mod tests {
         async fn get(&self, _key: &str) -> Option<Vec<u8>> {
             None
         }
-        async fn set(&self, _key: &str, _value: Vec<u8>, _ttl: Option<Duration>) {}
+        async fn set(
+            &self,
+            _key: &str,
+            _value: Vec<u8>,
+            _ttl: Option<Duration>,
+        ) -> Result<(), crate::store::cache::CacheError> {
+            Err(crate::store::cache::CacheError)
+        }
         async fn incr(
             &self,
             _key: &str,

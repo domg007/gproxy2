@@ -52,7 +52,8 @@ pub async fn start(
         state_tok,
         started.redirect_uri,
     )
-    .await;
+    .await
+    .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok(Json(LoginStartResponse {
         login_session_id: sid,
@@ -152,7 +153,8 @@ pub async fn device_start(
             name: req.name,
         },
     )
-    .await;
+    .await
+    .map_err(|e| ApiError::Internal(e.to_string()))?;
     Ok(Json(DeviceStartResponse {
         login_session_id: sid,
         user_code: init.user_code,
@@ -389,7 +391,9 @@ mod tests {
     }
 
     async fn admin_cookie(state: &AppState, admin_id: i64) -> String {
-        let token = crate::admin::session::create(state.cache.as_ref(), admin_id).await;
+        let token = crate::admin::session::create(state.cache.as_ref(), admin_id)
+            .await
+            .expect("session create");
         format!("{}={token}", crate::admin::session::cookie_name())
     }
 

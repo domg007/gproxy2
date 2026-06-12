@@ -113,7 +113,9 @@ async fn credential_pool(
     if let Some(key) = sticky_key
         && let Some(first) = ordered.first()
     {
-        cache
+        // Affinity is a best-effort hint: a failed write just loses
+        // stickiness for this window.
+        let _ = cache
             .set(&key, first.id.to_string().into_bytes(), Some(AFFINITY_TTL))
             .await;
     }

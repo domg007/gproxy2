@@ -84,8 +84,10 @@ async fn cache_roundtrip(
     // Start clean so a stale counter from a prior run doesn't skew incr.
     cache.delete(counter_key).await;
 
-    cache.set(value_key, b"hello".to_vec(), None).await;
-    out.push(format!("{label}.set: OK"));
+    match cache.set(value_key, b"hello".to_vec(), None).await {
+        Ok(()) => out.push(format!("{label}.set: OK")),
+        Err(e) => out.push(format!("{label}.set: ERR {e}")),
+    }
 
     match cache.get(value_key).await {
         Some(v) if v == b"hello" => {

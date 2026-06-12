@@ -26,7 +26,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
 
 use super::b64;
-use super::{CacheBackend, CounterError, InvalidationHandler};
+use super::{CacheBackend, CacheError, CounterError, InvalidationHandler};
 
 /// Edge cache backend backed by Upstash Redis REST.
 pub struct UpstashCache {
@@ -97,7 +97,12 @@ impl CacheBackend for UpstashCache {
         b64::decode(result.as_str()?).ok()
     }
 
-    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
+    async fn set(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+        ttl: Option<Duration>,
+    ) -> Result<(), CacheError> {
         let enc = b64::encode(&value);
         let cmd: Vec<Value> = match ttl {
             Some(d) if !d.is_zero() => {
@@ -111,7 +116,8 @@ impl CacheBackend for UpstashCache {
             }
             _ => vec![json!("SET"), json!(key), json!(enc)],
         };
-        let _ = self.cmd(&cmd).await;
+        // `cmd` logs the failure detail and yields None on any error.
+        self.cmd(&cmd).await.map(|_| ()).ok_or(CacheError)
     }
 
     async fn delete(&self, key: &str) {
@@ -163,7 +169,7 @@ mod tests {
         let url = std::env::var("GPROXY_TEST_UPSTASH_URL").expect("GPROXY_TEST_UPSTASH_URL");
         let token = std::env::var("GPROXY_TEST_UPSTASH_TOKEN").expect("GPROXY_TEST_UPSTASH_TOKEN");
         let cache = UpstashCache::new(url, token);
-        cache.set("k", b"hello".to_vec(), None).await;
+        cache.set("k", b"hello".to_vec(), None).await.expect("set");
         assert_eq!(cache.get("k").await, Some(b"hello".to_vec()));
         cache.delete("k").await;
         assert_eq!(cache.get("k").await, None);

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 
-use crate::store::cache::CacheBackend;
+use crate::store::cache::{CacheBackend, CacheError};
 use crate::store::persistence::PersistenceBackend;
 
 /// Sliding session lifetime; refreshed on each successful validate.
@@ -27,7 +27,10 @@ pub struct AdminUser {
 }
 
 /// Mint a session: random opaque token → cache `sess:{token}` = user_id.
-pub async fn create(cache: &dyn CacheBackend, user_id: i64) -> String {
+///
+/// A failed cache write is an error: returning the token anyway would hand the
+/// client a credential that 401s on every subsequent request.
+pub async fn create(cache: &dyn CacheBackend, user_id: i64) -> Result<String, CacheError> {
     let token = B64URL.encode(crate::util::rand::bytes::<32>());
     cache
         .set(
@@ -35,8 +38,8 @@ pub async fn create(cache: &dyn CacheBackend, user_id: i64) -> String {
             user_id.to_le_bytes().to_vec(),
             Some(SESSION_TTL),
         )
-        .await;
-    token
+        .await?;
+    Ok(token)
 }
 
 /// Validate a token → the live admin user (re-checked against persistence so a
@@ -53,8 +56,9 @@ pub async fn validate(
     if !user.enabled || !user.is_admin {
         return None;
     }
-    // Slide the TTL on each successful use.
-    cache
+    // Slide the TTL on each successful use — best-effort: a failed refresh
+    // just means the session expires on the original schedule.
+    let _ = cache
         .set(
             &key(token),
             user_id.to_le_bytes().to_vec(),
@@ -165,7 +169,7 @@ mod tests {
         let cache = MemoryCache::new();
         let uid = seed_user(&db, true, true).await;
 
-        let token = create(&cache, uid).await;
+        let token = create(&cache, uid).await.expect("create");
         let admin = validate(&cache, &db, &token).await.expect("valid session");
         assert_eq!(admin.id, uid);
         assert_eq!(admin.name, "admin");
@@ -181,7 +185,7 @@ mod tests {
 
         // Non-admin (enabled) user: rejected.
         let uid = seed_user(&db, true, false).await;
-        let token = create(&cache, uid).await;
+        let token = create(&cache, uid).await.expect("create");
         assert!(validate(&cache, &db, &token).await.is_none());
 
         // Unknown / tampered tokens: rejected.

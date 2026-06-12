@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use dashmap::DashMap;
 
-use super::{CacheBackend, CounterError, InvalidationHandler};
+use super::{CacheBackend, CacheError, CounterError, InvalidationHandler};
 
 struct Entry {
     data: Vec<u8>,
@@ -51,7 +51,12 @@ impl CacheBackend for MemoryCache {
         Some(entry.data.clone())
     }
 
-    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) {
+    async fn set(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+        ttl: Option<Duration>,
+    ) -> Result<(), CacheError> {
         self.map.insert(
             key.to_string(),
             Entry {
@@ -59,6 +64,7 @@ impl CacheBackend for MemoryCache {
                 expires_at: Self::deadline(ttl),
             },
         );
+        Ok(())
     }
 
     async fn incr(
@@ -101,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn set_get_delete_roundtrip() {
         let cache = MemoryCache::new();
-        cache.set("k", b"v".to_vec(), None).await;
+        cache.set("k", b"v".to_vec(), None).await.unwrap();
         assert_eq!(cache.get("k").await, Some(b"v".to_vec()));
         cache.delete("k").await;
         assert_eq!(cache.get("k").await, None);
@@ -119,7 +125,8 @@ mod tests {
         let cache = MemoryCache::new();
         cache
             .set("k", b"v".to_vec(), Some(Duration::from_millis(10)))
-            .await;
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(25)).await;
         assert_eq!(cache.get("k").await, None);
     }

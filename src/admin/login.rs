@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::cache::CacheBackend;
+use crate::store::cache::{CacheBackend, CacheError};
 
 /// Lifetime of a pending login (matches the v1 codex state TTL).
 const LOGIN_TTL: Duration = Duration::from_secs(600);
@@ -32,14 +32,16 @@ pub struct LoginSession {
 }
 
 /// Stash a pending login → cache `login:{sid}` for [`LOGIN_TTL`]. Returns the
-/// random one-shot session id.
+/// random one-shot session id. A failed stash fails the start: the returned
+/// sid would otherwise 400 at `complete` after the operator finished the
+/// browser round-trip.
 pub async fn start(
     cache: &dyn CacheBackend,
     channel: String,
     verifier: String,
     state: String,
     redirect_uri: String,
-) -> String {
+) -> Result<String, CacheError> {
     let sid = crate::util::rand::uuid_v4();
     let session = LoginSession {
         channel,
@@ -47,12 +49,10 @@ pub async fn start(
         state,
         redirect_uri,
     };
-    // Serialization of this fixed shape cannot fail; an empty value would just
-    // make `take` miss (a benign 400 later), so swallow the impossible error.
-    if let Ok(bytes) = serde_json::to_vec(&session) {
-        cache.set(&key(&sid), bytes, Some(LOGIN_TTL)).await;
-    }
-    sid
+    // Serialization of this fixed shape cannot fail.
+    let bytes = serde_json::to_vec(&session).map_err(|_| CacheError)?;
+    cache.set(&key(&sid), bytes, Some(LOGIN_TTL)).await?;
+    Ok(sid)
 }
 
 /// Consume a pending login (one-shot: get + delete). `None` if missing/expired.
@@ -78,12 +78,15 @@ pub struct DeviceSession {
 }
 
 /// Stash a pending device login → cache `login:{sid}` for [`DEVICE_TTL`].
-pub async fn device_start(cache: &dyn CacheBackend, session: DeviceSession) -> String {
+/// A failed stash fails the start (the poll endpoint could never find it).
+pub async fn device_start(
+    cache: &dyn CacheBackend,
+    session: DeviceSession,
+) -> Result<String, CacheError> {
     let sid = crate::util::rand::uuid_v4();
-    if let Ok(bytes) = serde_json::to_vec(&session) {
-        cache.set(&key(&sid), bytes, Some(DEVICE_TTL)).await;
-    }
-    sid
+    let bytes = serde_json::to_vec(&session).map_err(|_| CacheError)?;
+    cache.set(&key(&sid), bytes, Some(DEVICE_TTL)).await?;
+    Ok(sid)
 }
 
 /// Peek a pending device login WITHOUT deleting it — the poll endpoint reads it

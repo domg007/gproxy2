@@ -78,6 +78,22 @@ impl std::fmt::Display for CounterError {
 
 impl std::error::Error for CounterError {}
 
+/// A cache write failed at the backend (network/db error; details are logged
+/// by the backend). Callers whose correctness depends on the value actually
+/// being stored (admin session / login-flow state) MUST propagate this instead
+/// of pretending success; best-effort callers (affinity hints, TTL slides)
+/// may ignore it explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CacheError;
+
+impl std::fmt::Display for CacheError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cache backend write failed")
+    }
+}
+
+impl std::error::Error for CacheError {}
+
 /// A pluggable cache backend.
 ///
 /// Native impls: [`MemoryCache`] (in-process) and [`RedisCache`] (Redis-backed).
@@ -90,7 +106,11 @@ pub trait CacheBackend: Send + Sync {
     async fn get(&self, key: &str) -> Option<Vec<u8>>;
 
     /// Store `value` under `key` with an optional time-to-live.
-    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>);
+    ///
+    /// A backend failure is `Err(CacheError)` — callers that hand out tokens
+    /// referencing the stored value must fail the operation, not the lookup.
+    async fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>)
+    -> Result<(), CacheError>;
 
     /// Atomically add `delta` to the integer at `key` (missing = 0) and
     /// return the new value. Used by rate-limit / quota counters.
