@@ -198,7 +198,7 @@ async fn quota_reconciles_after_settle() {
     assert_eq!(quota.cost_used, "0.0105".parse().unwrap());
 
     // pending was refunded by the exact pre-deducted amount
-    let pending = state.cache.incr("qp:user:1", 0, None).await;
+    let pending = state.cache.incr("qp:user:1", 0, None).await.unwrap();
     assert!(pending <= 1, "pending refunded, got {pending} micros");
 }
 
@@ -215,7 +215,7 @@ async fn failed_request_refunds_pending() {
     assert!(result.is_err(), "all-500 upstream must error");
 
     // refund-on-error in execute: pending back to 0, nothing persisted
-    let pending = state.cache.incr("qp:user:1", 0, None).await;
+    let pending = state.cache.incr("qp:user:1", 0, None).await.unwrap();
     assert_eq!(pending, 0, "pending refunded on pipeline error");
     let q = state
         .persistence

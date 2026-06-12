@@ -322,19 +322,20 @@ pub async fn run_failover(
 /// Per-credential minute budgets (§3.3), incr-then-check on the shared cache
 /// (same off-by-one semantics as authz). rpm increments per attempt; tpm is
 /// read-only here — settle-time reconciliation (M6 §17) feeds `ctpm:*` with
-/// each request's actual total tokens.
+/// each request's actual total tokens. A counter backend failure counts as
+/// exhausted (fail-closed): a configured budget must not vanish with the cache.
 async fn budget_exhausted(state: &AppState, cand: &Candidate) -> bool {
     let bucket = crate::util::time::unix_now() / 60;
     let ttl = Some(Duration::from_secs(120));
     if let Some(limit) = cand.credential.rpm_limit {
         let key = format!("crpm:{}:m{bucket}", cand.credential.id);
-        if state.cache.incr(&key, 1, ttl).await > limit {
+        if !matches!(state.cache.incr(&key, 1, ttl).await, Ok(n) if n <= limit) {
             return true;
         }
     }
     if let Some(limit) = cand.credential.tpm_limit {
         let key = format!("ctpm:{}:m{bucket}", cand.credential.id);
-        if state.cache.incr(&key, 0, ttl).await > limit {
+        if !matches!(state.cache.incr(&key, 0, ttl).await, Ok(n) if n <= limit) {
             return true;
         }
     }

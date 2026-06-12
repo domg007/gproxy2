@@ -63,6 +63,21 @@ pub type InvalidationHandler = Box<dyn Fn(Vec<u8>) + Send + Sync>;
 #[cfg(target_arch = "wasm32")]
 pub type InvalidationHandler = Box<dyn Fn(Vec<u8>)>;
 
+/// A counter operation failed at the backend (network/db error; details are
+/// logged by the backend). Callers enforcing security or quota policy (login
+/// throttle, rate limits, quota admission, credential budgets) MUST fail
+/// CLOSED on this — never treat it as "0 increments seen".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CounterError;
+
+impl std::fmt::Display for CounterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cache counter backend unavailable")
+    }
+}
+
+impl std::error::Error for CounterError {}
+
 /// A pluggable cache backend.
 ///
 /// Native impls: [`MemoryCache`] (in-process) and [`RedisCache`] (Redis-backed).
@@ -83,11 +98,10 @@ pub trait CacheBackend: Send + Sync {
     /// expired); it is NOT refreshed on an already-live key (matches Redis
     /// INCR + EXPIRE-on-create semantics).
     ///
-    /// Backends that can fail (e.g. Redis) return `0` on error (fail-open) after
-    /// logging; callers that make allow/deny decisions on the result should
-    /// account for this — a returned `0` may mean "backend unavailable", not
-    /// "no increments seen".
-    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64;
+    /// A backend failure is `Err(CounterError)` — the caller decides the
+    /// policy: allow/deny gates fail closed, best-effort recording ignores it.
+    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>)
+    -> Result<i64, CounterError>;
 
     /// Remove `key` if present.
     async fn delete(&self, key: &str);

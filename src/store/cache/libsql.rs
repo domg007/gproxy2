@@ -16,15 +16,10 @@
 //!
 //! # `incr` atomicity
 //! Uses a single SQL statement with `ON CONFLICT DO UPDATE` to atomically
-//! increment the stored integer value:
-//! ```sql
-//! INSERT INTO gproxy_kv(k, v, expires_ms)
-//! VALUES(?, CAST(? AS BLOB), ?)
-//! ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + ? AS BLOB)
-//! RETURNING CAST(v AS INTEGER)
-//! ```
-//! The TTL is set only on insert (new key), not on update of an existing key —
-//! matching Redis INCR + EXPIRE-on-create semantics.
+//! increment the stored integer value. The conflict branch is expiry-aware:
+//! a live row is incremented in place (its TTL untouched — Redis INCR +
+//! EXPIRE-on-create semantics), while an EXPIRED row restarts at `delta`
+//! with the fresh TTL instead of resurrecting the stale count.
 //!
 //! Compile-checked on wasm32 only; real Turso round-trips need credentials
 //! (see ignored integration tests).
@@ -36,7 +31,7 @@ use serde_json::Value;
 use crate::store::libsql::{LibsqlClient, arg_blob, arg_integer, arg_null, arg_text};
 
 use super::b64;
-use super::{CacheBackend, InvalidationHandler};
+use super::{CacheBackend, CounterError, InvalidationHandler};
 
 /// Edge cache backend backed by a libSQL/Turso kv table.
 pub struct LibsqlCache {
@@ -110,26 +105,44 @@ impl CacheBackend for LibsqlCache {
             .await;
     }
 
-    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+    async fn incr(
+        &self,
+        key: &str,
+        delta: i64,
+        ttl: Option<Duration>,
+    ) -> Result<i64, CounterError> {
         // NOTE: `incr` treats the stored value as an integer counter via
         // `CAST(v AS INTEGER)`.  Do NOT mix `set` (arbitrary bytes) and `incr`
         // on the same key — SQLite's CAST of a binary blob to INTEGER yields a
         // wrong value (unlike Redis, which errors).  Use distinct keys for byte
         // blobs and integer counters.
+        //
+        // An EXPIRED conflicting row is a dead counter: restart it at `delta`
+        // with the fresh TTL instead of resurrecting the stale value (whose
+        // `expires_ms` would otherwise stay in the past forever, so the
+        // counter would keep accumulating while `get` already reports it gone).
+        let now = Self::now_ms();
         let expires = Self::expiry(ttl);
         let result = self
             .client
             .execute(
                 "INSERT INTO gproxy_kv(k, v, expires_ms) \
                  VALUES(?, CAST(? AS BLOB), ?) \
-                 ON CONFLICT(k) DO UPDATE \
-                   SET v = CAST(CAST(v AS INTEGER) + ? AS BLOB) \
+                 ON CONFLICT(k) DO UPDATE SET \
+                   v = CASE WHEN gproxy_kv.expires_ms IS NOT NULL AND gproxy_kv.expires_ms <= ? \
+                            THEN excluded.v \
+                            ELSE CAST(CAST(gproxy_kv.v AS INTEGER) + ? AS BLOB) END, \
+                   expires_ms = CASE WHEN gproxy_kv.expires_ms IS NOT NULL AND gproxy_kv.expires_ms <= ? \
+                            THEN excluded.expires_ms \
+                            ELSE gproxy_kv.expires_ms END \
                  RETURNING CAST(v AS INTEGER) AS val",
                 &[
                     arg_text(key),
                     arg_integer(delta),
                     expires,
+                    arg_integer(now),
                     arg_integer(delta),
+                    arg_integer(now),
                 ],
             )
             .await;
@@ -140,10 +153,13 @@ impl CacheBackend for LibsqlCache {
                 .next()
                 .and_then(|r| r.into_iter().next())
                 .and_then(|v| hrana_value_to_i64(&v))
-                .unwrap_or(0),
+                .ok_or_else(|| {
+                    tracing::error!("libsql incr returned no readable counter value");
+                    CounterError
+                }),
             Err(e) => {
-                tracing::error!("libsql incr failed, returning 0 (fail-open): {e}");
-                0
+                tracing::error!("libsql incr failed: {e}");
+                Err(CounterError)
             }
         }
     }
@@ -184,8 +200,8 @@ mod tests {
         cache.delete("k").await;
         assert_eq!(cache.get("k").await, None);
         cache.delete("ctr").await;
-        assert_eq!(cache.incr("ctr", 1, None).await, 1);
-        assert_eq!(cache.incr("ctr", 4, None).await, 5);
+        assert_eq!(cache.incr("ctr", 1, None).await, Ok(1));
+        assert_eq!(cache.incr("ctr", 4, None).await, Ok(5));
         cache.delete("ctr").await;
     }
 }

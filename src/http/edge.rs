@@ -118,11 +118,14 @@ pub async fn init(
 
     // §7.2 baseline: remember the config version this snapshot was built at so
     // the first request doesn't trigger a spurious rebuild (incr-by-0 reads
-    // the counter, creating it at 0 when absent).
+    // the counter, creating it at 0 when absent). An unreadable stamp
+    // baselines at 0 — the first successful poll then rebuilds once (safe
+    // direction).
     SEEN_CFG_VERSION.store(
         cache
             .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
-            .await,
+            .await
+            .unwrap_or(0),
         Ordering::Relaxed,
     );
     LAST_POLL_MS.store(js_sys::Date::now() as u64, Ordering::Relaxed);
@@ -243,10 +246,16 @@ async fn refresh_snapshot_if_stale(state: &AppState) {
         return;
     }
     LAST_POLL_MS.store(now_ms, Ordering::Relaxed);
-    let version = state
+    let version = match state
         .cache
         .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
-        .await;
+        .await
+    {
+        Ok(v) => v,
+        // Stamp unreadable: keep serving the current snapshot; the next poll
+        // window retries.
+        Err(_) => return,
+    };
     if version == SEEN_CFG_VERSION.load(Ordering::Relaxed) {
         return;
     }

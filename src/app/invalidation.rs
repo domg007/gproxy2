@@ -11,7 +11,12 @@ use crate::store::cache::{CONFIG_VERSION_KEY, CacheBackend, INVALIDATE_CHANNEL};
 /// channel (native listeners reload at once; no-op on the REST cache
 /// backends). `payload` is the usual hint (`config` / `cred:{id}`).
 pub async fn broadcast(cache: &dyn CacheBackend, payload: &[u8]) {
-    cache.incr(CONFIG_VERSION_KEY, 1, None).await;
+    if cache.incr(CONFIG_VERSION_KEY, 1, None).await.is_err() {
+        tracing::warn!(
+            "config-version stamp bump failed; edge isolates may serve stale config \
+             until the next successful broadcast"
+        );
+    }
     cache.publish(INVALIDATE_CHANNEL, payload).await;
 }
 
@@ -65,7 +70,7 @@ mod tests {
             cache
                 .incr(crate::store::cache::CONFIG_VERSION_KEY, 0, None)
                 .await,
-            2
+            Ok(2)
         );
     }
 

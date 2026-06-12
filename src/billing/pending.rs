@@ -11,7 +11,7 @@ use rust_decimal::prelude::ToPrimitive;
 
 use crate::app::snapshot::ControlPlaneSnapshot;
 use crate::billing::price::{self, Pricing};
-use crate::store::cache::CacheBackend;
+use crate::store::cache::{CacheBackend, CounterError};
 use crate::store::persistence::records::Scope;
 use crate::usage::NormalizedUsage;
 
@@ -57,7 +57,12 @@ pub fn estimate_micros(pricing: &Pricing, body_len: usize) -> i64 {
 }
 
 /// Read one scope's pending total (creates the key at 0 with TTL if absent).
-pub async fn read(cache: &dyn CacheBackend, scope: Scope, scope_id: i64) -> i64 {
+/// Backend failure propagates — the quota gate fails closed on it.
+pub async fn read(
+    cache: &dyn CacheBackend,
+    scope: Scope,
+    scope_id: i64,
+) -> Result<i64, CounterError> {
     cache
         .incr(&key(scope, scope_id), 0, Some(PENDING_TTL))
         .await
@@ -73,12 +78,14 @@ pub async fn refund(cache: &dyn CacheBackend, scopes: &[(Scope, i64)], micros: i
     adjust(cache, scopes, -micros).await;
 }
 
+/// Best-effort: a failed adjust is logged by the backend and self-heals via
+/// the pending TTL (admission already failed closed if the backend is down).
 async fn adjust(cache: &dyn CacheBackend, scopes: &[(Scope, i64)], delta: i64) {
     if delta == 0 {
         return;
     }
     for &(scope, scope_id) in scopes {
-        cache
+        let _ = cache
             .incr(&key(scope, scope_id), delta, Some(PENDING_TTL))
             .await;
     }

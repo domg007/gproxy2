@@ -43,6 +43,8 @@ pub enum PipelineError {
     RateLimited { retry_after_secs: u64 },
     #[error("quota exceeded")]
     QuotaExceeded,
+    #[error("rate-limit/quota counters unavailable")]
+    CounterUnavailable,
 }
 
 impl PipelineError {
@@ -59,6 +61,9 @@ impl PipelineError {
             RuleUnsupported | LocalUnimplemented => StatusCode::NOT_IMPLEMENTED,
             Forbidden => StatusCode::FORBIDDEN,
             RateLimited { .. } | QuotaExceeded => StatusCode::TOO_MANY_REQUESTS,
+            // The limiter backend is down: enforced limits/quotas can't be
+            // checked, so the request is refused (fail-closed), not waved through.
+            CounterUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 

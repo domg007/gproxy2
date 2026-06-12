@@ -98,11 +98,10 @@ async fn cache_roundtrip(
         None => out.push(format!("{label}.get: ERR expected 'hello' got None")),
     }
 
-    let n = cache.incr(counter_key, 3, None).await;
-    if n == 3 {
-        out.push(format!("{label}.incr: {n}"));
-    } else {
-        out.push(format!("{label}.incr: {n} (expected 3 on fresh key)"));
+    match cache.incr(counter_key, 3, None).await {
+        Ok(3) => out.push(format!("{label}.incr: 3")),
+        Ok(n) => out.push(format!("{label}.incr: {n} (expected 3 on fresh key)")),
+        Err(e) => out.push(format!("{label}.incr: ERR {e}")),
     }
 
     cache.delete(value_key).await;

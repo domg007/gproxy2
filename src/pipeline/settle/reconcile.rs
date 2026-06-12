@@ -31,20 +31,21 @@ pub(super) async fn reconcile(ctx: &SettleCtx, usage: &NormalizedUsage, cost: De
         }
     }
 
-    // Counter feeds: actual total tokens of this request.
+    // Counter feeds: actual total tokens of this request. Best-effort — a
+    // backend failure is logged there; the next precheck fails closed anyway.
     let total = i64::try_from(usage.total()).unwrap_or(i64::MAX);
     if total > 0 {
         let now = unix_now();
         // M3 seam: authz precheck reads the daily `rlt:{row_id}:d{day}` budget.
         for id in &ctx.token_rlt_ids {
             let key = format!("rlt:{id}:d{}", now / 86_400);
-            cache
+            let _ = cache
                 .incr(&key, total, Some(Duration::from_secs(48 * 3600)))
                 .await;
         }
         // M4 seam: failover's per-credential tpm budget reads `ctpm:{id}:m{min}`.
         let key = format!("ctpm:{}:m{}", ctx.credential.id, now / 60);
-        cache
+        let _ = cache
             .incr(&key, total, Some(Duration::from_secs(120)))
             .await;
     }

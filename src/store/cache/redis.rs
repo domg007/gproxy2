@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use redis::AsyncCommands;
 
-use super::{CacheBackend, InvalidationHandler};
+use super::{CacheBackend, CounterError, InvalidationHandler};
 
 /// First reconnect backoff after a dropped subscription.
 const RECONNECT_BASE: Duration = Duration::from_millis(500);
@@ -151,9 +151,14 @@ impl CacheBackend for RedisCache {
     /// spurious TTL resets on live counters (e.g. two increments of the same
     /// delta on a pre-existing key).
     ///
-    /// On any Redis/Lua error this returns `0` (fail-open) after logging;
-    /// callers making allow/deny decisions on the result should account for this.
-    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+    /// Any Redis/Lua error is logged and surfaced as [`CounterError`] so policy
+    /// callers can fail closed instead of mistaking the outage for count 0.
+    async fn incr(
+        &self,
+        key: &str,
+        delta: i64,
+        ttl: Option<Duration>,
+    ) -> Result<i64, CounterError> {
         // local exists = redis.call('EXISTS', KEYS[1])
         // local v = redis.call('INCRBY', KEYS[1], ARGV[1])
         // if exists == 0 and tonumber(ARGV[2]) > 0 then
@@ -182,9 +187,9 @@ impl CacheBackend for RedisCache {
             .arg(ttl_ms)
             .invoke_async::<i64>(&mut cm)
             .await
-            .unwrap_or_else(|e| {
-                tracing::error!("redis incr failed, returning 0 (fail-open): {e}");
-                0
+            .map_err(|e| {
+                tracing::error!("redis incr failed: {e}");
+                CounterError
             })
     }
 
@@ -305,8 +310,8 @@ mod tests {
 
         let ctr = "gproxy_test_counter";
         cache.delete(ctr).await;
-        assert_eq!(cache.incr(ctr, 1, None).await, 1);
-        assert_eq!(cache.incr(ctr, 4, None).await, 5);
+        assert_eq!(cache.incr(ctr, 1, None).await, Ok(1));
+        assert_eq!(cache.incr(ctr, 4, None).await, Ok(5));
         cache.delete(ctr).await;
     }
 

@@ -26,7 +26,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response, WorkerGlobalScope};
 
 use super::b64;
-use super::{CacheBackend, InvalidationHandler};
+use super::{CacheBackend, CounterError, InvalidationHandler};
 
 /// Edge cache backend backed by Upstash Redis REST.
 pub struct UpstashCache {
@@ -118,13 +118,18 @@ impl CacheBackend for UpstashCache {
         let _ = self.cmd(&[json!("DEL"), json!(key)]).await;
     }
 
-    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+    async fn incr(
+        &self,
+        key: &str,
+        delta: i64,
+        ttl: Option<Duration>,
+    ) -> Result<i64, CounterError> {
         let result = self.cmd(&[json!("INCRBY"), json!(key), json!(delta)]).await;
-        let new_val = match result {
-            Some(v) => v.as_i64().unwrap_or(0),
+        let new_val = match result.as_ref().and_then(Value::as_i64) {
+            Some(v) => v,
             None => {
-                tracing::error!("upstash incrby failed, returning 0 (fail-open)");
-                return 0;
+                tracing::error!("upstash incrby failed");
+                return Err(CounterError);
             }
         };
         // Set TTL only when the key was freshly created (value == delta).
@@ -139,7 +144,7 @@ impl CacheBackend for UpstashCache {
                 .cmd(&[json!("PEXPIRE"), json!(key), json!(d.as_millis() as u64)])
                 .await;
         }
-        new_val
+        Ok(new_val)
     }
 
     // Edge isolates re-read config frequently; cross-instance pub/sub not needed (§13).
@@ -163,8 +168,8 @@ mod tests {
         cache.delete("k").await;
         assert_eq!(cache.get("k").await, None);
         cache.delete("ctr").await;
-        assert_eq!(cache.incr("ctr", 1, None).await, 1);
-        assert_eq!(cache.incr("ctr", 4, None).await, 5);
+        assert_eq!(cache.incr("ctr", 1, None).await, Ok(1));
+        assert_eq!(cache.incr("ctr", 4, None).await, Ok(5));
         cache.delete("ctr").await;
     }
 }

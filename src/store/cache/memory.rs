@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use dashmap::DashMap;
 
-use super::{CacheBackend, InvalidationHandler};
+use super::{CacheBackend, CounterError, InvalidationHandler};
 
 struct Entry {
     data: Vec<u8>,
@@ -61,7 +61,12 @@ impl CacheBackend for MemoryCache {
         );
     }
 
-    async fn incr(&self, key: &str, delta: i64, ttl: Option<Duration>) -> i64 {
+    async fn incr(
+        &self,
+        key: &str,
+        delta: i64,
+        ttl: Option<Duration>,
+    ) -> Result<i64, CounterError> {
         let mut entry = self.map.entry(key.to_string()).or_insert_with(|| Entry {
             data: b"0".to_vec(),
             expires_at: Self::deadline(ttl),
@@ -76,7 +81,7 @@ impl CacheBackend for MemoryCache {
             .unwrap_or(0);
         let next = current + delta;
         entry.data = next.to_string().into_bytes();
-        next
+        Ok(next)
     }
 
     async fn delete(&self, key: &str) {
@@ -105,8 +110,8 @@ mod tests {
     #[tokio::test]
     async fn incr_accumulates() {
         let cache = MemoryCache::new();
-        assert_eq!(cache.incr("c", 1, None).await, 1);
-        assert_eq!(cache.incr("c", 4, None).await, 5);
+        assert_eq!(cache.incr("c", 1, None).await, Ok(1));
+        assert_eq!(cache.incr("c", 4, None).await, Ok(5));
     }
 
     #[tokio::test]

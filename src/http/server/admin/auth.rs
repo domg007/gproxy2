@@ -75,9 +75,9 @@ pub async fn login(State(state): State<AppState>, request: Request) -> Response 
             ([(SET_COOKIE, cookie)], Json(body)).into_response()
         }
         None => {
-            cache.incr(&user_key, 1, Some(LOGIN_WINDOW)).await;
+            let _ = cache.incr(&user_key, 1, Some(LOGIN_WINDOW)).await;
             if let Some(k) = &ip_key {
-                cache.incr(k, 1, Some(LOGIN_WINDOW)).await;
+                let _ = cache.incr(k, 1, Some(LOGIN_WINDOW)).await;
             }
             // Never log the password — only the attempted username.
             record_audit(
@@ -122,9 +122,15 @@ async fn verify_admin(state: &AppState, req: &LoginRequest) -> Option<User> {
 }
 
 /// `true` if `key`'s failure count is at/over the cap. `incr` by 0 reads the
-/// current value (creating it at 0 with the window TTL when absent).
+/// current value (creating it at 0 with the window TTL when absent). A counter
+/// backend failure throttles too (fail-closed): a cache outage must not switch
+/// brute-force protection off — and with the cache down, sessions can't be
+/// issued anyway, so login is already unavailable.
 async fn over_limit(cache: &dyn CacheBackend, key: &str) -> bool {
-    cache.incr(key, 0, Some(LOGIN_WINDOW)).await >= MAX_LOGIN_FAILS
+    match cache.incr(key, 0, Some(LOGIN_WINDOW)).await {
+        Ok(n) => n >= MAX_LOGIN_FAILS,
+        Err(_) => true,
+    }
 }
 
 async fn over_limit_opt(cache: &dyn CacheBackend, key: Option<&str>) -> bool {

@@ -59,7 +59,9 @@ pub fn check_permission(
 
 /// user → team → org; first exceeded rule wins. Incr-then-check: the
 /// rejected request is still counted (cheap, deterministic — no read-modify-
-/// write race, at the cost of rejected requests consuming budget).
+/// write race, at the cost of rejected requests consuming budget). A counter
+/// backend failure refuses the request (fail-closed) — enforced limits must
+/// not silently vanish with the cache.
 pub async fn precheck_limits(
     cp: &ControlPlaneSnapshot,
     cache: &dyn CacheBackend,
@@ -77,7 +79,10 @@ pub async fn precheck_limits(
         {
             if let Some(limit) = row.rpm {
                 let key = format!("rl:{}:m{}", row.id, now_unix / MINUTE);
-                let count = cache.incr(&key, 1, Some(Duration::from_secs(120))).await;
+                let count = cache
+                    .incr(&key, 1, Some(Duration::from_secs(120)))
+                    .await
+                    .map_err(|_| PipelineError::CounterUnavailable)?;
                 if count > limit {
                     return Err(PipelineError::RateLimited {
                         retry_after_secs: (MINUTE - now_unix % MINUTE) as u64,
@@ -88,7 +93,8 @@ pub async fn precheck_limits(
                 let key = format!("rl:{}:d{}", row.id, now_unix / DAY);
                 let count = cache
                     .incr(&key, 1, Some(Duration::from_secs(48 * 3600)))
-                    .await;
+                    .await
+                    .map_err(|_| PipelineError::CounterUnavailable)?;
                 if count > limit {
                     return Err(PipelineError::RateLimited {
                         retry_after_secs: (DAY - now_unix % DAY) as u64,
@@ -102,7 +108,8 @@ pub async fn precheck_limits(
                 let key = format!("rlt:{}:d{}", row.id, now_unix / DAY);
                 let count = cache
                     .incr(&key, 0, Some(Duration::from_secs(48 * 3600)))
-                    .await;
+                    .await
+                    .map_err(|_| PipelineError::CounterUnavailable)?;
                 if count > limit {
                     return Err(PipelineError::RateLimited {
                         retry_after_secs: (DAY - now_unix % DAY) as u64,
@@ -132,7 +139,12 @@ pub async fn precheck_quota(
 ) -> Result<(), PipelineError> {
     for (scope, scope_id) in scopes(identity) {
         if let Some(quota) = cp.quotas_by_scope.get(&(scope, scope_id)) {
-            let in_flight = pending::read(cache, scope, scope_id).await.max(0);
+            // In-flight pending unreadable → the quota can't be checked →
+            // refuse (fail-closed), consistent with precheck_limits.
+            let in_flight = pending::read(cache, scope, scope_id)
+                .await
+                .map_err(|_| PipelineError::CounterUnavailable)?
+                .max(0);
             let exhausted =
                 quota.cost_used + pending::micros_to_cost(in_flight) >= quota.quota_total;
             let overshoots = quota.cost_used
@@ -197,7 +209,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::store::cache::MemoryCache;
+    use crate::store::cache::{CounterError, InvalidationHandler, MemoryCache};
     use crate::store::persistence::records::{Org, Quota, RateLimit, User, UserKey};
 
     fn test_identity() -> KeyIdentity {
@@ -343,5 +355,69 @@ mod tests {
             }
             other => panic!("expected RateLimited, got {other:?}"),
         }
+    }
+
+    /// A cache whose counters always fail — models a Redis/Turso outage.
+    struct DownCache;
+
+    #[async_trait::async_trait]
+    impl CacheBackend for DownCache {
+        async fn get(&self, _key: &str) -> Option<Vec<u8>> {
+            None
+        }
+        async fn set(&self, _key: &str, _value: Vec<u8>, _ttl: Option<Duration>) {}
+        async fn incr(
+            &self,
+            _key: &str,
+            _delta: i64,
+            _ttl: Option<Duration>,
+        ) -> Result<i64, CounterError> {
+            Err(CounterError)
+        }
+        async fn delete(&self, _key: &str) {}
+        async fn publish(&self, _channel: &str, _payload: &[u8]) {}
+        async fn subscribe(&self, _channel: &str, _handler: InvalidationHandler) {}
+    }
+
+    /// Regression: a counter-backend outage used to read as count 0 (fail-open),
+    /// silently disabling configured rate limits and quotas. It must refuse.
+    #[tokio::test]
+    async fn counter_outage_fails_closed() {
+        let identity = test_identity();
+        let mut cp = ControlPlaneSnapshot::empty(1);
+        cp.rate_limits_by_scope.insert(
+            (Scope::User, 1),
+            Arc::new(vec![RateLimit {
+                id: 7,
+                scope: Scope::User,
+                scope_id: 1,
+                route_pattern: "*".into(),
+                rpm: Some(100),
+                rpd: None,
+                total_tokens: None,
+                created_at: 0,
+                updated_at: 0,
+            }]),
+        );
+        cp.quotas_by_scope.insert(
+            (Scope::User, 1),
+            Arc::new(Quota {
+                id: 1,
+                scope: Scope::User,
+                scope_id: 1,
+                quota_total: "10".parse().unwrap(),
+                cost_used: "0".parse().unwrap(),
+                created_at: 0,
+                updated_at: 0,
+            }),
+        );
+        assert!(matches!(
+            precheck_limits(&cp, &DownCache, &identity, "claude-main", 0).await,
+            Err(PipelineError::CounterUnavailable)
+        ));
+        assert!(matches!(
+            precheck_quota(&cp, &DownCache, &identity, 0).await,
+            Err(PipelineError::CounterUnavailable)
+        ));
     }
 }
