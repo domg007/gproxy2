@@ -20,11 +20,9 @@ use crate::pipeline::error::PipelineError;
 pub fn extract_bearer(headers: &HeaderMap, query: Option<&str>) -> Option<String> {
     if let Some(v) = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         let v = v.trim();
-        if let Some(rest) = v
-            .strip_prefix("Bearer ")
-            .or_else(|| v.strip_prefix("bearer "))
-        {
-            let rest = rest.trim();
+        // RFC 9110: the auth-scheme is case-insensitive (`BEARER`, `bearer`, …).
+        if v.len() > 7 && v[..7].eq_ignore_ascii_case("bearer ") {
+            let rest = v[7..].trim();
             if !rest.is_empty() {
                 return Some(rest.to_string());
             }
@@ -90,6 +88,11 @@ mod tests {
     fn accepts_four_inbound_forms() {
         assert_eq!(
             extract_bearer(&headers(&[("authorization", "Bearer abc")]), None).as_deref(),
+            Some("abc")
+        );
+        // Scheme is case-insensitive (RFC 9110).
+        assert_eq!(
+            extract_bearer(&headers(&[("authorization", "BEARER abc")]), None).as_deref(),
             Some("abc")
         );
         assert_eq!(
