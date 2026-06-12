@@ -1,7 +1,8 @@
-//! Three-level authz (§8-C): permission union, rate-limit precheck, quota
-//! precheck — org → team → user, inserted after route resolution and before
-//! balance. Counters live in the cache (redis-direct in multi-instance);
-//! nothing here reads persistence on the hot path.
+//! Three-level authz (§8-C): permission union and rate-limit precheck run
+//! org → team → user after route resolution and before balance; the
+//! estimate-aware quota precheck runs separately in `execute`, once the §17
+//! pre-deduct estimate is known. Counters live in the cache (redis-direct in
+//! multi-instance); nothing here reads persistence on the hot path.
 
 use std::time::Duration;
 
@@ -113,18 +114,31 @@ pub async fn precheck_limits(
     Ok(())
 }
 
-/// All scope quotas must satisfy persisted `cost_used` + in-flight pending
-/// (the M6 §17 pre-deduct, read from `qp:*`) < `quota_total`. Negative
-/// pending (stray refunds) never grants extra budget.
+/// §17 quota admission, estimate-aware. Every scope quota must satisfy BOTH:
+/// persisted `cost_used` + in-flight pending (the §17 pre-deduct, read from
+/// `qp:*`) < `quota_total` (the plain exhaustion check — all `est_micros == 0`
+/// reduces to exactly this), AND the request's own estimate must still fit:
+/// `cost_used` + cost(in-flight + est) <= `quota_total` (an estimate that
+/// exactly fits is admitted). The estimate is summed with the in-flight
+/// micros BEFORE the `micros_to_cost` conversion — that sum is precisely what
+/// the `qp:*` counter holds after `pending::charge`, so admission, settle and
+/// refund all reconcile against the same number. Negative pending (stray
+/// refunds) never grants extra budget.
 pub async fn precheck_quota(
     cp: &ControlPlaneSnapshot,
     cache: &dyn CacheBackend,
     identity: &KeyIdentity,
+    est_micros: i64,
 ) -> Result<(), PipelineError> {
     for (scope, scope_id) in scopes(identity) {
         if let Some(quota) = cp.quotas_by_scope.get(&(scope, scope_id)) {
             let in_flight = pending::read(cache, scope, scope_id).await.max(0);
-            if quota.cost_used + pending::micros_to_cost(in_flight) >= quota.quota_total {
+            let exhausted =
+                quota.cost_used + pending::micros_to_cost(in_flight) >= quota.quota_total;
+            let overshoots = quota.cost_used
+                + pending::micros_to_cost(in_flight + est_micros.max(0))
+                > quota.quota_total;
+            if exhausted || overshoots {
                 return Err(PipelineError::QuotaExceeded);
             }
         }
@@ -163,7 +177,10 @@ pub fn permitted(cp: &ControlPlaneSnapshot, identity: &KeyIdentity, name: &str) 
     check_permission(cp, identity, name).is_ok()
 }
 
-/// The single pipeline entry point: permission → limits → quota.
+/// The pipeline entry point for permission → limits. Quota is NOT checked
+/// here: the estimate-aware [`precheck_quota`] runs once at the common point
+/// in [`execute`](crate::pipeline::execute), after the §17 pre-deduct
+/// estimate is known and before `pending::charge`.
 pub async fn authorize(
     cp: &ControlPlaneSnapshot,
     cache: &dyn CacheBackend,
@@ -172,8 +189,7 @@ pub async fn authorize(
     now_unix: i64,
 ) -> Result<(), PipelineError> {
     check_permission(cp, identity, name)?;
-    precheck_limits(cp, cache, identity, name, now_unix).await?;
-    precheck_quota(cp, cache, identity).await
+    precheck_limits(cp, cache, identity, name, now_unix).await
 }
 
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "cache-memory"))]
@@ -182,7 +198,7 @@ mod tests {
 
     use super::*;
     use crate::store::cache::MemoryCache;
-    use crate::store::persistence::records::{Org, RateLimit, User, UserKey};
+    use crate::store::persistence::records::{Org, Quota, RateLimit, User, UserKey};
 
     fn test_identity() -> KeyIdentity {
         KeyIdentity {
@@ -259,6 +275,41 @@ mod tests {
             check_permission(&cp, &identity, "claude-main"),
             Err(PipelineError::Forbidden)
         ));
+    }
+
+    #[tokio::test]
+    async fn quota_admission_is_estimate_aware() {
+        let identity = test_identity();
+        let mut cp = ControlPlaneSnapshot::empty(1);
+        // $10 total, $9 used → $1.00 (= 1_000_000 micro-dollars) remaining.
+        cp.quotas_by_scope.insert(
+            (Scope::User, 1),
+            Arc::new(Quota {
+                id: 1,
+                scope: Scope::User,
+                scope_id: 1,
+                quota_total: "10".parse().unwrap(),
+                cost_used: "9".parse().unwrap(),
+                created_at: 0,
+                updated_at: 0,
+            }),
+        );
+        let cache = MemoryCache::new();
+
+        // An estimate that exactly fits the remainder is admitted.
+        assert!(
+            precheck_quota(&cp, &cache, &identity, 1_000_000)
+                .await
+                .is_ok()
+        );
+        // Regression: an estimate over the remainder is rejected up front
+        // (previously admitted and blew through the quota).
+        assert!(matches!(
+            precheck_quota(&cp, &cache, &identity, 1_000_001).await,
+            Err(PipelineError::QuotaExceeded)
+        ));
+        // est = 0 reduces to the plain exhaustion check: remaining > 0 admits.
+        assert!(precheck_quota(&cp, &cache, &identity, 0).await.is_ok());
     }
 
     #[tokio::test]

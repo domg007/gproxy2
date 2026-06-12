@@ -65,13 +65,14 @@ async fn run(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, Pipel
         return aggregated_models(&cp, &ctx);
     }
 
-    // resolve candidates per routing mode, with authz (§8-C) on the canonical
-    // name BEFORE any candidate is built. The snapshot guard `cp` is held
-    // across authorize's await AND balance::candidates' await (sticky-pin
-    // cache get/set) — both are sub-millisecond cache ops, not the upstream
-    // call the M2 invariant guards against. Each arm also yields the §17
-    // pre-deduct estimate (computed here, where `cp` and the resolved
-    // route/provider are alive — authorize stays estimate-agnostic).
+    // resolve candidates per routing mode, with authz (§8-C permission +
+    // limits) on the canonical name BEFORE any candidate is built. The
+    // snapshot guard `cp` is held across authorize's await AND
+    // balance::candidates' await (sticky-pin cache get/set) — both are
+    // sub-millisecond cache ops, not the upstream call the M2 invariant
+    // guards against. Each arm also yields the §17 pre-deduct estimate
+    // (computed here, where `cp` and the resolved route/provider are alive);
+    // the estimate-aware quota gate runs once, below, at the common point.
     let (candidates, est_micros) = match &ctx.mode {
         RoutingMode::Aggregated => {
             let route_name = preprocess::preprocess(&cp, &ctx)?;
@@ -122,11 +123,17 @@ async fn run(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, Pipel
         }
     };
 
-    // §17 pre-deduct: precheck_quota passed above — charge the estimate to
-    // every quota-bearing scope now, before any upstream byte. Settle refunds
+    // §17 quota admission — the single quota gate on the request path: the
+    // estimate must fit every quota-bearing scope's remaining budget. Runs
+    // before pending::charge and before any upstream byte (the first one is
+    // sent inside failover::run_failover).
+    let identity = ctx.identity.as_ref().expect("auth ran first");
+    authz::precheck_quota(&cp, state.cache.as_ref(), identity, est_micros).await?;
+
+    // §17 pre-deduct: admission passed — charge the estimate to every
+    // quota-bearing scope now, before any upstream byte. Settle refunds
     // the exact amount; the error path below refunds when nothing settles.
     let quota_scopes = if est_micros > 0 {
-        let identity = ctx.identity.as_ref().expect("auth ran first");
         authz::quota_scopes(&cp, identity)
     } else {
         Vec::new()
