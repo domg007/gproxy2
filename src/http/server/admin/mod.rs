@@ -9,11 +9,73 @@ pub mod login;
 pub mod middleware;
 pub mod usage;
 
+use std::net::IpAddr;
+
 use axum::Router;
 use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
 
 use crate::app::AppState;
+
+/// Resolve the client IP for login throttling and audit logs, anchored on the
+/// socket peer (`ConnectInfo`, wired in `main`; `None` only under in-process
+/// test routers).
+///
+/// Forwarding headers are honored ONLY when the peer is a trusted proxy —
+/// loopback always, plus the `--trusted-proxy` list: `x-forwarded-for` is
+/// walked right-to-left past other trusted proxies and the first untrusted
+/// hop is the client (earlier hops are client-supplied and forgeable);
+/// `x-real-ip` is the fallback, then the peer itself. An UNTRUSTED peer IS
+/// the client — its forwarding headers are ignored outright.
+pub(crate) fn client_ip(
+    headers: &axum::http::HeaderMap,
+    peer: Option<IpAddr>,
+    trusted_proxies: &[IpAddr],
+) -> Option<String> {
+    let is_trusted = |ip: &IpAddr| ip.is_loopback() || trusted_proxies.contains(ip);
+    if let Some(p) = peer
+        && !is_trusted(&p)
+    {
+        return Some(p.to_string());
+    }
+
+    // Trusted peer (or unknown — test-only): walk XFF from the rightmost hop,
+    // skipping trusted proxies; the first untrusted entry is the client.
+    let xff_client = headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .find(|s| match s.parse::<IpAddr>() {
+            Ok(ip) => !is_trusted(&ip),
+            Err(_) => true, // non-IP entry: client-supplied, can't be a trusted proxy
+        })
+        .map(str::to_owned);
+
+    xff_client
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|h| h.to_str().ok())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+        .or_else(|| peer.map(|p| p.to_string()))
+}
+
+/// The socket peer IP from the `ConnectInfo` extension (absent only under
+/// in-process test routers, which don't go through `serve`).
+pub(crate) fn peer_ip(extensions: &axum::http::Extensions) -> Option<IpAddr> {
+    extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
+}
 
 /// Build the `/admin/*` subrouter. Returns a `Router<AppState>` (state is
 /// applied by the caller's `.with_state`); `state` is threaded into the
@@ -55,6 +117,58 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         .route("/admin/login", post(auth::login))
         .route("/admin/logout", post(auth::logout))
         .merge(protected)
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::client_ip;
+    use axum::http::HeaderMap;
+
+    fn headers(xff: Option<&str>, real: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(v) = xff {
+            h.insert("x-forwarded-for", v.parse().unwrap());
+        }
+        if let Some(v) = real {
+            h.insert("x-real-ip", v.parse().unwrap());
+        }
+        h
+    }
+
+    /// Regression: forwarding headers used to be honored unconditionally (an
+    /// attacker rotating fake first-hop IPs sidestepped the per-IP throttle).
+    /// Now the socket peer anchors trust.
+    #[test]
+    fn untrusted_peer_headers_ignored() {
+        let h = headers(Some("6.6.6.6"), Some("7.7.7.7"));
+        let peer = Some("203.0.113.9".parse().unwrap());
+        assert_eq!(client_ip(&h, peer, &[]).as_deref(), Some("203.0.113.9"));
+    }
+
+    #[test]
+    fn trusted_peer_takes_first_untrusted_xff_hop_from_right() {
+        // client spoofed "1.1.1.1"; our proxy (10.0.0.2, configured trusted)
+        // appended the real client 198.51.100.7; peer is loopback.
+        let h = headers(Some("1.1.1.1, 198.51.100.7, 10.0.0.2"), None);
+        let trusted = ["10.0.0.2".parse().unwrap()];
+        let peer = Some("127.0.0.1".parse().unwrap());
+        assert_eq!(
+            client_ip(&h, peer, &trusted).as_deref(),
+            Some("198.51.100.7")
+        );
+    }
+
+    #[test]
+    fn trusted_peer_no_headers_falls_back_to_peer() {
+        let peer = Some("127.0.0.1".parse().unwrap());
+        assert_eq!(
+            client_ip(&HeaderMap::new(), peer, &[]).as_deref(),
+            Some("127.0.0.1")
+        );
+        // x-real-ip honored when XFF is absent.
+        let h = headers(None, Some("198.51.100.7"));
+        assert_eq!(client_ip(&h, peer, &[]).as_deref(), Some("198.51.100.7"));
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +250,7 @@ mod tests {
             instance_id: 0,
             max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
             max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
+            trusted_proxies: Vec::new(),
         });
         let cache: Arc<dyn crate::store::cache::CacheBackend> =
             Arc::new(crate::store::cache::MemoryCache::new());

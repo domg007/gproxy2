@@ -25,7 +25,11 @@ pub async fn audit(State(state): State<AppState>, req: Request, next: Next) -> R
 
     let action = req.method().as_str().to_owned();
     let target = req.uri().path().to_owned();
-    let source_ip = client_ip(&req);
+    let source_ip = super::client_ip(
+        req.headers(),
+        super::peer_ip(req.extensions()),
+        &state.config.trusted_proxies,
+    );
     let (actor_id, actor_name) = match req.extensions().get::<AdminUser>() {
         Some(u) => (Some(u.id), Some(u.name.clone())),
         None => (None, None),
@@ -51,18 +55,4 @@ pub async fn audit(State(state): State<AppState>, req: Request, next: Next) -> R
     });
 
     resp
-}
-
-/// Client IP from a reverse-proxy header (`x-forwarded-for` first hop, else
-/// `x-real-ip`). gproxy runs behind a proxy, so the socket peer is the proxy.
-fn client_ip(req: &Request) -> Option<String> {
-    let headers = req.headers();
-    headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .or_else(|| headers.get("x-real-ip").and_then(|h| h.to_str().ok()))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
 }

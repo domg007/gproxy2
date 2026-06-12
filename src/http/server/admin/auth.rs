@@ -2,8 +2,7 @@
 
 use std::time::Duration;
 
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{FromRequest, Request, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
@@ -15,6 +14,8 @@ use crate::app::AppState;
 use crate::store::cache::CacheBackend;
 use crate::store::persistence::records::{AuditLogInput, User};
 
+use super::{client_ip, peer_ip};
+
 /// Max consecutive failed logins per account / per source IP before lockout.
 const MAX_LOGIN_FAILS: i64 = 5;
 /// Sliding window the failure count (and lockout) lives in.
@@ -25,15 +26,19 @@ const LOGIN_WINDOW: Duration = Duration::from_secs(60);
 /// Brute-force throttled (§ admin hardening): after [`MAX_LOGIN_FAILS`] failures
 /// in [`LOGIN_WINDOW`] for an account OR a source IP, further attempts get 429
 /// until the window passes; a success resets both counters. Every failure path
-/// returns a generic 401 — no user enumeration.
-pub async fn login(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(req): Json<LoginRequest>,
-) -> Response {
+/// returns a generic 401 — no user enumeration. Takes the raw `Request` so the
+/// `ConnectInfo` peer is available to the trusted-proxy client-IP resolution.
+pub async fn login(State(state): State<AppState>, request: Request) -> Response {
+    let peer = peer_ip(request.extensions());
+    let source_ip = client_ip(request.headers(), peer, &state.config.trusted_proxies);
+    let Json(req) = match Json::<LoginRequest>::from_request(request, &()).await {
+        Ok(json) => json,
+        Err(e) => return e.into_response(),
+    };
+
     let cache = state.cache.as_ref();
     let user_key = format!("loginfail:user:{}", req.username);
-    let ip_key = client_ip(&headers).map(|ip| format!("loginfail:ip:{ip}"));
+    let ip_key = source_ip.as_ref().map(|ip| format!("loginfail:ip:{ip}"));
 
     // Throttle BEFORE the (deliberately slow) argon2 verify, so a locked-out
     // attacker can't even drive CPU.
@@ -56,7 +61,7 @@ pub async fn login(
                     action: "login.success".into(),
                     target: req.username.clone(),
                     status: 200,
-                    source_ip: client_ip(&headers),
+                    source_ip,
                 },
             );
             let body = LoginResponse {
@@ -83,7 +88,7 @@ pub async fn login(
                     action: "login.fail".into(),
                     target: req.username.clone(),
                     status: 401,
-                    source_ip: client_ip(&headers),
+                    source_ip,
                 },
             );
             ApiError::Unauthorized.into_response()
@@ -127,19 +132,6 @@ async fn over_limit_opt(cache: &dyn CacheBackend, key: Option<&str>) -> bool {
         Some(k) => over_limit(cache, k).await,
         None => false,
     }
-}
-
-/// Client IP from a reverse-proxy header (`x-forwarded-for` first hop, else
-/// `x-real-ip`). gproxy runs behind a proxy, so the socket peer is the proxy.
-fn client_ip(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .or_else(|| headers.get("x-real-ip").and_then(|h| h.to_str().ok()))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
 }
 
 /// 429 with a `Retry-After` matching the lockout window.

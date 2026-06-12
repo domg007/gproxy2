@@ -91,6 +91,7 @@ mod tests {
             instance_id: 0,
             max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
             max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
+            trusted_proxies: Vec::new(),
         });
         let cache: Arc<dyn CacheBackend> = Arc::new(MemoryCache::new());
         let snapshot = Arc::new(ArcSwap::from_pointee(ControlPlaneSnapshot::empty(1)));

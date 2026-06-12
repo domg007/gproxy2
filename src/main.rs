@@ -61,6 +61,16 @@ struct Cli {
     #[arg(long, env = "GPROXY_MAX_IN_FLIGHT", default_value_t = gproxy::config::DEFAULT_MAX_IN_FLIGHT)]
     max_in_flight: usize,
 
+    /// Reverse proxies (IPs, repeatable / comma-separated) whose forwarding
+    /// headers are trusted for client-IP resolution, in addition to loopback.
+    /// Connections from any other peer have x-forwarded-for / x-real-ip ignored.
+    #[arg(
+        long = "trusted-proxy",
+        env = "GPROXY_TRUSTED_PROXIES",
+        value_delimiter = ','
+    )]
+    trusted_proxies: Vec<std::net::IpAddr>,
+
     /// Admin username for the first-boot bootstrap / credential override (§14.2).
     #[arg(long, env = "GPROXY_ADMIN_USER", default_value = "admin")]
     admin_user: String,
@@ -157,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
         instance_id: cli.instance_id,
         max_attempts: cli.max_attempts,
         max_in_flight: cli.max_in_flight,
+        trusted_proxies: cli.trusted_proxies,
     });
 
     let bind = config.bind_addr()?;
@@ -327,9 +338,14 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!("gproxy v2 listening on http://{bind}");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // ConnectInfo carries the socket peer into handlers — the anchor the
+    // trusted-proxy client-IP resolution verifies forwarding headers against.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 

@@ -139,6 +139,11 @@ pub struct RuntimeConfig {
     /// before load-shedding to 503. Bounds memory/latency under a traffic spike
     /// or a slow upstream. Default [`DEFAULT_MAX_IN_FLIGHT`].
     pub max_in_flight: usize,
+    /// Reverse proxies whose forwarding headers (`x-forwarded-for` /
+    /// `x-real-ip`) are honored for client-IP resolution, in ADDITION to
+    /// loopback (always trusted). A connection from any other peer has its
+    /// forwarding headers ignored — the peer IS the client.
+    pub trusted_proxies: Vec<std::net::IpAddr>,
 }
 
 /// Default per-request failover attempt cap (`GPROXY_MAX_ATTEMPTS`).
@@ -177,6 +182,7 @@ mod tests {
             instance_id: 0,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+            trusted_proxies: Vec::new(),
         }
     }
 
