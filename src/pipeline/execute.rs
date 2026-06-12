@@ -12,7 +12,9 @@ use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
 use crate::pipeline::outcome::ExecOutcome;
-use crate::pipeline::{auth, authz, balance, classify, failover, ingress, preprocess, route};
+use crate::pipeline::{
+    auth, authz, balance, capture, classify, failover, ingress, preprocess, route,
+};
 use crate::protocol::Operation;
 use crate::util::time::unix_now;
 
@@ -28,7 +30,19 @@ pub async fn execute(state: &AppState, ctx: RequestCtx) -> Result<ExecOutcome, P
         route = tracing::field::Empty,
         provider = tracing::field::Empty,
     );
-    run(state, ctx).instrument(span).await
+    // §8-D downstream capture: snapshot the inbound wire facts BEFORE run()
+    // (the ingress blacklist strips client creds in place); the row is written
+    // below once the final status is known. None when the toggle is off.
+    let downstream = capture::downstream_precapture(state, &ctx);
+    let result = run(state, ctx).instrument(span).await;
+    if let Some(cap) = downstream {
+        let status = match &result {
+            Ok(o) => o.status,
+            Err(e) => e.status(),
+        };
+        capture::log_downstream(state, cap, status).await;
+    }
+    result
 }
 
 /// Inner orchestrator (§6.3). Sequences the already-separated steps for both

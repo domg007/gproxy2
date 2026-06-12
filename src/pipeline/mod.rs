@@ -4,6 +4,7 @@
 pub mod auth;
 pub mod authz;
 pub mod balance;
+pub mod capture;
 pub mod classify;
 pub mod context;
 pub mod error;

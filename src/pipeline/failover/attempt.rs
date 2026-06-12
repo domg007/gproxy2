@@ -44,6 +44,9 @@ pub(super) struct AttemptOutcome {
     pub(super) sent_body: Bytes,
     /// Wire method (audit rows).
     pub(super) method: Method,
+    /// Upstream request headers actually sent — captured only when the
+    /// upstream-log toggle is on (§8-D), `None` otherwise.
+    pub(super) sent_headers: Option<HeaderMap>,
 }
 
 /// Run ONE upstream attempt for `cand` with `secret`: build the request parts,
@@ -93,6 +96,13 @@ pub(super) async fn attempt(
     let sent_body = prepared.request.body().clone();
     let sent_url = prepared.request.uri().to_string();
     let method = parts.method.clone();
+    // §8-D upstream capture: clone the prepared headers only when the toggle
+    // is on (redaction happens at write time in `capture`).
+    let sent_headers = state
+        .cp()
+        .log_settings
+        .enable_upstream_log
+        .then(|| prepared.request.headers().clone());
 
     // §7.4 effective (proxy, fingerprint) per attempt → pooled client; an
     // unusable target config (malformed proxy URL, fingerprint yielding no
@@ -181,6 +191,7 @@ pub(super) async fn attempt(
         sent_url,
         sent_body,
         method,
+        sent_headers,
     })
 }
 

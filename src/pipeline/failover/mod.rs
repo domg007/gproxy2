@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use crate::app::AppState;
 use crate::channel::Disposition;
+use crate::pipeline::capture;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::health_hooks;
@@ -234,19 +235,32 @@ pub async fn run_failover(
                 sent_body,
                 disposition,
                 send_ms,
-                ..
+                sent_url,
+                method,
+                sent_headers,
             } = outcome;
+            let latency_ms = send_ms.map(|ms| ms as i64).unwrap_or(0);
+            // §8-D upstream capture: the attempt actually returned to the
+            // client (success or relayed permanent 4xx). Failed-over attempts
+            // were audited above; gating happens inside `capture`.
+            capture::log_upstream(
+                state,
+                ctx,
+                cand,
+                capture::UpstreamWire {
+                    status,
+                    latency_ms,
+                    url: &sent_url,
+                    method: &method,
+                    sent_headers: sent_headers.as_ref(),
+                    sent_body: &sent_body,
+                },
+            )
+            .await;
             let settle_ctx = status
                 .is_success()
                 .then(|| {
-                    settle::SettleCtx::capture(
-                        state,
-                        ctx,
-                        cand,
-                        &channel,
-                        sent_body,
-                        send_ms.map(|ms| ms as i64).unwrap_or(0),
-                    )
+                    settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body, latency_ms)
                 })
                 .flatten();
             let body = materialize(&channel, source, &plan, ctx, status)?;

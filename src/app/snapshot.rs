@@ -50,8 +50,37 @@ pub struct ControlPlaneSnapshot {
     pub rate_limits_by_scope: HashMap<(Scope, i64), Arc<Vec<RateLimit>>>,
     /// (scope, scope_id) → quota row.
     pub quotas_by_scope: HashMap<(Scope, i64), Arc<Quota>>,
+    /// Instance usage/log toggles (§8-E), snapshot-resident so the hot path
+    /// reads them without a DB hit; hot-reloaded via §7.2 invalidation.
+    pub log_settings: LogSettings,
     /// Bumped on each rebuild.
     pub version: u64,
+}
+
+/// Hot-path view of the `instance_settings` usage/log flags (§8-E, §14.3).
+/// [`Default`] applies when no settings row exists: usage recording ON,
+/// request capture OFF, redaction ON.
+#[derive(Debug, Clone)]
+pub struct LogSettings {
+    pub enable_usage: bool,
+    pub enable_upstream_log: bool,
+    pub enable_upstream_log_body: bool,
+    pub enable_downstream_log: bool,
+    pub enable_downstream_log_body: bool,
+    pub disable_log_redaction: bool,
+}
+
+impl Default for LogSettings {
+    fn default() -> Self {
+        Self {
+            enable_usage: true,
+            enable_upstream_log: false,
+            enable_upstream_log_body: false,
+            enable_downstream_log: false,
+            enable_downstream_log_body: false,
+            disable_log_redaction: false,
+        }
+    }
 }
 
 /// A route plus its members, pre-sorted by `(tier asc, weight desc)`.
@@ -86,6 +115,7 @@ impl ControlPlaneSnapshot {
             permissions_by_scope: HashMap::new(),
             rate_limits_by_scope: HashMap::new(),
             quotas_by_scope: HashMap::new(),
+            log_settings: LogSettings::default(),
             version,
         }
     }
@@ -197,6 +227,19 @@ impl ControlPlaneSnapshot {
         }
 
         load_authz(db, &mut snap, &user_ids).await?;
+
+        // Instance usage/log toggles — single row in practice; `.first()`
+        // mirrors the tokenizer-download seeding in main.
+        if let Some(s) = db.list_instance_settings().await?.first() {
+            snap.log_settings = LogSettings {
+                enable_usage: s.enable_usage,
+                enable_upstream_log: s.enable_upstream_log,
+                enable_upstream_log_body: s.enable_upstream_log_body,
+                enable_downstream_log: s.enable_downstream_log,
+                enable_downstream_log_body: s.enable_downstream_log_body,
+                disable_log_redaction: s.disable_log_redaction,
+            };
+        }
 
         Ok(snap)
     }

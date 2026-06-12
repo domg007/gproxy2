@@ -318,6 +318,11 @@ async fn record(ctx: &SettleCtx, usage: NormalizedUsage, source: UsageSource, en
     // the usage row may be idempotently skipped, but the settle path runs
     // exactly once per request (StreamGuard / inline), so this never doubles.
     reconcile::reconcile(ctx, &usage, cost).await;
+    // §8-E: `enable_usage` gates the RECORDING only — reconcile above is
+    // billing correctness (pending refund / quota feed) and always runs.
+    if !ctx.state.cp().log_settings.enable_usage {
+        return;
+    }
     let rec = UsageRecord {
         request_id: &ctx.request_id,
         at: ctx.at,
@@ -352,8 +357,12 @@ pub struct FailedAttempt<'a> {
 }
 
 /// Audit one failed failover attempt (`upstream_requests`, never billed).
-/// Fire-and-forget on native; skipped on wasm (no detached tasks).
+/// Gated by `enable_upstream_log` (§8-D/§8-E). Fire-and-forget on native;
+/// skipped on wasm (no detached tasks).
 pub fn audit_failure(state: &AppState, request_id: &str, cand: &Candidate, a: FailedAttempt<'_>) {
+    if !state.cp().log_settings.enable_upstream_log {
+        return;
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let persistence = Arc::clone(&state.persistence);

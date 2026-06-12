@@ -104,7 +104,11 @@ pub(crate) async fn settle(state: &AppState, ctx: &RequestCtx, cand: &Candidate,
         source: UsageSource::Upstream,
         ended: Ended::Complete,
     };
-    if let Err(e) = billing::record_success(state.persistence.as_ref(), rec).await {
+    // §8-E: `enable_usage` gates the usage row only — the reconcile below
+    // (pending refund + quota cost) is billing correctness and always runs.
+    if state.cp().log_settings.enable_usage
+        && let Err(e) = billing::record_success(state.persistence.as_ref(), rec).await
+    {
         tracing::warn!(request_id = %ctx.request_id, error = %e, "embedding/image settle write failed");
     }
     // §17 reconcile, symmetric with the content-generation path: refund the
