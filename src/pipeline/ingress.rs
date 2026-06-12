@@ -8,7 +8,7 @@
 
 use http::HeaderMap;
 
-use crate::channel::http_util::HOP_BY_HOP;
+use crate::channel::http_util::{HOP_BY_HOP, connection_nominated};
 use crate::pipeline::context::RequestCtx;
 
 /// Inbound headers globally denied upstream regardless of channel. A hard floor
@@ -43,11 +43,14 @@ const DENIED_QUERY: &[&str] = &["key"];
 
 /// Apply the global blacklist to the request in place (Part 1). MUST run after
 /// authentication (which reads the credential headers/params) and before the
-/// channel's `prepare`.
+/// channel's `prepare`. Headers the caller's `Connection:` nominates are
+/// hop-by-hop too (RFC 7230 §6.1) and dropped alongside the fixed set.
 pub fn apply_global_blacklist(ctx: &mut RequestCtx) {
+    let nominated = connection_nominated(&ctx.headers);
     let mut headers = HeaderMap::with_capacity(ctx.headers.len());
     for (name, value) in ctx.headers.iter() {
-        if !is_denied_header(name.as_str()) {
+        let n = name.as_str();
+        if !is_denied_header(n) && !nominated.iter().any(|t| t == n) {
             headers.append(name.clone(), value.clone());
         }
     }

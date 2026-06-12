@@ -9,9 +9,8 @@ use crate::channel::ChannelError;
 
 /// Hop-by-hop headers (RFC 7230 §6.1) — stripped from the upstream RESPONSE
 /// before relaying it to the client (egress), and reused by the pipeline's
-/// global inbound blacklist ([`crate::pipeline::ingress`]).
-///
-/// TODO: fixed list; does not yet honor `Connection:`-token semantics.
+/// global inbound blacklist ([`crate::pipeline::ingress`]). Headers nominated
+/// by a `Connection:` value are hop-by-hop too — see [`connection_nominated`].
 pub(crate) const HOP_BY_HOP: &[&str] = &[
     "connection",
     "keep-alive",
@@ -23,6 +22,19 @@ pub(crate) const HOP_BY_HOP: &[&str] = &[
     "upgrade",
     "content-length",
 ];
+
+/// Lowercased header names nominated as hop-by-hop by `Connection:` values
+/// (RFC 7230 §6.1) — they must be stripped alongside the fixed [`HOP_BY_HOP`]
+/// set, on both the response egress and the inbound global blacklist.
+pub(crate) fn connection_nominated(src: &HeaderMap) -> Vec<String> {
+    src.get_all(http::header::CONNECTION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
 
 /// Universal inbound headers forwarded upstream by every channel. Channels add
 /// their own protocol headers via `Channel::forward_headers` — the allow-list is
@@ -65,13 +77,16 @@ pub fn allow_query(query: Option<&str>, allowed: &[&str]) -> Option<String> {
     }
 }
 
-/// Drop hop-by-hop headers from an upstream response before relaying to the
-/// client (egress). Keeps everything else (content-type, rate-limit headers,
-/// etc.) — an allow-list here would discard useful provider headers.
+/// Drop hop-by-hop headers — the fixed set plus any header a `Connection:`
+/// value nominates — from an upstream response before relaying to the client
+/// (egress). Keeps everything else (content-type, rate-limit headers, etc.) —
+/// an allow-list here would discard useful provider headers.
 pub fn sanitize_response_headers(src: &HeaderMap) -> HeaderMap {
+    let nominated = connection_nominated(src);
     let mut out = HeaderMap::with_capacity(src.len());
     for (name, value) in src.iter() {
-        if HOP_BY_HOP.contains(&name.as_str()) {
+        let n = name.as_str();
+        if HOP_BY_HOP.contains(&n) || nominated.iter().any(|t| t == n) {
             continue;
         }
         out.append(name.clone(), value.clone());
@@ -197,5 +212,23 @@ mod tests {
         );
         assert_eq!(allow_query(Some("key=secret"), &["alt"]), None);
         assert_eq!(allow_query(None, &["alt"]), None);
+    }
+
+    /// Regression: only the fixed HOP_BY_HOP list was stripped — a header
+    /// nominated via `Connection: <token>` (RFC 7230 §6.1) leaked through.
+    #[test]
+    fn sanitize_strips_connection_nominated_headers() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            http::header::CONNECTION,
+            "keep-alive, X-Strip-Me".parse().unwrap(),
+        );
+        h.insert("x-strip-me", "v".parse().unwrap());
+        h.insert("x-ratelimit-remaining", "9".parse().unwrap());
+
+        let out = sanitize_response_headers(&h);
+        assert!(out.get(http::header::CONNECTION).is_none());
+        assert!(out.get("x-strip-me").is_none(), "nominated token kept");
+        assert_eq!(out.get("x-ratelimit-remaining").unwrap(), "9");
     }
 }
