@@ -62,6 +62,53 @@ pub(super) async fn exchange(
     Ok(secret)
 }
 
+/// Re-mint a secret from the stored `cookie` (§14.5 M7b): the cookie-only
+/// refresh path for a credential that carries no `refresh_token`. Builds its own
+/// Chrome-emulating client — claude.ai is Cloudflare-fronted and rejects
+/// non-browser TLS, same as the login endpoint — and overlays the freshly minted
+/// token/cookie/account fields onto the existing secret so operator fields the
+/// bootstrap never sets (device_id / user_email …) survive the refresh.
+///
+/// Browser TLS is native-only; non-`upstream-wreq` builds cannot satisfy
+/// Cloudflare and report [`ChannelError::Unsupported`] rather than fail opaquely.
+pub(super) async fn refresh(secret: &Value) -> Result<Value, ChannelError> {
+    let cookie = secret
+        .get("cookie")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ChannelError::InvalidCredential("missing cookie".into()))?;
+    #[cfg(feature = "upstream-wreq")]
+    {
+        let client: Arc<dyn UpstreamClient> = Arc::new(
+            crate::http::client::WreqClient::browser()
+                .map_err(|e| ChannelError::Build(format!("cookie client init: {e}")))?,
+        );
+        let minted = exchange(&client, cookie).await?;
+        Ok(overlay(secret, &minted))
+    }
+    #[cfg(not(feature = "upstream-wreq"))]
+    {
+        let _ = cookie;
+        Err(ChannelError::Unsupported(
+            "cookie refresh requires the browser-TLS (upstream-wreq) build",
+        ))
+    }
+}
+
+/// Overlay the freshly minted bootstrap secret onto the existing one: minted
+/// token/cookie/account fields win; any other field already present (device_id /
+/// user_email …) is preserved.
+fn overlay(old: &Value, minted: &Value) -> Value {
+    let mut out = old.clone();
+    if let (Some(obj), Some(m)) = (out.as_object_mut(), minted.as_object()) {
+        for (k, v) in m {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    out
+}
+
 /// Step 1: GET `/api/bootstrap`, pick the first subscription-capable org uuid.
 async fn discover_org(
     client: &Arc<dyn UpstreamClient>,
@@ -236,4 +283,35 @@ fn query_param(url: &str, key: &str) -> Option<String> {
         let (k, v) = pair.split_once('=')?;
         (k == key).then(|| v.to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn overlay_refreshes_tokens_and_preserves_operator_fields() {
+        // Cookie-only secret pre-refresh, carrying an operator field the
+        // bootstrap never sets.
+        let old = json!({
+            "access_token": "stale",
+            "cookie": "sessionKey-abc",
+            "device_id": "dev-1",
+        });
+        // What the bootstrap mints (fresh tokens + account, same cookie).
+        let minted = json!({
+            "access_token": "fresh",
+            "refresh_token": "rt-new",
+            "expires_at_ms": 42,
+            "cookie": "sessionKey-abc",
+            "account_uuid": "org-9",
+        });
+
+        let out = overlay(&old, &minted);
+        assert_eq!(out["access_token"], "fresh"); // minted wins
+        assert_eq!(out["refresh_token"], "rt-new"); // minted adds it
+        assert_eq!(out["account_uuid"], "org-9");
+        assert_eq!(out["device_id"], "dev-1"); // operator field survives
+    }
 }

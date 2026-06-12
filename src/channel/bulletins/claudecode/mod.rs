@@ -3,7 +3,8 @@
 //!
 //! `target_kind` is `ClaudeMessages`: the request is a verbatim Claude-messages
 //! passthrough — NO envelope, NO stream decoder, NO normalize. [`auth`] owns the
-//! OAuth refresh + header injection (and documents the deferred cookie login).
+//! OAuth refresh + header injection (with a cookie-bootstrap refresh fallback for
+//! credentials that carry only a `cookie`).
 
 mod auth;
 mod cookie;

@@ -194,19 +194,21 @@ pub(super) fn needs_refresh(secret: &Value) -> bool {
 /// `anthropic-version` / `anthropic-beta` / CLI `user-agent` headers, so we send
 /// them explicitly via [`oauth::token_post`].
 ///
-/// Cookie fallback (M7b follow-up): a credential carrying only a `cookie` (no
-/// `refresh_token`) requires the multi-step claude.ai → org-discovery → token
-/// exchange bootstrap. That is deferred — such a credential errors here.
+/// Cookie fallback (§14.5 M7b): a credential carrying only a `cookie` (no
+/// `refresh_token`) is re-minted through the claude.ai → org-discovery → token
+/// exchange bootstrap by [`super::cookie::refresh`] (which builds its own
+/// browser-TLS client for Cloudflare).
 pub(super) async fn refresh(
     client: &Arc<dyn UpstreamClient>,
     secret: &Value,
 ) -> Result<Value, ChannelError> {
     let refresh_token = match secret_str(secret, "refresh_token") {
         Some(rt) => rt,
+        // Cookie-only credential: the bootstrap mints a fresh secret; the passed
+        // `client` (default upstream) can't clear Cloudflare, so cookie::refresh
+        // builds its own browser-TLS client.
         None if secret_str(secret, "cookie").is_some() => {
-            return Err(ChannelError::Unsupported(
-                "cookie login not yet implemented (M7b follow-up)",
-            ));
+            return super::cookie::refresh(secret).await;
         }
         None => {
             return Err(ChannelError::InvalidCredential(
