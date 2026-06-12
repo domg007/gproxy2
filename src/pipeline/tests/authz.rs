@@ -113,3 +113,45 @@ async fn models_list_filtered() {
         .expect("ok");
     assert!(list(allowed) >= 2, "grant holder sees aliases + routes");
 }
+
+/// Regression: `route.enabled = false` used to be ignored by the snapshot —
+/// the route stayed routable and listed. It must 404 (route name AND alias)
+/// and vanish from the aggregated model list.
+#[tokio::test]
+async fn disabled_route_is_unroutable_and_unlisted() {
+    let bundle = bundle_with(
+        "routes",
+        json!([
+            { "id": 1, "name": "to-openai", "strategy": "failover", "enabled": true, "description": null },
+            { "id": 2, "name": "to-claude", "strategy": "failover", "enabled": false, "description": null }
+        ]),
+    );
+    let fake = Arc::new(FakeUpstream::new(chat_ok(), vec![]));
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &bundle).await;
+
+    let err = exec_err(&state, claude_ctx("to-claude", false)).await;
+    assert!(matches!(err, PipelineError::UnknownRoute(_)), "got {err:?}");
+    // alias "claude-direct" points at the disabled route → gone with it
+    let err = exec_err(&state, claude_ctx("claude-direct", false)).await;
+    assert!(matches!(err, PipelineError::UnknownRoute(_)), "got {err:?}");
+    assert!(fake.seen.lock().unwrap().is_empty(), "no upstream call");
+
+    let listed = crate::pipeline::execute(&state, models_ctx("sk-test"))
+        .await
+        .expect("ok");
+    let ResponseBody::Full(b) = listed.body else {
+        panic!("expected Full")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    let ids: Vec<&str> = v["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"to-openai"), "enabled route listed: {ids:?}");
+    assert!(
+        !ids.contains(&"to-claude") && !ids.contains(&"claude-direct"),
+        "disabled route/alias leaked into {ids:?}"
+    );
+}

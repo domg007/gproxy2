@@ -158,9 +158,11 @@ impl ControlPlaneSnapshot {
             snap.providers_by_id.insert(pid, provider);
         }
 
-        // routes + members (sorted) + a route-id → name map for aliases
+        // routes (enabled only — a disabled route must vanish from routing AND
+        // from the model list) + members (sorted) + a route-id → name map for
+        // aliases, so aliases of a disabled route drop out with it.
         let mut route_name_by_id: HashMap<i64, String> = HashMap::new();
-        for route in db.list_routes().await? {
+        for route in db.list_routes().await?.into_iter().filter(|r| r.enabled) {
             let mut members = db.list_route_members(route.id).await?;
             members.retain(|m| m.enabled);
             members.sort_by(|a, b| a.tier.cmp(&b.tier).then(b.weight.cmp(&a.weight)));
