@@ -2,6 +2,7 @@ import { LogOut } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { logout } from "@/api/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -21,18 +22,21 @@ export function UserMenu() {
 
   const mutation = useMutation({
     mutationFn: logout,
-    onSettled: () => {
+    onSuccess: () => {
       queryClient.clear();
       void navigate({ to: "/login" });
+    },
+    onError: () => {
+      toast.error(t("user.logoutFailed"));
     },
   });
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-full" aria-label={user.name}>
+        <Button variant="ghost" size="icon" className="rounded-full" aria-label={user.name || t("user.menu")}>
           <Avatar className="size-8">
-            <AvatarFallback>{user.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+            <AvatarFallback>{(user.name || "?").slice(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>

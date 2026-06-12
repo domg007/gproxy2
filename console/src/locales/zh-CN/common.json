@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "仪表盘" },
+  "nav": { "dashboard": "仪表盘", "title": "导航", "openMenu": "打开菜单" },
   "login": {
     "title": "登录 gproxy",
     "subtitle": "管理控制台",
@@ -11,7 +11,7 @@
     "failed": "用户名或密码错误",
     "throttled": "尝试次数过多,请 {{seconds}} 秒后重试。"
   },
-  "user": { "signedInAs": "当前登录", "logout": "退出登录" },
+  "user": { "signedInAs": "当前登录", "logout": "退出登录", "menu": "账户", "logoutFailed": "退出登录失败,请重试" },
   "theme": { "label": "主题", "light": "浅色", "dark": "深色", "system": "跟随系统" },
   "lang": { "label": "语言" },
   "errors": { "network": "网络错误——服务是否可达?", "internal": "服务器错误" },

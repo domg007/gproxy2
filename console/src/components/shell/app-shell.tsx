@@ -21,6 +21,7 @@ function Brand({ compact }: { compact?: boolean }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-svh">
       {/* tablet: icon rail (md..xl) · desktop: full sidebar (xl+) */}
@@ -40,13 +41,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden" aria-label="menu">
+              <Button variant="ghost" size="icon" className="md:hidden" aria-label={t("nav.openMenu")}>
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-0">
               <SheetHeader className="p-0">
-                <SheetTitle className="sr-only">navigation</SheetTitle>
+                <SheetTitle className="sr-only">{t("nav.title")}</SheetTitle>
               </SheetHeader>
               <Brand />
               <div className="py-2">
