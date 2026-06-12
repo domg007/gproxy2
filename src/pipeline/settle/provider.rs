@@ -31,16 +31,25 @@ pub(crate) async fn settle(state: &AppState, ctx: &RequestCtx, cand: &Candidate,
     }
 
     // Resolve pricing + quota scopes under a scoped snapshot guard (the await
-    // below never touches the snapshot).
+    // below never touches the snapshot). For images the raw `pricing_json` is
+    // cloned out for tiered (size/quality) lookup.
     let identity = ctx.identity.as_deref();
-    let (pricing, quota_scopes) = {
+    let (pricing, image_pricing, quota_scopes) = {
         let cp = state.cp();
         let pricing =
             billing::pending::model_pricing(&cp, cand.provider.id, &cand.upstream_model_id);
+        let image_pricing = is_image
+            .then(|| {
+                cp.models_by_provider
+                    .get(&cand.provider.id)
+                    .and_then(|ms| ms.iter().find(|m| m.model_id == cand.upstream_model_id))
+                    .and_then(|m| m.pricing_json.clone())
+            })
+            .flatten();
         let scopes = identity
             .map(|i| crate::pipeline::authz::quota_scopes(&cp, i))
             .unwrap_or_default();
-        (pricing, scopes)
+        (pricing, image_pricing, scopes)
     };
 
     let parsed: Option<Value> = serde_json::from_slice(body).ok();
@@ -51,17 +60,27 @@ pub(crate) async fn settle(state: &AppState, ctx: &RequestCtx, cand: &Candidate,
             .unwrap_or_default();
         (usage, price::cost(&usage, &pricing))
     } else {
-        // Images: bill per image in the response `data` array.
+        // Images: bill per image in the response `data` array, at the rate for
+        // the requested size/quality (read from the inbound request body).
         let count = parsed
             .as_ref()
             .and_then(|v| v.get("data"))
             .and_then(Value::as_array)
             .map(|a| a.len() as u64)
             .unwrap_or(0);
-        (
-            NormalizedUsage::default(),
-            Decimal::from(count) * pricing.image,
-        )
+        let req: Option<Value> = serde_json::from_slice(&ctx.body).ok();
+        let field = |k: &str| {
+            req.as_ref()
+                .and_then(|r| r.get(k))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let rate = price::image_rate(
+            image_pricing.as_ref(),
+            field("size").as_deref(),
+            field("quality").as_deref(),
+        );
+        (NormalizedUsage::default(), Decimal::from(count) * rate)
     };
 
     let operation = super::enum_str(&op.operation);
@@ -88,8 +107,10 @@ pub(crate) async fn settle(state: &AppState, ctx: &RequestCtx, cand: &Candidate,
     if let Err(e) = billing::record_success(state.persistence.as_ref(), rec).await {
         tracing::warn!(request_id = %ctx.request_id, error = %e, "embedding/image settle write failed");
     }
-    // Persist actual cost into each quota row (no pre-deduct was charged for
-    // these ops, so there is nothing to refund — only the real cost is added).
+    // §17 reconcile, symmetric with the content-generation path: refund the
+    // pre-deducted pending (charged in `execute`), then persist the actual cost
+    // into each quota row. `refund` is a no-op when nothing was pre-deducted.
+    billing::pending::refund(state.cache.as_ref(), &quota_scopes, ctx.pending_micros).await;
     if cost > Decimal::ZERO {
         for (scope, scope_id) in &quota_scopes {
             if let Err(e) = state

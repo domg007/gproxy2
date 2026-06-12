@@ -13,7 +13,7 @@ use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
 use crate::pipeline::outcome::ExecOutcome;
 use crate::pipeline::{auth, authz, balance, classify, failover, ingress, preprocess, route};
-use crate::protocol::{Operation, OperationKind};
+use crate::protocol::Operation;
 use crate::util::time::unix_now;
 
 /// Drive one request to an [`ExecOutcome`], wrapped in a per-request tracing
@@ -155,24 +155,54 @@ async fn run(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, Pipel
     result
 }
 
-/// §17 pre-deduct estimate in micro-dollars: content-generation ops only;
-/// estimated tokens = full body char count ×1, priced as input tokens at the
-/// target model's pricing. No pricing configured → 0 (pre-deduct skipped).
+/// §17 pre-deduct estimate in micro-dollars for the billable ops
+/// (content-generation + embeddings = body chars ×1 as input tokens; image
+/// generation = `n` × the per-image rate). Other ops / no pricing → 0
+/// (pre-deduct skipped). Settle refunds the exact amount.
 fn estimate(
     cp: &crate::app::snapshot::ControlPlaneSnapshot,
     ctx: &RequestCtx,
     provider_id: i64,
     model_id: &str,
 ) -> i64 {
-    let content = matches!(
-        ctx.op.map(|o| o.kind),
-        Some(OperationKind::ContentGeneration(_))
-    );
-    if !content {
-        return 0; // models/count/etc. are never billed → nothing to pre-deduct
+    let Some(op) = ctx.op else { return 0 };
+    match op.operation {
+        // Token-priced: estimate the body char count as input tokens (×1).
+        Operation::GenerateContent
+        | Operation::StreamGenerateContent
+        | Operation::CreateEmbedding => {
+            let pricing = pending::model_pricing(cp, provider_id, model_id);
+            pending::estimate_micros(&pricing, ctx.body.len())
+        }
+        // Image generation: `n` images at the requested size/quality rate.
+        Operation::CreateImage | Operation::EditImage => {
+            let req: Option<serde_json::Value> = serde_json::from_slice(&ctx.body).ok();
+            let field = |k: &str| {
+                req.as_ref()
+                    .and_then(|r| r.get(k))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let n = req
+                .as_ref()
+                .and_then(|r| r.get("n"))
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1);
+            let pricing_json = cp
+                .models_by_provider
+                .get(&provider_id)
+                .and_then(|ms| ms.iter().find(|m| m.model_id == model_id))
+                .and_then(|m| m.pricing_json.clone());
+            let rate = crate::billing::price::image_rate(
+                pricing_json.as_ref(),
+                field("size").as_deref(),
+                field("quality").as_deref(),
+            );
+            pending::to_micros(rust_decimal::Decimal::from(n) * rate)
+        }
+        // models / count / compact / etc. are never billed → no pre-deduct.
+        _ => 0,
     }
-    let pricing = pending::model_pricing(cp, provider_id, model_id);
-    pending::estimate_micros(&pricing, ctx.body.len())
 }
 
 /// Scoped mode (`/{provider}/v1/...`): bypass routing, hit the named provider
