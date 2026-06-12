@@ -9,6 +9,7 @@
 
 pub(crate) mod frames;
 mod ladder;
+pub(crate) mod provider;
 mod reconcile;
 
 use ladder::count_and_record;

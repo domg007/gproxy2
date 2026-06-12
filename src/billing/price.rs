@@ -13,6 +13,9 @@ pub struct Pricing {
     pub output: Decimal,
     pub cache_read: Decimal,
     pub cache_creation: Decimal,
+    /// Flat price PER IMAGE (not per-million) — image generation is billed by
+    /// count, not tokens. Zero when unconfigured.
+    pub image: Decimal,
 }
 
 /// Parse [`Pricing`] from a `pricing_json` value. Rates are Decimal-as-text
@@ -27,6 +30,7 @@ pub fn pricing_from(pricing_json: Option<&Value>) -> Pricing {
         output: rate(v, "output"),
         cache_read: rate(v, "cache_read"),
         cache_creation: rate(v, "cache_creation"),
+        image: rate(v, "image"),
     }
 }
 
@@ -70,6 +74,14 @@ mod tests {
         assert_eq!(p.cache_read, Decimal::ZERO);
         assert_eq!(p.cache_creation, Decimal::ZERO);
         assert_eq!(pricing_from(None), Pricing::default());
+
+        // Per-image flat rate (image generation is billed by count, not tokens).
+        let img = pricing_from(Some(&json!({"image": "0.04"})));
+        assert_eq!(img.image, "0.04".parse::<Decimal>().unwrap());
+        assert_eq!(
+            Decimal::from(3u64) * img.image,
+            "0.12".parse::<Decimal>().unwrap()
+        );
 
         // 1500 input @ 3.00/M = 0.0045; cache tokens are free here but counted.
         let u = NormalizedUsage {

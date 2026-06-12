@@ -271,6 +271,14 @@ pub async fn run_failover(
             // §17: streams get the relay buffer + Drop guard; full bodies
             // settle inline (`Complete`).
             let body = settle::attach(settle_ctx, body, ctx.stream).await;
+            // §17: embeddings / image generation are provider-shaped (not
+            // content-generation) so `capture` skipped them — settle them inline
+            // from the buffered JSON (a no-op for every other op).
+            if status.is_success()
+                && let ResponseBody::Full(b) = &body
+            {
+                settle::provider::settle(state, ctx, cand, b).await;
+            }
             return Ok(ExecOutcome {
                 status,
                 headers,
