@@ -74,18 +74,17 @@ pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -
     (url, redirect_uri.to_string())
 }
 
-/// Exchange a Google authcode (+PKCE verifier) for the plaintext secret. NOTE:
-/// the minted secret carries `{access_token, refresh_token?, expires_at_ms}` but
-/// NO `project_id` — Code Assist project resolution (`loadCodeAssist` /
-/// `onboardUser`) is a separate step, so the operator must set `project_id`
-/// before `prepare` can address the API (see [`project_id`] / module docs).
+/// Exchange a Google authcode (+PKCE verifier) for the plaintext secret
+/// `{access_token, refresh_token?, expires_at_ms, project_id}`. The Code Assist
+/// `project_id` is resolved via `loadCodeAssist` / `onboardUser` so `prepare`
+/// can address the API without the operator setting it manually.
 pub(super) async fn authcode_exchange(
     client: &Arc<dyn UpstreamClient>,
     code: &str,
     verifier: &str,
     redirect_uri: &str,
 ) -> Result<Value, ChannelError> {
-    oauth::google_authcode_exchange(
+    let mut secret = oauth::google_authcode_exchange(
         client,
         TOKEN_URL,
         OAUTH_CLIENT_ID,
@@ -94,7 +93,37 @@ pub(super) async fn authcode_exchange(
         verifier,
         redirect_uri,
     )
-    .await
+    .await?;
+    let access_token = secret_str(&secret, "access_token")
+        .ok_or_else(|| ChannelError::Build("token response missing access_token".into()))?
+        .to_owned();
+    let project_id = oauth::resolve_google_project_id(
+        client,
+        BASE_URL,
+        &access_token,
+        code_assist_metadata(None),
+        "legacy-tier",
+        None,
+    )
+    .await?;
+    secret["project_id"] = Value::String(project_id);
+    Ok(secret)
+}
+
+/// Gemini CLI Code Assist `metadata` (mirrors the genai SDK fingerprint). The
+/// `duetProject` is only present when an operator project is already known.
+fn code_assist_metadata(project: Option<&str>) -> Value {
+    let mut m = serde_json::Map::new();
+    m.insert("ideType".into(), Value::String("IDE_UNSPECIFIED".into()));
+    m.insert(
+        "platform".into(),
+        Value::String("PLATFORM_UNSPECIFIED".into()),
+    );
+    m.insert("pluginType".into(), Value::String("GEMINI".into()));
+    if let Some(p) = project.map(str::trim).filter(|s| !s.is_empty()) {
+        m.insert("duetProject".into(), Value::String(p.into()));
+    }
+    Value::Object(m)
 }
 
 /// The OAuth access token, required by [`super::GeminiCliChannel::prepare`].

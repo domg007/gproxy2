@@ -176,6 +176,120 @@ pub async fn google_authcode_exchange(
     Ok(secret)
 }
 
+/// Resolve a Google Code Assist `project_id` via `v1internal:loadCodeAssist`,
+/// falling back to `v1internal:onboardUser`. Shared by `geminicli` and
+/// `antigravity`, which differ only in `metadata` (ideType/pluginType, optional
+/// `duetProject`) and `tier_id` (`legacy-tier` vs `LEGACY`). `existing` (an
+/// operator-set project) is sent as `cloudaicompanionProject` and used as the
+/// last-resort fallback. The `onboardUser` long-running operation is read once
+/// (not polled across `sleep`, to stay wasm-compilable); a still-pending
+/// onboarding without an immediate project falls back to `existing` or errors.
+pub async fn resolve_google_project_id(
+    client: &Arc<dyn UpstreamClient>,
+    base_url: &str,
+    access_token: &str,
+    metadata: serde_json::Value,
+    tier_id: &str,
+    existing: Option<&str>,
+) -> Result<String, ChannelError> {
+    use serde_json::json;
+    let base = base_url.trim_end_matches('/');
+    let existing = existing.map(str::trim).filter(|s| !s.is_empty());
+
+    // loadCodeAssist
+    let mut load_body = json!({ "metadata": metadata });
+    if let Some(p) = existing {
+        load_body["cloudaicompanionProject"] = json!(p);
+    }
+    let loaded = post_json_bearer(
+        client,
+        &format!("{base}/v1internal:loadCodeAssist"),
+        access_token,
+        &load_body,
+    )
+    .await?;
+    if let Some(p) = loaded
+        .get("cloudaicompanionProject")
+        .and_then(google_project_from_value)
+    {
+        return Ok(p);
+    }
+
+    // onboardUser (long-running op; read the immediate response)
+    let mut onboard_body = json!({ "tierId": tier_id, "metadata": metadata });
+    if let Some(p) = existing {
+        onboard_body["cloudaicompanionProject"] = json!(p);
+    }
+    let onboarded = post_json_bearer(
+        client,
+        &format!("{base}/v1internal:onboardUser"),
+        access_token,
+        &onboard_body,
+    )
+    .await?;
+    let project = onboarded
+        .get("response")
+        .and_then(|r| r.get("cloudaicompanionProject"))
+        .and_then(google_project_from_value)
+        .or_else(|| {
+            onboarded
+                .get("cloudaicompanionProject")
+                .and_then(google_project_from_value)
+        });
+    project
+        .or_else(|| existing.map(ToOwned::to_owned))
+        .ok_or_else(|| {
+            ChannelError::Build(
+                "code assist project resolution returned no project (onboarding may be pending — \
+                 retry or set project_id)"
+                    .into(),
+            )
+        })
+}
+
+/// Extract a Code Assist project id from a value that is either the bare id
+/// string or an object carrying `{ "id": "..." }`.
+fn google_project_from_value(v: &serde_json::Value) -> Option<String> {
+    v.as_str()
+        .or_else(|| v.get("id").and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// POST a JSON body with `Authorization: Bearer` and parse a 2xx JSON response.
+/// Non-2xx → [`ChannelError::Build`] with status + a truncated snippet (never
+/// the request body, which carries the bearer-scoped project metadata).
+async fn post_json_bearer(
+    client: &Arc<dyn UpstreamClient>,
+    url: &str,
+    bearer: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, ChannelError> {
+    let bytes = serde_json::to_vec(body)
+        .map_err(|e| ChannelError::Build(format!("code assist body serialize: {e}")))?;
+    let req = http::Request::post(url)
+        .header(http::header::AUTHORIZATION, format!("Bearer {bearer}"))
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .header(http::header::ACCEPT, "application/json")
+        .body(bytes::Bytes::from(bytes))
+        .map_err(|e| ChannelError::Build(format!("code assist request build: {e}")))?;
+    let resp = client
+        .send(req)
+        .await
+        .map_err(|e| ChannelError::Build(format!("code assist request failed: {e}")))?;
+    let (parts, body) = resp.into_parts();
+    if !parts.status.is_success() {
+        let snippet: String = String::from_utf8_lossy(&body).chars().take(256).collect();
+        return Err(ChannelError::Build(format!(
+            "code assist endpoint {}: {snippet}",
+            parts.status
+        )));
+    }
+    serde_json::from_slice(&body)
+        .map_err(|e| ChannelError::Build(format!("code assist response parse: {e}")))
+}
+
 /// Percent-encode `s` into `out`, leaving the RFC 3986 unreserved characters
 /// (`A-Za-z0-9-._~`) as-is and `%XX`-encoding every other byte.
 fn percent_encode_into(s: &str, out: &mut String) {

@@ -89,7 +89,7 @@ pub(super) async fn authcode_exchange(
     verifier: &str,
     redirect_uri: &str,
 ) -> Result<Value, ChannelError> {
-    oauth::google_authcode_exchange(
+    let mut secret = oauth::google_authcode_exchange(
         client,
         TOKEN_URL,
         OAUTH_CLIENT_ID,
@@ -98,7 +98,30 @@ pub(super) async fn authcode_exchange(
         verifier,
         redirect_uri,
     )
-    .await
+    .await?;
+    let access_token = secret_str(&secret, "access_token")
+        .ok_or_else(|| ChannelError::Build("token response missing access_token".into()))?
+        .to_owned();
+    let project_id = oauth::resolve_google_project_id(
+        client,
+        BASE_URL,
+        &access_token,
+        code_assist_metadata(),
+        "LEGACY",
+        None,
+    )
+    .await?;
+    secret["project_id"] = Value::String(project_id);
+    Ok(secret)
+}
+
+/// Antigravity Code Assist `metadata` — `ideType: ANTIGRAVITY`, no `duetProject`.
+fn code_assist_metadata() -> Value {
+    serde_json::json!({
+        "ideType": "ANTIGRAVITY",
+        "platform": "PLATFORM_UNSPECIFIED",
+        "pluginType": "GEMINI"
+    })
 }
 
 /// The OAuth access token, required by [`super::AntigravityChannel::prepare`].
