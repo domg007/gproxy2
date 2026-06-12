@@ -18,7 +18,7 @@ void i18n
   )
   .use(initReactI18next)
   .init({
-    lng: localStorage.getItem(STORAGE_KEY) ?? "en",
+    lng: (() => { try { return localStorage.getItem(STORAGE_KEY); } catch { return null; } })() ?? "en",
     fallbackLng: "en",
     ns: ["common"],
     defaultNS: "common",
@@ -26,7 +26,7 @@ void i18n
   });
 
 export function setLanguage(code: LangCode) {
-  localStorage.setItem(STORAGE_KEY, code);
+  try { localStorage.setItem(STORAGE_KEY, code); } catch { /* ignore */ }
   void i18n.changeLanguage(code);
 }
 

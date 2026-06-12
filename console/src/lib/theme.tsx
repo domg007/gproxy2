@@ -19,7 +19,9 @@ function apply(theme: Theme) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(
-    () => (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? "system",
+    () => {
+      try { return (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? "system"; } catch { return "system"; }
+    },
   );
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setTheme = (next: Theme) => {
-    localStorage.setItem(STORAGE_KEY, next);
+    try { localStorage.setItem(STORAGE_KEY, next); } catch { /* ignore */ }
     setThemeState(next);
   };
 
