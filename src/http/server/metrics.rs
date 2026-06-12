@@ -116,7 +116,9 @@ fn escape(v: &str) -> String {
 }
 
 /// `GET /metrics` axum handler (native). The edge path renders the same body
-/// via [`render`] from its fetch dispatcher.
+/// via [`render`] from its fetch dispatcher. Sits behind the same
+/// admin-session gate as `/admin/*` (the `require_admin` middleware owns the
+/// auth).
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn metrics(
     axum::extract::State(state): axum::extract::State<AppState>,

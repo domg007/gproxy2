@@ -753,6 +753,11 @@ refresh 调用**:刷新返回后立即在所有出口(含错误 `?` 前)`unlock`
   Prometheus 文本(`render`)。
 - **native + edge 通用**:同一 `render` + `metrics_aggregate` trait op(db / file / libsql 三后端各实装);
   native 走 axum `/metrics` 路由,edge 走 fetch 直接派发。**多实例天然全局聚合**(状态在库不在进程)。
+- **访问控制(2026-06-12)**:`/healthz`、`/version` 与 `/metrics` 复用 `/admin/*` 的管理鉴权
+  (`admin::authenticate_admin`:admin session cookie **或** admin 用户的 API key——后者供
+  curl / Prometheus 等无头客户端,仅认 header 形态、不认 `?key=`;无有效凭证一律 401,
+  **无任何公开 ops 端点**);edge 侧走同一函数(session 由共享 cache+persistence 的 native
+  实例签发,key 走 snapshot,与网关鉴权同源)。
 - **in-flight gauge 不做**:瞬时"在途请求数"本质只能来自进程内存,与"零内存"决策冲突 → 砍掉。
 - 上游延迟覆盖成功请求:结算路径(`settle`)把成功尝试的 **TTFB**(失败器测得的 `send_ms`)写入
   `usages.latency_ms`(A4),直方图据此非空。

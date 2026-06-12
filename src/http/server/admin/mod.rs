@@ -1,5 +1,6 @@
 //! Admin HTTP surface (native-only — uses axum). The `/admin/*` subrouter:
-//! login/logout are public; everything else sits behind an admin session.
+//! login/logout are public; everything else sits behind admin auth (session
+//! cookie or an admin user's API key — see `crate::admin::authenticate_admin`).
 
 pub mod audit;
 pub mod auth;
@@ -70,7 +71,7 @@ mod tests {
     use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig, UpstreamConfig};
     use crate::http::client::{ClientError, RespStream, UpstreamClient};
     use crate::store::persistence::FilePersistence;
-    use crate::store::persistence::records::{OrgInput, UserInput};
+    use crate::store::persistence::records::{OrgInput, UserInput, UserKeyInput};
 
     /// admin tests never reach the upstream — a panicking stub suffices.
     struct NoUpstream;
@@ -345,5 +346,66 @@ mod tests {
                 .any(|r| r.action == "login.success" && r.actor_name.as_deref() == Some("admin")),
             "expected login.success audit row, got {rows:?}"
         );
+    }
+
+    /// Headless admin auth: an enabled admin user's API key passes
+    /// `require_admin` via either header form; non-admin / unknown keys don't.
+    #[tokio::test]
+    async fn admin_api_key_auth() {
+        let (state, _dir) = seeded_state().await;
+        let admin = state
+            .persistence
+            .get_user_by_name("admin")
+            .await
+            .unwrap()
+            .unwrap();
+        let plain = state
+            .persistence
+            .upsert_user(UserInput {
+                id: None,
+                name: "plain".into(),
+                org_id: admin.org_id,
+                team_id: None,
+                password: None,
+                enabled: true,
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        for (user_id, tok) in [(admin.id, "admin-tok"), (plain.id, "plain-tok")] {
+            state
+                .persistence
+                .upsert_user_key(UserKeyInput {
+                    id: None,
+                    user_id,
+                    api_key_ciphertext: String::new(),
+                    api_key_digest: crate::pipeline::auth::key_digest(tok),
+                    label: None,
+                    enabled: true,
+                })
+                .await
+                .unwrap();
+        }
+        state.reload_snapshot().await.unwrap();
+        let app = crate::http::server::router(state);
+
+        for (name, value, expect) in [
+            ("x-api-key", "admin-tok", StatusCode::OK),
+            ("authorization", "Bearer admin-tok", StatusCode::OK),
+            ("x-api-key", "plain-tok", StatusCode::UNAUTHORIZED),
+            ("x-api-key", "no-such-key", StatusCode::UNAUTHORIZED),
+        ] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::get("/admin/me")
+                        .header(name, value)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), expect, "{name}: {value}");
+        }
     }
 }

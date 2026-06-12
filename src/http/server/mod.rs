@@ -27,9 +27,18 @@ pub mod admin;
 /// `provider == "v1"`, so `v1` is reserved as a non-provider segment.
 pub fn router(state: AppState) -> Router {
     #[allow(unused_mut)]
-    let mut router = Router::new()
-        .route("/healthz", get(health::healthz))
-        .route("/version", get(health::version));
+    let mut router = Router::new();
+
+    // wasm builds this router for type-compatibility only — the edge entry
+    // (http::edge) dispatches by path and never serves it; it admin-gates
+    // /healthz + /version + /metrics itself, so plain registrations here just
+    // keep the handlers live on both targets.
+    #[cfg(target_arch = "wasm32")]
+    {
+        router = router
+            .route("/healthz", get(health::healthz))
+            .route("/version", get(health::version));
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -55,7 +64,18 @@ pub fn router(state: AppState) -> Router {
                     .layer(GlobalConcurrencyLimitLayer::new(state.config.max_in_flight)),
             );
         router = router.merge(gateway);
-        router = router.route("/metrics", get(metrics::metrics));
+        // /healthz, /version and /metrics sit behind the SAME admin gate as
+        // /admin/* (session cookie or an admin user's API key, via
+        // require_admin) — no ops endpoint is public.
+        let ops = Router::new()
+            .route("/healthz", get(health::healthz))
+            .route("/version", get(health::version))
+            .route("/metrics", get(metrics::metrics))
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                admin::middleware::require_admin,
+            ));
+        router = router.merge(ops);
         router = router.merge(admin::admin_router(state.clone()));
     }
 

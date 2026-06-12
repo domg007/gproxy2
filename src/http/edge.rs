@@ -38,7 +38,8 @@ fn js_err(e: impl std::fmt::Debug) -> JsValue {
 ///
 /// Persistence is always libSQL/Turso (`turso_url` + `turso_token`). The cache
 /// is Upstash Redis when both `upstash_url` and `upstash_token` are non-empty,
-/// otherwise it falls back to the libSQL kv table.
+/// otherwise it falls back to the libSQL kv table. `master_key` unseals stored
+/// secrets (absent → plaintext NoopCipher).
 ///
 /// Must be called once before [`fetch`]. A second call is a no-op (the first
 /// `AppState` wins).
@@ -144,13 +145,28 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
     }
     let path = parts.uri.path().to_string();
 
-    // Operational endpoints: no pipeline, no upstream.
+    // Operational endpoints: no pipeline, no upstream. /healthz, /version and
+    // /metrics all sit behind the SAME admin auth as /admin/* (session cookie
+    // or an admin user's API key — see admin_ok); none is public.
     match path.as_str() {
-        "/healthz" => return text_response(200, "text/plain", b"ok"),
+        "/healthz" => {
+            return if admin_ok(state, &parts.headers).await {
+                text_response(200, "text/plain", b"ok")
+            } else {
+                unauthorized()
+            };
+        }
         "/version" => {
-            return text_response(200, "text/plain", env!("CARGO_PKG_VERSION").as_bytes());
+            return if admin_ok(state, &parts.headers).await {
+                text_response(200, "text/plain", env!("CARGO_PKG_VERSION").as_bytes())
+            } else {
+                unauthorized()
+            };
         }
         "/metrics" => {
+            if !admin_ok(state, &parts.headers).await {
+                return unauthorized();
+            }
             return match state.persistence.metrics_aggregate().await {
                 Ok(agg) => text_response(
                     200,
@@ -185,9 +201,24 @@ fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     text_response(503, "text/plain", msg.as_bytes())
 }
 
+/// Build the 401 for missing/invalid admin auth on an ops endpoint.
+fn unauthorized() -> Result<Response, JsValue> {
+    text_response(401, "text/plain", b"unauthorized")
+}
+
 /// Build the 413 for an over-cap request body.
 fn payload_too_large() -> Result<Response, JsValue> {
     text_response(413, "text/plain", b"request body too large")
+}
+
+/// Shared `/healthz` + `/version` + `/metrics` gate — the SAME auth as the
+/// native `/admin/*` middleware ([`authenticate_admin`](crate::admin::authenticate_admin)):
+/// admin session cookie (minted by a native instance / console sharing the
+/// same Turso+Upstash backing) OR an admin user's API key.
+async fn admin_ok(state: &AppState, headers: &http::HeaderMap) -> bool {
+    crate::admin::authenticate_admin(state, headers)
+        .await
+        .is_some()
 }
 
 /// `true` when a present, parseable `content-length` already exceeds `max`.
