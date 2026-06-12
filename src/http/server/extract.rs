@@ -20,7 +20,7 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
         let (provider, rest) = trimmed
             .split_once('/')
             .ok_or(PipelineError::UnsupportedPath)?;
-        if provider.is_empty() || provider == "v1" {
+        if provider.is_empty() || provider == "v1" || provider == "console" {
             return Err(PipelineError::UnsupportedPath);
         }
         (

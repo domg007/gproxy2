@@ -12,6 +12,7 @@ use crate::app::AppState;
 
 #[derive(RustEmbed)]
 #[folder = "assets/console"]
+#[exclude = ".*"]
 struct ConsoleAssets;
 
 pub fn router() -> Router<AppState> {
@@ -63,7 +64,7 @@ fn render(path: &str) -> Response {
         .first_raw()
         .unwrap_or("application/octet-stream");
 
-    let mut response = Response::new(axum::body::Body::from(content.data.into_owned()));
+    let mut response = Response::new(axum::body::Body::from(content.data));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(mime)

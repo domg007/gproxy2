@@ -27,7 +27,8 @@ mod console;
 ///
 /// On native the literal `/v1/...` aggregated route is registered before the
 /// `/{provider}/v1/...` scoped route; the scoped handler additionally rejects
-/// `provider == "v1"`, so `v1` is reserved as a non-provider segment.
+/// `provider == "v1"` and `provider == "console"`, so both `v1` and `console`
+/// are reserved as non-provider segments.
 pub fn router(state: AppState) -> Router {
     #[allow(unused_mut)]
     let mut router = Router::new();

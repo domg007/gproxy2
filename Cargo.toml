@@ -68,7 +68,7 @@ ed25519-dalek = "2"
 self-replace = "1"
 # Console SPA embedding (§9; spec 2026-06-13-console-design.md B1). Native-only:
 # wasm/edge builds never embed the console (size-sensitive).
-rust-embed = "8"
+rust-embed = { version = "8", features = ["include-exclude"] }
 mime_guess = "2"
 
 # ── wasm32-only ───────────────────────────────────────────────────────────────
