@@ -56,6 +56,11 @@ struct Cli {
     #[arg(long, env = "GPROXY_MAX_ATTEMPTS", default_value_t = gproxy::config::DEFAULT_MAX_ATTEMPTS)]
     max_attempts: u32,
 
+    /// §16.2 overload protection: max concurrent in-flight gateway requests
+    /// before load-shedding excess to 503. Bounds memory/latency under a spike.
+    #[arg(long, env = "GPROXY_MAX_IN_FLIGHT", default_value_t = gproxy::config::DEFAULT_MAX_IN_FLIGHT)]
+    max_in_flight: usize,
+
     /// Admin username for the first-boot bootstrap / credential override (§14.2).
     #[arg(long, env = "GPROXY_ADMIN_USER", default_value = "admin")]
     admin_user: String,
@@ -151,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
         upstream: upstream_cfg,
         instance_id: cli.instance_id,
         max_attempts: cli.max_attempts,
+        max_in_flight: cli.max_in_flight,
     });
 
     let bind = config.bind_addr()?;

@@ -135,10 +135,17 @@ pub struct RuntimeConfig {
     /// AuthDead forced-refresh retry does NOT count against this (same logical
     /// candidate). Default [`DEFAULT_MAX_ATTEMPTS`].
     pub max_attempts: u32,
+    /// §16.2 overload protection: max concurrent in-flight gateway requests
+    /// before load-shedding to 503. Bounds memory/latency under a traffic spike
+    /// or a slow upstream. Default [`DEFAULT_MAX_IN_FLIGHT`].
+    pub max_in_flight: usize,
 }
 
 /// Default per-request failover attempt cap (`GPROXY_MAX_ATTEMPTS`).
 pub const DEFAULT_MAX_ATTEMPTS: u32 = 6;
+
+/// Default max concurrent in-flight gateway requests (`GPROXY_MAX_IN_FLIGHT`).
+pub const DEFAULT_MAX_IN_FLIGHT: usize = 1024;
 
 impl RuntimeConfig {
     /// Resolve the `host:port` bind address.
@@ -164,6 +171,7 @@ mod tests {
             upstream: UpstreamConfig::from_proxy_url(None),
             instance_id: 0,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
+            max_in_flight: DEFAULT_MAX_IN_FLIGHT,
         }
     }
 

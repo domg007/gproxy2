@@ -89,6 +89,7 @@ pub async fn init(
         upstream: UpstreamConfig::from_proxy_url(None),
         instance_id: 0,
         max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
+        max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
     });
 
     let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());

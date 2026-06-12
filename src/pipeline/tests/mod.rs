@@ -208,6 +208,7 @@ async fn build_state(
         upstream: UpstreamConfig::from_proxy_url(None),
         instance_id: 0,
         max_attempts,
+        max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
     });
     let cache: Arc<dyn crate::store::cache::CacheBackend> =
         Arc::new(crate::store::cache::MemoryCache::new());

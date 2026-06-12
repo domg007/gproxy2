@@ -33,16 +33,43 @@ pub fn router(state: AppState) -> Router {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        use axum::error_handling::HandleErrorLayer;
         use axum::extract::DefaultBodyLimit;
         use axum::routing::any;
-        // 16 MiB inbound body limit — large LLM payloads, still bounded.
-        router = router
+        use tower::ServiceBuilder;
+        use tower::limit::GlobalConcurrencyLimitLayer;
+        use tower::load_shed::LoadShedLayer;
+
+        // Gateway sub-router with §16.2 overload protection: at most
+        // `max_in_flight` concurrent requests; excess is shed to 503 immediately
+        // (not queued). Scoped to the gateway only — health / metrics / admin
+        // stay reachable under load so liveness holds and operators can intervene.
+        let gateway = Router::new()
             .route("/v1/{*rest}", any(gateway::aggregated))
             .route("/{provider}/v1/{*rest}", any(gateway::scoped))
-            .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
+            .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(handle_overload))
+                    .layer(LoadShedLayer::new())
+                    .layer(GlobalConcurrencyLimitLayer::new(state.config.max_in_flight)),
+            );
+        router = router.merge(gateway);
         router = router.route("/metrics", get(metrics::metrics));
         router = router.merge(admin::admin_router(state.clone()));
     }
 
     router.with_state(state)
+}
+
+/// Map a shed (overloaded) gateway request to a 503; any other middleware error
+/// to a 500. Used by the §16.2 load-shed layer.
+#[cfg(not(target_arch = "wasm32"))]
+async fn handle_overload(err: tower::BoxError) -> axum::http::StatusCode {
+    use axum::http::StatusCode;
+    if err.is::<tower::load_shed::error::Overloaded>() {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
 }

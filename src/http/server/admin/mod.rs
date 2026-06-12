@@ -128,6 +128,7 @@ mod tests {
             upstream: UpstreamConfig::from_proxy_url(None),
             instance_id: 0,
             max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
+            max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
         });
         let cache: Arc<dyn crate::store::cache::CacheBackend> =
             Arc::new(crate::store::cache::MemoryCache::new());
