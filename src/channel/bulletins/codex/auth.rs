@@ -45,7 +45,7 @@ pub(super) const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex
 /// User-Agent the Codex CLI (`codex_cli_rs`) sends; rides the credential's
 /// `tls_fingerprint` pool (M7a). The `originator` header carries the same id.
 const ORIGINATOR: &str = "codex_cli_rs";
-const USER_AGENT_VALUE: &str = "codex_cli_rs/0.118.0 (Linux 6.6; x86_64) gproxy";
+const USER_AGENT_VALUE: &str = "codex_cli_rs/0.118.0 (Linux 6.6; x86_64)";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;

@@ -38,7 +38,7 @@ pub(super) const DEFAULT_PORTAL_URL: &str = "https://app.kiro.dev";
 /// (mined from v1 `default_kiro_oauth_redirect_uri`) — a loopback listener.
 pub(super) const DEFAULT_REDIRECT_URI: &str = "http://localhost:3128";
 /// Kiro IDE user-agent the auth endpoints key behaviour off.
-const AUTH_USER_AGENT: &str = "KiroIDE-0.12.224-gproxy";
+const AUTH_USER_AGENT: &str = "KiroIDE-0.12.224";
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
 

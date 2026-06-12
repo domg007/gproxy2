@@ -6,6 +6,13 @@ use bytes::Bytes;
 
 use super::{ClientError, RespStream, UpstreamClient};
 
+/// Default upstream User-Agent for requests that don't set one and aren't
+/// emulating a captured client. API-key channels (openai/deepseek/…) forward no
+/// UA, so without this they'd send wreq's library default; this identifies the
+/// proxy honestly instead. A configured `tls_fingerprint` (its
+/// `headers.user-agent`) or a channel that injects its own UA overrides it.
+const DEFAULT_USER_AGENT: &str = concat!("gproxy/", env!("CARGO_PKG_VERSION"));
+
 /// Upstream client backed by [`wreq::Client`] (native, TLS-emulation capable).
 #[derive(Clone)]
 pub struct WreqClient {
@@ -20,7 +27,10 @@ impl WreqClient {
     /// transform/billing logic always sees the plaintext body.
     pub fn new() -> Self {
         Self {
-            inner: wreq::Client::new(),
+            inner: wreq::Client::builder()
+                .user_agent(DEFAULT_USER_AGENT)
+                .build()
+                .expect("default wreq client builds"),
         }
     }
 
@@ -40,8 +50,12 @@ impl WreqClient {
         if let Some(proxy_url) = proxy_url {
             builder = builder.proxy(wreq::Proxy::all(proxy_url)?);
         }
-        if let Some(emulation) = emulation {
-            builder = builder.emulation(emulation);
+        // A fingerprint carries its own UA via emulation headers; only fall back
+        // to the proxy's default UA when no emulation is applied, so the default
+        // never shadows a configured fingerprint's user-agent.
+        match emulation {
+            Some(emulation) => builder = builder.emulation(emulation),
+            None => builder = builder.user_agent(DEFAULT_USER_AGENT),
         }
         Ok(Self {
             inner: builder.build()?,

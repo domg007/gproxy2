@@ -44,7 +44,7 @@ const DEFAULT_BASE_URL: &str = "https://q.us-east-1.amazonaws.com";
 /// Kiro chat endpoint (Smithy REST-JSON, AWS event-stream response).
 const GENERATE_PATH: &str = "/generateAssistantResponse";
 /// User-Agent the Kiro IDE sends.
-const USER_AGENT_VALUE: &str = "KiroIDE-0.12.224-gproxy";
+const USER_AGENT_VALUE: &str = "KiroIDE-0.12.224";
 /// Kiro agent mode header value.
 const AGENT_MODE: &str = "vibe";
 
