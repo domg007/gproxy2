@@ -138,25 +138,26 @@ pub fn request_parts(
                 && memo.inbound_model(&ctx.body).as_deref()
                     != Some(cand.upstream_model_id.as_str());
             if model_rewrite {
-                match op.kind {
-                    OperationKind::ContentGeneration(
-                        ContentGenerationKind::GeminiGenerateContent,
-                    ) => {
-                        // gemini carries the model in the PATH, not the body
-                        let t = protocol::request_target(op, &cand.upstream_model_id, ctx.stream);
-                        path = t.path;
-                        if let Some(extra) = t.query {
-                            query = Some(merge_query(query.as_deref(), &extra));
-                        }
+                // Gemini carries the model (+ stream flag) in the PATH; every
+                // other family carries it in the body — content AND non-content
+                // (embeddings, count_tokens) alike, mirroring the Transform
+                // branch's `body_carries_model` split below.
+                let model_in_path = matches!(
+                    op.kind,
+                    OperationKind::ContentGeneration(ContentGenerationKind::GeminiGenerateContent)
+                        | OperationKind::Provider(Provider::Gemini)
+                );
+                if model_in_path {
+                    let t = protocol::request_target(op, &cand.upstream_model_id, ctx.stream);
+                    path = t.path;
+                    if let Some(extra) = t.query {
+                        query = Some(merge_query(query.as_deref(), &extra));
                     }
-                    OperationKind::ContentGeneration(_) => {
-                        // passthrough bodies already carry the correct stream
-                        // flag; never inject it here
-                        body =
-                            patch_body(&body, Some(&cand.upstream_model_id), false, include_usage)?;
-                    }
-                    // non-content body-model rewrite (embeddings etc.) deferred
-                    OperationKind::Provider(_) => {}
+                } else {
+                    // passthrough bodies already carry the correct stream flag;
+                    // never inject it here (`include_usage` is false for the
+                    // non-openai-chat provider ops, so this is a pure rewrite)
+                    body = patch_body(&body, Some(&cand.upstream_model_id), false, include_usage)?;
                 }
             } else if include_usage {
                 body = patch_body(&body, None, false, true)?;
