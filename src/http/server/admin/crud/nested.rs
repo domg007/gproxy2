@@ -16,11 +16,15 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
 /// Generate the three nested CRUD handlers for one entity in a named submodule.
+/// `parent` names the input's parent-fk field; `upsert` rejects a body whose
+/// fk doesn't match the URL parent id (the URL is authoritative — §8 admin
+/// semantics and audit trails key off the path).
 macro_rules! crud_nested {
     (
         mod $modname:ident,
         record = $record:ty,
         input = $input:ty,
+        parent = $parent:ident,
         list = $list:ident,
         upsert = $upsert:ident,
         delete = $delete:ident $(,)?
@@ -39,12 +43,21 @@ macro_rules! crud_nested {
                 ))
             }
 
-            /// `POST /…/{parent}/…` — upsert the `*Input` directly, then invalidate.
+            /// `POST /…/{parent}/…` — upsert the `*Input` (its parent fk must
+            /// match the URL parent id), then invalidate.
             pub async fn upsert(
                 State(state): State<AppState>,
-                Path(_parent_id): Path<i64>,
+                Path(parent_id): Path<i64>,
                 Json(input): Json<$input>,
             ) -> Result<Json<$record>, ApiError> {
+                if input.$parent != parent_id {
+                    return Err(ApiError::BadRequest(format!(
+                        "body {} {} does not match URL parent {}",
+                        stringify!($parent),
+                        input.$parent,
+                        parent_id
+                    )));
+                }
                 let rec = state.persistence.$upsert(input).await.map_err(internal)?;
                 invalidate(&state).await;
                 Ok(Json(rec))
@@ -75,6 +88,7 @@ crud_nested!(
     mod teams,
     record = Team,
     input = TeamInput,
+    parent = org_id,
     list = list_teams,
     upsert = upsert_team,
     delete = delete_team,
@@ -84,6 +98,7 @@ crud_nested!(
     mod provider_models,
     record = ProviderModel,
     input = ProviderModelInput,
+    parent = provider_id,
     list = list_provider_models,
     upsert = upsert_provider_model,
     delete = delete_provider_model,
@@ -93,6 +108,7 @@ crud_nested!(
     mod route_members,
     record = RouteMember,
     input = RouteMemberInput,
+    parent = route_id,
     list = list_route_members,
     upsert = upsert_route_member,
     delete = delete_route_member,
@@ -102,6 +118,7 @@ crud_nested!(
     mod rules,
     record = Rule,
     input = RuleInput,
+    parent = rule_set_id,
     list = list_rules,
     upsert = upsert_rule,
     delete = delete_rule,
@@ -111,6 +128,7 @@ crud_nested!(
     mod routing_rules,
     record = RoutingRule,
     input = RoutingRuleInput,
+    parent = provider_id,
     list = list_routing_rules,
     upsert = upsert_routing_rule,
     delete = delete_routing_rule,
@@ -120,6 +138,7 @@ crud_nested!(
     mod provider_rule_sets,
     record = ProviderRuleSet,
     input = ProviderRuleSetInput,
+    parent = provider_id,
     list = list_provider_rule_sets,
     upsert = upsert_provider_rule_set,
     delete = delete_provider_rule_set,

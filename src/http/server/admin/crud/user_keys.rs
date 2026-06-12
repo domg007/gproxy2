@@ -1,7 +1,8 @@
-//! User-keys CRUD — special-cased: writes derive a digest from the BARE key
-//! and SEAL the ciphertext ([`UserKeyUpsert`]); reads expose only a short
-//! `key_prefix` ([`UserKeyView`]). On an update with no `api_key`, the stored
-//! digest + ciphertext are preserved.
+//! User-keys CRUD — special-cased: the bare key is GENERATED server-side on
+//! create (digest derived, ciphertext sealed, the key itself returned ONCE in
+//! the response); updates touch only label/enabled. Caller-supplied key
+//! material is rejected here — the import path is its sole entrance. Reads
+//! expose only a short `key_prefix` ([`UserKeyView`]).
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -29,20 +30,30 @@ pub async fn list(
     Ok(Json(keys.into_iter().map(UserKeyView::from).collect()))
 }
 
-/// `POST /admin/users/{user_id}/keys` — create or update. The bare `api_key`
-/// is digested + sealed; when omitted on an update the stored digest +
-/// ciphertext are kept; on create it is required (400 otherwise). The redacted
-/// view is returned.
+/// `POST /admin/users/{user_id}/keys` — create or update. On create the key is
+/// generated server-side (CSPRNG) and the bare value is returned ONCE in the
+/// response; on update the stored digest + ciphertext are kept (key material
+/// is immutable — rotate by create + delete). A caller-supplied `api_key` is
+/// rejected outright.
 pub async fn upsert(
     State(state): State<AppState>,
     Path(user_id): Path<i64>,
     Json(body): Json<UserKeyUpsert>,
 ) -> Result<Json<UserKeyView>, ApiError> {
-    // Resolve the (digest, ciphertext) pair to store.
-    let (digest, ciphertext) = match (&body.api_key, body.id) {
-        // New bare key supplied → digest + seal it.
-        (Some(bare), _) => {
-            let digest = key_digest(bare);
+    if body.api_key.is_some() {
+        return Err(ApiError::BadRequest(
+            "api_key is not accepted: keys are generated server-side on create \
+             (external key material is import-only)"
+                .into(),
+        ));
+    }
+
+    // Resolve the (digest, ciphertext) pair to store; `bare` only on create.
+    let (digest, ciphertext, bare) = match body.id {
+        // Create → mint the key here.
+        None => {
+            let bare = crate::util::rand::api_key();
+            let digest = key_digest(&bare);
             let sealed = state
                 .cipher
                 .seal(&serde_json::Value::String(bare.clone()))
@@ -51,10 +62,10 @@ pub async fn upsert(
                 serde_json::Value::String(s) => s.clone(),
                 other => serde_json::to_string(other).map_err(internal)?,
             };
-            (digest, ciphertext)
+            (digest, ciphertext, Some(bare))
         }
-        // No key on update → keep the existing digest + ciphertext.
-        (None, Some(id)) => {
+        // Update → keep the existing digest + ciphertext.
+        Some(id) => {
             let existing = state
                 .persistence
                 .get_user_key(id)
@@ -62,11 +73,7 @@ pub async fn upsert(
                 .map_err(internal)?
                 .filter(|k| k.user_id == user_id)
                 .ok_or_else(|| ApiError::NotFound("not found".into()))?;
-            (existing.api_key_digest, existing.api_key_ciphertext)
-        }
-        // No key on create → reject.
-        (None, None) => {
-            return Err(ApiError::BadRequest("api_key required on create".into()));
+            (existing.api_key_digest, existing.api_key_ciphertext, None)
         }
     };
 
@@ -84,7 +91,9 @@ pub async fn upsert(
         .await
         .map_err(internal)?;
     invalidate(&state).await;
-    Ok(Json(UserKeyView::from(key)))
+    let mut view = UserKeyView::from(key);
+    view.api_key = bare;
+    Ok(Json(view))
 }
 
 /// `DELETE /admin/user-keys/{id}` — 204 on removal, 404 otherwise.

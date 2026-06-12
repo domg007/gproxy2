@@ -40,8 +40,12 @@ pub async fn upsert(
 ) -> Result<Json<UserView>, ApiError> {
     // Resolve the password hash to store.
     let password = match (&body.password, body.id) {
-        // New plaintext supplied → hash it.
-        (Some(pw), _) => Some(crate::crypto::password::hash(pw).map_err(internal)?),
+        // New plaintext supplied → policy-gate, then hash. `None` is the only
+        // way to a password-less user (password login disabled).
+        (Some(pw), _) => {
+            crate::crypto::password::validate_new(pw).map_err(ApiError::BadRequest)?;
+            Some(crate::crypto::password::hash(pw).map_err(internal)?)
+        }
         // No password on update → keep the existing hash.
         (None, Some(id)) => state
             .persistence

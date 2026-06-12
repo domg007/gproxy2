@@ -402,9 +402,26 @@ mod tests {
         let org_id = state.persistence.list_orgs().await.unwrap()[0].id;
         let app = crate::http::server::router(state);
 
-        // POST create a user with a plaintext password.
+        // Too-short password → policy 400 (min 12 chars), nothing created.
         let payload = format!(
             r#"{{"name":"bob","org_id":{org_id},"password":"pw","enabled":true,"is_admin":true}}"#
+        );
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/users")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // POST create a user with a policy-compliant plaintext password.
+        let payload = format!(
+            r#"{{"name":"bob","org_id":{org_id},"password":"pw-1234567890","enabled":true,"is_admin":true}}"#
         );
         let resp = app
             .clone()
@@ -439,12 +456,14 @@ mod tests {
         assert!(view.get("password").is_none(), "GET must not leak the hash");
         assert_eq!(view["has_password"], true);
 
-        // Login as bob with "pw" proves the stored hash is valid.
+        // Login as bob proves the stored hash is valid.
         let resp = app
             .oneshot(
                 Request::post("/admin/login")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"username":"bob","password":"pw"}"#))
+                    .body(Body::from(
+                        r#"{"username":"bob","password":"pw-1234567890"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -553,9 +572,11 @@ mod tests {
         assert_eq!(reopen.open(&opened).unwrap()["api_key"], "sk-x");
     }
 
-    /// User keys store a digest of the bare key and never echo it back.
+    /// User keys are generated server-side: the bare key appears ONCE in the
+    /// create response (and matches the stored digest), never on reads, and a
+    /// caller-supplied api_key is rejected outright.
     #[tokio::test]
-    async fn user_key_digest_redacted() {
+    async fn user_key_generated_server_side() {
         insecure_cookies();
         let (state, _dir, admin_id) = seeded_state().await;
         let cookie = admin_cookie(&state, admin_id).await;
@@ -563,12 +584,28 @@ mod tests {
         let persistence = state.persistence.clone();
         let app = crate::http::server::router(state);
 
+        // Caller-supplied key material → 400 (keys are server-generated).
         let resp = app
+            .clone()
             .oneshot(
                 Request::post(format!("/admin/users/{user_id}/keys"))
                     .header(header::COOKIE, &cookie)
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"api_key":"sk-test"}"#))
+                    .body(Body::from(r#"{"api_key":"sk-custom"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Create without key material → generated, returned once.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/admin/users/{user_id}/keys"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"label":"ci"}"#))
                     .unwrap(),
             )
             .await
@@ -576,7 +613,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let view: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(view.get("api_key").is_none(), "no bare key in response");
+        let bare = view["api_key"].as_str().expect("bare key once on create");
+        assert!(bare.starts_with("sk-") && bare.len() >= 35, "got {bare}");
         let prefix = view["key_prefix"].as_str().unwrap();
         assert_eq!(prefix.len(), 8);
         let id = view["id"].as_i64().unwrap();
@@ -584,7 +622,28 @@ mod tests {
         let stored = persistence.get_user_key(id).await.unwrap().unwrap();
         assert_eq!(
             stored.api_key_digest,
-            crate::pipeline::auth::key_digest("sk-test")
+            crate::pipeline::auth::key_digest(bare)
+        );
+
+        // Reads never echo the bare key.
+        let resp = app
+            .oneshot(
+                Request::get(format!("/admin/users/{user_id}/keys"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let listed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            listed
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|k| k.get("api_key").is_none()),
+            "bare key leaked into a read: {listed}"
         );
     }
 

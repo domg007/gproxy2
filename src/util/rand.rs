@@ -23,6 +23,17 @@ pub fn password() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes::<24>())
 }
 
+/// A fresh user API key: `sk-` + 32 CSPRNG bytes as url-safe base64 (43
+/// chars). Keys are generated server-side ONLY — the admin create endpoint
+/// never accepts caller key material (import is the sole external-key path).
+pub fn api_key() -> String {
+    use base64::Engine as _;
+    format!(
+        "sk-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes::<32>())
+    )
+}
+
 /// A random RFC-4122 v4 UUID string (`8-4-4-4-12` hex). Cross-target and
 /// cryptographically random — replaces the `uuid` crate (native-only) and its
 /// weak `Date::now()` wasm fallback, so session/request ids are unpredictable

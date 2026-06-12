@@ -143,11 +143,28 @@ pub async fn import_bundle(
         n += 1;
     }
     for k in bundle.user_keys {
-        // digest from the BARE key (auth lookup), ciphertext sealed (§14.1).
-        // NoopCipher seal is identity → the bare string is stored as before;
-        // a real cipher yields an envelope object stored as JSON text.
-        let digest = key_digest(&k.api_key);
-        let sealed = cipher.seal(&serde_json::Value::String(k.api_key))?;
+        // The import bundle is the ONLY entrance for external key material
+        // (the admin API generates keys server-side): blank keys are rejected;
+        // short ones are accepted but flagged — they lack the ≥32-char
+        // random-equivalent strength a generated key has.
+        let bare = k.api_key.trim();
+        if bare.is_empty() {
+            anyhow::bail!(
+                "user_keys: api_key for user {} must not be blank",
+                k.user_id
+            );
+        }
+        if bare.chars().count() < 32 {
+            tracing::warn!(
+                user_id = k.user_id,
+                "imported api_key is shorter than 32 chars — weaker than a generated key"
+            );
+        }
+        // digest from the BARE (trimmed) key (auth lookup), ciphertext sealed
+        // (§14.1). NoopCipher seal is identity → the bare string is stored as
+        // before; a real cipher yields an envelope object stored as JSON text.
+        let digest = key_digest(bare);
+        let sealed = cipher.seal(&serde_json::Value::String(bare.to_string()))?;
         let stored = match &sealed {
             serde_json::Value::String(s) => s.clone(),
             other => serde_json::to_string(other)?,

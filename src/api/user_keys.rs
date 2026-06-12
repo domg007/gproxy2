@@ -1,14 +1,16 @@
-//! User-key DTOs that keep the bare key and its ciphertext off the wire.
+//! User-key DTOs that keep key material off the wire.
 //!
 //! [`UserKeyView`] exposes only a short `key_prefix` (first 8 chars of the
-//! digest) on reads; [`UserKeyUpsert`] takes the BARE api key on writes, which
-//! the handler digests + seals (or, when omitted on an update, leaves the
-//! stored digest/ciphertext untouched).
+//! digest) on reads; writes never carry key material — the create handler
+//! GENERATES the key server-side (returned once via `UserKeyView.api_key`)
+//! and updates touch only label/enabled.
 
 use crate::store::persistence::records::UserKey;
 
 /// Read-side user-key shape: identity fields plus a short non-reversible
-/// `key_prefix`. The bare key and its ciphertext are never serialized.
+/// `key_prefix`. The bare key rides ONLY the create response (`api_key`,
+/// shown once — the server just generated it); it is never serialized on any
+/// read path, and the ciphertext never leaves the store.
 #[derive(serde::Serialize)]
 pub struct UserKeyView {
     pub id: i64,
@@ -17,6 +19,9 @@ pub struct UserKeyView {
     pub enabled: bool,
     /// First 8 chars of the digest — never the bare key.
     pub key_prefix: String,
+    /// The freshly-generated bare key, present ONLY on the create response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 impl From<UserKey> for UserKeyView {
@@ -28,6 +33,7 @@ impl From<UserKey> for UserKeyView {
             label: k.label,
             enabled: k.enabled,
             key_prefix,
+            api_key: None,
         }
     }
 }
@@ -36,9 +42,11 @@ fn default_true() -> bool {
     true
 }
 
-/// Write-side user-key shape. `api_key` is the BARE key (digested + sealed by
-/// the handler): required on create, optional on update (omit to keep the
-/// stored digest/ciphertext). `id = None` creates, `Some(id)` updates.
+/// Write-side user-key shape. `id = None` creates (the key material is
+/// GENERATED server-side and returned once), `Some(id)` updates label/enabled
+/// (key material is immutable — rotate by create + delete). `api_key` is kept
+/// in the shape only so a caller supplying one gets an explicit 400 instead of
+/// a silent ignore; external key material enters via the import path alone.
 #[derive(serde::Deserialize)]
 pub struct UserKeyUpsert {
     #[serde(default)]
@@ -46,8 +54,7 @@ pub struct UserKeyUpsert {
     /// User id — taken from the path; ignored if present in the body.
     #[serde(default)]
     pub user_id: i64,
-    /// Bare api key. `Some` → digested + sealed; `None` on update → keep
-    /// existing; `None` on create → rejected (400).
+    /// Rejected if present (400) — keys are server-generated.
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
