@@ -206,9 +206,9 @@ async fn main() -> anyhow::Result<()> {
             let bundle =
                 gproxy::app::export::export_bundle(persistence.as_ref(), cipher.as_ref()).await?;
             let json = serde_json::to_string_pretty(&bundle)?;
-            std::fs::write(&output, json)?;
+            write_secret_file(std::path::Path::new(&output), &json)?;
             tracing::warn!(
-                "exported config to {output:?} — contains PLAINTEXT secrets; chmod 600 and protect this file"
+                "exported config to {output:?} — contains PLAINTEXT secrets (mode 0600); protect this file"
             );
             return Ok(());
         }
@@ -382,6 +382,41 @@ async fn run_update(
             }
         }
     }
+}
+
+/// Write `contents` to `path` owner-readable only (0600), via a same-directory
+/// temp file + atomic rename — the plaintext-secret export must never be
+/// world-readable, not even transiently, and never half-written.
+fn write_secret_file(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    use std::io::Write as _;
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => std::path::Path::new("."),
+    };
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("export");
+    let tmp = dir.join(format!(".{name}.tmp"));
+    let mut opts = std::fs::OpenOptions::new();
+    // create_new: refuse to write through a pre-existing (possibly symlinked,
+    // possibly lax-permissioned) temp file from an interrupted run.
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.mode(0o600);
+    }
+    let write = || -> std::io::Result<()> {
+        let mut f = opts.open(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    };
+    write().inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
+    Ok(())
 }
 
 fn init_tracing() {
