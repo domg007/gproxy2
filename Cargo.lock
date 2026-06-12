@@ -1773,6 +1773,7 @@ dependencies = [
  "web-sys",
  "wreq",
  "wreq-util",
+ "xxhash-rust",
 ]
 
 [[package]]

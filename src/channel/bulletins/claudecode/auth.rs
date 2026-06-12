@@ -251,10 +251,15 @@ pub(super) async fn refresh(
 
 /// Inject the OAuth bearer + claude-cli / Stainless impersonation headers onto
 /// the prepared upstream request. A per-request session-id is generated.
-pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), ChannelError> {
+pub(super) fn apply(
+    req: &mut Request<Bytes>,
+    access_token: &str,
+    session_id: &str,
+    with_request_id: bool,
+) -> Result<(), ChannelError> {
     let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
-    let session_id = HeaderValue::from_str(&new_session_id())
+    let session_id = HeaderValue::from_str(session_id)
         .map_err(|e| ChannelError::Build(format!("bad session id: {e}")))?;
 
     let h = req.headers_mut();
@@ -279,6 +284,12 @@ pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), 
         HeaderName::from_static("x-claude-code-session-id"),
         session_id,
     );
+    // The Stainless SDK adds a fresh per-request id only on the direct API host.
+    if with_request_id {
+        let rid = HeaderValue::from_str(&crate::util::rand::uuid_v4())
+            .map_err(|e| ChannelError::Build(format!("bad request id: {e}")))?;
+        h.insert(HeaderName::from_static("x-client-request-id"), rid);
+    }
     h.insert(
         http::header::USER_AGENT,
         HeaderValue::from_static(USER_AGENT),
@@ -290,9 +301,4 @@ pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), 
         );
     }
     Ok(())
-}
-
-/// Fresh per-request v4 session id (cross-target, cryptographically random).
-fn new_session_id() -> String {
-    crate::util::rand::uuid_v4()
 }

@@ -7,12 +7,14 @@
 //! credentials that carry only a `cookie`).
 
 mod auth;
+mod cch;
 mod cookie;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
@@ -50,6 +52,36 @@ impl Channel for ClaudeCodeChannel {
             .filter(|s| !s.is_empty())
             .unwrap_or(auth::DEFAULT_BASE_URL);
 
+        // One session id is shared by the `x-claude-code-session-id` header and
+        // the `metadata.user_id` body field (the real CLI keeps them equal).
+        let session_id = crate::util::rand::uuid_v4();
+
+        // The model call (`POST /v1/messages*`) carries the CLI billing header +
+        // `metadata.user_id`; the `cch` checksum is computed over the final body.
+        // Other paths (e.g. token-count GET) pass through unchanged.
+        let is_messages = ctx.method == http::Method::POST && ctx.path.starts_with("/v1/messages");
+        let body = if is_messages {
+            let device_id = ctx
+                .secret
+                .get("device_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let account_uuid = ctx
+                .secret
+                .get("account_uuid")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Bytes::from(cch::apply(
+                &ctx.body,
+                device_id,
+                account_uuid,
+                &session_id,
+                "cli",
+            ))
+        } else {
+            ctx.body
+        };
+
         // Claude-messages passthrough: the inbound path is already provider
         // relative (`/v1/messages`, `/v1/messages/count_tokens`, …); forward it.
         let uri = join_url(base, ctx.path, ctx.query)?;
@@ -57,8 +89,10 @@ impl Channel for ClaudeCodeChannel {
         // forwards `anthropic-beta` from the client (base allow-list adds
         // content-type / accept).
         let headers = allow_headers(ctx.headers, &["anthropic-beta"]);
-        let mut req = build_request(ctx.method, uri, headers, ctx.body)?;
-        auth::apply(&mut req, &access_token)?;
+        let mut req = build_request(ctx.method, uri, headers, body)?;
+        // `x-client-request-id` rides only the direct api.anthropic.com model call.
+        let with_request_id = is_messages && base == auth::DEFAULT_BASE_URL;
+        auth::apply(&mut req, &access_token, &session_id, with_request_id)?;
         Ok(PreparedRequest::new(req))
     }
 
