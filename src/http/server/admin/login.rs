@@ -206,8 +206,20 @@ pub async fn cookie(
         .channels
         .login_for(&req.channel)
         .ok_or_else(|| ApiError::NotFound("unknown channel".into()))?;
+    // claude.ai is Cloudflare-fronted and rejects non-browser TLS, so the cookie
+    // exchange rides a Chrome-emulating client rather than the default upstream.
+    #[cfg(feature = "upstream-wreq")]
+    let cookie_client: std::sync::Arc<dyn crate::http::client::UpstreamClient> =
+        std::sync::Arc::new(
+            crate::http::client::WreqClient::browser()
+                .map_err(|_| ApiError::BadRequest("cookie login client init failed".into()))?,
+        );
+    #[cfg(feature = "upstream-wreq")]
+    let cookie_client = &cookie_client;
+    #[cfg(not(feature = "upstream-wreq"))]
+    let cookie_client = &state.upstream;
     let secret = channel
-        .cookie_exchange(&state.upstream, &req.cookie)
+        .cookie_exchange(cookie_client, &req.cookie)
         .await
         .map_err(|_| ApiError::BadRequest("cookie login failed".into()))?;
     let sealed = state

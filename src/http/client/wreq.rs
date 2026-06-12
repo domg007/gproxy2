@@ -61,6 +61,19 @@ impl WreqClient {
             inner: builder.build()?,
         })
     }
+
+    /// Build a `WreqClient` impersonating a real Chrome browser (TLS + HTTP/2 +
+    /// headers, via `wreq-util`'s captured emulation). Used for the claudecode
+    /// cookie → OAuth exchange, which hits Cloudflare-fronted `claude.ai` and
+    /// rejects non-browser TLS. Best-effort: verify against live claude.ai, as
+    /// Cloudflare's checks evolve.
+    pub fn browser() -> wreq::Result<Self> {
+        Ok(Self {
+            inner: wreq::Client::builder()
+                .emulation(wreq_util::Emulation::Chrome142)
+                .build()?,
+        })
+    }
 }
 
 impl Default for WreqClient {
