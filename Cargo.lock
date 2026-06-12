@@ -1741,6 +1741,7 @@ dependencies = [
  "chacha20poly1305",
  "clap",
  "dashmap",
+ "ed25519-dalek",
  "futures-core",
  "futures-util",
  "getrandom 0.2.17",
@@ -1753,6 +1754,8 @@ dependencies = [
  "regex",
  "rust_decimal",
  "sea-orm",
+ "self-replace",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -3525,6 +3528,17 @@ dependencies = [
  "pkcs8",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "self-replace"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03ec815b5eab420ab893f63393878d89c90fdd94c0bcc44c07abb8ad95552fb7"
+dependencies = [
+ "fastrand",
+ "tempfile",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

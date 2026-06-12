@@ -53,6 +53,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 wreq = { version = "6.0.0-rc.28", features = ["json", "stream", "gzip", "brotli", "zstd", "deflate"], optional = true }
 tiktoken-rs = { version = "0.12", optional = true }
 tokenizers = { version = "0.23", optional = true, default-features = false, features = ["onig"] }
+# self-update (§19, native-only). semver: `releases`-channel version compare.
+# ed25519-dalek: verify the signed release manifest with an embedded public key
+# (already in the tree via jsonwebtoken; pinned here as a direct dep). self-replace:
+# atomic Unix/Windows binary swap.
+semver = "1"
+ed25519-dalek = "2"
+self-replace = "1"
 
 # ── wasm32-only ───────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]

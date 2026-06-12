@@ -85,12 +85,59 @@ enum Command {
         #[arg(long = "out")]
         output: PathBuf,
     },
+    /// Self-update (§19): check the configured release channel for a new build,
+    /// and optionally download + verify + swap the binary. Native-only.
+    Update {
+        #[command(subcommand)]
+        action: UpdateAction,
+
+        /// GitHub `owner/repo` whose Releases host the signed manifest +
+        /// artifacts.
+        #[arg(long, env = "GPROXY_UPDATE_REPO")]
+        repo: String,
+
+        /// Release channel: `releases` (semver) or `staging` (sha256).
+        #[arg(long, env = "GPROXY_UPDATE_CHANNEL", default_value = "releases")]
+        channel: gproxy::selfupdate::Channel,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum UpdateAction {
+    /// Check the channel and report current/latest without changing anything.
+    Check,
+    /// Download + verify + swap the binary if an update is available.
+    Apply {
+        /// Restart model after a successful swap: `supervisor` (exit with a
+        /// sentinel code for the orchestrator), `re-exec` (execv in place), or
+        /// `none` (stage only).
+        #[arg(long, env = "GPROXY_UPDATE_RESTART", default_value = "supervisor")]
+        restart: gproxy::selfupdate::Restart,
+    },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
     let cli = Cli::parse();
+
+    // Self-update (§19): self-contained — needs only an HTTP client + data_dir,
+    // so it runs before persistence/cache/server are built, then exits.
+    if let Some(Command::Update {
+        action,
+        repo,
+        channel,
+    }) = &cli.command
+    {
+        return run_update(
+            repo.clone(),
+            *channel,
+            cli.data_dir.clone(),
+            cli.upstream_proxy_url.clone(),
+            action,
+        )
+        .await;
+    }
 
     let cache_cfg = CacheConfig::from_url(cli.redis_url);
     let persistence_cfg = PersistenceConfig::from_parts(cli.persistence, cli.data_dir, cli.dsn)?;
@@ -160,6 +207,8 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         None => {}
+        // Handled by the early dispatch above (before persistence is built).
+        Some(Command::Update { .. }) => unreachable!("update is dispatched before persistence"),
     }
 
     // First-boot hook: if GPROXY_IMPORT_FILE is set and the store is empty,
@@ -276,6 +325,57 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+/// Run the `update` subcommand (§19): build a proxy-aware HTTP client, then
+/// check or apply on the configured channel. Self-contained; never starts the
+/// server. `apply` may diverge (re-exec) or exit with the supervisor sentinel.
+async fn run_update(
+    repo: String,
+    channel: gproxy::selfupdate::Channel,
+    data_dir: PathBuf,
+    proxy_url: Option<String>,
+    action: &UpdateAction,
+) -> anyhow::Result<()> {
+    #[cfg(not(feature = "upstream-wreq"))]
+    {
+        let _ = (repo, channel, data_dir, proxy_url, action);
+        anyhow::bail!("self-update requires the `upstream-wreq` feature");
+    }
+    #[cfg(feature = "upstream-wreq")]
+    {
+        let client: Arc<dyn UpstreamClient> = Arc::new(
+            gproxy::http::client::WreqClient::with_proxy_url(proxy_url.as_deref())?,
+        );
+        let ctx = gproxy::selfupdate::UpdateContext {
+            repo,
+            channel,
+            data_dir,
+            client,
+        };
+        match action {
+            UpdateAction::Check => {
+                let report = gproxy::selfupdate::check(&ctx).await?;
+                println!(
+                    "channel={channel:?} current={} latest={} available={}{}",
+                    report.current,
+                    report.latest,
+                    report.available,
+                    report
+                        .notes_url
+                        .as_deref()
+                        .map(|u| format!(" notes={u}"))
+                        .unwrap_or_default()
+                );
+                Ok(())
+            }
+            UpdateAction::Apply { restart } => {
+                let version = gproxy::selfupdate::apply(&ctx, *restart).await?;
+                tracing::info!(version, "update applied (no restart requested)");
+                Ok(())
+            }
+        }
+    }
 }
 
 fn init_tracing() {

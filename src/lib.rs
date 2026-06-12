@@ -14,6 +14,9 @@ pub mod http;
 pub mod pipeline;
 pub mod process;
 pub mod protocol;
+// Self-update is native-only: edge (wasm) deploys via the platform pipeline (§19).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod selfupdate;
 pub mod store;
 pub mod tokenize;
 pub mod transform;
