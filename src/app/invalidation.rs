@@ -21,8 +21,9 @@ pub fn spawn_invalidation_listener(state: crate::app::AppState) {
                 }),
             )
             .await;
-        // subscribe returns when the connection drops; reconnection is a
-        // documented M8 follow-up.
+        // `subscribe` reconnects with backoff internally and only returns if it
+        // gives up entirely (it currently never does on the redis backend; the
+        // memory/edge no-op returns immediately).
         tracing::warn!("invalidation listener stopped");
     });
 }

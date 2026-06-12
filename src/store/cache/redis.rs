@@ -7,6 +7,28 @@ use redis::AsyncCommands;
 
 use super::{CacheBackend, InvalidationHandler};
 
+/// First reconnect backoff after a dropped subscription.
+const RECONNECT_BASE: Duration = Duration::from_millis(500);
+/// Maximum reconnect backoff (exponential growth is capped here).
+const RECONNECT_CAP: Duration = Duration::from_secs(30);
+/// A subscription that stays up at least this long is treated as healthy, so
+/// the next drop restarts backoff from [`RECONNECT_BASE`] rather than the cap.
+const HEALTHY_AFTER: Duration = Duration::from_secs(60);
+/// Quiet period that ends a coalesced burst: once no new invalidation arrives
+/// within this window, the pending reload fires.
+const COALESCE_WINDOW: Duration = Duration::from_millis(50);
+/// Hard cap on how long a single burst is coalesced, so a steady stream of
+/// invalidations can't starve the reload indefinitely.
+const COALESCE_MAX: Duration = Duration::from_millis(500);
+
+/// Exponential reconnect backoff for attempt `n` (0-based): `0.5s * 2^n`,
+/// capped at [`RECONNECT_CAP`]. Saturates instead of overflowing on large `n`.
+fn backoff_delay(attempt: u32) -> Duration {
+    RECONNECT_BASE
+        .saturating_mul(1u32.checked_shl(attempt).unwrap_or(u32::MAX))
+        .min(RECONNECT_CAP)
+}
+
 /// Redis-backed cache. Requires a running Redis server.
 ///
 /// Uses [`redis::aio::ConnectionManager`] for automatic reconnection and
@@ -44,6 +66,53 @@ impl RedisCache {
             .await
             .map_err(|e| anyhow::anyhow!("redis ping failed: {e}"))?;
         Ok(())
+    }
+
+    /// Run one connect → subscribe → consume cycle, coalescing bursts before
+    /// each `handler` call. Returns `true` if the connection stayed up past
+    /// [`HEALTHY_AFTER`] (so the caller resets its backoff), `false` if it
+    /// failed fast or never connected (so the caller backs off).
+    async fn run_subscription(&self, channel: &str, handler: &InvalidationHandler) -> bool {
+        use futures_util::StreamExt;
+
+        let mut pubsub = match self.client.get_async_pubsub().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(error = %e, channel, "redis pubsub connect failed");
+                return false;
+            }
+        };
+        if let Err(e) = pubsub.subscribe(channel).await {
+            tracing::warn!(error = %e, channel, "redis subscribe failed");
+            return false;
+        }
+        tracing::info!(channel, "redis invalidation subscription established");
+        let started = std::time::Instant::now();
+        let mut stream = pubsub.on_message();
+
+        while let Some(msg) = stream.next().await {
+            // Coalesce a burst: keep the latest payload, then drain any further
+            // messages arriving within the (extending) coalesce window so N
+            // rapid writes fire `handler` once.
+            let mut payload = msg.get_payload_bytes().to_vec();
+            let deadline = std::time::Instant::now() + COALESCE_MAX;
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                let window = COALESCE_WINDOW.min(remaining);
+                if window.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(window, stream.next()).await {
+                    Ok(Some(next)) => payload = next.get_payload_bytes().to_vec(),
+                    // Quiet window elapsed, or stream ended: stop draining.
+                    Ok(None) | Err(_) => break,
+                }
+            }
+            handler(payload);
+        }
+
+        tracing::warn!(channel, "redis subscription ended (connection dropped)");
+        started.elapsed() >= HEALTHY_AFTER
     }
 }
 
@@ -133,27 +202,46 @@ impl CacheBackend for RedisCache {
         }
     }
 
-    /// Subscribe to `channel`, invoking `handler` for each message until the
-    /// connection drops. Blocks for the lifetime of the subscription, so the
-    /// caller is expected to spawn this. Reconnection on drop is a follow-up.
+    /// Subscribe to `channel`, invoking `handler` for invalidation events until
+    /// the caller drops the task. Blocks for the lifetime of the subscription,
+    /// so the caller is expected to spawn this.
+    ///
+    /// # Reconnection
+    ///
+    /// The connection is re-established with exponential backoff
+    /// ([`RECONNECT_BASE`] → [`RECONNECT_CAP`]) whenever it fails to open or the
+    /// message stream ends (a dropped connection yields `None`). The loop never
+    /// terminates on a transient error, so the listener survives Redis
+    /// restarts / network blips. Backoff resets after a connection that stayed
+    /// up past [`HEALTHY_AFTER`].
+    ///
+    /// # Coalescing
+    ///
+    /// A burst of N invalidation messages collapses into a single `handler`
+    /// call: after the first message, the loop drains every message that
+    /// arrives within [`COALESCE_WINDOW`] (extending the window on each new
+    /// message up to [`COALESCE_MAX`]), then invokes `handler` once with the
+    /// most-recent payload. This turns N rapid config writes into one snapshot
+    /// rebuild instead of N.
     async fn subscribe(&self, channel: &str, handler: InvalidationHandler) {
-        let mut pubsub = match self.client.get_async_pubsub().await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!(error = %e, "redis pubsub connect failed");
-                return;
+        let mut attempt: u32 = 0;
+        loop {
+            match self.run_subscription(channel, &handler).await {
+                // `true` => the subscription stayed up long enough to be
+                // considered healthy; reset the backoff for the next cycle.
+                true => attempt = 0,
+                false => {
+                    let delay = backoff_delay(attempt);
+                    attempt = attempt.saturating_add(1);
+                    tracing::warn!(
+                        channel,
+                        delay_ms = delay.as_millis() as u64,
+                        "redis subscription down; reconnecting after backoff"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
             }
-        };
-        if let Err(e) = pubsub.subscribe(channel).await {
-            tracing::warn!(error = %e, channel, "redis subscribe failed");
-            return;
         }
-        let mut stream = pubsub.on_message();
-        use futures_util::StreamExt;
-        while let Some(msg) = stream.next().await {
-            handler(msg.get_payload_bytes().to_vec());
-        }
-        tracing::warn!(channel, "redis subscription ended (connection dropped)");
     }
 
     /// Acquire a best-effort distributed lock via `SET key 1 NX PX <ms>`.
@@ -186,6 +274,17 @@ impl CacheBackend for RedisCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backoff_grows_exponentially_then_caps() {
+        assert_eq!(backoff_delay(0), Duration::from_millis(500));
+        assert_eq!(backoff_delay(1), Duration::from_secs(1));
+        assert_eq!(backoff_delay(2), Duration::from_secs(2));
+        assert_eq!(backoff_delay(6), Duration::from_secs(30)); // 32s -> capped
+        // Large attempt counts must saturate to the cap, never overflow/panic.
+        assert_eq!(backoff_delay(100), RECONNECT_CAP);
+        assert_eq!(backoff_delay(u32::MAX), RECONNECT_CAP);
+    }
 
     // This test requires a live Redis server and is skipped in normal CI.
     // Set GPROXY_TEST_REDIS_URL (e.g. redis://127.0.0.1:6379) to run it.
