@@ -131,7 +131,17 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
         return service_unavailable("gproxy edge not initialised: call init() first");
     };
 
+    // Body cap (shared with native's DefaultBodyLimit): reject via
+    // content-length BEFORE buffering when the header is present…
+    if content_length_exceeds(&req, crate::config::MAX_BODY_BYTES) {
+        return payload_too_large();
+    }
     let (parts, body) = ws_request_to_parts(req).await?;
+    // …and re-check the actual buffered length (content-length can be absent
+    // or lying). Both produce a clean 413, not a JS exception.
+    if body.len() > crate::config::MAX_BODY_BYTES {
+        return payload_too_large();
+    }
     let path = parts.uri.path().to_string();
 
     // Operational endpoints: no pipeline, no upstream.
@@ -173,6 +183,21 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 /// Build a 503 (init-not-called) plain-text response.
 fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     text_response(503, "text/plain", msg.as_bytes())
+}
+
+/// Build the 413 for an over-cap request body.
+fn payload_too_large() -> Result<Response, JsValue> {
+    text_response(413, "text/plain", b"request body too large")
+}
+
+/// `true` when a present, parseable `content-length` already exceeds `max`.
+/// Pre-read fast-fail only — the authoritative check in [`fetch`] measures the
+/// buffered body, since the header can be absent or lying.
+fn content_length_exceeds(req: &web_sys::Request, max: usize) -> bool {
+    matches!(
+        req.headers().get("content-length"),
+        Ok(Some(v)) if v.trim().parse::<u64>().is_ok_and(|n| n > max as u64)
+    )
 }
 
 /// Build a response with a single `Content-Type` header and a body.

@@ -47,7 +47,7 @@ pub fn router(state: AppState) -> Router {
         let gateway = Router::new()
             .route("/v1/{*rest}", any(gateway::aggregated))
             .route("/{provider}/v1/{*rest}", any(gateway::scoped))
-            .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
+            .layer(DefaultBodyLimit::max(crate::config::MAX_BODY_BYTES))
             .layer(
                 ServiceBuilder::new()
                     .layer(HandleErrorLayer::new(handle_overload))
