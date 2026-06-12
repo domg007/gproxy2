@@ -1,6 +1,6 @@
 //! Channel adapters ("bulletins") — one folder per channel; each manages its
 //! own auth in `auth.rs`. API-key channels share [`common`]; OAuth/envelope
-//! channels are stubs until their auth/transform infra lands (M7 / M2).
+//! channels carry their own OAuth refresh + transform (M7 / M2, both landed).
 
 pub mod common;
 
@@ -19,7 +19,7 @@ pub mod openrouter;
 pub mod vercel;
 pub mod vertexexpress;
 
-// OAuth / envelope channels (stubs — prepare errors until M7/M2)
+// OAuth / envelope channels (functional)
 pub mod antigravity;
 pub mod claudecode;
 pub mod codex;

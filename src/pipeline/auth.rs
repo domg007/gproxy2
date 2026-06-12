@@ -52,7 +52,9 @@ pub fn extract_bearer(headers: &HeaderMap, query: Option<&str>) -> Option<String
 
 /// Digest used to index `keys_by_digest`. M1: lowercase hex of `blake3(token)`.
 /// SINGLE SOURCE OF TRUTH — both seeding and [`authenticate`] call this on the
-/// identical bare token. (Salt/pepper deferred to M6.)
+/// identical bare token. No salt/pepper: keys are 256-bit CSPRNG, server-issued
+/// only, so the entropy already defeats the precomputation/brute-force that
+/// salt/pepper exist to stop.
 pub fn key_digest(bare_token: &str) -> String {
     blake3::hash(bare_token.as_bytes()).to_hex().to_string()
 }

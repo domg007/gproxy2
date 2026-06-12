@@ -6,8 +6,9 @@
 //! - **TLS fingerprint**: per-credential override, else the provider default.
 //!
 //! These compute the *effective* values; the transport that applies them — a
-//! `(proxy, fingerprint)`-keyed upstream-client pool with wreq impersonation —
-//! lands in M7. Until then the values are resolved but not yet enforced.
+//! `(proxy, fingerprint)`-keyed upstream-client pool with wreq impersonation
+//! ([`crate::http::client::pool`]) — is wired in `failover/attempt`, which
+//! resolves these and fails the candidate (no silent downgrade) on a bad target.
 
 use serde_json::Value;
 
