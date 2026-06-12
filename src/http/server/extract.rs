@@ -1,14 +1,12 @@
 //! Inbound request → [`RequestCtx`] extraction (request-id, routing mode, path
-//! normalization). Body reading + the body-size limit live in the gateway.
+//! normalization). Body reading + the body-size limit live in the gateway
+//! (the shared cap is [`crate::config::MAX_BODY_BYTES`]).
 
 use bytes::Bytes;
 use http::request::Parts;
 
 use crate::pipeline::context::{RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
-
-/// Max inbound body accepted by the gateway (matches the router's body limit).
-pub const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Build a [`RequestCtx`] from request parts + the already-read body. For scoped
 /// mode the leading `/{provider}` segment is stripped so `path` is `/v1/...` in

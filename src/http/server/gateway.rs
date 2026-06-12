@@ -8,7 +8,8 @@ use axum::response::{IntoResponse, Response};
 
 use crate::app::AppState;
 use crate::channel::http_util::sanitize_response_headers;
-use crate::http::server::extract::{MAX_BODY_BYTES, build_ctx};
+use crate::config::MAX_BODY_BYTES;
+use crate::http::server::extract::build_ctx;
 use crate::pipeline;
 use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 
