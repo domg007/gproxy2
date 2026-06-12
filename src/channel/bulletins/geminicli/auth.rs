@@ -37,8 +37,12 @@ pub(super) const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-plat
 /// Code Assist API host (non-regional). Both verbs live under `/v1internal:`.
 pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 
-/// User-Agent the Gemini CLI sends; some Code Assist paths key behaviour off it.
-const USER_AGENT_VALUE: &str = "GeminiCLI/0.35.2 (linux; x64; terminal)";
+/// Gemini CLI model-path User-Agent; `model` = the requested model id (e.g.
+/// `gemini-2.5-pro`), which the real CLI embeds. See
+/// `docs/agent-tls-fingerprints.md` §5. Some Code Assist paths key off this.
+fn user_agent(model: &str) -> String {
+    format!("GeminiCLI-tui/0.46.0/{model} (linux; x64; terminal) google-api-nodejs-client/9.15.1")
+}
 /// `x-goog-api-client` mirrors the genai SDK fingerprint (optional but cheap).
 const GOOG_API_CLIENT: &str = "google-genai-sdk/1.30.0 gl-node/20";
 
@@ -201,14 +205,20 @@ pub(super) async fn refresh(
 /// upstream request. `content-type`/`accept` are forced to `application/json`
 /// (the stream still arrives as SSE — that is selected by `alt=sse`, not Accept,
 /// matching the Gemini CLI's own request).
-pub(super) fn apply(req: &mut Request<Bytes>, access_token: &str) -> Result<(), ChannelError> {
+pub(super) fn apply(
+    req: &mut Request<Bytes>,
+    access_token: &str,
+    model: &str,
+) -> Result<(), ChannelError> {
     let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
     let h = req.headers_mut();
     h.insert(AUTHORIZATION, bearer);
     h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     h.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    let ua = HeaderValue::from_str(&user_agent(model))
+        .map_err(|e| ChannelError::Build(format!("bad user-agent: {e}")))?;
+    h.insert(USER_AGENT, ua);
     h.insert(
         HeaderName::from_static("x-goog-api-client"),
         HeaderValue::from_static(GOOG_API_CLIENT),

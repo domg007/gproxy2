@@ -28,7 +28,7 @@ use crate::http::client::UpstreamClient;
 /// Copilot Chat extension; from the TS sample's `lib/api-config.ts`).
 const DEFAULT_VSCODE_VERSION: &str = "1.95.3";
 const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.43.0";
-const USER_AGENT: &str = "GitHubCopilotChat/0.43.0";
+const USER_AGENT: &str = "copilot/1.0.61 (linux v24.16.0) term/unknown";
 const API_VERSION: &str = "2025-04-01";
 const GITHUB_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 

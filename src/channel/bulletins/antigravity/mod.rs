@@ -14,7 +14,8 @@
 //! [`stream_decoder`]: AntigravityChannel::stream_decoder
 
 mod auth;
-
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -40,6 +41,11 @@ impl Channel for AntigravityChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::GeminiGenerateContent
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
@@ -159,7 +165,7 @@ mod tests {
         );
         assert_eq!(
             req.headers().get("user-agent").unwrap(),
-            "antigravity/2.22.2 windows/amd64"
+            "antigravity/cli/1.0.6 linux/amd64"
         );
         assert_eq!(req.headers().get("requesttype").unwrap(), "agent");
         assert!(req.headers().get("requestid").is_some());

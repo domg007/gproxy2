@@ -45,7 +45,7 @@ pub(super) const BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 
 /// User-Agent the Antigravity app sends; some Code Assist paths key behaviour
 /// off it (this is what distinguishes the channel from `geminicli` upstream).
-const USER_AGENT_VALUE: &str = "antigravity/2.22.2 windows/amd64";
+const USER_AGENT_VALUE: &str = "antigravity/cli/1.0.6 linux/amd64";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;

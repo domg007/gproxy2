@@ -119,10 +119,18 @@ pub(super) async fn attempt(
         );
         let fingerprint =
             crate::channel::resolve::effective_tls_fingerprint(&cand.credential, &cand.provider);
-        match state
-            .client_pool
-            .for_target(proxy.as_deref(), fingerprint.as_ref())
-        {
+        // DB fingerprint (credential/provider) wins; otherwise fall back to the
+        // channel's built-in impersonation profile; otherwise the default client.
+        let pool_result = if let Some(fp) = fingerprint.as_ref() {
+            state.client_pool.for_target(proxy.as_deref(), Some(fp))
+        } else if let Some(emu) = channel.default_emulation() {
+            state
+                .client_pool
+                .for_channel(proxy.as_deref(), channel.id(), emu)
+        } else {
+            state.client_pool.for_target(proxy.as_deref(), None)
+        };
+        match pool_result {
             Ok(c) => c,
             Err(e) => {
                 health_hooks::record_failure(state, cand);

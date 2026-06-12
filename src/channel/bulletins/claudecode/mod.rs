@@ -7,6 +7,8 @@
 
 mod auth;
 mod cookie;
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 
 use std::sync::Arc;
 
@@ -30,6 +32,11 @@ impl Channel for ClaudeCodeChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::ClaudeMessages
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
@@ -179,7 +186,7 @@ mod tests {
         assert_eq!(req.headers().get("x-stainless-runtime").unwrap(), "node");
         assert_eq!(
             req.headers().get("user-agent").unwrap(),
-            "claude-cli/2.1.154 (external, cli)"
+            "claude-cli/2.1.162 (external, cli)"
         );
         assert!(req.headers().get("x-claude-code-session-id").is_some());
     }

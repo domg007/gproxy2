@@ -86,6 +86,38 @@ impl ClientPool {
             }
         }
     }
+
+    /// Resolve the client for a channel's built-in `default_emulation` (§7.4),
+    /// used when no DB `tls_fingerprint` overrides it. Keyed by `(proxy, "ch:"+id)`
+    /// so each channel's built-in profile is built once and shared. Build failure
+    /// fails the attempt — same fail-closed policy as [`Self::for_target`].
+    pub fn for_channel(
+        &self,
+        proxy: Option<&str>,
+        channel_id: &str,
+        emulation: wreq::Emulation,
+    ) -> Result<Arc<dyn UpstreamClient>, ClientError> {
+        let key = (
+            proxy.unwrap_or_default().to_string(),
+            format!("ch:{channel_id}"),
+        );
+        if let Some(c) = self.by_target.get(&key) {
+            return Ok(Arc::clone(&c));
+        }
+        match WreqClient::with_proxy_and_emulation(proxy, Some(emulation)) {
+            Ok(c) => {
+                let c: Arc<dyn UpstreamClient> = Arc::new(c);
+                self.by_target.insert(key, Arc::clone(&c));
+                Ok(c)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "channel emulation client build failed; failing attempt");
+                Err(ClientError::Config(format!(
+                    "channel emulation client build failed: {e}"
+                )))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -159,5 +191,24 @@ mod tests {
             pool.for_target(None, Some(&fp)),
             Err(ClientError::Config(_))
         ));
+    }
+
+    /// A channel's built-in emulation is built once per `(proxy, channel)` and
+    /// shared; distinct channels get distinct clients, distinct from the default.
+    #[test]
+    fn for_channel_caches_per_channel() {
+        let pool = ClientPool::new(Arc::new(Dummy));
+        let emu = || to_emulation(&json!({ "headers": { "user-agent": "x" } })).unwrap();
+
+        let a = pool.for_channel(None, "codex", emu()).unwrap();
+        let a2 = pool.for_channel(None, "codex", emu()).unwrap();
+        assert!(Arc::ptr_eq(&a, &a2)); // same channel → cached
+
+        let b = pool.for_channel(None, "kiro", emu()).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b)); // different channel → distinct
+
+        // Distinct from the default (None, None) client.
+        let def = pool.for_target(None, None).unwrap();
+        assert!(!Arc::ptr_eq(&def, &a));
     }
 }

@@ -115,3 +115,40 @@ impl Default for ChannelRegistry {
         Self::with_builtin()
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod emulation_tests {
+    use super::builtin_channels;
+    use crate::http::client::WreqClient;
+
+    /// Every impersonation channel's built-in `default_emulation` must build a
+    /// real wreq client. BoringSSL validates the cipher/curve/sigalg token
+    /// strings only at client-build time (not `TlsOptions::build`), so this is
+    /// the test that actually catches a bad token in a channel's `fingerprint.rs`.
+    #[test]
+    fn channel_default_emulations_build() {
+        let expected = [
+            "claudecode",
+            "codex",
+            "geminicli",
+            "antigravity",
+            "kiro",
+            "copilot_cli",
+        ];
+        let mut found = Vec::new();
+        for ch in builtin_channels() {
+            if let Some(emu) = ch.default_emulation() {
+                WreqClient::with_proxy_and_emulation(None, Some(emu)).unwrap_or_else(|e| {
+                    panic!("{}: default_emulation client build failed: {e}", ch.id())
+                });
+                found.push(ch.id());
+            }
+        }
+        for id in expected {
+            assert!(
+                found.contains(&id),
+                "{id} should expose a default_emulation"
+            );
+        }
+    }
+}

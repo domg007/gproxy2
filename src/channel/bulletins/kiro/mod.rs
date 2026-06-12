@@ -18,13 +18,14 @@
 //! the wasm edge target (refresh is async via [`UpstreamClient`], fine on all).
 
 mod auth;
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 mod request;
 mod request_tools;
 mod response;
 mod smithy;
 mod sse;
 mod tool_calls;
-
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -46,7 +47,7 @@ const DEFAULT_BASE_URL: &str = "https://q.us-east-1.amazonaws.com";
 /// Kiro chat endpoint (Smithy REST-JSON, AWS event-stream response).
 const GENERATE_PATH: &str = "/generateAssistantResponse";
 /// User-Agent the Kiro IDE sends.
-const USER_AGENT_VALUE: &str = "KiroIDE-0.12.224";
+const USER_AGENT_VALUE: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
 /// Kiro agent mode header value.
 const AGENT_MODE: &str = "vibe";
 
@@ -61,6 +62,11 @@ impl Channel for KiroChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::OpenAiResponses
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {

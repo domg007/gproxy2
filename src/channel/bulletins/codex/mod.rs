@@ -1,5 +1,5 @@
 //! Codex channel — OpenAI ChatGPT-backend Responses API over OAuth2
-//! (`refresh_token` grant) plus the `codex_cli_rs` impersonation header set.
+//! (`refresh_token` grant) plus the `codex_exec` impersonation header set.
 //!
 //! `target_kind` is `OpenAiResponses`: the upstream already speaks Responses
 //! SSE, so there is NO envelope, NO stream decoder, NO normalize. This channel
@@ -11,6 +11,8 @@
 //! backend `/responses`.
 
 mod auth;
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 
 use std::sync::Arc;
 
@@ -34,6 +36,11 @@ impl Channel for CodexChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::OpenAiResponses
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
@@ -195,7 +202,7 @@ mod tests {
             req.headers().get("authorization").unwrap(),
             "Bearer tok-abc"
         );
-        assert_eq!(req.headers().get("originator").unwrap(), "codex_cli_rs");
+        assert_eq!(req.headers().get("originator").unwrap(), "codex_exec");
         assert_eq!(req.headers().get("chatgpt-account-id").unwrap(), "acct-9");
         // session id and x-client-request-id share the same generated value.
         assert_eq!(

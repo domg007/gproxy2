@@ -131,6 +131,16 @@ pub trait Channel: Send + Sync {
     fn transport(&self) -> TransportKind {
         TransportKind::Http
     }
+
+    /// Built-in TLS + HTTP/2 impersonation profile for this channel (§7.4),
+    /// applied when no DB `tls_fingerprint` (credential/provider) overrides it.
+    /// `None` (the default) means no built-in profile — the default client.
+    /// Impersonation channels build it from `wreq` typed options in their own
+    /// `fingerprint.rs`. Native + `upstream-wreq` only.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        None
+    }
 }
 
 /// Errors raised while preparing an upstream request.

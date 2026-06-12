@@ -9,7 +9,8 @@
 //! verbatim. Login (M10 device flow) is documented in [`auth`].
 
 mod auth;
-
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -36,6 +37,11 @@ impl Channel for CopilotCliChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::OpenAiChatCompletions
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {

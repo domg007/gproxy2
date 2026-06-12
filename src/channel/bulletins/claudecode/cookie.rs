@@ -25,7 +25,7 @@ const CLAUDE_AI_BASE: &str = "https://claude.ai";
 const API_BASE: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const USER_AGENT: &str = "claude-cli/2.1.154 (external, cli)";
+const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
 
 /// Org capabilities that gate Claude Code OAuth (`user:inference` scope).
 /// API-only orgs return `permission_error` at the authorize step, so the

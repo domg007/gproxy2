@@ -14,6 +14,8 @@
 //! [`stream_decoder`]: GeminiCliChannel::stream_decoder
 
 mod auth;
+#[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+mod fingerprint;
 
 use std::sync::Arc;
 
@@ -40,6 +42,11 @@ impl Channel for GeminiCliChannel {
 
     fn target_kind(&self) -> ContentGenerationKind {
         ContentGenerationKind::GeminiGenerateContent
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
+    fn default_emulation(&self) -> Option<wreq::Emulation> {
+        Some(fingerprint::default_emulation())
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
@@ -71,7 +78,7 @@ impl Channel for GeminiCliChannel {
         // inbound headers beyond the base content-type/accept allow-list.
         let headers = allow_headers(ctx.headers, &[]);
         let mut req = build_request(ctx.method, uri, headers, Bytes::from(wrapped))?;
-        auth::apply(&mut req, &access_token)?;
+        auth::apply(&mut req, &access_token, ctx.upstream_model_id)?;
         Ok(PreparedRequest::new(req))
     }
 
@@ -171,6 +178,11 @@ mod tests {
         assert_eq!(
             req.headers().get("authorization").unwrap(),
             "Bearer tok-abc"
+        );
+        // User-agent embeds the requested model id (dynamic per request).
+        assert_eq!(
+            req.headers().get("user-agent").unwrap(),
+            "GeminiCLI-tui/0.46.0/gemini-2.5-pro (linux; x64; terminal) google-api-nodejs-client/9.15.1"
         );
 
         // Body is the Code Assist envelope carrying the original request.

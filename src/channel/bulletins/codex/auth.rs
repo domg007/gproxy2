@@ -44,10 +44,14 @@ pub(super) const OAUTH_SCOPE: &str =
 /// ChatGPT codex-backend host. The Responses endpoint lives at `/responses`.
 pub(super) const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
-/// User-Agent the Codex CLI (`codex_cli_rs`) sends; rides the credential's
+/// User-Agent the Codex CLI (`codex exec`) sends; rides the credential's
 /// `tls_fingerprint` pool (M7a). The `originator` header carries the same id.
-const ORIGINATOR: &str = "codex_cli_rs";
-const USER_AGENT_VALUE: &str = "codex_cli_rs/0.118.0 (Linux 6.6; x86_64)";
+/// Captured from `codex exec` (docs/agent-tls-fingerprints.md §5); the
+/// interactive TUI would instead be `codex_cli_rs` — keep UA + originator in
+/// sync if switching forms.
+const ORIGINATOR: &str = "codex_exec";
+const USER_AGENT_VALUE: &str =
+    "codex_exec/0.137.0 (Debian 13.0.0; x86_64) xterm-256color (codex_exec; 0.137.0)";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
