@@ -35,6 +35,7 @@ use super::smithy::{SmithyFrame, SmithyFrameParser};
 use super::sse::{
     dedup_chunk, gen_id, message_item, openai_usage, push_sse, reasoning_item, url_decode,
 };
+use super::tool_calls::ToolCallTracker;
 
 /// Per-stream Responses SSE state machine over the Smithy frame stream.
 pub struct KiroStreamDecoder {
@@ -51,6 +52,7 @@ pub struct KiroStreamDecoder {
     initialized: bool,
     content_started: bool,
     reasoning_started: bool,
+    tool_calls: ToolCallTracker,
     seq: u64,
 }
 
@@ -70,6 +72,7 @@ impl KiroStreamDecoder {
             initialized: false,
             content_started: false,
             reasoning_started: false,
+            tool_calls: ToolCallTracker::default(),
             seq: 0,
         }
     }
@@ -224,6 +227,9 @@ impl KiroStreamDecoder {
                     self.usage = Some(usage);
                 }
             }
+            "toolUseEvent" => {
+                self.tool_calls.handle(&payload, &mut self.seq, out);
+            }
             "invalidStateEvent" | "InternalServerException" | "internalServerException" => {
                 let message = payload
                     .get("message")
@@ -261,6 +267,9 @@ impl KiroStreamDecoder {
         }
         if include_output && self.content_started {
             output.push(message_item(&self.message_id, &self.content, "completed"));
+        }
+        if include_output {
+            output.extend(self.tool_calls.completed_items());
         }
         let mut response = json!({
             "id": self.response_id,
@@ -369,6 +378,8 @@ impl ChannelStreamDecoder for KiroStreamDecoder {
                 }),
             );
         }
+        // Close any tool call whose `stop` frame never arrived.
+        self.tool_calls.finish(&mut self.seq, &mut out);
         let seq = self.next_seq();
         let body = self.response_body("completed", true);
         push_sse(
@@ -422,5 +433,67 @@ mod tests {
         )));
         assert!(second.contains(r#""delta":"llo""#));
         assert!(!second.contains(r#""delta":"hello""#));
+    }
+
+    #[test]
+    fn tool_use_events_to_function_call_sse() {
+        // Two tool calls, each streamed as partial-then-stop fragments, plus a
+        // text frame first so output indices land at 2 and 3.
+        let mut dec = KiroStreamDecoder::new();
+        dec.push(&build_frame(
+            "assistantResponseEvent",
+            br#"{"content":"hi"}"#,
+        ));
+
+        // Call A: name on the first (partial) fragment, args split across two.
+        let a1 = sse_text(&dec.push(&build_frame(
+            "toolUseEvent",
+            br#"{"name":"get_weather","toolUseId":"call_a","input":"{\"city\":","stop":false}"#,
+        )));
+        assert!(a1.contains("response.output_item.added"));
+        assert!(a1.contains(r#""type":"function_call""#));
+        assert!(a1.contains(r#""call_id":"call_a""#));
+        assert!(a1.contains(r#""name":"get_weather""#));
+        assert!(a1.contains("response.function_call_arguments.delta"));
+        assert!(a1.contains(r#""output_index":2"#));
+
+        let a2 = sse_text(&dec.push(&build_frame(
+            "toolUseEvent",
+            br#"{"name":"get_weather","toolUseId":"call_a","input":"\"NYC\"}","stop":true}"#,
+        )));
+        assert!(a2.contains("response.function_call_arguments.done"));
+        assert!(a2.contains(r#""arguments":"{\"city\":\"NYC\"}""#));
+        assert!(a2.contains("response.output_item.done"));
+
+        // Call B: a distinct toolUseId → its own item at the next output_index.
+        let b = sse_text(&dec.push(&build_frame(
+            "toolUseEvent",
+            br#"{"name":"lookup","toolUseId":"call_b","input":"{}","stop":true}"#,
+        )));
+        assert!(b.contains(r#""call_id":"call_b""#));
+        assert!(b.contains(r#""output_index":3"#));
+        assert!(b.contains("response.function_call_arguments.done"));
+
+        let fin = sse_text(&dec.finish());
+        assert!(fin.contains("response.completed"));
+        // Both completed function-call items appear in the final output array.
+        assert!(fin.contains(r#""call_id":"call_a""#));
+        assert!(fin.contains(r#""call_id":"call_b""#));
+    }
+
+    #[test]
+    fn tool_use_without_stop_is_closed_on_finish() {
+        // A tool call whose `stop` frame never arrives must still be closed by
+        // finish() so the Responses stream is well-formed.
+        let mut dec = KiroStreamDecoder::new();
+        dec.push(&build_frame(
+            "toolUseEvent",
+            br#"{"name":"f","toolUseId":"c1","input":"{\"a\":1}","stop":false}"#,
+        ));
+        let fin = sse_text(&dec.finish());
+        assert!(fin.contains("response.function_call_arguments.done"));
+        assert!(fin.contains(r#""arguments":"{\"a\":1}""#));
+        assert!(fin.contains("response.output_item.done"));
+        assert!(fin.contains("response.completed"));
     }
 }

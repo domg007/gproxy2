@@ -22,6 +22,7 @@ mod request;
 mod response;
 mod smithy;
 mod sse;
+mod tool_calls;
 
 use std::sync::Arc;
 
