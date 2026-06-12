@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "@/api/auth";
+import { AppShell } from "@/components/shell/app-shell";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ context }) => {
@@ -14,6 +15,9 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  // Task 7 wraps this in <AppShell>.
-  return <Outlet />;
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  );
 }
