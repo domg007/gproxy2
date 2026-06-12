@@ -31,6 +31,23 @@ Latest live proof on `gproxy-v2`: a temporary `/loadprobe` route returned
 package, `/healthz` returned `200 {"status":"ok"}` in 0.795 s and `/version`
 returned `200 {"version":"2.0.0"}` in 0.338 s.
 
+## Coverage (2026-06-12): NOT yet a full gateway deployment
+
+The direct-upload package exposes ONLY explicit route files — `/healthz`,
+`/version`, `/metrics` — because the root `[[default]].js` catch-all fell back
+to static assets on direct uploads (see Step 4). Gateway traffic (`/v1/...`,
+`/{provider}/v1/...`) therefore CANNOT reach the wasm on EdgeOne Pages yet:
+treat this target as an ops/observability spike, not a serving deployment.
+TODO before calling it a gateway: test whether a NESTED-dir catch-all (e.g.
+`edge-functions/v1/[[default]].js`) registers correctly on direct uploads —
+only the root catch-all was proven broken.
+
+Also note (2026-06-12): the ops endpoints are now admin-gated FAIL CLOSED —
+probes must send an admin user's API key (`x-api-key` / `Authorization:
+Bearer`) or an admin session cookie; anonymous curl gets 401. The live-proof
+transcripts in this file predate that gate (and the JSON bodies they show are
+now served by the edge dispatch itself, matching native byte-for-byte).
+
 ---
 
 ## Tooling / CLI
