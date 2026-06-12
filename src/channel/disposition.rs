@@ -51,17 +51,31 @@ impl Disposition {
     }
 }
 
-/// Parse a `Retry-After: <seconds>` header into a `Duration` (HTTP-date form is
-/// not handled in M1; absent/unparseable → `None`).
+/// Parse a `Retry-After` header into a `Duration`. Accepts both forms (RFC 7231):
+/// a delay in seconds (`Retry-After: 120`) and an HTTP-date
+/// (`Retry-After: Wed, 21 Oct 2025 07:28:00 GMT`), the latter converted to a
+/// delay from the current time. A past date or unparseable value → `None`.
 fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
-    let secs = headers
+    let val = headers
         .get(http::header::RETRY_AFTER)?
         .to_str()
         .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()?;
-    Some(Duration::from_secs(secs))
+        .trim();
+
+    // delta-seconds form
+    if let Ok(secs) = val.parse::<u64>() {
+        return Some(Duration::from_secs(secs));
+    }
+
+    // HTTP-date form → delay from now (dual-target clock; no SystemTime::now,
+    // so this stays wasm-safe).
+    let target = httpdate::parse_http_date(val)
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let now = crate::util::time::unix_now();
+    (target > now).then(|| Duration::from_secs((target - now) as u64))
 }
 
 #[cfg(test)]
@@ -99,6 +113,33 @@ mod tests {
             Disposition::RateLimited {
                 retry_after: Some(Duration::from_secs(12))
             }
+        );
+    }
+
+    #[test]
+    fn retry_after_http_date_form() {
+        // A far-future HTTP-date yields a positive (large) delay; a past date → None.
+        let mut h = HeaderMap::new();
+        h.insert(
+            http::header::RETRY_AFTER,
+            "Wed, 21 Oct 2099 07:28:00 GMT".parse().unwrap(),
+        );
+        match Disposition::from_http(StatusCode::TOO_MANY_REQUESTS, &h) {
+            Disposition::RateLimited {
+                retry_after: Some(d),
+            } => assert!(d.as_secs() > 0, "future date → positive delay"),
+            other => panic!("expected RateLimited with delay, got {other:?}"),
+        }
+
+        let mut past = HeaderMap::new();
+        past.insert(
+            http::header::RETRY_AFTER,
+            "Wed, 21 Oct 1999 07:28:00 GMT".parse().unwrap(),
+        );
+        assert_eq!(
+            Disposition::from_http(StatusCode::TOO_MANY_REQUESTS, &past),
+            Disposition::RateLimited { retry_after: None },
+            "past date → no cooldown"
         );
     }
 }

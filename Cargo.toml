@@ -32,6 +32,7 @@ futures-util = "0.3"
 # default OS backend; wasm enables the `js` backend (see the wasm target table).
 getrandom = "0.2"
 http = "1"
+httpdate = "1"
 regex = "1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 rust_decimal = { version = "1", features = ["serde-with-str"] }
