@@ -13,7 +13,7 @@
 | **codex** ①(辅助/认证) | OpenSSL 3.5(Rust native-tls) | 30 | 最前 | 无 | ✓ | `27718d56688425cd36a401c66147c4ee` | `t13d301100_1d37bd780c83_8e6e362c5eac` |
 | **codex** ②(**模型路径**) | rustls/hyper(h2) | 10 | 最前 | `h2` | — | `bc73760f6b846b84e33ae3072ef4e9c1` | `t13d1011h2_61a7ad8aa9b6_3fcd1a44f3e3` |
 | **gemini** | 系统 OpenSSL 3.5(全量) | 52 | 最前 | 无 | ✓ | `944d1e1858cd278718f8a46b65d3212f` | `t13d521100_b262b3658495_8e6e362c5eac` |
-| **agy**(Antigravity) | Go `crypto/tls` | 13 | **最后** | `h2,http/1.1` | ✓×3 | `03117a8ed39ef02427ebbc39f121275c` | `t13d1312h2_f57a46bbacb6_ab7e3b40a677` |
+| **agy**(Antigravity) | Go `crypto/tls` | 13 | **最后** | 模型`无`/遥测`h2,http/1.1` | ✓×3 | `03117a8ed39ef02427ebbc39f121275c` | 模型`t13d131100_f57a46bbacb6_ab7e3b40a677`(h1)/遥测`t13d1312h2_…` |
 | **copilot** ①(`api.github.com` 内部) | 系统 OpenSSL 3.5(全量) | 52 | 最前 | `http/1.1` | ✓ | `d67b094811e5145139d7cea5f014309f` | `t13d5212h1_b262b3658495_8e6e362c5eac` |
 | **copilot** ②(**模型路径**) | rustls | 10 | 最前 | `http/1.1` | — | 随机(扩展乱序) | `t13d1011h1_61a7ad8aa9b6_*`(JA4_c 可变) |
 | **kiro-cli** | rustls / aws-lc | 10 | 最前 | 无 | — | `49ae0c94…` / `8ed2b010…`(不稳定,见注) | `t13d101000_61a7ad8aa9b6_3fcd1a44f3e3` |
@@ -24,13 +24,14 @@
 
 | 渠道 | 模型路径 UA(**伪装用这个**) | 端点 |
 |---|---|---|
-| **claude** | `claude-cli/2.1.162 (external, claude-vscode, agent-sdk/0.3.173)` | `POST api.anthropic.com/v1/messages` |
+| **claude** | `claude-cli/2.1.162 (external, cli)` | `POST api.anthropic.com/v1/messages` |
 | **codex** | `codex_exec/0.137.0 (Debian 13.0.0; x86_64) xterm-256color (codex_exec; 0.137.0)` | `POST …/v1/responses` |
 | **gemini** | `GeminiCLI-tui/0.46.0/<model> (linux; x64; terminal) google-api-nodejs-client/9.15.1`(`<model>` = `gemini-2.5-pro`/`gemini-2.5-flash`) | `POST cloudcode-pa.googleapis.com/v1internal:streamGenerateContent` |
-| **agy** | `codeium-language-server` | `antigravity-unleash.goog/api/client/*` |
+| **agy** | `antigravity/cli/1.0.6 linux/amd64` | `POST (daily-)cloudcode-pa.googleapis.com/v1internal:*` |
 | **copilot** | `copilot/1.0.61 (linux v24.16.0) term/unknown` | `api.individual.githubcopilot.com` |
 | **kiro-cli** | `aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI` | `POST runtime.us-east-1.kiro.dev/` |
 
+> claude 括号内随**入口**变:纯终端 `cli`、`-p`/SDK `sdk-cli`、VSCode 扩展 `claude-vscode, agent-sdk/…`——伪装终端 CLI 用 `(external, cli)`。agy 的 `codeium-language-server` 是 `antigravity-unleash.goog` 注册端点 UA(非模型);模型端点 `(daily-)cloudcode-pa.googleapis.com` 才是 `antigravity/cli/1.0.6 linux/amd64`(代码里 `antigravity/2.22.2 windows/amd64` 是桌面 app,非 CLI)。
 > 其它路径 UA(非模型):claude bootstrap `claude-code/2.1.162`、遥测 `axios/1.15.2`;copilot 内部 `api.github.com` 校验同 UA;gemini token 校验 `google-api-nodejs-client/9.15.1`;kiro 非流式 `api/codewhispererruntime/…`、遥测 `aws-sdk-rust/1.3.15`。
 
 ## 3. 伪装注意事项
@@ -39,14 +40,14 @@
 - **均不像浏览器**:六者全部无 GREASE、无 cipher 乱序,是 OpenSSL / Node / Go / rustls 原生画像。`wreq` 内置多为浏览器(Chrome/Firefox/Safari/OkHttp)preset,要伪装成这些 agent 需**自定义 TLS 配置**,而非现成 preset。
 - **指纹会聚类**:`gemini` 与 `copilot` 的 `JA4_b/JA4_c`(`b262b3658495_8e6e362c5eac`)逐字节相同,仅 ALPN 不同;`codex②` 与 `kiro` 的 `JA4_b/JA4_c`(`61a7ad8aa9b6_3fcd1a44f3e3`)相同(都是 rustls)。同库即同尾巴。
 - **UA 与指纹要配套伪装**:仅改 TLS 指纹而 UA 不符,或反之,都会露馅。注意部分 UA(gemini/copilot)抓自认证/内部路径,模型路径可能不同。
-- **HTTP/2 层也要对齐**(详见 §6):`codex`(rustls/hyper)、`agy`(Go)走 h2,有独立的 SETTINGS/窗口/伪头序指纹;`claude`、`kiro` **只用 HTTP/1.1**(已在模型连接确认),没有 h2 层。伪装 h2 客户端时只对 TLS 不对 h2,Akamai 指纹一样会暴露。
+- **HTTP/2 层也要对齐**(详见 §6):**模型路径只有 `codex`(rustls/hyper)走 h2**;`agy` 模型路径是 **HTTP/1.1**(h2 仅用于它的遥测/oauth/更新端点);`claude`、`gemini`、`copilot`、`kiro` 模型路径也都只 HTTP/1.1。伪装 h2 客户端(codex)时只对 TLS 不对 h2,Akamai 指纹一样会暴露。
 
 ---
 
 ## 4. 各渠道明细
 
 ### claude — `2.1.162`(Node/OpenSSL · `api.anthropic.com`)
-- **UA**: `claude-code/2.1.162`
+- **模型 UA**: `claude-cli/2.1.162 (external, cli)`(模型 `/v1/messages`;bootstrap/遥测用 `claude-code/2.1.162`)
 - **JA3**: `d871d02cecbde59abbf8f4806134addf` · **JA4**: `t13d1714h1_5b57614c22b0_43ade6aba3df`
   ```
   771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-21,29-23-24,0
@@ -73,13 +74,15 @@
 - ciphers(52):系统 OpenSSL **全量**(含 ARIA/CAMELLIA/CCM/DHE) · ext(11):同 codex① · ec_pt_fmts:`0,1,2` · ALPN:无 · **HTTP/1.1**
 - ✅ **已确认**:模型路径(`cloudcode-pa.googleapis.com/v1internal:streamGenerateContent`)与认证路径**同一 52-cipher OpenSSL 栈**——之前"疑非模型客户端"的存疑已排除。整条都是 http/1.1。
 
-### agy — Antigravity(Go `crypto/tls` · `antigravity-unleash.goog`)
-- **UA**: `codeium-language-server`(产品 UA / CONNECT:`Go-http-client/1.1`)
-- **JA3**: `03117a8ed39ef02427ebbc39f121275c` · **JA4**: `t13d1312h2_f57a46bbacb6_ab7e3b40a677`
+### agy — Antigravity CLI(Go `crypto/tls`)
+- **模型 UA**: `antigravity/cli/1.0.6 linux/amd64`(端点 `(daily-)cloudcode-pa.googleapis.com/v1internal:*`,**HTTP/1.1**)
+- 其它 UA:注册端点 `antigravity-unleash.goog` → `codeium-language-server`;oauth/更新/存储等 → `Go-http-client/1.1`、`Go-http-client/2.0`
+- **模型 JA4**: `t13d131100_f57a46bbacb6_ab7e3b40a677`(h1,无 ALPN)· 遥测端点 JA4 `t13d1312h2_…`(h2),JA3 `03117a8ed39ef02427ebbc39f121275c`
   ```
   771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0
   ```
-- ciphers(13):`c02b c02f c02c c030 cca9 cca8 c009 c013 c00a c014 1301 1302 1303`(TLS1.3 在**末尾** = Go 特征) · ext(12):`00 0b ff01 17 12 05 0a 0d 32 10 2b 33` · curves:`0x11ec/0x11eb/0x11ed(三个 PQC 混合),x25519,P-256,P-384,P-521` · ALPN:`h2,http/1.1`
+- ciphers(13):`c02b c02f c02c c030 cca9 cca8 c009 c013 c00a c014 1301 1302 1303`(TLS1.3 在**末尾** = Go 特征) · ext:`00 0b ff01 17 12 05 0a 0d 32 10 2b 33` · curves:`0x11ec/0x11eb/0x11ed(三个 PQC 混合),x25519,P-256,P-384,P-521` · ALPN:模型端点**不发**(走 h1),遥测端点发 `h2,http/1.1`
+- 注:代码里 `antigravity/2.22.2 windows/amd64` 是 **Antigravity 桌面 app**(Windows),与本 CLI 不同。
 
 ### copilot — GitHub Copilot CLI(系统 OpenSSL 3.5 · `api.github.com`)
 - **UA**: `undici`(`/copilot_internal/user` 内部校验;模型调用 UA 或不同)
@@ -125,7 +128,7 @@
 ### claude(保真度:高)
 ```json
 {
-  "headers": { "user-agent": "claude-code/2.1.162" },
+  "headers": { "user-agent": "claude-cli/2.1.162 (external, cli)" },
   "tls": {
     "alpn_protocols": ["http/1.1"],
     "grease_enabled": false,
@@ -135,18 +138,18 @@
     "sigalgs_list": "ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256:rsa_pkcs1_sha256:ecdsa_secp384r1_sha384:rsa_pss_rsae_sha384:rsa_pkcs1_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha512:rsa_pkcs1_sha1"
   },
   "http2": false,
-  "_reference": { "ja4": "t13d1714h1_5b57614c22b0_43ade6aba3df", "ja3_md5": "d871d02cecbde59abbf8f4806134addf", "model_ua": "claude-cli/2.1.162 (external, claude-vscode, agent-sdk/0.3.173)" },
+  "_reference": { "ja4": "t13d1714h1_5b57614c22b0_43ade6aba3df", "ja3_md5": "d871d02cecbde59abbf8f4806134addf", "model_ua": "claude-cli/2.1.162 (external, cli)" },
   "_fidelity": "high",
   "_unsupported": "claude 全程 HTTP/1.1(http2:false);padding/SCT 扩展 BoringSSL 也发,套件全为 BoringSSL 已知,JA4_c 可能小差。注意模型路径 UA 是 claude-cli/...,与 bootstrap 的 claude-code/... 不同。"
 }
 ```
 
-### agy / Antigravity(保真度:中)
+### agy / Antigravity CLI(模型路径=h1 · 保真度:中)
 ```json
 {
-  "headers": { "user-agent": "codeium-language-server" },
+  "headers": { "user-agent": "antigravity/cli/1.0.6 linux/amd64" },
   "tls": {
-    "alpn_protocols": ["h2", "http/1.1"],
+    "alpn_protocols": [],
     "grease_enabled": false,
     "min_tls_version": "tls1.2", "max_tls_version": "tls1.3",
     "cipher_list": "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256",
@@ -154,18 +157,10 @@
     "sigalgs_list": "rsa_pss_rsae_sha256:ecdsa_secp256r1_sha256:ed25519:rsa_pss_rsae_sha384:rsa_pss_rsae_sha512:rsa_pkcs1_sha256:rsa_pkcs1_sha384:rsa_pkcs1_sha512:ecdsa_secp384r1_sha384:ecdsa_secp521r1_sha512",
     "preserve_tls13_cipher_list": true
   },
-  "http2": {
-    "enable_push": false,
-    "initial_window_size": 4194304,
-    "initial_connection_window_size": 1073807359,
-    "max_frame_size": 1048576,
-    "max_header_list_size": 10485760,
-    "headers_pseudo_order": [":authority", ":method", ":path", ":scheme"],
-    "settings_order": [2, 4, 5, 6]
-  },
-  "_reference": { "ja4": "t13d1312h2_f57a46bbacb6_ab7e3b40a677", "ja3_md5": "03117a8ed39ef02427ebbc39f121275c", "h2_akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s" },
+  "http2": false,
+  "_reference": { "ja4": "t13d131100_f57a46bbacb6_ab7e3b40a677", "model_endpoint": "(daily-)cloudcode-pa.googleapis.com/v1internal:*", "note": "模型路径 h1、不发 ALPN;遥测/oauth/更新端点才走 h2(t13d1312h2,Akamai 2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s)" },
   "_fidelity": "medium",
-  "_unsupported": "Go 把 TLS1.3 套件放末尾,BoringSSL 排序不同;自定义 PQC 组 0x11eb/0x11ed 无法复刻。h2 为 Go net/http2 典型指纹(伪头序 a,m,p,s,连接窗口增量 1GiB)。"
+  "_unsupported": "模型路径 = HTTP/1.1(http2:false)。Go 把 TLS1.3 套件放末尾,BoringSSL 排序不同;自定义 PQC 组 0x11eb/0x11ed 无法复刻。代码当前 UA antigravity/2.22.2 windows/amd64 是桌面 app,应改 antigravity/cli/1.0.6 linux/amd64。"
 }
 ```
 
@@ -268,17 +263,17 @@
 |---|---|---|---|---|
 | **claude** | ❌ 仅 HTTP/1.1 | — | — | 模型 `/v1/messages`、bootstrap、遥测、MCP 全部 http/1.1(直连 api.anthropic.com 亦同) |
 | **codex** | ✅ h2(rustls/hyper) | `2:0;4:2097152;5:16384;6:16384\|5177345\|0\|m,s,a,p` | :method :scheme :authority :path | 模型 `/v1/responses`;无 push/无 priority,2MiB 初始窗口 |
-| **agy** | ✅ h2(Go net/http2) | `2:0;4:4194304;5:1048576;6:10485760\|1073741824\|0\|a,m,p,s` | :authority :method :path :scheme | 连接窗口增量 1GiB,Go 典型 |
+| **agy** | ⚠️ 模型 h1 / 遥测 h2 | (遥测端点)`2:0;4:4194304;5:1048576;6:10485760\|1073741824\|0\|a,m,p,s` | :authority :method :path :scheme | **模型 `(daily-)cloudcode-pa` 是 http/1.1**;h2 仅遥测/oauth/更新端点(Go net/http2) |
 | **gemini** | ❌ 仅 HTTP/1.1 | — | — | 模型 `cloudcode-pa…/v1internal:streamGenerateContent` 为 http/1.1 |
 | **copilot** | ❌ 仅 HTTP/1.1 | — | — | 模型 `api.individual.githubcopilot.com` 为 http/1.1(rustls 栈) |
 | **kiro-cli** | ❌ 仅 HTTP/1.1 | — | — | 含 `codewhispererstreaming` 模型流式调用也是 http/1.1 |
 
 **解读**
 - **codex** = Rust `hyper`/`h2`:`SETTINGS` 只发 `ENABLE_PUSH=0 / INITIAL_WINDOW_SIZE=2MiB / MAX_FRAME_SIZE=16KiB / MAX_HEADER_LIST_SIZE=16KiB`(无 header_table_size、无 max_concurrent_streams),伪头序 `m,s,a,p`。
-- **agy** = Go `net/http2`:`INITIAL_WINDOW_SIZE=4MiB / MAX_FRAME_SIZE=1MiB / MAX_HEADER_LIST_SIZE=10MiB`,连接级 `WINDOW_UPDATE=1GiB`,伪头序 `a,m,p,s`——这是 Go 的标志性 h2 指纹。
-- **claude、gemini、copilot、kiro 的模型路径都只用 HTTP/1.1**(均已在模型连接确认),没有 h2 层指纹 → JSON 里用 `"http2": false`(`http1_only`)。**只有 codex、agy 走 h2。**
+- **agy** 的 h2(仅遥测/oauth/更新端点)= Go `net/http2`:`INITIAL_WINDOW_SIZE=4MiB / MAX_FRAME_SIZE=1MiB / MAX_HEADER_LIST_SIZE=10MiB`,连接级 `WINDOW_UPDATE=1GiB`,伪头序 `a,m,p,s`——Go 标志性 h2 指纹。**但其模型端点 `(daily-)cloudcode-pa` 走 h1、不发 ALPN**(JA4 `t13d131100_…`)。
+- **claude、gemini、copilot、kiro、agy 的模型路径都只用 HTTP/1.1**(均已在模型连接确认)→ JSON 里用 `"http2": false`(`http1_only`)。**模型路径只有 codex 走 h2**(agy 的 h2 只出现在它的遥测/oauth/更新端点,非模型)。
 - gemini/copilot 的模型路径经**转发型 MITM**([`scripts/capture_fwd_mitm.py`](../scripts/capture_fwd_mitm.py),转发真上游 + 被动嗅探 + 镜像客户端 ALPN)抓到;copilot 需 `GH_TOKEN`(`gh auth token`)跳过其绕代理的 OAuth 校验。
-- wreq `Http2Options` 可完整复刻 codex/agy 的 h2 层(`headers_pseudo_order` + `settings_order` + 各窗口/帧值),见 §5 两份草案的 `http2` 块。
+- wreq `Http2Options` 可完整复刻 **codex** 模型路径的 h2 层(`headers_pseudo_order` + `settings_order` + 各窗口/帧值),见 §5 codex 草案的 `http2` 块;agy 的 h2 仅其非模型端点,模型路径用 `http2:false`。
 
 ---
 
