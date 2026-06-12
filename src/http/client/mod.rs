@@ -8,6 +8,11 @@ use bytes::Bytes;
 pub enum ClientError {
     #[error("upstream transport error: {0}")]
     Transport(String),
+    /// Per-target client configuration is unusable (malformed proxy URL,
+    /// fingerprint that maps to no emulation). Fails the attempt instead of
+    /// silently downgrading to the default client (§7.4 policy bypass).
+    #[error("upstream client config error: {0}")]
+    Config(String),
 }
 
 /// Streaming response body (NATIVE only). Item error is [`ClientError`] — the

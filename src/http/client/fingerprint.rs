@@ -6,7 +6,8 @@
 //! version range, cipher/curve/sigalg BoringSSL token lists, extension permutation);
 //! the `http2` object maps to a [`wreq::http2::Http2Options`] (SETTINGS values +
 //! order, connection window, pseudo-header order) — the Akamai HTTP/2 fingerprint.
-//! An unparsable fingerprint yields no emulation (proxy-only client).
+//! An unparsable/empty fingerprint yields no emulation (`None`) — the pool treats
+//! that as a config error for a present fingerprint (never a silent TLS-layer drop).
 //!
 //! Keys per `docs/agent-tls-fingerprints.md` §5/§6. Keys prefixed `_` (`_reference`,
 //! `_fidelity`, `_unsupported`) are comments and ignored. `"http2": false` (an HTTP/1.1

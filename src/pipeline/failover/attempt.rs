@@ -48,10 +48,10 @@ pub(super) struct AttemptOutcome {
 
 /// Run ONE upstream attempt for `cand` with `secret`: build the request parts,
 /// `prepare`, send, and `classify`. Returns the classified outcome (caller
-/// records health on the FINAL disposition). The three unconditional failure
-/// paths (request build, prepare, transport) record health + audit HERE and
-/// return `Err` — they are never retried via refresh, so the caller only sets
-/// `last_err` and advances.
+/// records health on the FINAL disposition). The unconditional failure paths
+/// (request build, prepare, client config, transport) record health + audit
+/// HERE and return `Err` — they are never retried via refresh, so the caller
+/// only sets `last_err` and advances.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn attempt(
     state: &AppState,
@@ -86,8 +86,20 @@ pub(super) async fn attempt(
         }
     };
 
-    // §7.4 effective (proxy, fingerprint) per attempt → pooled client; wasm and
-    // non-wreq builds always use the default upstream client.
+    // §17: capture what the wire actually carries — the sent body feeds
+    // the count ladder; the URL feeds failed-attempt audit rows. Both are
+    // cheap (refcounted Bytes / one small String). Captured before client
+    // resolution so a config-failure audit row carries the real URL/method.
+    let sent_body = prepared.request.body().clone();
+    let sent_url = prepared.request.uri().to_string();
+    let method = parts.method.clone();
+
+    // §7.4 effective (proxy, fingerprint) per attempt → pooled client; an
+    // unusable target config (malformed proxy URL, fingerprint yielding no
+    // emulation) fails THIS candidate like an upstream connect error — never a
+    // silent downgrade to the default client, which would bypass the
+    // proxy/TLS-profile policy. wasm and non-wreq builds always use the
+    // default upstream client.
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
     let client = {
         let proxy = crate::channel::resolve::effective_proxy(
@@ -97,19 +109,31 @@ pub(super) async fn attempt(
         );
         let fingerprint =
             crate::channel::resolve::effective_tls_fingerprint(&cand.credential, &cand.provider);
-        state
+        match state
             .client_pool
             .for_target(proxy.as_deref(), fingerprint.as_ref())
+        {
+            Ok(c) => c,
+            Err(e) => {
+                health_hooks::record_failure(state, cand);
+                settle::audit_failure(
+                    state,
+                    &ctx.request_id,
+                    cand,
+                    settle::FailedAttempt {
+                        url: &sent_url,
+                        method: method.as_str(),
+                        status: 0,
+                        latency_ms: 0,
+                        error: &e.to_string(),
+                    },
+                );
+                return Err(PipelineError::Transport(e.to_string()));
+            }
+        }
     };
     #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
     let client = Arc::clone(&state.upstream);
-
-    // §17: capture what the wire actually carries — the sent body feeds
-    // the count ladder; the URL feeds failed-attempt audit rows. Both are
-    // cheap (refcounted Bytes / one small String).
-    let sent_body = prepared.request.body().clone();
-    let sent_url = prepared.request.uri().to_string();
-    let method = parts.method.clone();
 
     #[cfg(not(target_arch = "wasm32"))]
     let send_started = std::time::Instant::now();
