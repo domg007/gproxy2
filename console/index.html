@@ -6,7 +6,8 @@
     <title>gproxy console</title>
     <script>
       // Apply persisted theme before first paint to avoid flash.
-      const t = localStorage.getItem("gproxy-console-theme");
+      let t = null;
+      try { t = localStorage.getItem("gproxy-console-theme"); } catch {}
       const dark = t === "dark" || ((t === null || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.classList.toggle("dark", dark);
     </script>
