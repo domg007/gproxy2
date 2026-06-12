@@ -66,6 +66,7 @@ const TABLES: &[&str] = &[
         strategy TEXT NOT NULL, \
         enabled INTEGER NOT NULL, \
         description TEXT, \
+        settings_json TEXT, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS route_members (\

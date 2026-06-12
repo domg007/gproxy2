@@ -48,6 +48,7 @@ pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
                 row.strategy = input.strategy;
                 row.enabled = input.enabled;
                 row.description = input.description;
+                row.settings_json = input.settings_json;
                 row.updated_at = now;
                 row.clone()
             } else {
@@ -60,6 +61,7 @@ pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
                     strategy: input.strategy,
                     enabled: input.enabled,
                     description: input.description,
+                    settings_json: input.settings_json,
                     created_at: now,
                     updated_at: now,
                 };
@@ -76,6 +78,7 @@ pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
                 strategy: input.strategy,
                 enabled: input.enabled,
                 description: input.description,
+                settings_json: input.settings_json,
                 created_at: now,
                 updated_at: now,
             };

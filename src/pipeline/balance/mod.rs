@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::app::snapshot::{ControlPlaneSnapshot, ResolvedRoute};
-use crate::health::config::breaker_config;
+use crate::health::config::{breaker_config, breaker_config_merged};
 use crate::health::{CredAdmit, HealthState};
 use crate::pipeline::context::Candidate;
 use crate::pipeline::error::PipelineError;
@@ -54,12 +54,16 @@ pub async fn candidates(
             .providers_by_id
             .get(&member.provider_id)
             .expect("member admitted only with a live provider");
+        // Member breaker thresholds: route override merged over the provider.
+        let breaker_cfg =
+            breaker_config_merged(route.route.settings_json.as_ref(), &provider.settings_json);
         for cred in credential_pool(cp, provider, health, cache, user_key_id, now).await {
             out.push(Candidate {
                 provider: Arc::clone(provider),
                 credential: cred,
                 upstream_model_id: member.upstream_model_id.clone(),
                 member_id: Some(member.id),
+                breaker_cfg: breaker_cfg.clone(),
             });
         }
     }

@@ -254,6 +254,9 @@ fn scoped_candidates(
         .filter(|c| !c.is_empty())
         .ok_or(PipelineError::NoCredentials)?;
 
+    // Scoped mode has no route, so the member breaker is skipped; carry the
+    // plain provider breaker config for the credential breaker.
+    let breaker_cfg = crate::health::config::breaker_config(&provider.settings_json);
     Ok(creds
         .iter()
         .map(|cred| Candidate {
@@ -261,6 +264,7 @@ fn scoped_candidates(
             credential: Arc::clone(cred),
             upstream_model_id: model.clone(),
             member_id: None,
+            breaker_cfg: breaker_cfg.clone(),
         })
         .collect())
 }

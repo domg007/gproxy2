@@ -665,6 +665,7 @@ mod tests {
                 strategy: "weighted".into(),
                 enabled: true,
                 description: None,
+                settings_json: None,
             })
             .await
             .unwrap()

@@ -1,6 +1,7 @@
 //! Routing records (§8-A): routes, members, aliases.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// A route — one logical model name backed by 1..N members (§3.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -11,6 +12,11 @@ pub struct Route {
     pub strategy: String,
     pub enabled: bool,
     pub description: Option<String>,
+    /// Free-form route settings; the only key today is `circuit_breaker`, whose
+    /// fields override the member providers' breaker thresholds (§3.2). `None` =
+    /// inherit the provider config wholesale.
+    #[serde(default)]
+    pub settings_json: Option<Value>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -23,6 +29,8 @@ pub struct RouteInput {
     pub strategy: String,
     pub enabled: bool,
     pub description: Option<String>,
+    #[serde(default)]
+    pub settings_json: Option<Value>,
 }
 
 /// A member of a route's backend pool (§3.3).

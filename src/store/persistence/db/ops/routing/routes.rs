@@ -14,6 +14,12 @@ fn to_record(m: route::Model) -> Route {
         strategy: m.strategy,
         enabled: m.enabled,
         description: m.description,
+        settings_json: m
+            .settings_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .unwrap_or(None),
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
@@ -45,6 +51,11 @@ pub async fn get_by_name(conn: &DatabaseConnection, name: &str) -> anyhow::Resul
 
 pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Result<Route> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let settings = input
+        .settings_json
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
 
     let model = match input.id {
         Some(id) => match route::Entity::find_by_id(id).one(conn).await? {
@@ -54,6 +65,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
                 am.strategy = Set(input.strategy);
                 am.enabled = Set(input.enabled);
                 am.description = Set(input.description);
+                am.settings_json = Set(settings);
                 am.updated_at = Set(now);
                 am.update(conn).await?
             }
@@ -66,6 +78,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
                     strategy: Set(input.strategy),
                     enabled: Set(input.enabled),
                     description: Set(input.description),
+                    settings_json: Set(settings),
                     created_at: Set(now),
                     updated_at: Set(now),
                 }
@@ -80,6 +93,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
                 strategy: Set(input.strategy),
                 enabled: Set(input.enabled),
                 description: Set(input.description),
+                settings_json: Set(settings),
                 created_at: Set(now),
                 updated_at: Set(now),
             }

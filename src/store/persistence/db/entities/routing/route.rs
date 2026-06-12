@@ -12,6 +12,8 @@ pub struct Model {
     pub strategy: String,
     pub enabled: bool,
     pub description: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub settings_json: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

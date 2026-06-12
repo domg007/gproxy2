@@ -76,14 +76,12 @@ pub const CREATE_MIGRATIONS_TABLE: &str = "CREATE TABLE IF NOT EXISTS schema_mig
 pub const SELECT_MAX_VERSION: &str = "SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations";
 
 /// Ordered list of migrations to apply *after* the baseline. Append new
-/// entries here (see the module docs). The entry below is the representative
-/// placeholder showing the pattern; it is a comment-only no-op (`sql: &[]`) so
-/// it records the version without altering the schema. Replace its `sql` (or
-/// add a new entry) for the next real change.
+/// entries here (see the module docs). `ADD COLUMN` is portable across
+/// sqlite/pg/mysql; keep the DDL dialect-neutral.
 pub const MIGRATIONS: &[Migration] = &[Migration {
     version: 2,
-    description: "placeholder: no-op example migration (replace with real DDL)",
-    sql: &[],
+    description: "routes.settings_json: per-route circuit-breaker override (§3.2)",
+    sql: &["ALTER TABLE routes ADD COLUMN settings_json TEXT"],
 }];
 
 /// Migrations with `version > current`, in ascending order — the work a runner

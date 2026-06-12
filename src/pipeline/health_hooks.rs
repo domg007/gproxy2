@@ -29,24 +29,32 @@ pub fn record_attempt(
     send_ms: Option<f64>,
 ) {
     let now = unix_now();
-    let cfg = breaker_config(&cand.provider.settings_json);
+    // The member breaker honours the route override (carried on the candidate);
+    // the credential breaker is provider-scoped (credentials are shared across
+    // routes), so it uses the plain provider config.
+    let member_cfg = &cand.breaker_cfg;
+    let cred_cfg = breaker_config(&cand.provider.settings_json);
     let cred_id = cand.credential.id;
     match disposition {
         Disposition::Success => {
             if let Some(mid) = cand.member_id {
-                state.health.record_member(mid, &cfg, true, now);
+                state.health.record_member(mid, member_cfg, true, now);
                 if let Some(ms) = send_ms {
                     state.health.record_latency(mid, ms);
                 }
             }
-            let t = state.health.record_credential(cred_id, &cfg, true, now);
+            let t = state
+                .health
+                .record_credential(cred_id, &cred_cfg, true, now);
             persist_breaker_edge(state, cand, t);
         }
         Disposition::Transient => {
             if let Some(mid) = cand.member_id {
-                state.health.record_member(mid, &cfg, false, now);
+                state.health.record_member(mid, member_cfg, false, now);
             }
-            let t = state.health.record_credential(cred_id, &cfg, false, now);
+            let t = state
+                .health
+                .record_credential(cred_id, &cred_cfg, false, now);
             persist_breaker_edge(state, cand, t);
         }
         // A rate-limited key says nothing about the member — member untouched.

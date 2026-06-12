@@ -151,6 +151,7 @@ pub(super) fn route_to_input(r: Route) -> RouteInput {
         strategy: r.strategy,
         enabled: r.enabled,
         description: r.description,
+        settings_json: r.settings_json,
     }
 }
 
