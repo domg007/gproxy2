@@ -1,17 +1,18 @@
 //! Map a `tls_fingerprint` JSON value to a wreq [`Emulation`] (§7.4).
 //!
 //! Fingerprint schema (constrained → wreq): `{"headers"?: {name: value}, "http2"?:
-//! {...}, "tls"?: {...}}`. The `headers` layer becomes the emulation's default
+//! {...}|false, "tls"?: {...}}`. The `headers` layer becomes the emulation's default
 //! headers; the `tls` object maps to a [`wreq::tls::TlsOptions`] (ALPN, GREASE, TLS
-//! version range, cipher/curve/sigalg BoringSSL token lists, extension permutation).
+//! version range, cipher/curve/sigalg BoringSSL token lists, extension permutation);
+//! the `http2` object maps to a [`wreq::http2::Http2Options`] (SETTINGS values +
+//! order, connection window, pseudo-header order) — the Akamai HTTP/2 fingerprint.
 //! An unparsable fingerprint yields no emulation (proxy-only client).
 //!
-//! Keys per `docs/agent-tls-fingerprints.md` §5. Keys prefixed `_` (`_reference`,
-//! `_fidelity`, `_unsupported`) are comments and ignored. The `http2` object is not
-//! mapped: wreq's `Http2Options` is a typed `wreq_proto::http2` builder whose knobs
-//! (frame settings / priority tree / pseudo-header order) do not map cleanly from the
-//! loosely-typed JSON the captures produce, and none of the §5 drafts carry an
-//! `http2` block — so it is left documented-as-unmapped rather than forced.
+//! Keys per `docs/agent-tls-fingerprints.md` §5/§6. Keys prefixed `_` (`_reference`,
+//! `_fidelity`, `_unsupported`) are comments and ignored. `"http2": false` (an HTTP/1.1
+//! -only channel) is a no-op here — the `tls.alpn_protocols` list (which omits `h2`)
+//! is what keeps the connection on HTTP/1.1; only an `http2` OBJECT emits an h2
+//! fingerprint.
 //!
 //! BoringSSL fidelity ceiling (per the doc): the achievable target is an exact UA
 //! plus ALPN, GREASE-off, and cipher/curve/sigalg approximation — NOT byte-exact
@@ -23,6 +24,7 @@ use std::collections::BTreeMap;
 
 use http::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
+use wreq::http2::{Http2Options, PseudoId, PseudoOrder, SettingId, SettingsOrder};
 use wreq::tls::{AlpnProtocol, ExtensionType, TlsOptions, TlsVersion};
 
 /// blake3 hex of the canonicalized fingerprint — the pool cache key. Object keys
@@ -54,9 +56,9 @@ fn canonicalize(v: &Value) -> Value {
 
 /// Build a wreq [`Emulation`] from the fingerprint, or `None` if nothing applies.
 ///
-/// Maps the `headers` object → [`HeaderMap`] and the `tls` object → [`TlsOptions`],
-/// applying only fields that are present. Returns `None` when neither layer yields
-/// anything usable.
+/// Maps the `headers` object → [`HeaderMap`], the `tls` object → [`TlsOptions`],
+/// and the `http2` object → [`Http2Options`], applying only fields that are
+/// present. Returns `None` when no layer yields anything usable.
 pub fn to_emulation(fp: &Value) -> Option<wreq::Emulation> {
     let obj = fp.as_object()?;
 
@@ -66,9 +68,11 @@ pub fn to_emulation(fp: &Value) -> Option<wreq::Emulation> {
         .filter(|hm| !hm.is_empty());
 
     let tls = obj.get("tls").and_then(tls_from_json);
+    // `http2: false` (an HTTP/1.1-only channel) → None here; ALPN governs.
+    let http2 = obj.get("http2").and_then(http2_from_json);
 
-    // Nothing to emulate (an `http2`-only fingerprint, or empty) → no client preset.
-    if headers.is_none() && tls.is_none() {
+    // Nothing to emulate (empty / `http2: false`-only) → no client preset.
+    if headers.is_none() && tls.is_none() && http2.is_none() {
         return None;
     }
 
@@ -79,8 +83,11 @@ pub fn to_emulation(fp: &Value) -> Option<wreq::Emulation> {
     if let Some(tls) = tls {
         builder = builder.tls_options(tls);
     }
+    if let Some(http2) = http2 {
+        builder = builder.http2_options(http2);
+    }
     // `Group::default()` = no request-partitioning grouping; we only attach the
-    // header + TLS layers to the client.
+    // header + TLS + HTTP/2 layers to the client.
     Some(builder.build(wreq::Group::default()))
 }
 
@@ -209,6 +216,100 @@ fn parse_tls_version(s: &str) -> Option<TlsVersion> {
     }
 }
 
+/// Parse the `http2` object into [`Http2Options`] — the Akamai HTTP/2 fingerprint
+/// (SETTINGS values + their order, the connection-level window, pseudo-header
+/// order). `http2: false` (a bare bool) is `None` (HTTP/1.1-only; ALPN governs).
+/// Only present keys are applied; an object with no recognized key → `None`.
+fn http2_from_json(v: &Value) -> Option<Http2Options> {
+    let obj = v.as_object()?; // `false`/scalar → not an object → None
+    let mut b = Http2Options::builder();
+    let mut applied = false;
+
+    if let Some(x) = obj.get("enable_push").and_then(Value::as_bool) {
+        b = b.enable_push(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "initial_window_size") {
+        b = b.initial_window_size(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "initial_connection_window_size") {
+        b = b.initial_connection_window_size(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "max_frame_size") {
+        b = b.max_frame_size(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "max_header_list_size") {
+        b = b.max_header_list_size(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "header_table_size") {
+        b = b.header_table_size(x);
+        applied = true;
+    }
+    if let Some(x) = u32_field(obj, "max_concurrent_streams") {
+        b = b.max_concurrent_streams(x);
+        applied = true;
+    }
+    if let Some(order) = obj.get("headers_pseudo_order").and_then(pseudo_order_from) {
+        b = b.headers_pseudo_order(order);
+        applied = true;
+    }
+    if let Some(order) = obj.get("settings_order").and_then(settings_order_from) {
+        b = b.settings_order(order);
+        applied = true;
+    }
+
+    applied.then(|| b.build())
+}
+
+/// Read an object key as a `u32` (JSON numbers exceeding `u32::MAX` are skipped).
+fn u32_field(obj: &serde_json::Map<String, Value>, key: &str) -> Option<u32> {
+    obj.get(key)
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+}
+
+/// `[":method", ":scheme", ...]` → [`PseudoOrder`]. Unknown entries are skipped.
+fn pseudo_order_from(v: &Value) -> Option<PseudoOrder> {
+    let ids: Vec<PseudoId> = v
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .filter_map(|s| match s {
+            ":method" => Some(PseudoId::Method),
+            ":scheme" => Some(PseudoId::Scheme),
+            ":authority" => Some(PseudoId::Authority),
+            ":path" => Some(PseudoId::Path),
+            _ => None,
+        })
+        .collect();
+    (!ids.is_empty()).then(|| PseudoOrder::builder().extend(ids).build())
+}
+
+/// `[2, 4, 5, 6]` (HTTP/2 SETTINGS identifiers) → [`SettingsOrder`].
+fn settings_order_from(v: &Value) -> Option<SettingsOrder> {
+    let ids: Vec<SettingId> = v
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_u64)
+        .filter_map(|n| match n {
+            1 => Some(SettingId::HeaderTableSize),
+            2 => Some(SettingId::EnablePush),
+            3 => Some(SettingId::MaxConcurrentStreams),
+            4 => Some(SettingId::InitialWindowSize),
+            5 => Some(SettingId::MaxFrameSize),
+            6 => Some(SettingId::MaxHeaderListSize),
+            8 => Some(SettingId::EnableConnectProtocol),
+            9 => Some(SettingId::NoRfc7540Priorities),
+            _ => None,
+        })
+        .collect();
+    (!ids.is_empty()).then(|| SettingsOrder::builder().extend(ids).build())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,6 +394,15 @@ mod tests {
                 "cipher_list": "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384",
                 "curves_list": "X25519:P-256:P-384"
             },
+            "http2": {
+                "enable_push": false,
+                "initial_window_size": 2097152,
+                "initial_connection_window_size": 5242880,
+                "max_frame_size": 16384,
+                "max_header_list_size": 16384,
+                "headers_pseudo_order": [":method", ":scheme", ":authority", ":path"],
+                "settings_order": [2, 4, 5, 6]
+            },
             "_fidelity": "medium"
         })
     }
@@ -352,11 +462,34 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_http2_only_yield_none() {
+    fn empty_and_unmapped_yield_none() {
         assert!(to_emulation(&json!({})).is_none());
-        // http2 is documented-as-unmapped; an http2-only fingerprint applies nothing.
+        // `http2: false` (HTTP/1.1-only) and an http2 object with no recognized
+        // key both contribute nothing.
+        assert!(to_emulation(&json!({ "http2": false })).is_none());
         assert!(to_emulation(&json!({ "http2": { "anything": 1 } })).is_none());
         // tls object with no recognized keys → no options → None.
         assert!(to_emulation(&json!({ "tls": { "_note": "x" } })).is_none());
+    }
+
+    #[test]
+    fn http2_object_maps_to_emulation() {
+        // An http2 object alone yields an emulation (the Akamai h2 fingerprint).
+        assert!(
+            to_emulation(
+                codex_fp()
+                    .get("http2")
+                    .map(|h| json!({ "http2": h }))
+                    .as_ref()
+                    .unwrap()
+            )
+            .is_some()
+        );
+        // The pseudo-header + settings orders parse from the codex draft.
+        let http2 = codex_fp();
+        let h2 = http2.get("http2").unwrap();
+        assert!(pseudo_order_from(h2.get("headers_pseudo_order").unwrap()).is_some());
+        assert!(settings_order_from(h2.get("settings_order").unwrap()).is_some());
+        assert!(http2_from_json(h2).is_some());
     }
 }
