@@ -31,16 +31,43 @@ Latest live proof on `gproxy-v2`: a temporary `/loadprobe` route returned
 package, `/healthz` returned `200 {"status":"ok"}` in 0.795 s and `/version`
 returned `200 {"version":"2.0.0"}` in 0.338 s.
 
-## Coverage (2026-06-12): NOT yet a full gateway deployment
+## Routing shapes (2026-06-12): root catch-all WORKS on CLI ≥ 1.5.9 → FULL gateway
 
-The direct-upload package exposes ONLY explicit route files — `/healthz`,
-`/version`, `/metrics` — because the root `[[default]].js` catch-all fell back
-to static assets on direct uploads (see Step 4). Gateway traffic (`/v1/...`,
-`/{provider}/v1/...`) therefore CANNOT reach the wasm on EdgeOne Pages yet:
-treat this target as an ops/observability spike, not a serving deployment.
-TODO before calling it a gateway: test whether a NESTED-dir catch-all (e.g.
-`edge-functions/v1/[[default]].js`) registers correctly on direct uploads —
-only the root catch-all was proven broken.
+The Step-4 "root `[[default]].js` falls back to static assets" finding was a
+**CLI/platform routing bug, fixed in 1.5.9** (confirmed by the EdgeOne team:
+"[[\*]] 吃所有路由的问题,1.5.9 修复了"; `/` falling to `index.html` is correct —
+exact static matches outrank the catch-all). Probed on `gproxy-spike`:
+
+| shape | CLI 1.5.6 | CLI 1.6.1 |
+|---|---|---|
+| `healthz.js` (exact file) | ✅ | ✅ |
+| `v1/[[default]].js` (static dir + catch-all) | ✅ | ✅ |
+| `[seg]/echo.js` (dynamic dir + static file) | ✅ | ✅ |
+| `[[default]].js` (ROOT catch-all) | ❌ static fallback | ✅ `/anything`, `/openai/v1/messages`, bare `/v1` all hit it |
+| `[seg]/[[default]].js`, `[seg]/v1/[[default]].js` (dynamic dir + catch-all) | ❌ | ❌ (root catch-all covers them instead) |
+| `/` | static `index.html` | static `index.html` (exact match wins — by design) |
+
+Precedence observed: exact file > static-dir catch-all > dynamic-dir static
+file > ROOT catch-all > static assets (only `/` exact-matches one).
+
+So the gproxy package is now a SINGLE root `edge-functions/[[default]].js`
+routing **everything** — aggregated `/v1/*`, scoped `/{provider}/v1/*`, and the
+admin-gated ops endpoints — into the wasm fetch dispatch, the same shape as
+every other platform entry. The explicit healthz/version/metrics route files
+and the interim `v1/[[default]].js` are gone. **Requires `edgeone` CLI ≥ 1.5.9
+to deploy** (earlier versions mis-register catch-alls).
+
+Remaining live verification (one deploy — `gproxy-v2` already carries the
+TURSO/UPSTASH env vars from the Step-4 spike):
+
+```
+edgeone pages deploy deploy/eopages/gproxy --name gproxy-v2 -t "$EDGEONE_PAGES_API_TOKEN"
+# then, with the eo_token/eo_time pair from the deploy output:
+#   /v1/models        -> gproxy 401 JSON (pipeline reached, API key required)
+#   /openai/v1/models -> gproxy 401 JSON (scoped path reached)
+#   /healthz          -> 401 unauthorized (admin gate)
+#   /                 -> static index.html
+```
 
 Also note (2026-06-12): the ops endpoints are now admin-gated FAIL CLOSED —
 probes must send an admin user's API key (`x-api-key` / `Authorization:
@@ -52,7 +79,9 @@ now served by the edge dispatch itself, matching native byte-for-byte).
 
 ## Tooling / CLI
 
-- **CLI:** `edgeone` **v1.5.6** (`npm i -g edgeone`, node v22.20.0).
+- **CLI:** `edgeone` **v1.6.1** (`npm i -g edgeone`, node v22.20.0; **≥ 1.5.9
+  required** — see "Routing shapes" above; 1.6.1 warns `"edgeone pages" is
+  deprecated. Use "edgeone makers" instead`, but `pages` still works).
   Commands: `login | whoami | switch | logout | pages {init,dev,
   generate-routes,env,link,deploy}`.
 - **Auth (non-interactive): the CLI reads `EDGEONE_PAGES_API_TOKEN` from the

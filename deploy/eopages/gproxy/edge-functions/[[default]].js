@@ -1,9 +1,14 @@
-// gproxy v2 — EdgeOne Pages edge-function entry (explicit /metrics route;
-// no catch-all — see ../../NOTES.md "Coverage").
+// gproxy v2 — EdgeOne Pages edge-function entry: ROOT catch-all.
 //
-// Serves the Prometheus exposition rendered by the wasm. Admin-gated like
-// every ops endpoint: callers must present an admin user's API key
-// (`x-api-key` / `Authorization: Bearer`) or an admin session cookie, else 401.
+// Every path (aggregated /v1/*, scoped /{provider}/v1/*, and the admin-gated
+// ops endpoints /healthz /version /metrics) routes to the wasm fetch dispatch
+// here — the same shape as every other platform entry. `/` is the one
+// exception: the static index.html exact-match outranks the catch-all.
+//
+// REQUIRES edgeone CLI >= 1.5.9: earlier versions had a routing bug where
+// [[default]].js either never registered on direct uploads or swallowed all
+// routes — probed and confirmed fixed on 1.6.1 (2026-06-12, see
+// ../../NOTES.md "Routing shapes").
 //
 // Env vars come from `context.env` (set with `edgeone pages env set …`):
 //   TURSO_URL, TURSO_TOKEN          (required — libSQL/Turso persistence)
