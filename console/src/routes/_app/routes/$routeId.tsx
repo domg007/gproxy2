@@ -9,6 +9,7 @@ import { ApiError } from "@/api/http";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { RouteForm } from "@/components/routes/route-form";
 import { MembersTab } from "@/components/routes/members-tab";
+import { AliasesTab } from "@/components/routes/aliases-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -68,8 +69,7 @@ function RouteDetailPage() {
           <MembersTab route={route} />
         </TabsContent>
         <TabsContent value="aliases" className="pt-2">
-          {/* Task 6: <AliasesTab route={route} /> */}
-          <p className="text-sm text-muted-foreground">…</p>
+          <AliasesTab route={route} />
         </TabsContent>
       </Tabs>
 
