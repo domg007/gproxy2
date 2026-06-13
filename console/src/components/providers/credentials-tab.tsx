@@ -42,6 +42,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
     },
     onError: (error) => {
       toast.error(error instanceof ApiError ? error.message : String(error));
+      setDeleteTarget(undefined); // close on error (toast carries the reason) — uniform with F2 delete flows
     },
   });
 
