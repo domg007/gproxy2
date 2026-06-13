@@ -9,6 +9,7 @@ import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { toast } from "sonner";
 import { ProviderForm } from "@/components/providers/provider-form";
 import { CredentialsTab } from "@/components/providers/credentials-tab";
+import { ModelsTab } from "@/components/providers/models-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -61,12 +62,16 @@ function ProviderDetailPage() {
         <TabsList>
           <TabsTrigger value="settings">{t("tabs.settings")}</TabsTrigger>
           <TabsTrigger value="credentials">{t("tabs.credentials")}</TabsTrigger>
+          <TabsTrigger value="models">{t("tabs.models")}</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="max-w-2xl pt-2">
           <ProviderForm provider={provider} onSaved={() => void 0} />
         </TabsContent>
         <TabsContent value="credentials" className="pt-2">
           <CredentialsTab provider={provider} />
+        </TabsContent>
+        <TabsContent value="models" className="pt-2">
+          <ModelsTab provider={provider} />
         </TabsContent>
       </Tabs>
 
