@@ -39,6 +39,7 @@
     },
     "loadMore": "Load more",
     "empty": "No usage records match the current filters.",
+    "presets": { "all": "All", "1h": "1h", "24h": "24h", "7d": "7d" },
     "tab": { "usage": "Usage", "audit": "Audit" }
   },
   "logs": {
@@ -48,7 +49,8 @@
     "empty": "No log records found.",
     "notCaptured": "Logs not captured — request or response logging may not be enabled.",
     "headers": "Headers",
-    "body": "Body"
+    "body": "Body",
+    "attempt": "Attempt {{n}}"
   },
   "audit": {
     "title": "Audit log",

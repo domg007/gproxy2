@@ -61,7 +61,9 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
     useQuery({ ...upstreamLogsQuery(rid), enabled });
 
   const pending = downPending || upPending;
-  const bothEmpty = !pending && (downstream?.length ?? 0) === 0 && (upstream?.length ?? 0) === 0;
+  const errored = !pending && (downError || upError);
+  const bothEmpty =
+    !pending && !errored && (downstream?.length ?? 0) === 0 && (upstream?.length ?? 0) === 0;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -81,6 +83,12 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
               <Skeleton className="h-6 w-40" />
               <Skeleton className="h-32" />
             </div>
+          )}
+
+          {errored && (
+            <p className="py-6 text-center text-sm text-destructive">
+              {t("logs.empty")}
+            </p>
           )}
 
           {!pending && bothEmpty && (
@@ -108,9 +116,6 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
                   )}
                 </div>
               ))}
-              {downError && (
-                <p className="text-xs text-destructive">{t("logs.empty")}</p>
-              )}
             </section>
           )}
 
@@ -141,9 +146,6 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
                   </div>
                 ))}
               </div>
-              {upError && (
-                <p className="text-xs text-destructive">{t("logs.empty")}</p>
-              )}
             </section>
           )}
         </div>

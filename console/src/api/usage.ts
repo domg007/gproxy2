@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { api } from "./http";
 
 export interface Usage {
@@ -118,6 +118,20 @@ export const usageQuery = (f: UsageFilter) =>
   queryOptions({
     queryKey: ["usage", f],
     queryFn: () => api<Usage[]>(`/admin/usage${usageQs(f)}`),
+  });
+
+export const PAGE = 50;
+
+// Infinite (keyset) variant for the usage explorer.
+// Each page is Usage[] DESC by id; cursor = last row id; undefined when page underfills.
+export const usageInfiniteQuery = (f: Omit<UsageFilter, "before_id" | "limit">) =>
+  infiniteQueryOptions({
+    queryKey: ["usage", "infinite", f],
+    queryFn: ({ pageParam }) =>
+      api<Usage[]>(`/admin/usage${usageQs({ ...f, before_id: pageParam ?? undefined, limit: PAGE })}`),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last: Usage[]) =>
+      last.length >= PAGE ? last[last.length - 1].id : undefined,
   });
 
 export const rollupsQuery = (granularity: string, from: number, to: number) =>

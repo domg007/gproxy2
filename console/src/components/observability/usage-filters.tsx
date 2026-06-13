@@ -80,7 +80,7 @@ export function UsageFilters({ value, onChange }: UsageFiltersProps) {
                 : "px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground first:rounded-l-md last:rounded-r-md"
             }
           >
-            {key === "all" ? t("filters.all", { defaultValue: "All" }) : t(`filters.${key}`, { defaultValue: key })}
+            {key === "all" ? t("usage.presets.all", { defaultValue: "All" }) : t(`usage.presets.${key}`, { defaultValue: key })}
           </button>
         ))}
       </div>
