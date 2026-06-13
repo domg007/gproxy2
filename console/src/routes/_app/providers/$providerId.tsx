@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { deleteProvider, providerQuery } from "@/api/providers";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { ProviderForm } from "@/components/providers/provider-form";
+import { CredentialsTab } from "@/components/providers/credentials-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/providers/$providerId")({
-  loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(providerQuery(Number(params.providerId))),
+  loader: ({ context, params }) => {
+    const id = Number(params.providerId);
+    if (Number.isNaN(id)) throw redirect({ to: "/providers" });
+    return context.queryClient.ensureQueryData(providerQuery(id));
+  },
   component: ProviderDetailPage,
 });
 
@@ -56,8 +60,7 @@ function ProviderDetailPage() {
           <ProviderForm provider={provider} onSaved={() => void 0} />
         </TabsContent>
         <TabsContent value="credentials" className="pt-2">
-          {/* Task 5 replaces this placeholder with <CredentialsTab provider={provider} /> */}
-          <p className="text-sm text-muted-foreground">…</p>
+          <CredentialsTab provider={provider} />
         </TabsContent>
       </Tabs>
 
