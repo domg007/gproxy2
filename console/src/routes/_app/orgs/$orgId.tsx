@@ -26,6 +26,7 @@ function OrgDetailPage() {
   const { orgId } = Route.useParams();
   const id = Number(orgId);
   const { t } = useTranslation("identity");
+  const { t: tc } = useTranslation("common");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: org } = useSuspenseQuery(orgQuery(id));
@@ -34,6 +35,7 @@ function OrgDetailPage() {
   const removal = useMutation({
     mutationFn: () => deleteOrg(id),
     onSuccess: () => {
+      toast.success(tc("actions.deleted"));
       setDeleteOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["orgs"] });
       void navigate({ to: "/orgs" });
