@@ -4,7 +4,8 @@ import resourcesToBackend from "i18next-resources-to-backend";
 
 export const SUPPORTED_LANGS = [
   { code: "en", label: "English" },
-  { code: "zh-CN", label: "中文" },
+  { code: "zh-CN", label: "简体中文" },
+  { code: "zh-TW", label: "繁體中文" },
 ] as const;
 export type LangCode = (typeof SUPPORTED_LANGS)[number]["code"];
 

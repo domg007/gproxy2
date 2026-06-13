@@ -1,0 +1,71 @@
+{
+  "title": "供應商",
+  "new": "新增供應商",
+  "empty": "尚無供應商——建立一個以開始路由流量。",
+  "tabs": { "settings": "設定", "credentials": "憑證" },
+  "fields": {
+    "name": "名稱", "label": "顯示名稱", "channel": "通道", "strategy": "憑證池策略",
+    "proxyUrl": "出站代理 URL", "enabled": "啟用", "settings": "設定 JSON",
+    "tlsFingerprint": "TLS 指紋 JSON", "weight": "權重", "kind": "類型",
+    "rpm": "RPM 上限", "tpm": "TPM 上限", "credLabel": "顯示名稱"
+  },
+  "strategy": { "round_robin": "輪詢", "sticky": "黏著" },
+  "family": { "api_key": "API Key", "oauth_tokens": "OAuth 訂閱", "service_account": "服務帳號", "github_token": "GitHub Token" },
+  "form": {
+    "create": "建立供應商", "edit": "編輯供應商", "required": "必填",
+    "channelWarning": "修改既有供應商的通道可能使其憑證全部失效。",
+    "settingsHint": "已知鍵:base_url(custom 通道必填)、circuit_breaker、tokenizer_map、location(vertex)、profile_arn(kiro)。",
+    "tlsHint": "可選——覆寫通道預設 TLS/HTTP2 指紋,留空表示不設定。",
+    "saved": "已儲存"
+  },
+  "delete": {
+    "provider": "刪除供應商",
+    "providerConfirm": "將刪除供應商「{{name}}」,其憑證池隨之下線;引用它的路由會故障轉移或報錯。",
+    "credential": "刪除憑證",
+    "credentialConfirm": "將永久刪除憑證「{{name}}」,不影響上游帳號本身。"
+  },
+  "creds": {
+    "add": "新增憑證", "oauth": "OAuth 連線", "manual": "手動新增",
+    "empty": "尚無憑證。", "edit": "編輯憑證",
+    "secretKept": "留空則保留已儲存的金鑰。",
+    "hasSecret": "已存金鑰", "noSecret": "無金鑰", "unnamed": "憑證 #{{id}}"
+  },
+  "secret": {
+    "apiKey": "API Key", "saJson": "服務帳號 JSON", "tokensJson": "Token JSON",
+    "githubToken": "GitHub Token", "saInvalid": "必須是含 client_email 與 private_key 的 JSON",
+    "tokensHint": "貼上從官方用戶端匯出的 token;expires_at_ms 為 unix 毫秒。",
+    "geminiHint": "此通道必須提供 project_id(OAuth 精靈會自動解析)。"
+  },
+  "json": { "invalid": "JSON 無效", "format": "格式化" },
+  "wizard": {
+    "title": "連線 {{channel}}",
+    "mode": { "authcode": "授權碼", "device": "裝置碼", "cookie": "Cookie" },
+    "credName": "憑證顯示名稱(選填)",
+    "start": "開始", "starting": "啟動中…",
+    "openAuthorize": "開啟授權頁面",
+    "pasteLabel": "貼上完整回呼 URL",
+    "pasteHint": "在瀏覽器完成授權後,複製跳轉到的 URL(其中帶有 code 與 state)。",
+    "pasteInvalid": "這不是回呼 URL——必須包含 code 與 state,且不能是授權 URL 本身。",
+    "complete": "完成", "completing": "完成中…",
+    "failed": "登入失敗——請重新開始。",
+    "done": "憑證已建立。",
+    "deviceIntro": "在以下網址輸入此代碼", "waiting": "等待授權中…",
+    "kiroMode": "Kiro 登入方式", "kiroSocial": "社交帳號", "kiroIdc": "AWS IdC",
+    "kiroProvider": "身分提供者", "kiroStartUrl": "Start URL", "kiroRegion": "區域",
+    "kiroStartUrlHint": "Enterprise 必填;BuilderId/Internal 有內建預設值。",
+    "cookieLabel": "claude.ai Cookie", "cookieHint": "貼上完整 Cookie 標頭或僅 sessionKey=…;只會使用 sessionKey。",
+    "cookieInvalid": "貼上的內容中找不到 sessionKey。"
+  },
+  "health": {
+    "title": "健康", "unknown": "無事件", "asOf": "{{time}} 記錄",
+    "breaker": "熔斷中", "recovered": "健康", "rate_limited": "限流冷卻", "auth_dead": "驗證失效",
+    "until": "至 {{time}}"
+  },
+  "usage": {
+    "title": "上游用量", "open": "用量", "fetch": "立即查詢", "refresh": "重新整理",
+    "sparingly": "即時查詢上游帳號——部分上游對此限流,請勿頻繁重新整理。",
+    "unsupported": "此通道不提供用量端點。",
+    "plan": "方案", "credits": "額度", "raw": "原始回應", "resets": "{{time}} 重設",
+    "window": { "five_hour": "5 小時視窗", "seven_day": "7 天視窗", "primary": "主配額", "secondary": "次配額" }
+  }
+}
