@@ -58,27 +58,27 @@ export function AliasesTab({ route }: { route: Route }) {
     },
   });
 
+  const deleteButton = (a: Alias) => (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="text-destructive"
+      aria-label={t("delete.alias")}
+      onClick={(e) => {
+        e.stopPropagation();
+        setDeleteTarget(a);
+      }}
+    >
+      <Trash2 className="size-4" />
+    </Button>
+  );
+
   const columns: DataColumn<Alias>[] = [
     { key: "alias", header: t("aliases.alias"), cell: (a) => <span className="font-mono">{a.alias}</span> },
     {
       key: "actions",
       header: "",
-      cell: (a) => (
-        <div className="flex justify-end">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive"
-            aria-label={t("delete.alias")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteTarget(a);
-            }}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      ),
+      cell: (a) => <div className="flex justify-end">{deleteButton(a)}</div>,
       className: "w-16 text-right",
     },
   ];
@@ -111,18 +111,7 @@ export function AliasesTab({ route }: { route: Route }) {
           renderCard={(a) => (
             <div className="flex items-center justify-between">
               <span className="font-mono">{a.alias}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive"
-                aria-label={t("delete.alias")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget(a);
-                }}
-              >
-                <Trash2 className="size-4" />
-              </Button>
+              {deleteButton(a)}
             </div>
           )}
         />
