@@ -8,6 +8,7 @@ import { deleteRoute, routeQuery } from "@/api/routes";
 import { ApiError } from "@/api/http";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { RouteForm } from "@/components/routes/route-form";
+import { MembersTab } from "@/components/routes/members-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,8 +65,7 @@ function RouteDetailPage() {
           <RouteForm route={route} onSaved={() => void 0} />
         </TabsContent>
         <TabsContent value="members" className="pt-2">
-          {/* Task 5: <MembersTab route={route} /> */}
-          <p className="text-sm text-muted-foreground">…</p>
+          <MembersTab route={route} />
         </TabsContent>
         <TabsContent value="aliases" className="pt-2">
           {/* Task 6: <AliasesTab route={route} /> */}
