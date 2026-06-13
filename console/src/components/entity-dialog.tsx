@@ -16,7 +16,9 @@ interface EntityDialogProps {
   wide?: boolean;
 }
 
-/** Form-hosting modal: Dialog on md+, bottom Sheet on mobile (spec §4). */
+/** Form-hosting modal: Dialog on md+, bottom Sheet on mobile (spec §4).
+ *  Crossing the 768px boundary while open remounts the children — keep all form
+ *  state lifted/controlled, never in uncontrolled inputs. */
 export function EntityDialog({ open, onOpenChange, title, description, children, wide }: EntityDialogProps) {
   const desktop = useMediaQuery(DESKTOP_QUERY);
   if (desktop) {

@@ -19,6 +19,8 @@ interface DataTableProps<T> {
   /** Mobile (<md) rendering — required so every list ships its phone form (spec §4). */
   renderCard: (row: T) => ReactNode;
   empty: ReactNode;
+  /** Action buttons rendered inside cells/cards must call e.stopPropagation(),
+   *  or the row click fires alongside the action. */
   onRowClick?: (row: T) => void;
 }
 

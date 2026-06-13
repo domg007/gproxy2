@@ -11,6 +11,8 @@ interface ConfirmDangerousProps {
   title: ReactNode;
   description: ReactNode;
   confirmLabel: ReactNode;
+  /** Auto-close is suppressed so `pending` can render — the caller MUST close the
+   *  dialog itself (onOpenChange(false) / unset target) once the action succeeds. */
   onConfirm: () => void;
   pending?: boolean;
 }
