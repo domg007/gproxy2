@@ -160,6 +160,7 @@ async fn cascade_deletes() {
             strategy: "weighted".to_owned(),
             enabled: true,
             description: None,
+            settings_json: None,
         })
         .await
         .unwrap();

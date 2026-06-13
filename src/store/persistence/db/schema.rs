@@ -59,6 +59,8 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
     // §6.3 tokenizer vocabs
     create_table(conn, &schema, tokenizer_vocab::Entity).await?;
 
+    create_composite_unique_indexes(conn).await?;
+
     Ok(())
 }
 
@@ -101,6 +103,41 @@ async fn create_rollup_unique_index(conn: &DatabaseConnection) -> anyhow::Result
         Err(e) if mysql && e.to_string().contains("1061") => Ok(()),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Composite-unique indexes for the multi-column unique keys (§8-A/B/C). The
+/// SeaORM `#[sea_orm(unique)]` derive only covers single columns, so these are
+/// raw SQL — making the DB the source of truth for these keys (the app-level
+/// pre-checks alone race under concurrency / multi-instance and would otherwise
+/// admit duplicate rows). Mirrors `create_rollup_unique_index`'s dialect
+/// handling: MySQL has no `IF NOT EXISTS` for indexes, so a duplicate-name
+/// error (1061) means the index already exists. Columns are all NOT NULL, so no
+/// COALESCE folding is needed.
+async fn create_composite_unique_indexes(conn: &DatabaseConnection) -> anyhow::Result<()> {
+    let mysql = matches!(conn.get_database_backend(), sea_orm::DatabaseBackend::MySql);
+    let defs = [
+        ("uq_teams_org_name", "teams", "org_id, name"),
+        (
+            "uq_routing_rules_dims",
+            "routing_rules",
+            "provider_id, operation, kind",
+        ),
+        ("uq_quotas_scope", "quotas", "scope, scope_id"),
+    ];
+    for (name, table, cols) in defs {
+        let sql = if mysql {
+            format!("CREATE UNIQUE INDEX {name} ON {table} ({cols})")
+        } else {
+            format!("CREATE UNIQUE INDEX IF NOT EXISTS {name} ON {table} ({cols})")
+        };
+        match conn.execute_unprepared(&sql).await {
+            Ok(_) => {}
+            // MySQL 1061 = duplicate key name: the index already exists.
+            Err(e) if mysql && e.to_string().contains("1061") => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
 }
 
 /// Stamp an unstamped DB at the latest version, then apply pending migrations.

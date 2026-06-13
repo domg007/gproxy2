@@ -54,6 +54,17 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
         .into());
     }
 
+    // Race backstop: the (scope, scope_id) pre-check above can be beaten under
+    // concurrency / multi-instance; the DB unique index then fires on the write,
+    // which we map to the same ConflictError (→ 409) rather than a 500.
+    let conflict_scope = input.scope.as_str().to_owned();
+    let conflict_scope_id = input.scope_id;
+    let conflict = |e: sea_orm::DbErr| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("quota already exists for scope {conflict_scope}:{conflict_scope_id}")
+        })
+    };
+
     let model = match input.id {
         Some(id) => match quota::Entity::find_by_id(id).one(conn).await? {
             Some(existing) => {
@@ -63,7 +74,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
                 am.quota_total = Set(input.quota_total.to_string());
                 am.cost_used = Set(input.cost_used.to_string());
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -79,22 +90,22 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            quota::ActiveModel {
-                id: NotSet,
-                scope: Set(input.scope.as_str().to_owned()),
-                scope_id: Set(input.scope_id),
-                quota_total: Set(input.quota_total.to_string()),
-                cost_used: Set(input.cost_used.to_string()),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => quota::ActiveModel {
+            id: NotSet,
+            scope: Set(input.scope.as_str().to_owned()),
+            scope_id: Set(input.scope_id),
+            quota_total: Set(input.quota_total.to_string()),
+            cost_used: Set(input.cost_used.to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     to_record(model)

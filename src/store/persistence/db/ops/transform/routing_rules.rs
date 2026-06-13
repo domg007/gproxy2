@@ -61,6 +61,20 @@ pub async fn upsert(
         .into());
     }
 
+    // Race backstop: the (provider_id, operation, kind) pre-check above can be
+    // beaten under concurrency / multi-instance; the DB unique index then fires
+    // on the write, which we map to the same ConflictError (→ 409) not a 500.
+    let conflict_pid = input.provider_id;
+    let conflict_op = input.operation.clone();
+    let conflict_kind = input.kind.clone();
+    let conflict = |e: sea_orm::DbErr| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!(
+                "routing rule already exists for provider {conflict_pid} ({conflict_op}, {conflict_kind})"
+            )
+        })
+    };
+
     let model = match input.id {
         Some(id) => match routing_rule::Entity::find_by_id(id).one(conn).await? {
             Some(existing) => {
@@ -74,7 +88,7 @@ pub async fn upsert(
                 am.sort_order = Set(input.sort_order);
                 am.enabled = Set(input.enabled);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -94,26 +108,26 @@ pub async fn upsert(
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            routing_rule::ActiveModel {
-                id: NotSet,
-                provider_id: Set(input.provider_id),
-                operation: Set(input.operation),
-                kind: Set(input.kind),
-                implementation: Set(input.implementation),
-                dest_operation: Set(input.dest_operation),
-                dest_kind: Set(input.dest_kind),
-                sort_order: Set(input.sort_order),
-                enabled: Set(input.enabled),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => routing_rule::ActiveModel {
+            id: NotSet,
+            provider_id: Set(input.provider_id),
+            operation: Set(input.operation),
+            kind: Set(input.kind),
+            implementation: Set(input.implementation),
+            dest_operation: Set(input.dest_operation),
+            dest_kind: Set(input.dest_kind),
+            sort_order: Set(input.sort_order),
+            enabled: Set(input.enabled),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

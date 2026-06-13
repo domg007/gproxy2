@@ -50,6 +50,17 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
         .into());
     }
 
+    // Race backstop: the (org_id, name) pre-check above can be beaten under
+    // concurrency / multi-instance; the DB unique index then fires on the write,
+    // which we map to the same ConflictError (→ 409) rather than a 500.
+    let conflict_org = input.org_id;
+    let conflict_name = input.name.clone();
+    let conflict = |e: sea_orm::DbErr| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("team name already exists in org {conflict_org}: {conflict_name}")
+        })
+    };
+
     let model = match input.id {
         Some(id) => match team::Entity::find_by_id(id).one(conn).await? {
             Some(existing) => {
@@ -58,7 +69,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
                 am.name = Set(input.name);
                 am.enabled = Set(input.enabled);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -73,21 +84,21 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            team::ActiveModel {
-                id: NotSet,
-                org_id: Set(input.org_id),
-                name: Set(input.name),
-                enabled: Set(input.enabled),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => team::ActiveModel {
+            id: NotSet,
+            org_id: Set(input.org_id),
+            name: Set(input.name),
+            enabled: Set(input.enabled),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))
