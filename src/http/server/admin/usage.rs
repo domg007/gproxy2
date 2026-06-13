@@ -130,6 +130,21 @@ pub async fn credential_status(
     ))
 }
 
+/// `GET /admin/credential-statuses` — all persisted credential health snapshots
+/// (B5 batch endpoint). Callers group by `credential_id`; at most one row per
+/// `(credential_id, channel)` pair is stored.
+pub async fn credential_statuses(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<CredentialStatus>>, ApiError> {
+    Ok(Json(
+        state
+            .persistence
+            .list_all_credential_statuses()
+            .await
+            .map_err(internal)?,
+    ))
+}
+
 /// `GET /admin/credentials/{id}/usage` — LIVE per-credential upstream usage /
 /// quota for OAuth subscription channels. Resolves the credential's client,
 /// refreshes the token if stale, and queries the provider's usage endpoint on

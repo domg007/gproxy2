@@ -130,6 +130,9 @@ pub trait PersistenceBackend: Send + Sync {
         credential_id: i64,
     ) -> anyhow::Result<Vec<CredentialStatus>>;
 
+    /// List ALL credential health snapshots (batch endpoint — B5).
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>>;
+
     /// Insert or update a credential status (unique per `(credential_id, channel)`).
     async fn upsert_credential_status(
         &self,

@@ -54,6 +54,18 @@ pub async fn list(
     .collect()
 }
 
+pub async fn list_all(client: &LibsqlClient) -> anyhow::Result<Vec<CredentialStatus>> {
+    query(
+        client,
+        &format!("SELECT {COLS} FROM credential_statuses"),
+        &[],
+    )
+    .await?
+    .iter()
+    .map(decode)
+    .collect()
+}
+
 pub async fn upsert(
     client: &LibsqlClient,
     input: CredentialStatusInput,

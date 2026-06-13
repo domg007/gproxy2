@@ -19,6 +19,10 @@ pub(crate) async fn list(root: &Path, credential_id: i64) -> anyhow::Result<Vec<
         .collect())
 }
 
+pub(crate) async fn list_all(root: &Path) -> anyhow::Result<Vec<CredentialStatus>> {
+    Ok(table::load::<CredentialStatus>(&path(root)).await?.rows)
+}
+
 pub(crate) async fn upsert(
     root: &Path,
     input: CredentialStatusInput,

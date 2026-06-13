@@ -90,6 +90,10 @@ impl PersistenceBackend for DbPersistence {
         ops::provider::credential_statuses::list(&self.conn, credential_id).await
     }
 
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>> {
+        ops::provider::credential_statuses::list_all(&self.conn).await
+    }
+
     async fn upsert_credential_status(
         &self,
         input: CredentialStatusInput,

@@ -120,6 +120,9 @@ impl PersistenceBackend for LibsqlPersistence {
     ) -> anyhow::Result<Vec<CredentialStatus>> {
         provider::credential_statuses::list(&self.client, credential_id).await
     }
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>> {
+        provider::credential_statuses::list_all(&self.client).await
+    }
     async fn upsert_credential_status(
         &self,
         input: CredentialStatusInput,
