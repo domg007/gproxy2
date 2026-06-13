@@ -11,6 +11,7 @@ import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
 import { CredentialForm } from "@/components/providers/credential-form";
+import { OAuthWizard } from "@/components/providers/oauth-wizard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,6 +29,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CredentialView | undefined>(undefined);
   const [deleteTarget, setDeleteTarget] = useState<CredentialView | undefined>(undefined);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const removal = useMutation({
     mutationFn: (id: number) => deleteCredential(id),
@@ -79,7 +81,11 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-end gap-2">
-        {/* Task 6 adds the OAuth wizard button here when meta.loginModes.length > 0 */}
+        {(meta?.loginModes.length ?? 0) > 0 && (
+          <Button variant="outline" onClick={() => setWizardOpen(true)}>
+            {t("creds.oauth")}
+          </Button>
+        )}
         <Button onClick={openCreate}>
           <Plus className="size-4" />
           {t("creds.manual")}
@@ -141,6 +147,20 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
         onConfirm={() => { if (deleteTarget) removal.mutate(deleteTarget.id); }}
         pending={removal.isPending}
       />
+
+      <EntityDialog
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        title={t("wizard.title", { channel: provider.channel })}
+      >
+        <OAuthWizard
+          provider={provider}
+          onDone={() => {
+            toast.success(t("wizard.done"));
+            setWizardOpen(false);
+          }}
+        />
+      </EntityDialog>
     </div>
   );
 }
