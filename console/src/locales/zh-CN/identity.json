@@ -27,7 +27,7 @@
     "label": "显示名", "prefix": "前缀", "enabled": "启用", "edit": "编辑密钥",
     "delete": "删除密钥", "deleteConfirm": "删除此 API 密钥？使用它的客户端将停止工作。",
     "created": "API 密钥已生成——请立即复制，仅展示一次。",
-    "copy": "复制", "copied": "已复制", "rotateHint": "密钥不可编辑——轮换请生成新密钥后删除旧密钥。"
+    "copy": "复制", "copied": "已复制", "copyFailed": "复制失败", "rotateHint": "密钥不可编辑——轮换请生成新密钥后删除旧密钥。"
   },
   "access": {
     "title": "访问控制", "scope": { "org": "组织", "team": "团队", "user": "用户" },

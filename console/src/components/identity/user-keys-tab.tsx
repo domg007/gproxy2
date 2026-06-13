@@ -23,7 +23,6 @@ export function UserKeysTab({ user }: { user: UserView }) {
   const { t } = useTranslation("identity");
   const { t: tc } = useTranslation("common");
   const queryClient = useQueryClient();
-  const key = ["users", user.id, "keys"];
   const { data: keys, isPending } = useQuery(userKeysQuery(user.id));
 
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -37,10 +36,10 @@ export function UserKeysTab({ user }: { user: UserView }) {
   const generate = useMutation({
     mutationFn: () => createUserKey(user.id, { label: label.trim() || null, enabled: true }),
     onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: userKeysQuery(user.id).queryKey });
       setGenerateOpen(false);
       setLabel("");
-      if (created.api_key) {
+      if (created.api_key != null) {
         setRevealedKey(created.api_key);
         setCopied(false);
         setRevealOpen(true);
@@ -54,7 +53,7 @@ export function UserKeysTab({ user }: { user: UserView }) {
   const removal = useMutation({
     mutationFn: (id: number) => deleteUserKey(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: userKeysQuery(user.id).queryKey });
       toast.success(tc("actions.deleted"));
       setDeleteTarget(undefined);
     },
@@ -64,14 +63,15 @@ export function UserKeysTab({ user }: { user: UserView }) {
     },
   });
 
-  const handleCopy = () => {
-    if (!revealedKey) return;
-    navigator.clipboard.writeText(revealedKey).then(() => {
+  const handleCopy = async (value: string) => {
+    if (!navigator.clipboard) { toast.error(t("keys.copyFailed")); return; }
+    try {
+      await navigator.clipboard.writeText(value);
       setCopied(true);
       toast.success(t("keys.copied"));
-    }).catch(() => {
-      toast.error("Copy failed");
-    });
+    } catch {
+      toast.error(t("keys.copyFailed"));
+    }
   };
 
   const handleRevealClose = (open: boolean) => {
@@ -180,7 +180,7 @@ export function UserKeysTab({ user }: { user: UserView }) {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{tc("actions.close")}</AlertDialogCancel>
-            <Button onClick={handleCopy} disabled={copied}>
+            <Button onClick={() => handleCopy(revealedKey ?? "")} disabled={copied}>
               {copied ? tc("actions.copied") : tc("actions.copy")}
             </Button>
           </AlertDialogFooter>

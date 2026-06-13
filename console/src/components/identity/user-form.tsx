@@ -31,12 +31,13 @@ export function UserForm({ user, onSaved }: UserFormProps) {
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: orgs } = useQuery(orgsQuery);
-  const { data: teams } = useQuery({
+  const { data: teams, isPending: teamsLoading } = useQuery({
     ...teamsQuery(orgId ?? 0),
     enabled: orgId !== null,
   });
 
   const handleOrgChange = (val: string) => {
+    if (Number(val) === orgId) return;
     setOrgId(Number(val));
     setTeamId(null); // cascade reset
   };
@@ -99,7 +100,7 @@ export function UserForm({ user, onSaved }: UserFormProps) {
         <Select
           value={teamId !== null ? String(teamId) : "null"}
           onValueChange={(v) => setTeamId(v === "null" ? null : Number(v))}
-          disabled={orgId === null}
+          disabled={orgId === null || teamsLoading}
         >
           <SelectTrigger id="user-team" className="w-full">
             <SelectValue placeholder={t("users.noTeam")} />

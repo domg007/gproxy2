@@ -33,10 +33,7 @@ function UserDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: orgs } = useQuery(orgsQuery);
-  const { data: teams } = useQuery({
-    ...teamsQuery(user.org_id),
-    enabled: true,
-  });
+  const { data: teams } = useQuery(teamsQuery(user.org_id));
 
   const orgName = orgs?.find((o) => o.id === user.org_id)?.name ?? `#${user.org_id}`;
   const teamName = user.team_id !== null

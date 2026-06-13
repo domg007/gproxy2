@@ -27,7 +27,7 @@
     "label": "顯示名稱", "prefix": "前綴", "enabled": "啟用", "edit": "編輯金鑰",
     "delete": "刪除金鑰", "deleteConfirm": "刪除此 API 金鑰？使用它的用戶端將停止運作。",
     "created": "API 金鑰已產生——請立即複製，僅顯示一次。",
-    "copy": "複製", "copied": "已複製", "rotateHint": "金鑰不可編輯——輪換請產生新金鑰後刪除舊金鑰。"
+    "copy": "複製", "copied": "已複製", "copyFailed": "複製失敗", "rotateHint": "金鑰不可編輯——輪換請產生新金鑰後刪除舊金鑰。"
   },
   "access": {
     "title": "存取控制", "scope": { "org": "組織", "team": "團隊", "user": "使用者" },
