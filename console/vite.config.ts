@@ -58,6 +58,7 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: "react-vendor", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 30 },
+            { name: "chart-vendor", test: /node_modules[\\/](recharts|react-smooth|d3-[^\\/]+|victory-vendor|internmap)[\\/]/, priority: 20 },
             { name: "vendor", test: /node_modules[\\/]/, priority: 10 },
           ],
         },

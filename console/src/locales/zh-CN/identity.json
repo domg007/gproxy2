@@ -7,7 +7,7 @@
     "tabs": { "teams": "团队", "access": "访问控制" }
   },
   "teams": {
-    "title": "团队", "add": "添加团队", "empty": "该组织下还没有团队。",
+    "add": "添加团队", "empty": "该组织下还没有团队。",
     "name": "名称", "enabled": "启用", "edit": "编辑团队",
     "delete": "移除团队", "deleteConfirm": "移除团队「{{name}}」?",
     "access": "团队访问控制"
@@ -24,13 +24,12 @@
   },
   "keys": {
     "title": "API 密钥", "add": "生成密钥", "empty": "还没有 API 密钥。",
-    "label": "显示名", "prefix": "前缀", "enabled": "启用", "edit": "编辑密钥",
+    "label": "显示名", "prefix": "前缀", "enabled": "启用",
     "delete": "删除密钥", "deleteConfirm": "删除此 API 密钥？使用它的客户端将停止工作。",
     "created": "API 密钥已生成——请立即复制，仅展示一次。",
-    "copy": "复制", "copied": "已复制", "copyFailed": "复制失败", "rotateHint": "密钥不可编辑——轮换请生成新密钥后删除旧密钥。"
+    "copied": "已复制", "copyFailed": "复制失败", "rotateHint": "密钥不可编辑——轮换请生成新密钥后删除旧密钥。"
   },
   "access": {
-    "title": "访问控制", "scope": { "org": "组织", "team": "团队", "user": "用户" },
     "permissions": "路由权限", "permissionsHint": "此 scope 可调用的路由/别名 glob 模式（org→team→user 取并集；任意位置均不匹配则拒绝）。",
     "addPermission": "添加权限", "routePattern": "路由模式", "noPermissions": "此 scope 暂无路由权限。",
     "rateLimits": "限流规则", "rateLimitsHint": "按 scope 设定限流；org/team/user 中最严格的生效。",

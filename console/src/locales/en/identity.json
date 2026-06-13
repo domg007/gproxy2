@@ -7,7 +7,7 @@
     "tabs": { "teams": "Teams", "access": "Access" }
   },
   "teams": {
-    "title": "Teams", "add": "Add team", "empty": "No teams in this organization.",
+    "add": "Add team", "empty": "No teams in this organization.",
     "name": "Name", "enabled": "Enabled", "edit": "Edit team",
     "delete": "Remove team", "deleteConfirm": "Remove team \"{{name}}\"?",
     "access": "Team access"
@@ -24,13 +24,12 @@
   },
   "keys": {
     "title": "API keys", "add": "Generate key", "empty": "No API keys.",
-    "label": "Label", "prefix": "Prefix", "enabled": "Enabled", "edit": "Edit key",
+    "label": "Label", "prefix": "Prefix", "enabled": "Enabled",
     "delete": "Delete key", "deleteConfirm": "Delete this API key? Clients using it stop working.",
     "created": "API key created — copy it now, it is shown only once.",
-    "copy": "Copy", "copied": "Copied", "copyFailed": "Copy failed", "rotateHint": "Keys can't be edited — to rotate, generate a new one and delete the old."
+    "copied": "Copied", "copyFailed": "Copy failed", "rotateHint": "Keys can't be edited — to rotate, generate a new one and delete the old."
   },
   "access": {
-    "title": "Access", "scope": { "org": "Organization", "team": "Team", "user": "User" },
     "permissions": "Route permissions", "permissionsHint": "Glob patterns on route/alias names this scope may call (union across org→team→user; no match anywhere = denied).",
     "addPermission": "Add permission", "routePattern": "Route pattern", "noPermissions": "No route permissions for this scope.",
     "rateLimits": "Rate limits", "rateLimitsHint": "Per-scope limits; the strictest of org/team/user applies.",
