@@ -2,7 +2,6 @@
   "title": "供应商",
   "new": "新建供应商",
   "empty": "还没有供应商——创建一个开始路由流量。",
-  "notFound": "供应商不存在。",
   "tabs": { "settings": "设置", "credentials": "凭证" },
   "fields": {
     "name": "名称", "label": "显示名", "channel": "渠道", "strategy": "凭证池策略",
@@ -26,7 +25,7 @@
     "credentialConfirm": "将永久删除凭证「{{name}}」,不影响上游账号本身。"
   },
   "creds": {
-    "title": "凭证", "add": "添加凭证", "oauth": "OAuth 接入", "manual": "手动添加",
+    "add": "添加凭证", "oauth": "OAuth 接入", "manual": "手动添加",
     "empty": "还没有凭证。", "edit": "编辑凭证",
     "secretKept": "留空则保留已存储的密钥。",
     "hasSecret": "已存密钥", "noSecret": "无密钥", "unnamed": "凭证 #{{id}}"

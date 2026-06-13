@@ -4,7 +4,9 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { deleteProvider, providerQuery } from "@/api/providers";
+import { ApiError } from "@/api/http";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
+import { toast } from "sonner";
 import { ProviderForm } from "@/components/providers/provider-form";
 import { CredentialsTab } from "@/components/providers/credentials-tab";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,9 @@ function ProviderDetailPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["providers"] });
       void navigate({ to: "/providers" });
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : String(error));
     },
   });
 

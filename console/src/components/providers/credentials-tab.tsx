@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function credName(c: CredentialView, fallback: string): string {
+function credName(c: CredentialView, fallback: string): string {
   return c.label ?? fallback;
 }
 

@@ -2,7 +2,6 @@
   "title": "Providers",
   "new": "New provider",
   "empty": "No providers yet — create one to start routing traffic.",
-  "notFound": "Provider not found.",
   "tabs": { "settings": "Settings", "credentials": "Credentials" },
   "fields": {
     "name": "Name", "label": "Label", "channel": "Channel", "strategy": "Credential strategy",
@@ -26,7 +25,7 @@
     "credentialConfirm": "This permanently deletes credential \"{{name}}\". The upstream account is not affected."
   },
   "creds": {
-    "title": "Credentials", "add": "Add credential", "oauth": "Connect via OAuth", "manual": "Add manually",
+    "add": "Add credential", "oauth": "Connect via OAuth", "manual": "Add manually",
     "empty": "No credentials yet.", "edit": "Edit credential",
     "secretKept": "Leave empty to keep the stored secret.",
     "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}"

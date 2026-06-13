@@ -15,7 +15,7 @@ const KIND_STYLE: Record<string, string> = {
   rate_limited: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
 };
 
-export function latestStatus(rows: CredentialStatus[]): CredentialStatus | undefined {
+function latestStatus(rows: CredentialStatus[]): CredentialStatus | undefined {
   return [...rows].sort((a, b) => b.updated_at - a.updated_at)[0];
 }
 
