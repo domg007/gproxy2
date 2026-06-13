@@ -49,6 +49,8 @@ export function DataTable<T>({ columns, rows, rowKey, renderCard, empty, onRowCl
             </TableRow>
           </TableHeader>
           <TableBody>
+            {/* Clickable rows keep their implicit role="row" (NOT role="button") so
+                screen readers retain table semantics; tabIndex+onKeyDown activate them. */}
             {rows.map((row) => (
               <TableRow
                 key={rowKey(row)}
@@ -57,7 +59,7 @@ export function DataTable<T>({ columns, rows, rowKey, renderCard, empty, onRowCl
                     "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 )}
                 {...(clickable
-                  ? { role: "button", tabIndex: 0, onClick: () => onRowClick(row), onKeyDown: keyActivate(row) }
+                  ? { tabIndex: 0, onClick: () => onRowClick(row), onKeyDown: keyActivate(row) }
                   : {})}
               >
                 {columns.map((col) => (
