@@ -64,6 +64,7 @@
     "empty": "暂无审计记录。"
   },
   "health": {
+    "loadError": "加载健康状态失败",
     "title": "凭证健康",
     "allHealthy": "所有凭证状态正常",
     "breaker": "熔断器开启",

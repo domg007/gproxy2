@@ -48,7 +48,7 @@ describe("aggregateRollups", () => {
     const result = aggregateRollups(rows);
     expect(result).toHaveLength(1);
     expect(typeof result[0].cost).toBe("number");
-    expect(result[0].cost).toBeCloseTo(1.234568890);
+    expect(result[0].cost).toBeCloseTo(1.234568890, 9);
   });
 
   it("sorts results by bucket_start ascending across multiple buckets", () => {

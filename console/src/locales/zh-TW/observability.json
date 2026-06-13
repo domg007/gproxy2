@@ -64,6 +64,7 @@
     "empty": "尚無稽核記錄。"
   },
   "health": {
+    "loadError": "載入健康狀態失敗",
     "title": "憑證健康",
     "allHealthy": "所有憑證狀態正常",
     "breaker": "熔斷器開啟",

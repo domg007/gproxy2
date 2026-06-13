@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -10,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { aggregateRollups } from "@/lib/rollups";
 
-const NOW = () => Math.floor(Date.now() / 1000);
 const RANGES = [
   { key: "7d", secs: 7 * 86_400 },
   { key: "30d", secs: 30 * 86_400 },
@@ -18,12 +17,6 @@ const RANGES = [
 type RangeKey = (typeof RANGES)[number]["key"];
 
 export const Route = createFileRoute("/_app/")({
-  loader: ({ context }) => {
-    const now = NOW();
-    return context.queryClient.ensureQueryData(
-      rollupsQuery("day", now - 7 * 86_400, now),
-    );
-  },
   component: DashboardPage,
 });
 
@@ -41,11 +34,14 @@ function DashboardPage() {
   const [range, setRange] = useState<RangeKey>("7d");
   const [metric, setMetric] = useState<Metric>("requests");
 
-  const now = NOW();
-  const from = now - (RANGES.find((r) => r.key === range)?.secs ?? 7 * 86_400);
+  const rangeDays = RANGES.find((r) => r.key === range)?.secs ?? 7 * 86_400;
+  const { from, to } = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    return { from: now - rangeDays, to: now };
+  }, [rangeDays]);
 
   const { data: rollupRows, isPending: rollupsPending } = useQuery(
-    rollupsQuery("day", from, now),
+    rollupsQuery("day", from, to),
   );
   const { data: recentUsage, isPending: usagePending } = useQuery(
     usageQuery({ limit: 10 }),
@@ -94,7 +90,7 @@ function DashboardPage() {
       {/* Usage chart */}
       <Card>
         <CardHeader>
-          <CardTitle>{t("observability:chart.metric.requests")}</CardTitle>
+          <CardTitle>{t(`observability:chart.metric.${metric}`)}</CardTitle>
         </CardHeader>
         <CardContent>
           {rollupsPending ? (
@@ -175,7 +171,7 @@ function DashboardPage() {
                         {providerName(row.provider_id)}
                       </td>
                       <td className="py-2 text-right tabular-nums text-xs">
-                        ${parseFloat(row.cost).toFixed(4)}
+                        ${parseFloat(row.cost || "0").toFixed(4)}
                       </td>
                     </tr>
                   ))}

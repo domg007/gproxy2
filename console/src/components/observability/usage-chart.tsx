@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Area,
@@ -38,6 +39,7 @@ interface UsageChartProps {
 export function UsageChart({ data, metric, onMetricChange }: UsageChartProps) {
   const { t } = useTranslation("observability");
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
+  const gid = useId();
 
   if (data.length === 0) {
     return (
@@ -72,7 +74,7 @@ export function UsageChart({ data, metric, onMetricChange }: UsageChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
             <defs>
-              <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
                 <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
               </linearGradient>
@@ -107,7 +109,7 @@ export function UsageChart({ data, metric, onMetricChange }: UsageChartProps) {
               dataKey={metric}
               stroke="hsl(var(--primary))"
               strokeWidth={2}
-              fill="url(#chartGradient)"
+              fill={`url(#${gid})`}
               isAnimationActive={!reducedMotion}
               dot={false}
             />

@@ -64,6 +64,7 @@
     "empty": "No audit records."
   },
   "health": {
+    "loadError": "Failed to load health status",
     "title": "Credential health",
     "allHealthy": "All credentials healthy",
     "breaker": "Circuit open",

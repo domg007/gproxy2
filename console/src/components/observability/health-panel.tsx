@@ -33,7 +33,7 @@ function fmtTime(unixSecs: number): string {
 
 export function HealthPanel() {
   const { t } = useTranslation("observability");
-  const { data, isPending } = useQuery(credentialStatusesQuery);
+  const { data, isPending, isError } = useQuery(credentialStatusesQuery);
 
   if (isPending) {
     return (
@@ -42,6 +42,12 @@ export function HealthPanel() {
           <Skeleton key={k} className="h-20 rounded-xl" />
         ))}
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-sm text-destructive">{t("health.loadError")}</p>
     );
   }
 
