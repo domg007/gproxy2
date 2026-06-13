@@ -64,20 +64,29 @@ pub async fn upsert(client: &LibsqlClient, input: QuotaInput) -> anyhow::Result<
 
     let id = match input.id {
         Some(id) if get_by_id(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE quotas SET scope=?, scope_id=?, quota_total=?, cost_used=?, updated_at=? \
-                 WHERE id=?",
-                &[
-                    arg_text(input.scope.as_str()),
-                    arg_integer(input.scope_id),
-                    arg_text(&input.quota_total.to_string()),
-                    arg_text(&input.cost_used.to_string()),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE quotas SET scope=?, scope_id=?, quota_total=?, cost_used=?, updated_at=? \
+                     WHERE id=?",
+                    &[
+                        arg_text(input.scope.as_str()),
+                        arg_integer(input.scope_id),
+                        arg_text(&input.quota_total.to_string()),
+                        arg_text(&input.cost_used.to_string()),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "quota already exists for scope {}:{}",
+                            input.scope.as_str(),
+                            input.scope_id
+                        )
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -97,7 +106,15 @@ pub async fn upsert(client: &LibsqlClient, input: QuotaInput) -> anyhow::Result<
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert quota: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "quota already exists for scope {}:{}",
+                            input.scope.as_str(),
+                            input.scope_id
+                        )
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

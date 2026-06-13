@@ -78,24 +78,32 @@ pub async fn upsert(client: &LibsqlClient, input: RoutingRuleInput) -> anyhow::R
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE routing_rules SET provider_id=?, operation=?, kind=?, implementation=?, \
-                 dest_operation=?, dest_kind=?, sort_order=?, enabled=?, updated_at=? WHERE id=?",
-                &[
-                    arg_integer(input.provider_id),
-                    arg_text(&input.operation),
-                    arg_text(&input.kind),
-                    arg_text(&input.implementation),
-                    arg_opt_text(input.dest_operation.as_deref()),
-                    arg_opt_text(input.dest_kind.as_deref()),
-                    arg_integer(input.sort_order),
-                    arg_bool(input.enabled),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE routing_rules SET provider_id=?, operation=?, kind=?, implementation=?, \
+                     dest_operation=?, dest_kind=?, sort_order=?, enabled=?, updated_at=? WHERE id=?",
+                    &[
+                        arg_integer(input.provider_id),
+                        arg_text(&input.operation),
+                        arg_text(&input.kind),
+                        arg_text(&input.implementation),
+                        arg_opt_text(input.dest_operation.as_deref()),
+                        arg_opt_text(input.dest_kind.as_deref()),
+                        arg_integer(input.sort_order),
+                        arg_bool(input.enabled),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "routing rule already exists for provider {} ({}, {})",
+                            input.provider_id, input.operation, input.kind
+                        )
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -120,7 +128,14 @@ pub async fn upsert(client: &LibsqlClient, input: RoutingRuleInput) -> anyhow::R
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert routing_rule: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "routing rule already exists for provider {} ({}, {})",
+                            input.provider_id, input.operation, input.kind
+                        )
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

@@ -67,18 +67,26 @@ pub async fn upsert(client: &LibsqlClient, input: TeamInput) -> anyhow::Result<T
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE teams SET org_id=?, name=?, enabled=?, updated_at=? WHERE id=?",
-                &[
-                    arg_integer(input.org_id),
-                    arg_text(&input.name),
-                    arg_bool(input.enabled),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE teams SET org_id=?, name=?, enabled=?, updated_at=? WHERE id=?",
+                    &[
+                        arg_integer(input.org_id),
+                        arg_text(&input.name),
+                        arg_bool(input.enabled),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "team name already exists in org {}: {}",
+                            input.org_id, input.name
+                        )
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -96,7 +104,14 @@ pub async fn upsert(client: &LibsqlClient, input: TeamInput) -> anyhow::Result<T
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert team: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!(
+                            "team name already exists in org {}: {}",
+                            input.org_id, input.name
+                        )
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,
