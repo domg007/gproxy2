@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
+import { Gauge, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { credentialsQuery, deleteCredential, type CredentialView } from "@/api/credentials";
@@ -11,7 +11,9 @@ import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
 import { CredentialForm } from "@/components/providers/credential-form";
+import { HealthBadge } from "@/components/providers/health-badge";
 import { OAuthWizard } from "@/components/providers/oauth-wizard";
+import { UsageCard } from "@/components/providers/usage-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +32,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
   const [editTarget, setEditTarget] = useState<CredentialView | undefined>(undefined);
   const [deleteTarget, setDeleteTarget] = useState<CredentialView | undefined>(undefined);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [usageTarget, setUsageTarget] = useState<CredentialView | undefined>(undefined);
 
   const removal = useMutation({
     mutationFn: (id: number) => deleteCredential(id),
@@ -47,6 +50,11 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
 
   const actions = (c: CredentialView) => (
     <div className="flex items-center justify-end gap-1">
+      {meta?.usage && (
+        <Button variant="ghost" size="icon" aria-label={t("usage.open")} onClick={(e) => { e.stopPropagation(); setUsageTarget(c); }}>
+          <Gauge className="size-4" />
+        </Button>
+      )}
       <Button variant="ghost" size="icon" aria-label={t("creds.edit")} onClick={(e) => { e.stopPropagation(); openEdit(c); }}>
         <Pencil className="size-4" />
       </Button>
@@ -75,6 +83,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
     { key: "enabled", header: t("fields.enabled"), cell: (c) => (
       <Badge variant={c.enabled ? "secondary" : "outline"}>{c.enabled ? "on" : "off"}</Badge>
     ) },
+    { key: "health", header: t("health.title"), cell: (c) => <HealthBadge credentialId={c.id} /> },
     { key: "actions", header: "", cell: actions, className: "w-24 text-right" },
   ];
 
@@ -113,6 +122,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
                 <Badge variant={c.has_secret ? "secondary" : "outline"}>
                   {c.has_secret ? t("creds.hasSecret") : t("creds.noSecret")}
                 </Badge>
+                <HealthBadge credentialId={c.id} />
               </div>
               {actions(c)}
             </div>
@@ -160,6 +170,14 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
             setWizardOpen(false);
           }}
         />
+      </EntityDialog>
+
+      <EntityDialog
+        open={usageTarget !== undefined}
+        onOpenChange={(o) => { if (!o) setUsageTarget(undefined); }}
+        title={`${t("usage.title")} — ${usageTarget ? credName(usageTarget, t("creds.unnamed", { id: usageTarget.id })) : ""}`}
+      >
+        {usageTarget && <UsageCard credentialId={usageTarget.id} />}
       </EntityDialog>
     </div>
   );
