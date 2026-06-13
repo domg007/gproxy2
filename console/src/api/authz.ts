@@ -23,11 +23,12 @@ export const rateLimitsQuery = (scope: Scope, scopeId: number) => queryOptions({
 // quota GET returns the single quota or 404 → swallow 404 into null
 export const quotaQuery = (scope: Scope, scopeId: number) => queryOptions({
   queryKey: ["quotas", scope, scopeId],
+  // 404 (no quota set for this scope) is a normal empty state — swallow it to null
+  // here, so only genuine transient failures surface and inherit the global retry:1.
   queryFn: async () => {
     try { return await api<Quota>(`/admin/quotas${q(scope, scopeId)}`); }
     catch (e) { if (e instanceof ApiError && e.status === 404) return null; throw e; }
   },
-  retry: false,
 });
 
 export const upsertPermission = (i: RoutePermissionInput) => api<RoutePermission>("/admin/route-permissions", { method: "POST", body: JSON.stringify(i) });
