@@ -2,7 +2,7 @@
   "title": "Providers",
   "new": "New provider",
   "empty": "No providers yet — create one to start routing traffic.",
-  "tabs": { "settings": "Settings", "credentials": "Credentials" },
+  "tabs": { "settings": "Settings", "credentials": "Credentials", "models": "Models" },
   "fields": {
     "name": "Name", "label": "Label", "channel": "Channel", "strategy": "Credential strategy",
     "proxyUrl": "Outbound proxy URL", "enabled": "Enabled", "settings": "Settings JSON",
@@ -67,5 +67,18 @@
     "unsupported": "This channel exposes no usage endpoint.",
     "plan": "Plan", "credits": "Credits", "raw": "Raw response", "resets": "resets {{time}}",
     "window": { "five_hour": "5-hour window", "seven_day": "7-day window", "primary": "Primary", "secondary": "Secondary" }
+  },
+  "models": {
+    "title": "Models", "add": "Add model", "empty": "No models registered. Aggregated /v1/models lists alias/route names; per-provider model rows feed routing and pricing.",
+    "edit": "Edit model", "modelId": "Model ID", "displayName": "Display name", "enabled": "Enabled",
+    "modelIdHint": "Upstream model id, or an arbitrary id you expose (need not exist upstream).",
+    "pricing": "Pricing (per 1M tokens)",
+    "price": { "input": "Input", "output": "Output", "cache_read": "Cache read", "cache_creation": "Cache write", "image": "Image (per image)" },
+    "pricingHint": "Leave blank for free / token-only. Decimal values.",
+    "variants": "Variants",
+    "variantsHint": "Suffixes expand one model into many (e.g. -thinking, -32k). One per line.",
+    "exposeBase": "Expose the base model too",
+    "delete": "Delete model",
+    "deleteConfirm": "Delete model \"{{name}}\" and all its variants?"
   }
 }

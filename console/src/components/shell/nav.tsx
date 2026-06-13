@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { LayoutDashboard, Plug, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Plug, Route as RouteIcon, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
   { to: "/providers", icon: Plug, labelKey: "nav.providers" },
+  { to: "/routes", icon: RouteIcon, labelKey: "nav.routes" },
 ];
 
 export function NavList({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {

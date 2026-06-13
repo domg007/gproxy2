@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "儀表板", "providers": "供應商", "title": "導覽", "openMenu": "開啟選單" },
+  "nav": { "dashboard": "儀表板", "providers": "供應商", "routes": "路由", "title": "導覽", "openMenu": "開啟選單" },
   "actions": { "cancel": "取消", "save": "儲存", "delete": "刪除", "edit": "編輯", "close": "關閉", "copy": "複製", "copied": "已複製" },
   "login": {
     "title": "登入 gproxy",

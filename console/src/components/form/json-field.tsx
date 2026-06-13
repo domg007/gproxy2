@@ -26,6 +26,7 @@ export function JsonField({ id, value, onChange, rows = 6, placeholder, hint }: 
   const { t } = useTranslation("providers");
   const [touched, setTouched] = useState(false);
   const invalid = touched && value.trim() !== "" && !parseJsonText(value).ok;
+  const describedBy = id ? `${id}-msg` : undefined;
   return (
     <div className="grid gap-1">
       <Textarea
@@ -34,12 +35,14 @@ export function JsonField({ id, value, onChange, rows = 6, placeholder, hint }: 
         rows={rows}
         placeholder={placeholder}
         spellCheck={false}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
         className={cn("font-mono text-xs", invalid && "border-destructive")}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => setTouched(true)}
       />
       <div className="flex items-start justify-between gap-2">
-        <p className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}>
+        <p id={describedBy} className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}>
           {invalid ? t("json.invalid") : (hint ?? "")}
         </p>
         <Button

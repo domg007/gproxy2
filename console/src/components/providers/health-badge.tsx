@@ -9,10 +9,10 @@ function fmtTime(unixSecs: number): string {
 }
 
 const KIND_STYLE: Record<string, string> = {
-  recovered: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  breaker: "bg-destructive/15 text-destructive",
-  auth_dead: "bg-destructive/15 text-destructive",
-  rate_limited: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+  recovered: "bg-emerald-500/15 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200",
+  breaker: "bg-destructive/15 text-destructive dark:text-red-300",
+  auth_dead: "bg-destructive/15 text-destructive dark:text-red-300",
+  rate_limited: "bg-amber-500/15 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200",
 };
 
 function latestStatus(rows: CredentialStatus[]): CredentialStatus | undefined {
