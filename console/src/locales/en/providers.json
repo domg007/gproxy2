@@ -1,0 +1,72 @@
+{
+  "title": "Providers",
+  "new": "New provider",
+  "empty": "No providers yet — create one to start routing traffic.",
+  "notFound": "Provider not found.",
+  "tabs": { "settings": "Settings", "credentials": "Credentials" },
+  "fields": {
+    "name": "Name", "label": "Label", "channel": "Channel", "strategy": "Credential strategy",
+    "proxyUrl": "Outbound proxy URL", "enabled": "Enabled", "settings": "Settings JSON",
+    "tlsFingerprint": "TLS fingerprint JSON", "weight": "Weight", "kind": "Kind",
+    "rpm": "RPM limit", "tpm": "TPM limit", "credLabel": "Label"
+  },
+  "strategy": { "round_robin": "Round robin", "sticky": "Sticky" },
+  "family": { "api_key": "API key", "oauth_tokens": "OAuth subscription", "service_account": "Service account", "github_token": "GitHub token" },
+  "form": {
+    "create": "Create provider", "edit": "Edit provider", "required": "Required",
+    "channelWarning": "Changing the channel of an existing provider can break its credentials.",
+    "settingsHint": "Known keys: base_url (custom channel requires it), circuit_breaker, tokenizer_map, location (vertex), profile_arn (kiro).",
+    "tlsHint": "Optional — overrides per-channel TLS/HTTP2 fingerprint. Leave empty for none.",
+    "saved": "Saved"
+  },
+  "delete": {
+    "provider": "Delete provider",
+    "providerConfirm": "This deletes provider \"{{name}}\" together with its credential pool's availability. Routes referencing it will fail over or error.",
+    "credential": "Delete credential",
+    "credentialConfirm": "This permanently deletes credential \"{{name}}\". The upstream account is not affected."
+  },
+  "creds": {
+    "title": "Credentials", "add": "Add credential", "oauth": "Connect via OAuth", "manual": "Add manually",
+    "empty": "No credentials yet.", "edit": "Edit credential",
+    "secretKept": "Leave empty to keep the stored secret.",
+    "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}"
+  },
+  "secret": {
+    "apiKey": "API key", "saJson": "Service-account JSON", "tokensJson": "Token JSON",
+    "githubToken": "GitHub token", "saInvalid": "Must be JSON containing client_email and private_key",
+    "tokensHint": "Paste tokens exported from the official client. expires_at_ms is unix milliseconds.",
+    "geminiHint": "project_id is required for this channel (the OAuth wizard resolves it automatically)."
+  },
+  "json": { "invalid": "Invalid JSON", "format": "Format" },
+  "wizard": {
+    "title": "Connect {{channel}}",
+    "mode": { "authcode": "Authorization code", "device": "Device code", "cookie": "Cookie" },
+    "credName": "Credential label (optional)",
+    "start": "Start", "starting": "Starting…",
+    "openAuthorize": "Open authorization page",
+    "pasteLabel": "Paste the full callback URL",
+    "pasteHint": "Approve in the browser, then copy the URL you were redirected to (it carries code and state).",
+    "pasteInvalid": "Not a callback URL — it must contain code and state, and must not be the authorization URL itself.",
+    "complete": "Complete", "completing": "Completing…",
+    "failed": "Login failed — start over.",
+    "done": "Credential created.",
+    "deviceIntro": "Enter this code at", "waiting": "Waiting for authorization…",
+    "kiroMode": "Kiro login mode", "kiroSocial": "Social", "kiroIdc": "AWS IdC",
+    "kiroProvider": "Identity provider", "kiroStartUrl": "Start URL", "kiroRegion": "Region",
+    "kiroStartUrlHint": "Required for Enterprise; BuilderId/Internal have built-in defaults.",
+    "cookieLabel": "claude.ai cookie", "cookieHint": "Paste the full Cookie header or just sessionKey=…; only sessionKey is used.",
+    "cookieInvalid": "No sessionKey found in the pasted text."
+  },
+  "health": {
+    "title": "Health", "unknown": "no events", "asOf": "as of {{time}}",
+    "breaker": "breaker open", "recovered": "healthy", "rate_limited": "rate-limited", "auth_dead": "auth dead",
+    "until": "until {{time}}"
+  },
+  "usage": {
+    "title": "Upstream usage", "open": "Usage", "fetch": "Fetch now", "refresh": "Refresh",
+    "sparingly": "Queries the upstream account live — some upstreams rate-limit this; use sparingly.",
+    "unsupported": "This channel exposes no usage endpoint.",
+    "plan": "Plan", "credits": "Credits", "raw": "Raw response", "resets": "resets {{time}}",
+    "window": { "five_hour": "5-hour window", "seven_day": "7-day window", "primary": "Primary", "secondary": "Secondary" }
+  }
+}

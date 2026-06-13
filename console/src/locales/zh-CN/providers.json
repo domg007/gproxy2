@@ -1,0 +1,72 @@
+{
+  "title": "供应商",
+  "new": "新建供应商",
+  "empty": "还没有供应商——创建一个开始路由流量。",
+  "notFound": "供应商不存在。",
+  "tabs": { "settings": "设置", "credentials": "凭证" },
+  "fields": {
+    "name": "名称", "label": "显示名", "channel": "渠道", "strategy": "凭证池策略",
+    "proxyUrl": "出站代理 URL", "enabled": "启用", "settings": "设置 JSON",
+    "tlsFingerprint": "TLS 指纹 JSON", "weight": "权重", "kind": "类型",
+    "rpm": "RPM 上限", "tpm": "TPM 上限", "credLabel": "显示名"
+  },
+  "strategy": { "round_robin": "轮询", "sticky": "粘性" },
+  "family": { "api_key": "API Key", "oauth_tokens": "OAuth 订阅", "service_account": "服务账号", "github_token": "GitHub Token" },
+  "form": {
+    "create": "创建供应商", "edit": "编辑供应商", "required": "必填",
+    "channelWarning": "修改已有供应商的渠道可能使其凭证全部失效。",
+    "settingsHint": "已知键:base_url(custom 渠道必填)、circuit_breaker、tokenizer_map、location(vertex)、profile_arn(kiro)。",
+    "tlsHint": "可选——覆盖渠道默认 TLS/HTTP2 指纹,留空表示不设置。",
+    "saved": "已保存"
+  },
+  "delete": {
+    "provider": "删除供应商",
+    "providerConfirm": "将删除供应商「{{name}}」,其凭证池随之下线;引用它的路由会故障转移或报错。",
+    "credential": "删除凭证",
+    "credentialConfirm": "将永久删除凭证「{{name}}」,不影响上游账号本身。"
+  },
+  "creds": {
+    "title": "凭证", "add": "添加凭证", "oauth": "OAuth 接入", "manual": "手动添加",
+    "empty": "还没有凭证。", "edit": "编辑凭证",
+    "secretKept": "留空则保留已存储的密钥。",
+    "hasSecret": "已存密钥", "noSecret": "无密钥", "unnamed": "凭证 #{{id}}"
+  },
+  "secret": {
+    "apiKey": "API Key", "saJson": "服务账号 JSON", "tokensJson": "Token JSON",
+    "githubToken": "GitHub Token", "saInvalid": "必须是含 client_email 与 private_key 的 JSON",
+    "tokensHint": "粘贴从官方客户端导出的 token;expires_at_ms 为 unix 毫秒。",
+    "geminiHint": "该渠道必须提供 project_id(OAuth 向导会自动解析)。"
+  },
+  "json": { "invalid": "JSON 无效", "format": "格式化" },
+  "wizard": {
+    "title": "接入 {{channel}}",
+    "mode": { "authcode": "授权码", "device": "设备码", "cookie": "Cookie" },
+    "credName": "凭证显示名(可选)",
+    "start": "开始", "starting": "启动中…",
+    "openAuthorize": "打开授权页面",
+    "pasteLabel": "粘贴完整回调 URL",
+    "pasteHint": "在浏览器完成授权后,复制跳转到的 URL(其中带 code 和 state)。",
+    "pasteInvalid": "这不是回调 URL——必须包含 code 与 state,且不能是授权 URL 本身。",
+    "complete": "完成", "completing": "完成中…",
+    "failed": "登录失败——请重新开始。",
+    "done": "凭证已创建。",
+    "deviceIntro": "在以下地址输入此代码", "waiting": "等待授权中…",
+    "kiroMode": "Kiro 登录方式", "kiroSocial": "社交账号", "kiroIdc": "AWS IdC",
+    "kiroProvider": "身份提供方", "kiroStartUrl": "Start URL", "kiroRegion": "区域",
+    "kiroStartUrlHint": "Enterprise 必填;BuilderId/Internal 有内置默认值。",
+    "cookieLabel": "claude.ai Cookie", "cookieHint": "粘贴完整 Cookie 头或仅 sessionKey=…;只会使用 sessionKey。",
+    "cookieInvalid": "粘贴内容中未找到 sessionKey。"
+  },
+  "health": {
+    "title": "健康", "unknown": "无事件", "asOf": "{{time}} 记录",
+    "breaker": "熔断中", "recovered": "健康", "rate_limited": "限流冷却", "auth_dead": "鉴权失效",
+    "until": "至 {{time}}"
+  },
+  "usage": {
+    "title": "上游用量", "open": "用量", "fetch": "立即查询", "refresh": "刷新",
+    "sparingly": "实时查询上游账号——部分上游对此限流,请勿频繁刷新。",
+    "unsupported": "该渠道不提供用量端点。",
+    "plan": "套餐", "credits": "额度", "raw": "原始响应", "resets": "{{time}} 重置",
+    "window": { "five_hour": "5 小时窗口", "seven_day": "7 天窗口", "primary": "主配额", "secondary": "次配额" }
+  }
+}
