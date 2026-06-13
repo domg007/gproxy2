@@ -25,3 +25,21 @@ pub(crate) fn now_secs() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+/// `true` when the error is a unique-constraint violation, across dialects:
+/// sqlite "UNIQUE constraint failed", postgres "duplicate key value violates
+/// unique constraint", mysql "Duplicate entry".
+pub(crate) fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
+    let msg = e.to_string().to_ascii_lowercase();
+    msg.contains("unique") || msg.contains("duplicate")
+}
+
+/// Map a SeaORM error from an insert/update: a unique-constraint violation
+/// becomes a [`ConflictError`] (→ 409); anything else passes through as-is.
+pub(crate) fn conflict_if_unique(e: sea_orm::DbErr, msg: impl FnOnce() -> String) -> anyhow::Error {
+    if is_unique_violation(&e) {
+        crate::store::persistence::ConflictError::new(msg()).into()
+    } else {
+        anyhow::Error::new(e)
+    }
+}

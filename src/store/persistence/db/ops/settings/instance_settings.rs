@@ -52,6 +52,12 @@ pub async fn upsert(
     input: InstanceSettingsInput,
 ) -> anyhow::Result<InstanceSettings> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let instance_name = input.instance_name.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("instance name already exists: {instance_name}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match instance_setting::Entity::find_by_id(id).one(conn).await? {
@@ -70,7 +76,7 @@ pub async fn upsert(
                 am.update_channel = Set(input.update_channel);
                 am.retention_days = Set(input.retention_days);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -93,30 +99,30 @@ pub async fn upsert(
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            instance_setting::ActiveModel {
-                id: NotSet,
-                instance_name: Set(input.instance_name),
-                proxy: Set(input.proxy),
-                spoof_emulation: Set(input.spoof_emulation),
-                enable_usage: Set(input.enable_usage),
-                enable_upstream_log: Set(input.enable_upstream_log),
-                enable_upstream_log_body: Set(input.enable_upstream_log_body),
-                enable_downstream_log: Set(input.enable_downstream_log),
-                enable_downstream_log_body: Set(input.enable_downstream_log_body),
-                disable_log_redaction: Set(input.disable_log_redaction),
-                enable_tokenizer_download: Set(input.enable_tokenizer_download),
-                update_channel: Set(input.update_channel),
-                retention_days: Set(input.retention_days),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => instance_setting::ActiveModel {
+            id: NotSet,
+            instance_name: Set(input.instance_name),
+            proxy: Set(input.proxy),
+            spoof_emulation: Set(input.spoof_emulation),
+            enable_usage: Set(input.enable_usage),
+            enable_upstream_log: Set(input.enable_upstream_log),
+            enable_upstream_log_body: Set(input.enable_upstream_log_body),
+            enable_downstream_log: Set(input.enable_downstream_log),
+            enable_downstream_log_body: Set(input.enable_downstream_log_body),
+            disable_log_redaction: Set(input.disable_log_redaction),
+            enable_tokenizer_download: Set(input.enable_tokenizer_download),
+            update_channel: Set(input.update_channel),
+            retention_days: Set(input.retention_days),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

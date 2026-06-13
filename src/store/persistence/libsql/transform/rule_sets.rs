@@ -65,24 +65,33 @@ pub async fn upsert(client: &LibsqlClient, input: RuleSetInput) -> anyhow::Resul
     {
         let existing = col_i64(&row, 0)?;
         if Some(existing) != input.id {
-            anyhow::bail!("rule set name already exists: {}", input.name);
+            return Err(crate::store::persistence::ConflictError::new(format!(
+                "rule set name already exists: {}",
+                input.name
+            ))
+            .into());
         }
     }
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE rule_sets SET name=?, enabled=?, description=?, updated_at=? WHERE id=?",
-                &[
-                    arg_text(&input.name),
-                    arg_bool(input.enabled),
-                    arg_opt_text(input.description.as_deref()),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE rule_sets SET name=?, enabled=?, description=?, updated_at=? WHERE id=?",
+                    &[
+                        arg_text(&input.name),
+                        arg_bool(input.enabled),
+                        arg_opt_text(input.description.as_deref()),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("rule set name already exists: {}", input.name)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -100,7 +109,11 @@ pub async fn upsert(client: &LibsqlClient, input: RuleSetInput) -> anyhow::Resul
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert rule_set: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("rule set name already exists: {}", input.name)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

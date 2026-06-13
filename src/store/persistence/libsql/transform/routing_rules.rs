@@ -68,12 +68,11 @@ pub async fn upsert(client: &LibsqlClient, input: RoutingRuleInput) -> anyhow::R
     {
         let existing = col_i64(&row, 0)?;
         if Some(existing) != input.id {
-            anyhow::bail!(
+            return Err(crate::store::persistence::ConflictError::new(format!(
                 "routing rule already exists for provider {} ({}, {})",
-                input.provider_id,
-                input.operation,
-                input.kind
-            );
+                input.provider_id, input.operation, input.kind
+            ))
+            .into());
         }
     }
 

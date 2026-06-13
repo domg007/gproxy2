@@ -62,6 +62,12 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
         .tls_fingerprint
         .map(|v| serde_json::to_string(&v))
         .transpose()?;
+    let name = input.name.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("provider name already exists: {name}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match provider::Entity::find_by_id(id).one(conn).await? {
@@ -76,7 +82,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
                 am.tls_fingerprint = Set(tls);
                 am.enabled = Set(input.enabled);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -94,7 +100,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
                     created_at: Set(now),
                     updated_at: Set(now),
                 };
-                am.insert(conn).await?
+                am.insert(conn).await.map_err(conflict)?
             }
         },
         None => {
@@ -111,7 +117,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: ProviderInput) -> anyhow::
                 created_at: Set(now),
                 updated_at: Set(now),
             };
-            am.insert(conn).await?
+            am.insert(conn).await.map_err(conflict)?
         }
     };
 

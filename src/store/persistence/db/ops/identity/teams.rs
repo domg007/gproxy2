@@ -43,11 +43,11 @@ pub async fn upsert(conn: &DatabaseConnection, input: TeamInput) -> anyhow::Resu
         .await?
         && Some(existing.id) != input.id
     {
-        anyhow::bail!(
+        return Err(crate::store::persistence::ConflictError::new(format!(
             "team name already exists in org {}: {}",
-            input.org_id,
-            input.name
-        );
+            input.org_id, input.name
+        ))
+        .into());
     }
 
     let model = match input.id {

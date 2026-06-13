@@ -54,11 +54,12 @@ pub async fn upsert(client: &LibsqlClient, input: QuotaInput) -> anyhow::Result<
     if let Some(existing) = get(client, input.scope, input.scope_id).await?
         && Some(existing.id) != input.id
     {
-        anyhow::bail!(
+        return Err(crate::store::persistence::ConflictError::new(format!(
             "quota already exists for scope {}:{}",
             input.scope.as_str(),
             input.scope_id
-        );
+        ))
+        .into());
     }
 
     let id = match input.id {

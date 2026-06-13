@@ -62,22 +62,27 @@ pub async fn upsert(client: &LibsqlClient, input: UserInput) -> anyhow::Result<U
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE users SET name=?, org_id=?, team_id=?, password=?, enabled=?, is_admin=?, \
-                 updated_at=? WHERE id=?",
-                &[
-                    arg_text(&input.name),
-                    arg_integer(input.org_id),
-                    arg_opt_i64(input.team_id),
-                    arg_opt_text(input.password.as_deref()),
-                    arg_bool(input.enabled),
-                    arg_bool(input.is_admin),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE users SET name=?, org_id=?, team_id=?, password=?, enabled=?, is_admin=?, \
+                     updated_at=? WHERE id=?",
+                    &[
+                        arg_text(&input.name),
+                        arg_integer(input.org_id),
+                        arg_opt_i64(input.team_id),
+                        arg_opt_text(input.password.as_deref()),
+                        arg_bool(input.enabled),
+                        arg_bool(input.is_admin),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("user name already exists: {}", input.name)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -99,7 +104,11 @@ pub async fn upsert(client: &LibsqlClient, input: UserInput) -> anyhow::Result<U
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert user: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("user name already exists: {}", input.name)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

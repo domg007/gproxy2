@@ -36,6 +36,12 @@ pub async fn get_by_name(conn: &DatabaseConnection, value: &str) -> anyhow::Resu
 
 pub async fn upsert(conn: &DatabaseConnection, input: AliasInput) -> anyhow::Result<Alias> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let alias_name = input.alias.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("alias already exists: {alias_name}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match alias::Entity::find_by_id(id).one(conn).await? {
@@ -44,7 +50,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: AliasInput) -> anyhow::Res
                 am.alias = Set(input.alias);
                 am.route_id = Set(input.route_id);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -57,20 +63,20 @@ pub async fn upsert(conn: &DatabaseConnection, input: AliasInput) -> anyhow::Res
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            alias::ActiveModel {
-                id: NotSet,
-                alias: Set(input.alias),
-                route_id: Set(input.route_id),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => alias::ActiveModel {
+            id: NotSet,
+            alias: Set(input.alias),
+            route_id: Set(input.route_id),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

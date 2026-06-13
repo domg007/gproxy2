@@ -9,7 +9,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
-use super::internal;
+use super::{internal, upsert_err};
 use crate::admin::invalidate;
 use crate::api::error::ApiError;
 use crate::api::user_keys::{UserKeyUpsert, UserKeyView};
@@ -89,7 +89,7 @@ pub async fn upsert(
         .persistence
         .upsert_user_key(input)
         .await
-        .map_err(internal)?;
+        .map_err(upsert_err)?;
     invalidate(&state).await;
     let mut view = UserKeyView::from(key);
     view.api_key = bare;

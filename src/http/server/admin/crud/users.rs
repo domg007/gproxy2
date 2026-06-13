@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
-use super::internal;
+use super::{internal, upsert_err};
 use crate::admin::invalidate;
 use crate::api::error::ApiError;
 use crate::api::users::{UserUpsert, UserView};
@@ -70,7 +70,7 @@ pub async fn upsert(
         .persistence
         .upsert_user(input)
         .await
-        .map_err(internal)?;
+        .map_err(upsert_err)?;
     invalidate(&state).await;
     Ok(Json(UserView::from(user)))
 }

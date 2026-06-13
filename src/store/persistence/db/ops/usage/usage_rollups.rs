@@ -9,6 +9,7 @@ use sea_orm::{
 use crate::store::persistence::records::{UsageRollup, UsageRollupInput};
 
 use crate::store::persistence::db::entities::usage::usage_rollup;
+use crate::store::persistence::db::ops::is_unique_violation;
 
 fn to_record(m: usage_rollup::Model) -> anyhow::Result<UsageRollup> {
     Ok(UsageRollup {
@@ -134,14 +135,6 @@ pub async fn add(
         }
     }
     anyhow::bail!("usage_rollup add: persistent write contention")
-}
-
-/// `true` when the error is a unique-constraint violation, across dialects:
-/// sqlite "UNIQUE constraint failed", postgres "duplicate key value violates
-/// unique constraint", mysql "Duplicate entry".
-fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
-    let msg = e.to_string().to_ascii_lowercase();
-    msg.contains("unique") || msg.contains("duplicate")
 }
 
 pub async fn list(

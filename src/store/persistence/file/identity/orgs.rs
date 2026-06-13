@@ -38,7 +38,11 @@ pub(crate) async fn upsert(root: &Path, input: OrgInput) -> anyhow::Result<Org> 
     if let Some(existing) = t.rows.iter().find(|o| o.name == input.name)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("org name already exists: {}", input.name);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "org name already exists: {}",
+            input.name
+        ))
+        .into());
     }
 
     let stored = match input.id {

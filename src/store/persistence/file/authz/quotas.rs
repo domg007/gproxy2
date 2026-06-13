@@ -29,11 +29,12 @@ pub(crate) async fn upsert(root: &Path, input: QuotaInput) -> anyhow::Result<Quo
         .find(|q| q.scope == input.scope && q.scope_id == input.scope_id)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!(
+        return Err(crate::store::persistence::ConflictError::new(format!(
             "quota already exists for scope {}:{}",
             input.scope.as_str(),
             input.scope_id
-        );
+        ))
+        .into());
     }
 
     let stored = match input.id {

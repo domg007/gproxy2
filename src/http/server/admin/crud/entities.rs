@@ -5,7 +5,7 @@
 //! `get = $m` (a backend `get_X(id)` method exists) and `find` (no by-id
 //! getter — scan `list_X()` and match on `id`, used for aliases).
 
-use super::internal;
+use super::{internal, upsert_err};
 use crate::admin::invalidate;
 use crate::api::error::ApiError;
 use crate::app::AppState;
@@ -43,7 +43,7 @@ macro_rules! crud_entity {
                 State(state): State<AppState>,
                 Json(input): Json<$input>,
             ) -> Result<Json<$record>, ApiError> {
-                let rec = state.persistence.$upsert(input).await.map_err(internal)?;
+                let rec = state.persistence.$upsert(input).await.map_err(upsert_err)?;
                 invalidate(&state).await;
                 Ok(Json(rec))
             }
@@ -177,7 +177,7 @@ pub mod instance_settings {
             .persistence
             .upsert_instance_settings(input)
             .await
-            .map_err(internal)?;
+            .map_err(upsert_err)?;
         invalidate(&state).await;
         Ok(Json(rec))
     }

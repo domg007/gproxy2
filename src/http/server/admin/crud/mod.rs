@@ -22,6 +22,17 @@ pub(crate) fn internal<E: std::fmt::Display>(e: E) -> crate::api::error::ApiErro
     crate::api::error::ApiError::Internal(e.to_string())
 }
 
+/// Map an upsert error: a unique-constraint conflict (a `ConflictError` carried
+/// in `anyhow`) becomes 409 with its human-readable message; anything else is a
+/// generic 500. Used by every upsert handler so duplicate names/aliases report
+/// 409 instead of 500.
+pub(crate) fn upsert_err(e: anyhow::Error) -> crate::api::error::ApiError {
+    match e.downcast_ref::<crate::store::persistence::ConflictError>() {
+        Some(c) => crate::api::error::ApiError::Conflict(c.0.clone()),
+        None => crate::api::error::ApiError::Internal(e.to_string()),
+    }
+}
+
 /// All global-entity CRUD routes, to be merged into the protected subrouter.
 pub fn routes() -> Router<AppState> {
     Router::new()

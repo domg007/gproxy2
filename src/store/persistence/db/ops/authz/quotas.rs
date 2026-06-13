@@ -46,11 +46,12 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
         .await?
         && Some(existing.id) != input.id
     {
-        anyhow::bail!(
+        return Err(crate::store::persistence::ConflictError::new(format!(
             "quota already exists for scope {}:{}",
             input.scope.as_str(),
             input.scope_id
-        );
+        ))
+        .into());
     }
 
     let model = match input.id {

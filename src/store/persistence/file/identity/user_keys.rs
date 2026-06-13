@@ -46,7 +46,11 @@ pub(crate) async fn upsert(root: &Path, input: UserKeyInput) -> anyhow::Result<U
         .find(|k| k.api_key_digest == input.api_key_digest)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("user key digest already exists: {}", input.api_key_digest);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "user key digest already exists: {}",
+            input.api_key_digest
+        ))
+        .into());
     }
 
     let stored = match input.id {

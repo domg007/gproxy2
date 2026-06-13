@@ -57,18 +57,23 @@ pub async fn upsert(client: &LibsqlClient, input: OrgInput) -> anyhow::Result<Or
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE orgs SET name=?, enabled=?, description=?, updated_at=? WHERE id=?",
-                &[
-                    arg_text(&input.name),
-                    arg_bool(input.enabled),
-                    arg_opt_text(input.description.as_deref()),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE orgs SET name=?, enabled=?, description=?, updated_at=? WHERE id=?",
+                    &[
+                        arg_text(&input.name),
+                        arg_bool(input.enabled),
+                        arg_opt_text(input.description.as_deref()),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("org name already exists: {}", input.name)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -86,7 +91,11 @@ pub async fn upsert(client: &LibsqlClient, input: OrgInput) -> anyhow::Result<Or
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert org: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("org name already exists: {}", input.name)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

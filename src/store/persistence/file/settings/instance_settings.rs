@@ -39,7 +39,11 @@ pub(crate) async fn upsert(
         .find(|s| s.instance_name == input.instance_name)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("instance name already exists: {}", input.instance_name);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "instance name already exists: {}",
+            input.instance_name
+        ))
+        .into());
     }
 
     let stored = match input.id {

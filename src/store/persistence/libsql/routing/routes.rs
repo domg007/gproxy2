@@ -67,21 +67,26 @@ pub async fn upsert(client: &LibsqlClient, input: RouteInput) -> anyhow::Result<
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE routes SET name=?, strategy=?, enabled=?, description=?, settings_json=?, \
-                 updated_at=? WHERE id=?",
-                &[
-                    arg_text(&input.name),
-                    arg_text(&input.strategy),
-                    arg_bool(input.enabled),
-                    arg_opt_text(input.description.as_deref()),
-                    arg_opt_text(settings.as_deref()),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE routes SET name=?, strategy=?, enabled=?, description=?, settings_json=?, \
+                     updated_at=? WHERE id=?",
+                    &[
+                        arg_text(&input.name),
+                        arg_text(&input.strategy),
+                        arg_bool(input.enabled),
+                        arg_opt_text(input.description.as_deref()),
+                        arg_opt_text(settings.as_deref()),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("route name already exists: {}", input.name)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -101,7 +106,11 @@ pub async fn upsert(client: &LibsqlClient, input: RouteInput) -> anyhow::Result<
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert route: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("route name already exists: {}", input.name)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

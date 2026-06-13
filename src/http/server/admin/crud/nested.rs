@@ -6,7 +6,7 @@
 //! id). Both `upsert` and `delete` invalidate the snapshot. These records carry
 //! no secrets, so the records are serialized directly (no redacting view).
 
-use super::internal;
+use super::{internal, upsert_err};
 use crate::admin::invalidate;
 use crate::api::error::ApiError;
 use crate::app::AppState;
@@ -58,7 +58,7 @@ macro_rules! crud_nested {
                         parent_id
                     )));
                 }
-                let rec = state.persistence.$upsert(input).await.map_err(internal)?;
+                let rec = state.persistence.$upsert(input).await.map_err(upsert_err)?;
                 invalidate(&state).await;
                 Ok(Json(rec))
             }

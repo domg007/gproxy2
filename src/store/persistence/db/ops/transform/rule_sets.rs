@@ -44,6 +44,12 @@ pub async fn get_by_name(conn: &DatabaseConnection, name: &str) -> anyhow::Resul
 
 pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::Result<RuleSet> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let name = input.name.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("rule set name already exists: {name}")
+        })
+    };
 
     // Enforce uniqueness on `name`.
     if let Some(existing) = rule_set::Entity::find()
@@ -52,7 +58,11 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::R
         .await?
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("rule set name already exists: {}", input.name);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "rule set name already exists: {}",
+            input.name
+        ))
+        .into());
     }
 
     let model = match input.id {
@@ -63,7 +73,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::R
                 am.enabled = Set(input.enabled);
                 am.description = Set(input.description);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -78,21 +88,21 @@ pub async fn upsert(conn: &DatabaseConnection, input: RuleSetInput) -> anyhow::R
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            rule_set::ActiveModel {
-                id: NotSet,
-                name: Set(input.name),
-                enabled: Set(input.enabled),
-                description: Set(input.description),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => rule_set::ActiveModel {
+            id: NotSet,
+            name: Set(input.name),
+            enabled: Set(input.enabled),
+            description: Set(input.description),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

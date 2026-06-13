@@ -38,7 +38,11 @@ pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
     if let Some(existing) = t.rows.iter().find(|r| r.name == input.name)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("route name already exists: {}", input.name);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "route name already exists: {}",
+            input.name
+        ))
+        .into());
     }
 
     let stored = match input.id {

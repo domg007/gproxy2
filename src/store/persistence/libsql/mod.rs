@@ -453,6 +453,21 @@ impl PersistenceBackend for LibsqlPersistence {
     }
 }
 
+/// Map a libsql/Hrana error from an insert/update: a SQLite UNIQUE-constraint
+/// violation becomes a [`crate::store::persistence::ConflictError`] (→ 409
+/// once the edge admin layer maps it); anything else passes through as an
+/// anyhow error.
+pub(crate) fn conflict_if_unique(
+    e: crate::store::libsql::StoreError,
+    msg: impl FnOnce() -> String,
+) -> anyhow::Error {
+    if e.to_string().contains("UNIQUE constraint failed") {
+        crate::store::persistence::ConflictError::new(msg()).into()
+    } else {
+        anyhow::anyhow!("libsql: {e}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

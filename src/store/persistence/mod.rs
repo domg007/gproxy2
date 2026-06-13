@@ -21,6 +21,21 @@ pub mod metrics;
 pub mod migrations;
 pub mod records;
 
+/// A unique-constraint violation from an upsert (duplicate name/alias/digest,
+/// or a composite-key collision). Backends return this carried inside
+/// `anyhow::Error`; the admin HTTP layer downcasts it to map to 409 Conflict
+/// instead of a generic 500. Kept in the (wasm-agnostic) store layer so the
+/// persistence backends never depend on the HTTP error type.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct ConflictError(pub String);
+
+impl ConflictError {
+    pub fn new(msg: impl Into<String>) -> Self {
+        Self(msg.into())
+    }
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "persist-db"))]
 pub use db::DbPersistence;
 #[cfg(all(not(target_arch = "wasm32"), feature = "persist-file"))]

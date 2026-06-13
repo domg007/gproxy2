@@ -57,11 +57,11 @@ pub async fn upsert(client: &LibsqlClient, input: TeamInput) -> anyhow::Result<T
     {
         let existing = col_i64(&row, 0)?;
         if Some(existing) != input.id {
-            anyhow::bail!(
+            return Err(crate::store::persistence::ConflictError::new(format!(
                 "team name already exists in org {}: {}",
-                input.org_id,
-                input.name
-            );
+                input.org_id, input.name
+            ))
+            .into());
         }
     }
 

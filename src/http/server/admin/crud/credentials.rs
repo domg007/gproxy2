@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
-use super::internal;
+use super::{internal, upsert_err};
 use crate::admin::invalidate;
 use crate::api::credentials::{CredentialUpsert, CredentialView};
 use crate::api::error::ApiError;
@@ -94,7 +94,7 @@ pub async fn upsert(
         .persistence
         .upsert_credential(input)
         .await
-        .map_err(internal)?;
+        .map_err(upsert_err)?;
     invalidate(&state).await;
     Ok(Json(CredentialView::from(cred)))
 }

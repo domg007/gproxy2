@@ -56,6 +56,12 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
+    let name = input.name.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("route name already exists: {name}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match route::Entity::find_by_id(id).one(conn).await? {
@@ -67,7 +73,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
                 am.description = Set(input.description);
                 am.settings_json = Set(settings);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -83,23 +89,23 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            route::ActiveModel {
-                id: NotSet,
-                name: Set(input.name),
-                strategy: Set(input.strategy),
-                enabled: Set(input.enabled),
-                description: Set(input.description),
-                settings_json: Set(settings),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => route::ActiveModel {
+            id: NotSet,
+            name: Set(input.name),
+            strategy: Set(input.strategy),
+            enabled: Set(input.enabled),
+            description: Set(input.description),
+            settings_json: Set(settings),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

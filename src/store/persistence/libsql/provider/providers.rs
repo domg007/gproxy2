@@ -71,25 +71,30 @@ pub async fn upsert(client: &LibsqlClient, input: ProviderInput) -> anyhow::Resu
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE providers SET name=?, channel=?, label=?, settings_json=?, \
-                 credential_strategy=?, proxy_url=?, tls_fingerprint=?, enabled=?, updated_at=? \
-                 WHERE id=?",
-                &[
-                    arg_text(&input.name),
-                    arg_text(&input.channel),
-                    arg_opt_text(input.label.as_deref()),
-                    arg_text(&settings),
-                    arg_text(&input.credential_strategy),
-                    arg_opt_text(input.proxy_url.as_deref()),
-                    arg_opt_text(tls.as_deref()),
-                    arg_bool(input.enabled),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE providers SET name=?, channel=?, label=?, settings_json=?, \
+                     credential_strategy=?, proxy_url=?, tls_fingerprint=?, enabled=?, updated_at=? \
+                     WHERE id=?",
+                    &[
+                        arg_text(&input.name),
+                        arg_text(&input.channel),
+                        arg_opt_text(input.label.as_deref()),
+                        arg_text(&settings),
+                        arg_text(&input.credential_strategy),
+                        arg_opt_text(input.proxy_url.as_deref()),
+                        arg_opt_text(tls.as_deref()),
+                        arg_bool(input.enabled),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("provider name already exists: {}", input.name)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -114,7 +119,11 @@ pub async fn upsert(client: &LibsqlClient, input: ProviderInput) -> anyhow::Resu
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert provider: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("provider name already exists: {}", input.name)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

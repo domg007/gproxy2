@@ -41,6 +41,12 @@ pub async fn get_by_name(conn: &DatabaseConnection, name: &str) -> anyhow::Resul
 
 pub async fn upsert(conn: &DatabaseConnection, input: OrgInput) -> anyhow::Result<Org> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let name = input.name.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("org name already exists: {name}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match org::Entity::find_by_id(id).one(conn).await? {
@@ -50,7 +56,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: OrgInput) -> anyhow::Resul
                 am.enabled = Set(input.enabled);
                 am.description = Set(input.description);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -64,21 +70,21 @@ pub async fn upsert(conn: &DatabaseConnection, input: OrgInput) -> anyhow::Resul
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            org::ActiveModel {
-                id: NotSet,
-                name: Set(input.name),
-                enabled: Set(input.enabled),
-                description: Set(input.description),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => org::ActiveModel {
+            id: NotSet,
+            name: Set(input.name),
+            enabled: Set(input.enabled),
+            description: Set(input.description),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

@@ -50,6 +50,12 @@ pub async fn find_by_digest(
 
 pub async fn upsert(conn: &DatabaseConnection, input: UserKeyInput) -> anyhow::Result<UserKey> {
     let now = crate::store::persistence::db::ops::now_secs();
+    let digest = input.api_key_digest.clone();
+    let conflict = |e| {
+        crate::store::persistence::db::ops::conflict_if_unique(e, || {
+            format!("user key digest already exists: {digest}")
+        })
+    };
 
     let model = match input.id {
         Some(id) => match user_key::Entity::find_by_id(id).one(conn).await? {
@@ -61,7 +67,7 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserKeyInput) -> anyhow::R
                 am.label = Set(input.label);
                 am.enabled = Set(input.enabled);
                 am.updated_at = Set(now);
-                am.update(conn).await?
+                am.update(conn).await.map_err(conflict)?
             }
             None => {
                 // Seeding an empty store from a pinned bundle: insert WITH the
@@ -77,23 +83,23 @@ pub async fn upsert(conn: &DatabaseConnection, input: UserKeyInput) -> anyhow::R
                     updated_at: Set(now),
                 }
                 .insert(conn)
-                .await?
+                .await
+                .map_err(conflict)?
             }
         },
-        None => {
-            user_key::ActiveModel {
-                id: NotSet,
-                user_id: Set(input.user_id),
-                api_key_ciphertext: Set(input.api_key_ciphertext),
-                api_key_digest: Set(input.api_key_digest),
-                label: Set(input.label),
-                enabled: Set(input.enabled),
-                created_at: Set(now),
-                updated_at: Set(now),
-            }
-            .insert(conn)
-            .await?
+        None => user_key::ActiveModel {
+            id: NotSet,
+            user_id: Set(input.user_id),
+            api_key_ciphertext: Set(input.api_key_ciphertext),
+            api_key_digest: Set(input.api_key_digest),
+            label: Set(input.label),
+            enabled: Set(input.enabled),
+            created_at: Set(now),
+            updated_at: Set(now),
         }
+        .insert(conn)
+        .await
+        .map_err(conflict)?,
     };
 
     Ok(to_record(model))

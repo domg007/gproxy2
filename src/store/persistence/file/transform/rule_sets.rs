@@ -38,7 +38,11 @@ pub(crate) async fn upsert(root: &Path, input: RuleSetInput) -> anyhow::Result<R
     if let Some(existing) = t.rows.iter().find(|r| r.name == input.name)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("rule set name already exists: {}", input.name);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "rule set name already exists: {}",
+            input.name
+        ))
+        .into());
     }
 
     let stored = match input.id {

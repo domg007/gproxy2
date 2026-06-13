@@ -56,17 +56,22 @@ pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
-            exec(
-                client,
-                "UPDATE aliases SET alias=?, route_id=?, updated_at=? WHERE id=?",
-                &[
-                    arg_text(&input.alias),
-                    arg_integer(input.route_id),
-                    arg_integer(now),
-                    arg_integer(id),
-                ],
-            )
-            .await?;
+            client
+                .execute(
+                    "UPDATE aliases SET alias=?, route_id=?, updated_at=? WHERE id=?",
+                    &[
+                        arg_text(&input.alias),
+                        arg_integer(input.route_id),
+                        arg_integer(now),
+                        arg_integer(id),
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("alias already exists: {}", input.alias)
+                    })
+                })?;
             id
         }
         maybe_id => {
@@ -83,7 +88,11 @@ pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<
                     ],
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("libsql insert alias: {e}"))?;
+                .map_err(|e| {
+                    crate::store::persistence::libsql::conflict_if_unique(e, || {
+                        format!("alias already exists: {}", input.alias)
+                    })
+                })?;
             match maybe_id {
                 Some(id) => id,
                 None => last_rowid(&qr)?,

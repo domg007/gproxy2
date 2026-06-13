@@ -36,12 +36,11 @@ pub(crate) async fn upsert(root: &Path, input: RoutingRuleInput) -> anyhow::Resu
         r.provider_id == input.provider_id && r.operation == input.operation && r.kind == input.kind
     }) && Some(existing.id) != input.id
     {
-        anyhow::bail!(
+        return Err(crate::store::persistence::ConflictError::new(format!(
             "routing rule already exists for provider {} ({}, {})",
-            input.provider_id,
-            input.operation,
-            input.kind
-        );
+            input.provider_id, input.operation, input.kind
+        ))
+        .into());
     }
 
     let stored = match input.id {

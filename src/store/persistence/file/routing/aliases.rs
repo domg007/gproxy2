@@ -30,7 +30,11 @@ pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
     if let Some(existing) = t.rows.iter().find(|a| a.alias == input.alias)
         && Some(existing.id) != input.id
     {
-        anyhow::bail!("alias already exists: {}", input.alias);
+        return Err(crate::store::persistence::ConflictError::new(format!(
+            "alias already exists: {}",
+            input.alias
+        ))
+        .into());
     }
 
     let stored = match input.id {
