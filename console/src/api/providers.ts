@@ -23,6 +23,8 @@ export interface ProviderInput {
   settings_json: unknown;
   credential_strategy: string;
   proxy_url?: string | null;
+  /** OMIT when none — sending JSON null becomes Some(Value::Null) server-side
+   *  (serde default only applies to absent keys), which reads as "configured". */
   tls_fingerprint?: unknown;
   enabled: boolean;
 }

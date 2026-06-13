@@ -17,7 +17,6 @@ export interface CredentialView {
 
 export interface CredentialUpsert {
   id?: number | null;
-  provider_id: number;
   label?: string | null;
   kind: string;
   /** PLAINTEXT — sealed server-side. Required on create; omit on update to keep. */
@@ -26,15 +25,19 @@ export interface CredentialUpsert {
   rpm_limit?: number | null;
   tpm_limit?: number | null;
   proxy_url?: string | null;
+  /** OMIT when none — sending JSON null becomes Some(Value::Null) server-side
+   *  (serde default only applies to absent keys), which reads as "configured". */
   tls_fingerprint?: unknown;
   enabled: boolean;
 }
+
+export type HealthKind = "breaker" | "recovered" | "rate_limited" | "auth_dead";
 
 export interface CredentialStatus {
   id: number;
   credential_id: number;
   channel: string;
-  health_kind: string; // breaker | recovered | rate_limited | auth_dead
+  health_kind: HealthKind | (string & {});
   health_json: { state?: string; open_until?: number; consecutive_failures?: number; reason?: string } | null;
   checked_at: number | null;
   last_error: string | null;
