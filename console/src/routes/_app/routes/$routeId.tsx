@@ -33,6 +33,7 @@ function RouteDetailPage() {
   const removal = useMutation({
     mutationFn: () => deleteRoute(id),
     onSuccess: () => {
+      setDeleteOpen(false); // close before navigation unmounts → no double-click window
       void queryClient.invalidateQueries({ queryKey: ["routes"] });
       void navigate({ to: "/routes" });
     },

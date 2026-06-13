@@ -34,6 +34,7 @@ function ProviderDetailPage() {
   const removal = useMutation({
     mutationFn: () => deleteProvider(id),
     onSuccess: () => {
+      setDeleteOpen(false); // close before navigation unmounts → no double-click window
       void queryClient.invalidateQueries({ queryKey: ["providers"] });
       void navigate({ to: "/providers" });
     },
