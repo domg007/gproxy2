@@ -17,12 +17,14 @@ export function buildSecret(channel: string, text: string): unknown | null {
   const meta = channelMeta(channel);
   const trimmed = text.trim();
   if (trimmed === "") return null;
-  if (meta?.family === "api_key") return { api_key: trimmed };
+  // Unknown channels render the api_key input — keep serialization consistent.
+  if (!meta || meta.family === "api_key") return { api_key: trimmed };
   const parsed = parseJsonText(trimmed);
   if (!parsed.ok) return null;
-  if (meta?.family === "service_account") {
+  if (meta.family === "service_account") {
     const v = parsed.value as Record<string, unknown>;
-    if (typeof v?.client_email !== "string" || typeof v?.private_key !== "string") return null;
+    if (typeof v?.client_email !== "string" || v.client_email.trim() === "") return null;
+    if (typeof v?.private_key !== "string" || v.private_key.trim() === "") return null;
   }
   return parsed.value;
 }
@@ -70,7 +72,7 @@ export function SecretEditor({ channel, value, onChange, editing }: SecretEditor
   return (
     <div className="grid gap-2">
       <Label htmlFor="c-secret">{label}</Label>
-      <JsonField id="c-secret" value={value} onChange={onChange} rows={8} hint={hint} />
+      <JsonField id="c-secret" value={value} onChange={onChange} rows={8} hint={hint} placeholder={secretTemplateText(channel)} />
     </div>
   );
 }

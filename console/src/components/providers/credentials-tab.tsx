@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { credentialsQuery, deleteCredential, type CredentialView } from "@/api/credentials";
 import type { Provider } from "@/api/providers";
+import { ApiError } from "@/api/http";
 import { channelMeta } from "@/lib/channel-meta";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
@@ -32,6 +34,9 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["providers", provider.id, "credentials"] });
       setDeleteTarget(undefined);
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : String(error));
     },
   });
 
@@ -117,6 +122,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
         wide
       >
         <CredentialForm
+          key={editTarget?.id ?? "new"}
           providerId={provider.id}
           channel={provider.channel}
           credential={editTarget}
