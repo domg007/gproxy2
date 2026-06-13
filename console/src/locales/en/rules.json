@@ -1,0 +1,112 @@
+{
+  "title": "Rules",
+  "subtitle": "Rule sets, transformation rules, and provider routing",
+  "tabs": {
+    "routingRules": "Routing Rules",
+    "ruleSets": "Rule Sets"
+  },
+  "ruleSet": {
+    "name": "Rule Set Name",
+    "enabled": "Enabled",
+    "description": "Description",
+    "add": "Add Rule Set",
+    "empty": "No rule sets defined yet.",
+    "deleteConfirm": "Delete this rule set? All rules within it will also be removed."
+  },
+  "rule": {
+    "kind": "Rule Kind",
+    "sortOrder": "Sort Order",
+    "enabled": "Enabled",
+    "filterModelPattern": "Filter Model Pattern",
+    "filterOperationKeys": "Filter Operation Keys",
+    "configJson": "Configuration (JSON)",
+    "add": "Add Rule",
+    "empty": "No rules in this set.",
+    "deleteConfirm": "Delete this rule?",
+    "rawJson": "Raw JSON"
+  },
+  "kind": {
+    "system_text": "System Text",
+    "rewrite": "Rewrite",
+    "sanitize": "Sanitize",
+    "cache_breakpoint": "Cache Breakpoint",
+    "header": "Header"
+  },
+  "config": {
+    "text": "Text",
+    "position": "Position",
+    "path": "JSON Path",
+    "action": "Action",
+    "value": "Value",
+    "pattern": "Pattern (regex)",
+    "replacement": "Replacement",
+    "target": "Target",
+    "index": "Index",
+    "ttl": "TTL (seconds)",
+    "name": "Header Name",
+    "mode": "Mode",
+    "positionOptions": {
+      "prepend": "Prepend",
+      "append": "Append"
+    },
+    "actionOptions": {
+      "set": "Set",
+      "delete": "Delete",
+      "merge": "Merge"
+    },
+    "targetOptions": {
+      "system": "System",
+      "tools": "Tools",
+      "last_message": "Last Message"
+    },
+    "modeOptions": {
+      "override": "Override",
+      "merge": "Merge"
+    }
+  },
+  "operation": {
+    "list_models": "List Models",
+    "get_model": "Get Model",
+    "count_tokens": "Count Tokens",
+    "generate_content": "Generate Content",
+    "stream_generate_content": "Stream Generate Content",
+    "create_image": "Create Image",
+    "edit_image": "Edit Image",
+    "create_embedding": "Create Embedding",
+    "compact_content": "Compact Content",
+    "create_conversation": "Create Conversation"
+  },
+  "implementation": {
+    "passthrough": "Passthrough",
+    "transform_to": "Transform To",
+    "local": "Local",
+    "unsupported": "Unsupported"
+  },
+  "routingRule": {
+    "operation": "Operation",
+    "kind": "Protocol Kind",
+    "implementation": "Implementation",
+    "destOperation": "Destination Operation",
+    "destKind": "Destination Kind",
+    "sortOrder": "Sort Order",
+    "enabled": "Enabled",
+    "add": "Add Routing Rule",
+    "empty": "No routing rules defined for this provider.",
+    "deleteConfirm": "Delete this routing rule?",
+    "legacy": "Legacy"
+  },
+  "providerRuleSet": {
+    "ruleSet": "Rule Set",
+    "sortOrder": "Sort Order",
+    "enabled": "Enabled",
+    "attach": "Attach Rule Set",
+    "unattach": "Detach",
+    "unattachConfirm": "Detach this rule set from the provider?",
+    "empty": "No rule sets attached to this provider."
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "reset": "Reset"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "title": "規則",
+  "subtitle": "規則集、轉換規則與供應商路由",
+  "tabs": {
+    "routingRules": "路由規則",
+    "ruleSets": "規則集"
+  },
+  "ruleSet": {
+    "name": "規則集名稱",
+    "enabled": "啟用",
+    "description": "描述",
+    "add": "新增規則集",
+    "empty": "尚無規則集。",
+    "deleteConfirm": "確認刪除此規則集？其中所有規則也將一併刪除。"
+  },
+  "rule": {
+    "kind": "規則類型",
+    "sortOrder": "排序",
+    "enabled": "啟用",
+    "filterModelPattern": "模型過濾模式",
+    "filterOperationKeys": "操作鍵過濾",
+    "configJson": "設定（JSON）",
+    "add": "新增規則",
+    "empty": "此規則集尚無規則。",
+    "deleteConfirm": "確認刪除此規則？",
+    "rawJson": "原始 JSON"
+  },
+  "kind": {
+    "system_text": "系統文字",
+    "rewrite": "改寫",
+    "sanitize": "清洗",
+    "cache_breakpoint": "快取斷點",
+    "header": "請求標頭"
+  },
+  "config": {
+    "text": "文字",
+    "position": "位置",
+    "path": "JSON 路徑",
+    "action": "操作",
+    "value": "值",
+    "pattern": "模式（正規表示式）",
+    "replacement": "替換內容",
+    "target": "目標",
+    "index": "索引",
+    "ttl": "TTL（秒）",
+    "name": "標頭名稱",
+    "mode": "模式",
+    "positionOptions": {
+      "prepend": "前置",
+      "append": "附加"
+    },
+    "actionOptions": {
+      "set": "設定",
+      "delete": "刪除",
+      "merge": "合併"
+    },
+    "targetOptions": {
+      "system": "系統",
+      "tools": "工具",
+      "last_message": "最後一則訊息"
+    },
+    "modeOptions": {
+      "override": "覆寫",
+      "merge": "合併"
+    }
+  },
+  "operation": {
+    "list_models": "列出模型",
+    "get_model": "取得模型",
+    "count_tokens": "統計 Token",
+    "generate_content": "產生內容",
+    "stream_generate_content": "串流產生內容",
+    "create_image": "建立圖像",
+    "edit_image": "編輯圖像",
+    "create_embedding": "建立嵌入",
+    "compact_content": "壓縮內容",
+    "create_conversation": "建立對話"
+  },
+  "implementation": {
+    "passthrough": "直通",
+    "transform_to": "轉換為",
+    "local": "本地",
+    "unsupported": "不支援"
+  },
+  "routingRule": {
+    "operation": "操作",
+    "kind": "協定類型",
+    "implementation": "實作方式",
+    "destOperation": "目標操作",
+    "destKind": "目標協定類型",
+    "sortOrder": "排序",
+    "enabled": "啟用",
+    "add": "新增路由規則",
+    "empty": "此供應商尚無路由規則。",
+    "deleteConfirm": "確認刪除此路由規則？",
+    "legacy": "舊版"
+  },
+  "providerRuleSet": {
+    "ruleSet": "規則集",
+    "sortOrder": "排序",
+    "enabled": "啟用",
+    "attach": "附加規則集",
+    "unattach": "解除附加",
+    "unattachConfirm": "確認將此規則集從供應商中解除？",
+    "empty": "此供應商尚未附加任何規則集。"
+  },
+  "common": {
+    "save": "儲存",
+    "cancel": "取消",
+    "reset": "重設"
+  }
+}
