@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { deleteRouteMember, routeMembersQuery, type Route, type RouteMember } from "@/api/routes";
 import { providersQuery } from "@/api/providers";
+import { ApiError } from "@/api/http";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
@@ -32,7 +34,10 @@ export function MembersTab({ route }: { route: Route }) {
       void queryClient.invalidateQueries({ queryKey: ["routes", route.id, "members"] });
       setDeleteTarget(undefined);
     },
-    onError: () => setDeleteTarget(undefined),
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : String(error));
+      setDeleteTarget(undefined);
+    },
   });
 
   const openCreate = () => {

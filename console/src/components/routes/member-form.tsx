@@ -66,8 +66,6 @@ export function MemberForm({
     onError: (error) => setFormError(error instanceof ApiError ? error.message : String(error)),
   });
 
-  const selectedProvider = providers?.find((p) => p.id === providerId);
-
   return (
     <form
       className="grid gap-4"
@@ -97,9 +95,6 @@ export function MemberForm({
             ))}
           </SelectContent>
         </Select>
-        {selectedProvider && (
-          <p className="font-mono text-xs text-muted-foreground">{selectedProvider.channel}</p>
-        )}
       </div>
       <div className="grid gap-2">
         <Label htmlFor="m-model">{t("members.model")}</Label>
