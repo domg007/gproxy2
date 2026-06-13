@@ -28,6 +28,7 @@ export function PermissionsSection({ scope, scopeId }: { scope: Scope; scopeId: 
 
   const removal = useMutation({
     mutationFn: (id: number) => deletePermission(id),
+    // micro-edit deletes: row vanishing is the feedback — no success toast (kept intentionally; F4+ copies this)
     onSuccess: () => { void qc.invalidateQueries({ queryKey: key }); setDeleteTarget(undefined); },
     onError: (e) => { toast.error(e instanceof ApiError ? e.message : String(e)); setDeleteTarget(undefined); },
   });

@@ -1,13 +1,15 @@
 //! Usage ops for the libSQL edge backend (append-only, idempotent by `request_id`).
 
 use crate::store::libsql::{LibsqlClient, arg_integer, arg_text};
+use crate::store::persistence::UsageQuery;
 use crate::store::persistence::libsql::row::{
     Row, col_decimal, col_i64, col_opt_i64, col_opt_str, col_str,
 };
 use crate::store::persistence::libsql::util::{
-    arg_opt_i64, arg_opt_text, last_rowid, now_secs, query, query_one,
+    arg_opt_i64, arg_opt_text, last_rowid, now_secs, query as run_query, query_one,
 };
 use crate::store::persistence::records::{Usage, UsageInput};
+use serde_json::Value;
 
 const COLS: &str = "id, request_id, at, route_name, provider_id, credential_id, org_id, team_id, \
      user_id, user_key_id, operation, kind, model, input_tokens, output_tokens, \
@@ -108,7 +110,7 @@ pub async fn append(client: &LibsqlClient, input: UsageInput) -> anyhow::Result<
 }
 
 pub async fn list(client: &LibsqlClient, limit: u64) -> anyhow::Result<Vec<Usage>> {
-    query(
+    run_query(
         client,
         &format!("SELECT {COLS} FROM usages ORDER BY id DESC LIMIT ?"),
         &[arg_integer(limit as i64)],
@@ -117,4 +119,47 @@ pub async fn list(client: &LibsqlClient, limit: u64) -> anyhow::Result<Vec<Usage
     .iter()
     .map(decode)
     .collect()
+}
+
+/// Filtered + keyset-paginated usage rows (B4). Builds a dynamic WHERE with
+/// bound args (only the supplied filters become predicates), ordered `id` DESC.
+pub async fn query(client: &LibsqlClient, q: &UsageQuery) -> anyhow::Result<Vec<Usage>> {
+    let mut sql = format!("SELECT {COLS} FROM usages WHERE 1=1");
+    let mut args: Vec<Value> = Vec::new();
+    if let Some(v) = q.at_from {
+        sql.push_str(" AND at >= ?");
+        args.push(arg_integer(v));
+    }
+    if let Some(v) = q.at_to {
+        sql.push_str(" AND at <= ?");
+        args.push(arg_integer(v));
+    }
+    if let Some(v) = q.provider_id {
+        sql.push_str(" AND provider_id = ?");
+        args.push(arg_opt_i64(Some(v)));
+    }
+    if let Some(v) = q.user_id {
+        sql.push_str(" AND user_id = ?");
+        args.push(arg_opt_i64(Some(v)));
+    }
+    if let Some(ref v) = q.route_name {
+        sql.push_str(" AND route_name = ?");
+        args.push(arg_opt_text(Some(v.as_str())));
+    }
+    if let Some(ref v) = q.model {
+        sql.push_str(" AND model = ?");
+        args.push(arg_opt_text(Some(v.as_str())));
+    }
+    if let Some(v) = q.before_id {
+        sql.push_str(" AND id < ?");
+        args.push(arg_integer(v));
+    }
+    sql.push_str(" ORDER BY id DESC LIMIT ?");
+    args.push(arg_integer(q.limit as i64));
+
+    run_query(client, &sql, &args)
+        .await?
+        .iter()
+        .map(decode)
+        .collect()
 }

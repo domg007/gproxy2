@@ -13,6 +13,7 @@ use super::tokenizers;
 use super::transform::{provider_rule_sets, routing_rules, rule_sets, rules};
 use super::usage::{usage_rollups, usages};
 use crate::store::persistence::PersistenceBackend;
+use crate::store::persistence::UsageQuery;
 use crate::store::persistence::records::{
     Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
     CredentialStatusInput, DownstreamRequest, DownstreamRequestInput, InstanceSettings,
@@ -104,6 +105,10 @@ impl PersistenceBackend for FilePersistence {
         credential_id: i64,
     ) -> anyhow::Result<Vec<CredentialStatus>> {
         credential_statuses::list(&self.root, credential_id).await
+    }
+
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>> {
+        credential_statuses::list_all(&self.root).await
     }
 
     async fn upsert_credential_status(
@@ -422,6 +427,10 @@ impl PersistenceBackend for FilePersistence {
 
     async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>> {
         usages::list(&self.root, limit).await
+    }
+
+    async fn query_usages(&self, q: &UsageQuery) -> anyhow::Result<Vec<Usage>> {
+        usages::query(&self.root, q).await
     }
 
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {

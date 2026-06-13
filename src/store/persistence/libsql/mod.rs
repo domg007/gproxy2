@@ -24,6 +24,7 @@ mod util;
 use crate::store::libsql::LibsqlClient;
 
 use super::PersistenceBackend;
+use super::UsageQuery;
 use super::metrics::MetricsAggregate;
 use super::records::{
     Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
@@ -118,6 +119,9 @@ impl PersistenceBackend for LibsqlPersistence {
         credential_id: i64,
     ) -> anyhow::Result<Vec<CredentialStatus>> {
         provider::credential_statuses::list(&self.client, credential_id).await
+    }
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>> {
+        provider::credential_statuses::list_all(&self.client).await
     }
     async fn upsert_credential_status(
         &self,
@@ -362,6 +366,9 @@ impl PersistenceBackend for LibsqlPersistence {
     }
     async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>> {
         usage::usages::list(&self.client, limit).await
+    }
+    async fn query_usages(&self, q: &UsageQuery) -> anyhow::Result<Vec<Usage>> {
+        usage::usages::query(&self.client, q).await
     }
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
         usage::usage_rollups::add(&self.client, input).await

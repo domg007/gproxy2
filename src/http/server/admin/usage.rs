@@ -16,11 +16,12 @@ use super::crud::internal;
 use crate::api::error::ApiError;
 use crate::app::AppState;
 use crate::channel::UsageSnapshot;
+use crate::store::persistence::UsageQuery as StoreUsageQuery;
 use crate::store::persistence::records::{
     AuditLog, CredentialStatus, DownstreamRequest, UpstreamRequest, Usage, UsageRollup,
 };
 
-/// `?limit=N` for the usage listing; defaults to 100, capped at 1000.
+/// `?limit=N` for the audit listing; defaults to 100, capped at 1000.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct UsageQuery {
     pub limit: Option<u64>,
@@ -29,16 +30,42 @@ pub struct UsageQuery {
 const DEFAULT_USAGE_LIMIT: u64 = 100;
 const MAX_USAGE_LIMIT: u64 = 1000;
 
-/// `GET /admin/usage?limit=N` — the most recent usage rows (id desc).
+/// The usage-explorer selector (B4): optional filters + `before_id` keyset
+/// cursor + `limit` (default 100, capped 1000). All filter params are optional;
+/// omitting them yields the recency-only listing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UsageFilterQuery {
+    pub at_from: Option<i64>,
+    pub at_to: Option<i64>,
+    pub provider_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub route_name: Option<String>,
+    pub model: Option<String>,
+    pub before_id: Option<i64>,
+    pub limit: Option<u64>,
+}
+
+/// `GET /admin/usage` — filtered + keyset-paginated usage rows (id desc). With
+/// no params this is the recency-only listing; `before_id` pages backwards.
 pub async fn list_usage(
     State(state): State<AppState>,
-    Query(q): Query<UsageQuery>,
+    Query(q): Query<UsageFilterQuery>,
 ) -> Result<Json<Vec<Usage>>, ApiError> {
     let limit = q.limit.unwrap_or(DEFAULT_USAGE_LIMIT).min(MAX_USAGE_LIMIT);
+    let query = StoreUsageQuery {
+        at_from: q.at_from,
+        at_to: q.at_to,
+        provider_id: q.provider_id,
+        user_id: q.user_id,
+        route_name: q.route_name,
+        model: q.model,
+        before_id: q.before_id,
+        limit,
+    };
     Ok(Json(
         state
             .persistence
-            .list_usages(limit)
+            .query_usages(&query)
             .await
             .map_err(internal)?,
     ))
@@ -98,6 +125,21 @@ pub async fn credential_status(
         state
             .persistence
             .list_credential_statuses(id)
+            .await
+            .map_err(internal)?,
+    ))
+}
+
+/// `GET /admin/credential-statuses` — all persisted credential health snapshots
+/// (B5 batch endpoint). Callers group by `credential_id`; at most one row per
+/// `(credential_id, channel)` pair is stored.
+pub async fn credential_statuses(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<CredentialStatus>>, ApiError> {
+    Ok(Json(
+        state
+            .persistence
+            .list_all_credential_statuses()
             .await
             .map_err(internal)?,
     ))

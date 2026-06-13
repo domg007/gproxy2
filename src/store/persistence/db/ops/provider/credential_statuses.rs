@@ -37,6 +37,15 @@ pub async fn list(
         .collect()
 }
 
+pub async fn list_all(conn: &DatabaseConnection) -> anyhow::Result<Vec<CredentialStatus>> {
+    credential_status::Entity::find()
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(to_record)
+        .collect()
+}
+
 pub async fn upsert(
     conn: &DatabaseConnection,
     input: CredentialStatusInput,

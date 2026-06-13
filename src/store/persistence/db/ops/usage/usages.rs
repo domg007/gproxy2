@@ -6,6 +6,7 @@ use sea_orm::{
     QuerySelect,
 };
 
+use crate::store::persistence::UsageQuery;
 use crate::store::persistence::records::{Usage, UsageInput};
 
 use crate::store::persistence::db::entities::usage::usage;
@@ -87,6 +88,42 @@ pub async fn list(conn: &DatabaseConnection, limit: u64) -> anyhow::Result<Vec<U
     usage::Entity::find()
         .order_by_desc(usage::Column::Id)
         .limit(limit)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(to_record)
+        .collect()
+}
+
+/// Filtered + keyset-paginated usage rows (B4). Mirrors the rollup filter chain
+/// (gte/lte on `at`, eq on the dimensions, `id < before_id` cursor), ordered
+/// `id` DESC.
+pub async fn query(conn: &DatabaseConnection, q: &UsageQuery) -> anyhow::Result<Vec<Usage>> {
+    use usage::Column as C;
+    let mut sel = usage::Entity::find();
+    if let Some(v) = q.at_from {
+        sel = sel.filter(C::At.gte(v));
+    }
+    if let Some(v) = q.at_to {
+        sel = sel.filter(C::At.lte(v));
+    }
+    if let Some(v) = q.provider_id {
+        sel = sel.filter(C::ProviderId.eq(v));
+    }
+    if let Some(v) = q.user_id {
+        sel = sel.filter(C::UserId.eq(v));
+    }
+    if let Some(ref v) = q.route_name {
+        sel = sel.filter(C::RouteName.eq(v.clone()));
+    }
+    if let Some(ref v) = q.model {
+        sel = sel.filter(C::Model.eq(v.clone()));
+    }
+    if let Some(v) = q.before_id {
+        sel = sel.filter(C::Id.lt(v));
+    }
+    sel.order_by_desc(C::Id)
+        .limit(q.limit)
         .all(conn)
         .await?
         .into_iter()

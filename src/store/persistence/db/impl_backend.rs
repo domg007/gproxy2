@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use super::DbPersistence;
 use super::ops;
 use crate::store::persistence::PersistenceBackend;
+use crate::store::persistence::UsageQuery;
 use crate::store::persistence::records::{
     Alias, AliasInput, AuditLog, AuditLogInput, Credential, CredentialInput, CredentialStatus,
     CredentialStatusInput, DownstreamRequest, DownstreamRequestInput, InstanceSettings,
@@ -87,6 +88,10 @@ impl PersistenceBackend for DbPersistence {
         credential_id: i64,
     ) -> anyhow::Result<Vec<CredentialStatus>> {
         ops::provider::credential_statuses::list(&self.conn, credential_id).await
+    }
+
+    async fn list_all_credential_statuses(&self) -> anyhow::Result<Vec<CredentialStatus>> {
+        ops::provider::credential_statuses::list_all(&self.conn).await
     }
 
     async fn upsert_credential_status(
@@ -371,6 +376,10 @@ impl PersistenceBackend for DbPersistence {
 
     async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>> {
         ops::usage::usages::list(&self.conn, limit).await
+    }
+
+    async fn query_usages(&self, q: &UsageQuery) -> anyhow::Result<Vec<Usage>> {
+        ops::usage::usages::query(&self.conn, q).await
     }
 
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
