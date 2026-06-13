@@ -12,9 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppUsersIndexRouteImport } from './routes/_app/users/index'
 import { Route as AppRoutesIndexRouteImport } from './routes/_app/routes/index'
 import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/index'
 import { Route as AppOrgsIndexRouteImport } from './routes/_app/orgs/index'
+import { Route as AppUsersUserIdRouteImport } from './routes/_app/users/$userId'
 import { Route as AppRoutesRouteIdRouteImport } from './routes/_app/routes/$routeId'
 import { Route as AppProvidersProviderIdRouteImport } from './routes/_app/providers/$providerId'
 import { Route as AppOrgsOrgIdRouteImport } from './routes/_app/orgs/$orgId'
@@ -33,6 +35,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppUsersIndexRoute = AppUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRoutesIndexRoute = AppRoutesIndexRouteImport.update({
   id: '/routes/',
   path: '/routes/',
@@ -46,6 +53,11 @@ const AppProvidersIndexRoute = AppProvidersIndexRouteImport.update({
 const AppOrgsIndexRoute = AppOrgsIndexRouteImport.update({
   id: '/orgs/',
   path: '/orgs/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsersUserIdRoute = AppUsersUserIdRouteImport.update({
+  id: '/users/$userId',
+  path: '/users/$userId',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRoutesRouteIdRoute = AppRoutesRouteIdRouteImport.update({
@@ -70,9 +82,11 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/users/$userId': typeof AppUsersUserIdRoute
   '/orgs/': typeof AppOrgsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
   '/routes/': typeof AppRoutesIndexRoute
+  '/users/': typeof AppUsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -80,9 +94,11 @@ export interface FileRoutesByTo {
   '/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/users/$userId': typeof AppUsersUserIdRoute
   '/orgs': typeof AppOrgsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
   '/routes': typeof AppRoutesIndexRoute
+  '/users': typeof AppUsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -92,9 +108,11 @@ export interface FileRoutesById {
   '/_app/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/_app/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/_app/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/_app/users/$userId': typeof AppUsersUserIdRoute
   '/_app/orgs/': typeof AppOrgsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
   '/_app/routes/': typeof AppRoutesIndexRoute
+  '/_app/users/': typeof AppUsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -104,9 +122,11 @@ export interface FileRouteTypes {
     | '/orgs/$orgId'
     | '/providers/$providerId'
     | '/routes/$routeId'
+    | '/users/$userId'
     | '/orgs/'
     | '/providers/'
     | '/routes/'
+    | '/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -114,9 +134,11 @@ export interface FileRouteTypes {
     | '/orgs/$orgId'
     | '/providers/$providerId'
     | '/routes/$routeId'
+    | '/users/$userId'
     | '/orgs'
     | '/providers'
     | '/routes'
+    | '/users'
   id:
     | '__root__'
     | '/_app'
@@ -125,9 +147,11 @@ export interface FileRouteTypes {
     | '/_app/orgs/$orgId'
     | '/_app/providers/$providerId'
     | '/_app/routes/$routeId'
+    | '/_app/users/$userId'
     | '/_app/orgs/'
     | '/_app/providers/'
     | '/_app/routes/'
+    | '/_app/users/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/users/': {
+      id: '/_app/users/'
+      path: '/users'
+      fullPath: '/users/'
+      preLoaderRoute: typeof AppUsersIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/routes/': {
       id: '/_app/routes/'
       path: '/routes'
@@ -177,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/orgs'
       fullPath: '/orgs/'
       preLoaderRoute: typeof AppOrgsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/users/$userId': {
+      id: '/_app/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/users/$userId'
+      preLoaderRoute: typeof AppUsersUserIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/routes/$routeId': {
@@ -208,9 +246,11 @@ interface AppRouteChildren {
   AppOrgsOrgIdRoute: typeof AppOrgsOrgIdRoute
   AppProvidersProviderIdRoute: typeof AppProvidersProviderIdRoute
   AppRoutesRouteIdRoute: typeof AppRoutesRouteIdRoute
+  AppUsersUserIdRoute: typeof AppUsersUserIdRoute
   AppOrgsIndexRoute: typeof AppOrgsIndexRoute
   AppProvidersIndexRoute: typeof AppProvidersIndexRoute
   AppRoutesIndexRoute: typeof AppRoutesIndexRoute
+  AppUsersIndexRoute: typeof AppUsersIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -218,9 +258,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrgsOrgIdRoute: AppOrgsOrgIdRoute,
   AppProvidersProviderIdRoute: AppProvidersProviderIdRoute,
   AppRoutesRouteIdRoute: AppRoutesRouteIdRoute,
+  AppUsersUserIdRoute: AppUsersUserIdRoute,
   AppOrgsIndexRoute: AppOrgsIndexRoute,
   AppProvidersIndexRoute: AppProvidersIndexRoute,
   AppRoutesIndexRoute: AppRoutesIndexRoute,
+  AppUsersIndexRoute: AppUsersIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
