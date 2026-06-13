@@ -36,7 +36,6 @@
     "tokensHint": "貼上從官方用戶端匯出的 token;expires_at_ms 為 unix 毫秒。",
     "geminiHint": "此通道必須提供 project_id(OAuth 精靈會自動解析)。"
   },
-  "json": { "invalid": "JSON 無效", "format": "格式化" },
   "wizard": {
     "title": "連線 {{channel}}",
     "mode": { "authcode": "授權碼", "device": "裝置碼", "cookie": "Cookie" },

@@ -36,7 +36,6 @@
     "tokensHint": "粘贴从官方客户端导出的 token;expires_at_ms 为 unix 毫秒。",
     "geminiHint": "该渠道必须提供 project_id(OAuth 向导会自动解析)。"
   },
-  "json": { "invalid": "JSON 无效", "format": "格式化" },
   "wizard": {
     "title": "接入 {{channel}}",
     "mode": { "authcode": "授权码", "device": "设备码", "cookie": "Cookie" },

@@ -38,12 +38,12 @@ function RoutesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t("title")}</h1>
         <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" />
+          <Plus className="size-4" aria-hidden />
           <span className="hidden sm:inline">{t("new")}</span>
         </Button>
       </div>
       {isPending ? (
-        <div className="grid gap-2"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
+        <div className="grid gap-2" aria-busy="true"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
       ) : (
         <DataTable
           columns={columns}

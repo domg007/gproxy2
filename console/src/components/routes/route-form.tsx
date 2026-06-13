@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 
 export function RouteForm({ route, onSaved }: { route?: Route; onSaved: (saved: Route) => void }) {
   const { t } = useTranslation("routes");
-  const { t: tp } = useTranslation("providers"); // reuse json.invalid
+  const { t: tc } = useTranslation("common"); // json.invalid lives in common
   const queryClient = useQueryClient();
   const editing = route !== undefined;
 
@@ -32,7 +32,7 @@ export function RouteForm({ route, onSaved }: { route?: Route; onSaved: (saved: 
     mutationFn: () => {
       if (!name.trim()) throw new ApiError(0, "bad_request", t("form.required"));
       const settings = settingsText.trim() === "" ? { ok: true as const, value: null } : parseJsonText(settingsText);
-      if (!settings.ok) throw new ApiError(0, "bad_request", tp("json.invalid"));
+      if (!settings.ok) throw new ApiError(0, "bad_request", tc("json.invalid"));
       return upsertRoute({
         id: route?.id ?? null,
         name: name.trim(),

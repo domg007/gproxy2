@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "Dashboard", "providers": "Providers", "routes": "Routes", "title": "Navigation", "openMenu": "Open menu" },
+  "nav": { "dashboard": "Dashboard", "providers": "Providers", "routes": "Routes", "orgs": "Organizations", "users": "Users", "title": "Navigation", "openMenu": "Open menu" },
   "actions": { "cancel": "Cancel", "save": "Save", "delete": "Delete", "edit": "Edit", "close": "Close", "copy": "Copy", "copied": "Copied" },
   "login": {
     "title": "Sign in to gproxy",
@@ -16,5 +16,6 @@
   "theme": { "label": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
   "lang": { "label": "Language" },
   "errors": { "network": "Network error — is the server reachable?", "internal": "Server error" },
-  "dashboard": { "placeholder": "Dashboard coming in F4." }
+  "dashboard": { "placeholder": "Dashboard coming in F4." },
+  "json": { "invalid": "Invalid JSON", "format": "Format" }
 }

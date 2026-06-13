@@ -26,6 +26,7 @@ function intOrNull(v: string): number | null {
 
 export function CredentialForm({ providerId, channel, credential, onSaved }: CredentialFormProps) {
   const { t } = useTranslation("providers");
+  const { t: tc } = useTranslation("common"); // json.invalid lives in common
   const queryClient = useQueryClient();
   const editing = credential !== undefined;
 
@@ -45,13 +46,13 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
     mutationFn: () => {
       const secret = buildSecret(channel, secretText);
       if (!editing && secret === null) {
-        throw new ApiError(0, "bad_request", t("json.invalid"));
+        throw new ApiError(0, "bad_request", tc("json.invalid"));
       }
       if (editing && secretText.trim() !== "" && secret === null) {
-        throw new ApiError(0, "bad_request", t("json.invalid"));
+        throw new ApiError(0, "bad_request", tc("json.invalid"));
       }
       const tls = tlsText.trim() === "" ? { ok: true as const, value: null } : parseJsonText(tlsText);
-      if (!tls.ok) throw new ApiError(0, "bad_request", t("json.invalid"));
+      if (!tls.ok) throw new ApiError(0, "bad_request", tc("json.invalid"));
       return upsertCredential(providerId, {
         id: credential?.id ?? null,
         label: label.trim() === "" ? null : label.trim(),

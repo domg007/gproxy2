@@ -20,8 +20,8 @@ export function LocaleControls() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label={t("theme.label")}>
-            <Sun className="size-4 dark:hidden" />
-            <Moon className="hidden size-4 dark:block" />
+            <Sun className="size-4 dark:hidden" aria-hidden />
+            <Moon className="hidden size-4 dark:block" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -35,7 +35,7 @@ export function LocaleControls() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label={t("lang.label")}>
-            <Languages className="size-4" />
+            <Languages className="size-4" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

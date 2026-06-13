@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden" aria-label={t("nav.openMenu")}>
-                <Menu className="size-5" />
+                <Menu className="size-5" aria-hidden />
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-0">

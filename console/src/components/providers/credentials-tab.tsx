@@ -53,15 +53,15 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
     <div className="flex items-center justify-end gap-1">
       {meta?.usage && (
         <Button variant="ghost" size="icon" aria-label={t("usage.open")} onClick={(e) => { e.stopPropagation(); setUsageTarget(c); }}>
-          <Gauge className="size-4" />
+          <Gauge className="size-4" aria-hidden />
         </Button>
       )}
       <Button variant="ghost" size="icon" aria-label={t("creds.edit")} onClick={(e) => { e.stopPropagation(); openEdit(c); }}>
-        <Pencil className="size-4" />
+        <Pencil className="size-4" aria-hidden />
       </Button>
       <Button variant="ghost" size="icon" className="text-destructive" aria-label={t("delete.credential")}
         onClick={(e) => { e.stopPropagation(); setDeleteTarget(c); }}>
-        <Trash2 className="size-4" />
+        <Trash2 className="size-4" aria-hidden />
       </Button>
     </div>
   );
@@ -97,13 +97,13 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
           </Button>
         )}
         <Button onClick={openCreate}>
-          <Plus className="size-4" />
+          <Plus className="size-4" aria-hidden />
           {t("creds.manual")}
         </Button>
       </div>
 
       {isPending ? (
-        <div className="grid gap-2"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
+        <div className="grid gap-2" aria-busy="true"><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
       ) : (
         <DataTable
           columns={columns}

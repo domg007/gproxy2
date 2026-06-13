@@ -46,10 +46,10 @@ export function ModelsTab({ provider }: { provider: Provider }) {
   const actions = (m: ProviderModel) => (
     <div className="flex items-center justify-end gap-1">
       <Button variant="ghost" size="icon" aria-label={t("models.edit")} onClick={(e) => { e.stopPropagation(); setEditTarget(m); setFormOpen(true); }}>
-        <Pencil className="size-4" />
+        <Pencil className="size-4" aria-hidden />
       </Button>
       <Button variant="ghost" size="icon" className="text-destructive" aria-label={t("models.delete")} onClick={(e) => { e.stopPropagation(); setDeleteTarget(m); }}>
-        <Trash2 className="size-4" />
+        <Trash2 className="size-4" aria-hidden />
       </Button>
     </div>
   );
@@ -68,10 +68,10 @@ export function ModelsTab({ provider }: { provider: Provider }) {
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-end">
-        <Button onClick={() => { setEditTarget(undefined); setFormOpen(true); }}><Plus className="size-4" />{t("models.add")}</Button>
+        <Button onClick={() => { setEditTarget(undefined); setFormOpen(true); }}><Plus className="size-4" aria-hidden />{t("models.add")}</Button>
       </div>
       {isPending ? (
-        <div className="grid gap-2"><Skeleton className="h-10" /></div>
+        <div className="grid gap-2" aria-busy="true"><Skeleton className="h-10" /></div>
       ) : (
         <DataTable
           columns={columns}

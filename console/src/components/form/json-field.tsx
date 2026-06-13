@@ -23,7 +23,7 @@ interface JsonFieldProps {
 
 /** JSON textarea with parse validation on blur and a pretty-print button. */
 export function JsonField({ id, value, onChange, rows = 6, placeholder, hint }: JsonFieldProps) {
-  const { t } = useTranslation("providers");
+  const { t } = useTranslation("common");
   const [touched, setTouched] = useState(false);
   const invalid = touched && value.trim() !== "" && !parseJsonText(value).ok;
   const describedBy = id ? `${id}-msg` : undefined;

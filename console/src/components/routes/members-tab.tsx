@@ -56,7 +56,7 @@ export function MembersTab({ route }: { route: Route }) {
           setFormOpen(true);
         }}
       >
-        <Pencil className="size-4" />
+        <Pencil className="size-4" aria-hidden />
       </Button>
       <Button
         variant="ghost"
@@ -68,7 +68,7 @@ export function MembersTab({ route }: { route: Route }) {
           setDeleteTarget(m);
         }}
       >
-        <Trash2 className="size-4" />
+        <Trash2 className="size-4" aria-hidden />
       </Button>
     </div>
   );
@@ -100,12 +100,12 @@ export function MembersTab({ route }: { route: Route }) {
     <div className="grid gap-3">
       <div className="flex items-center justify-end">
         <Button onClick={openCreate}>
-          <Plus className="size-4" />
+          <Plus className="size-4" aria-hidden />
           {t("members.add")}
         </Button>
       </div>
       {isPending ? (
-        <div className="grid gap-2">
+        <div className="grid gap-2" aria-busy="true">
           <Skeleton className="h-10" />
         </div>
       ) : (

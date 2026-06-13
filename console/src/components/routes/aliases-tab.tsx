@@ -69,7 +69,7 @@ export function AliasesTab({ route }: { route: Route }) {
         setDeleteTarget(a);
       }}
     >
-      <Trash2 className="size-4" />
+      <Trash2 className="size-4" aria-hidden />
     </Button>
   );
 
@@ -93,13 +93,13 @@ export function AliasesTab({ route }: { route: Route }) {
             setCreateOpen(true);
           }}
         >
-          <Plus className="size-4" />
+          <Plus className="size-4" aria-hidden />
           {t("aliases.add")}
         </Button>
       </div>
 
       {isPending ? (
-        <div className="grid gap-2">
+        <div className="grid gap-2" aria-busy="true">
           <Skeleton className="h-10" />
         </div>
       ) : (

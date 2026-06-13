@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { LayoutDashboard, Plug, Route as RouteIcon, type LucideIcon } from "lucide-react";
+import { Building2, LayoutDashboard, Plug, Route as RouteIcon, Users, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
   { to: "/providers", icon: Plug, labelKey: "nav.providers" },
   { to: "/routes", icon: RouteIcon, labelKey: "nav.routes" },
+  { to: "/orgs", icon: Building2, labelKey: "nav.orgs" },
+  { to: "/users", icon: Users, labelKey: "nav.users" },
 ];
 
 export function NavList({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
@@ -34,7 +36,7 @@ export function NavList({ compact, onNavigate }: { compact?: boolean; onNavigate
           )}
           title={compact ? t(item.labelKey) : undefined}
         >
-          <item.icon className="size-4 shrink-0" />
+          <item.icon className="size-4 shrink-0" aria-hidden />
           <span className={cn(compact && "hidden xl:inline")}>{t(item.labelKey)}</span>
         </Link>
       ))}

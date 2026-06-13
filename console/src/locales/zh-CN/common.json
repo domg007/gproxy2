@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "仪表盘", "providers": "供应商", "routes": "路由", "title": "导航", "openMenu": "打开菜单" },
+  "nav": { "dashboard": "仪表盘", "providers": "供应商", "routes": "路由", "orgs": "组织", "users": "用户", "title": "导航", "openMenu": "打开菜单" },
   "actions": { "cancel": "取消", "save": "保存", "delete": "删除", "edit": "编辑", "close": "关闭", "copy": "复制", "copied": "已复制" },
   "login": {
     "title": "登录 gproxy",
@@ -16,5 +16,6 @@
   "theme": { "label": "主题", "light": "浅色", "dark": "深色", "system": "跟随系统" },
   "lang": { "label": "语言" },
   "errors": { "network": "网络错误——服务是否可达?", "internal": "服务器错误" },
-  "dashboard": { "placeholder": "仪表盘将在 F4 阶段提供。" }
+  "dashboard": { "placeholder": "仪表盘将在 F4 阶段提供。" },
+  "json": { "invalid": "JSON 无效", "format": "格式化" }
 }

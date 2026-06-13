@@ -24,6 +24,7 @@ const STRATEGIES = ["round_robin", "sticky"] as const;
 
 export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
   const { t } = useTranslation("providers");
+  const { t: tc } = useTranslation("common"); // json.invalid lives in common
   const queryClient = useQueryClient();
   const editing = provider !== undefined;
 
@@ -46,7 +47,7 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
       const settings = parseJsonText(settingsText.trim() === "" ? "{}" : settingsText);
       const tls = tlsText.trim() === "" ? { ok: true as const, value: null } : parseJsonText(tlsText);
       if (!name.trim()) throw new ApiError(0, "bad_request", t("form.required"));
-      if (!settings.ok || !tls.ok) throw new ApiError(0, "bad_request", t("json.invalid"));
+      if (!settings.ok || !tls.ok) throw new ApiError(0, "bad_request", tc("json.invalid"));
       return upsertProvider({
         id: provider?.id ?? null,
         name: name.trim(),

@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "儀表板", "providers": "供應商", "routes": "路由", "title": "導覽", "openMenu": "開啟選單" },
+  "nav": { "dashboard": "儀表板", "providers": "供應商", "routes": "路由", "orgs": "組織", "users": "使用者", "title": "導覽", "openMenu": "開啟選單" },
   "actions": { "cancel": "取消", "save": "儲存", "delete": "刪除", "edit": "編輯", "close": "關閉", "copy": "複製", "copied": "已複製" },
   "login": {
     "title": "登入 gproxy",
@@ -16,5 +16,6 @@
   "theme": { "label": "主題", "light": "淺色", "dark": "深色", "system": "跟隨系統" },
   "lang": { "label": "語言" },
   "errors": { "network": "網路錯誤——服務是否可達?", "internal": "伺服器錯誤" },
-  "dashboard": { "placeholder": "儀表板將在 F4 階段提供。" }
+  "dashboard": { "placeholder": "儀表板將在 F4 階段提供。" },
+  "json": { "invalid": "JSON 無效", "format": "格式化" }
 }

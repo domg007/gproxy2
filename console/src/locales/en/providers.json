@@ -36,7 +36,6 @@
     "tokensHint": "Paste tokens exported from the official client. expires_at_ms is unix milliseconds.",
     "geminiHint": "project_id is required for this channel (the OAuth wizard resolves it automatically)."
   },
-  "json": { "invalid": "Invalid JSON", "format": "Format" },
   "wizard": {
     "title": "Connect {{channel}}",
     "mode": { "authcode": "Authorization code", "device": "Device code", "cookie": "Cookie" },
