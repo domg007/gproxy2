@@ -36,6 +36,20 @@ impl ConflictError {
     }
 }
 
+/// Filter + cursor for the usage explorer (B4). All filters optional; `before_id`
+/// is the keyset cursor (rows have `id` DESC, so "next page" = id < before_id).
+#[derive(Debug, Default, Clone)]
+pub struct UsageQuery {
+    pub at_from: Option<i64>,
+    pub at_to: Option<i64>,
+    pub provider_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub route_name: Option<String>,
+    pub model: Option<String>,
+    pub before_id: Option<i64>,
+    pub limit: u64,
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "persist-db"))]
 pub use db::DbPersistence;
 #[cfg(all(not(target_arch = "wasm32"), feature = "persist-file"))]
@@ -366,6 +380,10 @@ pub trait PersistenceBackend: Send + Sync {
 
     /// List the most recent usage rows (by id desc), up to `limit`.
     async fn list_usages(&self, limit: u64) -> anyhow::Result<Vec<Usage>>;
+
+    /// Filtered + keyset-paginated usage rows for the usage explorer (B4). Rows
+    /// are returned `id` DESC; `q.before_id` is the cursor (`id < before_id`).
+    async fn query_usages(&self, q: &UsageQuery) -> anyhow::Result<Vec<Usage>>;
 
     /// Accumulate metric deltas into the rollup bucket identified by the input's
     /// `(granularity, bucket_start, dimensions)`; creates the bucket if absent.
