@@ -20,13 +20,28 @@ function readPrice(pricing: unknown, key: PriceKey): string {
   return "";
 }
 
-/** Build pricing_json from the 5 simple fields; null if all blank. Image stays a scalar string. */
-function buildPricing(prices: Record<PriceKey, string>): Record<string, string> | null {
-  const out: Record<string, string> = {};
+/** Build pricing_json from the 5 simple fields, preserving original keys this flat
+ *  editor can't represent (e.g. a tiered `image` object, or any future key), so an
+ *  unrelated edit never silently drops them. null when nothing remains. */
+function buildPricing(prices: Record<PriceKey, string>, original: unknown): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  if (original && typeof original === "object" && !Array.isArray(original)) {
+    for (const [k, v] of Object.entries(original as Record<string, unknown>)) {
+      const preservable = !(PRICE_KEYS as readonly string[]).includes(k) || (v !== null && typeof v === "object");
+      if (preservable) out[k] = v;
+    }
+  }
   for (const k of PRICE_KEYS) {
     if (prices[k].trim() !== "") out[k] = prices[k].trim();
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/** A non-scalar `image` price (tiered object) can't be edited in the flat field. */
+function imageIsTiered(pricing: unknown): boolean {
+  if (!pricing || typeof pricing !== "object") return false;
+  const v = (pricing as Record<string, unknown>).image;
+  return v !== null && typeof v === "object";
 }
 
 function readVariants(variants: unknown): { suffixes: string; exposeBase: boolean } {
@@ -50,6 +65,7 @@ export function ModelForm({ providerId, model, onSaved }: { providerId: number; 
   const { t } = useTranslation("providers");
   const queryClient = useQueryClient();
   const editing = model !== undefined;
+  const imageTiered = imageIsTiered(model?.pricing_json);
 
   const [modelId, setModelId] = useState(model?.model_id ?? "");
   const [displayName, setDisplayName] = useState(model?.display_name ?? "");
@@ -65,7 +81,7 @@ export function ModelForm({ providerId, model, onSaved }: { providerId: number; 
   const mutation = useMutation({
     mutationFn: () => {
       if (!modelId.trim()) throw new ApiError(0, "bad_request", t("form.required"));
-      const pricing = buildPricing(prices);
+      const pricing = buildPricing(prices, model?.pricing_json);
       const variants = buildVariants(suffixes, exposeBase);
       return upsertProviderModel(providerId, {
         id: model?.id ?? null,
@@ -102,13 +118,22 @@ export function ModelForm({ providerId, model, onSaved }: { providerId: number; 
       <fieldset className="grid gap-3 rounded-md border p-3">
         <legend className="px-1 text-sm font-medium">{t("models.pricing")}</legend>
         <div className="grid grid-cols-2 gap-3">
-          {PRICE_KEYS.map((k) => (
-            <div key={k} className="grid gap-1">
-              <Label htmlFor={`md-price-${k}`} className="text-xs">{t(`models.price.${k}`)}</Label>
-              <Input id={`md-price-${k}`} inputMode="decimal" value={prices[k]}
-                onChange={(e) => setPrices((p) => ({ ...p, [k]: e.target.value }))} placeholder="0" />
-            </div>
-          ))}
+          {PRICE_KEYS.map((k) => {
+            const tieredImage = k === "image" && imageTiered;
+            return (
+              <div key={k} className="grid gap-1">
+                <Label htmlFor={`md-price-${k}`} className="text-xs">{t(`models.price.${k}`)}</Label>
+                <Input
+                  id={`md-price-${k}`}
+                  inputMode="decimal"
+                  value={prices[k]}
+                  disabled={tieredImage}
+                  placeholder={tieredImage ? t("models.imageTiered") : "0"}
+                  onChange={(e) => setPrices((p) => ({ ...p, [k]: e.target.value }))}
+                />
+              </div>
+            );
+          })}
         </div>
         <p className="text-xs text-muted-foreground">{t("models.pricingHint")}</p>
       </fieldset>

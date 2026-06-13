@@ -79,6 +79,7 @@
     "variantsHint": "Suffixes expand one model into many (e.g. -thinking, -32k). One per line.",
     "exposeBase": "Expose the base model too",
     "delete": "Delete model",
-    "deleteConfirm": "Delete model \"{{name}}\" and all its variants?"
+    "deleteConfirm": "Delete model \"{{name}}\" and all its variants?",
+    "imageTiered": "Tiered — edit via API"
   }
 }

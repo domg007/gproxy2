@@ -79,6 +79,7 @@
     "variantsHint": "後綴把一個模型展開成多個(如 -thinking、-32k)。每行一個。",
     "exposeBase": "同時公開 base 模型",
     "delete": "刪除模型",
-    "deleteConfirm": "刪除模型「{{name}}」及其全部變體?"
+    "deleteConfirm": "刪除模型「{{name}}」及其全部變體?",
+    "imageTiered": "分檔計價——經 API 編輯"
   }
 }
