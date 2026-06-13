@@ -217,7 +217,7 @@ function DeviceFlow({ provider, credLabel, onDone }: FlowProps) {
         if (!stopped.current) { setFailed(true); setSession(null); }
       }
     };
-    timer = setTimeout(() => void tick(), session.interval_secs * 1000);
+    timer = setTimeout(() => void tick(), Math.max(session.interval_secs, 2) * 1000);
     return () => { stopped.current = true; clearTimeout(timer); };
   }, [session]);
 
