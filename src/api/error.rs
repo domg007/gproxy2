@@ -64,6 +64,17 @@ impl ApiError {
         });
         (self.status(), serde_json::to_vec(&body).unwrap_or_default())
     }
+
+    /// Map an upsert error: a unique-constraint conflict (a `ConflictError`
+    /// carried in `anyhow`) becomes 409 with its human-readable message;
+    /// anything else is a generic 500. Cross-target so the native CRUD handlers
+    /// and the edge dispatcher map `ConflictError` identically.
+    pub fn from_upsert(e: anyhow::Error) -> Self {
+        match e.downcast_ref::<crate::store::persistence::ConflictError>() {
+            Some(c) => ApiError::Conflict(c.0.clone()),
+            None => ApiError::Internal(e.to_string()),
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

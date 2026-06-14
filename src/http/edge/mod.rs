@@ -225,6 +225,21 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
         _ => {}
     }
 
+    // Admin control-plane + portal: `/admin/*` and `/user/*` are served by the
+    // cross-target dispatcher (auth guard + CSRF + thin persistence glue), which
+    // returns pure `Resp` data we convert to a `web_sys::Response` here. A path
+    // under these prefixes the dispatcher does not handle → 404 (never falls
+    // through to the gateway).
+    if path.starts_with("/admin/") || path.starts_with("/user/") {
+        return match crate::http::admin_api::dispatch(state, &parts, &body).await {
+            Some(Ok(resp)) => resp_to_ws(resp),
+            Some(Err(e)) => self::http::api_err_response(&e),
+            None => self::http::api_err_response(&crate::api::error::ApiError::NotFound(
+                "not found".into(),
+            )),
+        };
+    }
+
     // Gateway: `/v1/...` is aggregated; anything else is `/{provider}/v1/...`
     // scoped (build_ctx validates and rejects malformed paths).
     let scoped = !(path == "/v1" || path.starts_with("/v1/"));
@@ -242,6 +257,20 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 /// Build a 503 (init-not-called) plain-text response.
 fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     text_response(503, "text/plain", msg.as_bytes())
+}
+
+/// Convert the cross-target [`Resp`](crate::http::admin_api::Resp) returned by
+/// the admin/portal dispatcher into a `web_sys::Response` (status + headers +
+/// body). The dispatcher owns the status/headers/body as pure data; this is the
+/// only wasm-specific step.
+fn resp_to_ws(resp: crate::http::admin_api::Resp) -> Result<Response, JsValue> {
+    let headers = Headers::new().map_err(js_err)?;
+    for (name, value) in &resp.headers {
+        if let Ok(v) = value.to_str() {
+            headers.append(name.as_str(), v).map_err(js_err)?;
+        }
+    }
+    js_response(resp.status.as_u16(), &headers, &resp.body)
 }
 
 /// Edge replacement for the native pub/sub invalidation listener (§7.2): at
