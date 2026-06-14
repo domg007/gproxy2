@@ -51,6 +51,7 @@
     "rpm": "每分钟请求数",
     "rpd": "每日请求数",
     "totalTokens": "总 Token 数",
+    "rateLimits": "速率限制",
     "permissions": "路由权限",
     "routePattern": "路由模式",
     "noQuota": "未设置配额。",

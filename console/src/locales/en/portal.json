@@ -51,6 +51,7 @@
     "rpm": "RPM",
     "rpd": "RPD",
     "totalTokens": "Total tokens",
+    "rateLimits": "Rate Limits",
     "permissions": "Route permissions",
     "routePattern": "Route pattern",
     "noQuota": "No quota set.",
