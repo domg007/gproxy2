@@ -96,9 +96,14 @@ pub async fn status(State(state): State<AppState>) -> Json<UpdateStatus> {
 /// of those the HTTP response would never be sent. `None` stages the new binary
 /// and returns; the operator restarts the process at their own schedule.
 pub async fn apply(State(state): State<AppState>) -> Result<Json<UpdateStatus>, ApiError> {
-    // --- single-flight guard (lock scope 1) ---
+    // Fail fast on bad config before touching the status machine (no lock held).
+    let ctx = context(&state)?;
+
+    // --- single-flight guard: atomic check-and-set under one lock ---
+    // Check and the `Downloading` write happen in the SAME lock scope, so two
+    // concurrent applies can't both pass the guard (no TOCTOU).
     {
-        let guard = state
+        let mut guard = state
             .update_status
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -110,19 +115,8 @@ pub async fn apply(State(state): State<AppState>) -> Result<Json<UpdateStatus>, 
             }
             _ => {}
         }
-    } // guard dropped here — before the await below
-
-    // Build context while holding no lock (may return early on bad config).
-    let ctx = context(&state)?;
-
-    // --- set Downloading (lock scope 2) ---
-    {
-        let mut guard = state
-            .update_status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         *guard = UpdateStatus::Downloading;
-    } // guard dropped
+    } // guard dropped here — before the await below
 
     // --- async work (no lock held) ---
     let result = selfupdate::apply(&ctx, Restart::None).await;
