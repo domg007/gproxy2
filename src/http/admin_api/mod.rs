@@ -16,6 +16,7 @@ pub(crate) mod authz;
 pub mod crud;
 pub(crate) mod nested;
 pub(crate) mod observability;
+pub(crate) mod portal;
 pub(crate) mod settings;
 pub(crate) mod special;
 
@@ -167,7 +168,14 @@ pub async fn dispatch(
         return Some(r);
     }
 
-    // 7. Identity endpoints.
+    // 7. Portal `/user/*` endpoints (session-scoped). Evaluated BEFORE the identity
+    //    arm below so these explicit arms win over the catch-all. Disjoint from
+    //    `/user/me` which is handled in step 8.
+    if let Some(r) = portal::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 8. Identity endpoints.
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
         (&Method::GET, ["user", "me"]) => user_me(state, parts).await,

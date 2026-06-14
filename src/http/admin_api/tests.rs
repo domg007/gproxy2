@@ -383,3 +383,6 @@ include!("tests_auth.rs");
 
 // Special admin CRUD (user-keys / users / credentials) integration tests (B6.3 Task 2).
 include!("tests_special.rs");
+
+// Portal /user/* (session-scoped) integration tests (B6.3 Task 3).
+include!("tests_portal.rs");
