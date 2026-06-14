@@ -1006,4 +1006,140 @@ mod tests {
         assert_eq!(list.as_array().unwrap().len(), 1);
         assert_eq!(list[0]["request_id"], "req-up");
     }
+
+    /// Effective routing matrix: a provider on the `openai` channel (native
+    /// `OpenAiChatCompletions`) produces the expected decisions for key cells
+    /// and correctly tags stored-rule cells as `source: "override"`.
+    ///
+    /// Checked cells (of the 12-cell 3×4 matrix):
+    /// - `generate_content` × `open_ai_chat_completions` → passthrough (default)
+    /// - `generate_content` × `claude_messages`           → transform_to (default)
+    /// - `count_tokens`     × `open_ai_chat_completions`  → local (default, §6.3)
+    /// - after inserting an explicit rule for (`generate_content`, `claude_messages`)
+    ///   → source becomes "override"
+    #[tokio::test]
+    async fn effective_routing_matrix() {
+        use crate::store::persistence::records::{ProviderInput, RoutingRuleInput};
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+
+        // Seed an openai provider.
+        let provider_id = state
+            .persistence
+            .upsert_provider(ProviderInput {
+                id: None,
+                name: "openai-test".into(),
+                channel: "openai".into(),
+                label: None,
+                settings_json: serde_json::json!({}),
+                credential_strategy: "weighted".into(),
+                proxy_url: None,
+                tls_fingerprint: None,
+                enabled: true,
+            })
+            .await
+            .unwrap()
+            .id;
+
+        let app = crate::http::server::router(state.clone());
+
+        // --- Phase 1: no stored rules — all cells are "default". ---
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::get(format!(
+                    "/admin/providers/{provider_id}/routing-rules/effective"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let rows: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let rows = rows.as_array().unwrap();
+
+        // 3 ops × 4 kinds = 12 rows.
+        assert_eq!(rows.len(), 12);
+
+        // Helper: find a row by (operation, kind).
+        let find = |op: &str, kind: &str| {
+            rows.iter()
+                .find(|r| r["operation"] == op && r["kind"] == kind)
+                .unwrap_or_else(|| panic!("no row for ({op},{kind})"))
+                .clone()
+        };
+
+        // same-kind passthrough (openai ch → chat_completions)
+        let same = find("generate_content", "open_ai_chat_completions");
+        assert_eq!(same["implementation"], "passthrough", "{same}");
+        assert_eq!(same["source"], "default");
+        assert!(same["dest_operation"].is_null());
+
+        // cross-kind → transform_to the channel's native kind
+        let cross = find("generate_content", "claude_messages");
+        assert_eq!(cross["implementation"], "transform_to", "{cross}");
+        assert_eq!(cross["source"], "default");
+        assert_eq!(cross["dest_kind"], "open_ai_chat_completions");
+
+        // count_tokens on an openai-family channel → local (§6.3 default)
+        let ct = find("count_tokens", "open_ai_chat_completions");
+        assert_eq!(ct["implementation"], "local", "{ct}");
+        assert_eq!(ct["source"], "default");
+
+        // --- Phase 2: insert an explicit rule for (generate_content, claude_messages). ---
+        state
+            .persistence
+            .upsert_routing_rule(RoutingRuleInput {
+                id: None,
+                provider_id,
+                operation: "generate_content".into(),
+                kind: "claude_messages".into(),
+                implementation: "unsupported".into(),
+                dest_operation: None,
+                dest_kind: None,
+                sort_order: 0,
+                enabled: true,
+            })
+            .await
+            .unwrap();
+
+        // Re-request (no snapshot invalidation needed — handler re-reads DB directly).
+        let app2 = crate::http::server::router(state);
+        let resp2 = app2
+            .oneshot(
+                Request::get(format!(
+                    "/admin/providers/{provider_id}/routing-rules/effective"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
+        let rows2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        let rows2 = rows2.as_array().unwrap();
+
+        let find2 = |op: &str, kind: &str| {
+            rows2
+                .iter()
+                .find(|r| r["operation"] == op && r["kind"] == kind)
+                .unwrap_or_else(|| panic!("no row for ({op},{kind})"))
+                .clone()
+        };
+
+        // The overridden cell now reflects the stored rule.
+        let overridden = find2("generate_content", "claude_messages");
+        assert_eq!(overridden["implementation"], "unsupported", "{overridden}");
+        assert_eq!(overridden["source"], "override");
+
+        // Other cells are untouched — still "default".
+        let unchanged = find2("generate_content", "open_ai_chat_completions");
+        assert_eq!(unchanged["source"], "default");
+    }
 }

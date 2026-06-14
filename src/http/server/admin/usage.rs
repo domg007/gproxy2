@@ -14,6 +14,7 @@ use serde::Deserialize;
 
 use super::crud::internal;
 use crate::api::error::ApiError;
+use crate::api::routing::EffectiveRoute;
 use crate::app::AppState;
 use crate::channel::UsageSnapshot;
 use crate::store::persistence::UsageQuery as StoreUsageQuery;
@@ -172,6 +173,19 @@ fn usage_error(e: crate::credentials::usage::UsageError) -> ApiError {
         U::Unsupported | U::Channel(_) => ApiError::BadRequest(e.to_string()),
         U::Decrypt(_) | U::Upstream(_) | U::Status(_) => ApiError::Internal(e.to_string()),
     }
+}
+
+/// `GET /admin/providers/{provider_id}/routing-rules/effective` — computed
+/// routing decision matrix (3 ops × 4 content-gen kinds) for one provider.
+/// Shows DEFAULT decisions (from [`crate::transform::routing::decide`]) with
+/// each cell tagged `source: "default"` or `"override"` based on stored rules.
+pub async fn effective_routing(
+    State(state): State<AppState>,
+    Path(provider_id): Path<i64>,
+) -> Result<Json<Vec<EffectiveRoute>>, ApiError> {
+    crate::api::routing::effective_routes(&state, provider_id)
+        .await
+        .map(Json)
 }
 
 /// `GET /admin/logs/{request_id}/downstream` — downstream (client → proxy) log
