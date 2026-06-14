@@ -89,25 +89,31 @@ fn csrf_ok(req: &Request, allowed_origins: &[String]) -> bool {
                 .authority()
                 .map(|a| a.as_str().to_ascii_lowercase())
         });
-    let claimed = origin
+    let claimed_url = origin
         .and_then(|h| h.to_str().ok())
-        .and_then(authority_of)
-        .or_else(|| referer.and_then(|h| h.to_str().ok()).and_then(authority_of));
-    match (host, claimed) {
-        (Some(h), Some(c)) => {
-            // Same-origin: always pass.
-            if h == c {
-                return true;
-            }
-            // Cross-origin: pass iff the Origin (as authority) matches an allowed
-            // CORS origin. Compare authority-to-authority to stay consistent with
-            // the host/origin comparison above.
-            allowed_origins
-                .iter()
-                .any(|o| authority_of(o).as_deref() == Some(c.as_str()))
-        }
-        _ => false,
+        .map(str::to_owned)
+        .or_else(|| referer.and_then(|h| h.to_str().ok()).map(str::to_owned));
+    let claimed_authority = claimed_url.as_deref().and_then(authority_of);
+
+    // Same-origin: the Host header carries no scheme, so compare authorities.
+    if let (Some(h), Some(c)) = (host.as_deref(), claimed_authority.as_deref())
+        && h == c
+    {
+        return true;
     }
+    // Cross-origin: pass iff the FULL claimed origin (scheme + authority) exactly
+    // matches a configured CORS origin. Scheme-sensitive on purpose — an
+    // authority-only compare would let `http://allowed-host` satisfy an
+    // `https://allowed-host` allow-list entry (scheme-downgrade CSRF bypass).
+    if let Some(claimed_origin) = claimed_url.as_deref().and_then(origin_of)
+        && allowed_origins
+            .iter()
+            .filter_map(|o| origin_of(o))
+            .any(|allowed| allowed == claimed_origin)
+    {
+        return true;
+    }
+    false
 }
 
 /// Extract the lowercased `host[:port]` authority from an absolute URL
@@ -117,6 +123,22 @@ fn authority_of(url: &str) -> Option<String> {
     let after_scheme = url.split("://").nth(1)?;
     let authority = after_scheme.split('/').next()?.trim();
     (!authority.is_empty()).then(|| authority.to_ascii_lowercase())
+}
+
+/// Extract the lowercased `scheme://host[:port]` origin from an absolute URL,
+/// stripping any path (a `Referer` carries one). Scheme-sensitive so the CORS
+/// allow-list cannot be satisfied by a downgraded scheme. `Origin: null` and
+/// relative values yield `None`.
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split('/').next()?.trim();
+    (!scheme.is_empty() && !authority.is_empty()).then(|| {
+        format!(
+            "{}://{}",
+            scheme.to_ascii_lowercase(),
+            authority.to_ascii_lowercase()
+        )
+    })
 }
 
 #[cfg(test)]
@@ -269,6 +291,21 @@ mod tests {
                 Some(SESSION),
                 Some("gp.example"),
                 Some("https://evil.example.com")
+            ),
+            &allowed_strs()
+        ));
+    }
+
+    #[test]
+    fn cross_origin_scheme_downgrade_refused() {
+        // `http://` must NOT satisfy an `https://` allow-list entry (scheme-
+        // downgrade CSRF bypass): the full origin, including scheme, is compared.
+        assert!(!csrf_ok(
+            &req(
+                Method::POST,
+                Some(SESSION),
+                Some("gp.example"),
+                Some("http://console.example.com")
             ),
             &allowed_strs()
         ));

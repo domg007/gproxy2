@@ -90,6 +90,17 @@ fn build_cors_layer(cors_origins: &[String]) -> CorsLayer {
     let parsed: Vec<HeaderValue> = cors_origins
         .iter()
         .filter_map(|o| {
+            let o = o.trim();
+            // Reject `*` (AllowOrigin::list panics on it, and credentialed CORS
+            // forbids wildcard) and scheme-less entries (a real browser Origin
+            // header is always `scheme://authority`, so a bare host never matches).
+            if o == "*" || !o.contains("://") {
+                tracing::warn!(
+                    origin = %o,
+                    "CORS origin must be an explicit scheme://host[:port] (not '*') — skipped"
+                );
+                return None;
+            }
             o.parse::<HeaderValue>()
                 .map_err(
                     |e| tracing::warn!(origin = %o, error = %e, "invalid CORS origin — skipped"),
