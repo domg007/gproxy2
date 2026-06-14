@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  console:
+    name: Console (typecheck · test · build · i18n)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: i18n parity
+        run: pnpm i18n:check
+
+      # Builds the SPA and syncs dist/ -> ../assets/console (reads version from
+      # ../Cargo.toml + git short SHA). assets/console is gitignored, so this only
+      # validates the build succeeds.
+      - name: Build
+        run: pnpm build
+
+  backend:
+    name: Backend (fmt · clippy · test · edge-wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain (stable + clippy/rustfmt + wasm target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --features full --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --features full
+
+      # Canonical edge build: lib-only, no default features, edge feature, wasm
+      # target (the native deps must NOT leak into the worker).
+      - name: Edge wasm check
+        run: cargo check --lib --no-default-features --features edge --target wasm32-unknown-unknown

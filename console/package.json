@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node ./scripts/sync-to-embed.mjs",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "i18n:check": "node scripts/i18n-parity.mjs"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans": "^5.2.10",
