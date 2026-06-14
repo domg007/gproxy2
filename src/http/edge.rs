@@ -107,6 +107,7 @@ pub async fn init(
         // Edge (wasm) never self-updates; PathBuf is required by the type but
         // the field is never read in an edge build.
         update_data_dir: std::path::PathBuf::from("./data"),
+        cors_origins: Vec::new(),
     });
 
     let upstream: Arc<dyn UpstreamClient> = Arc::new(FetchClient::new());

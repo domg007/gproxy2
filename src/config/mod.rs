@@ -160,6 +160,11 @@ pub struct RuntimeConfig {
     /// Sourced from `--data-dir` (always set; default `./data`) so the `db`
     /// persistence backend also has a writable staging dir.
     pub update_data_dir: std::path::PathBuf,
+    /// B2 cross-origin admin: exact allowed Origins (e.g. `https://console.example.com`)
+    /// for the admin API CORS layer + CSRF allow-list. Empty (default) = same-origin
+    /// only (no CORS headers, SameSite=Lax cookie). Non-empty enables credentialed
+    /// CORS for these origins and switches the session cookie to SameSite=None; Secure.
+    pub cors_origins: Vec<String>,
 }
 
 /// Default per-request failover attempt cap (`GPROXY_MAX_ATTEMPTS`).
@@ -214,6 +219,7 @@ mod tests {
             update_repo: None,
             update_channel: "releases".to_string(),
             update_data_dir: PathBuf::from("./data"),
+            cors_origins: Vec::new(),
         }
     }
 

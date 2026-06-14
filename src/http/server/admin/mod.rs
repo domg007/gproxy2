@@ -13,8 +13,12 @@ pub mod usage;
 use std::net::IpAddr;
 
 use axum::Router;
+use axum::http::Method;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
+use http::HeaderValue;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::app::AppState;
 
@@ -78,10 +82,50 @@ pub(crate) fn peer_ip(extensions: &axum::http::Extensions) -> Option<IpAddr> {
         .map(|ci| ci.0.ip())
 }
 
+/// Build a credentialed CORS layer for the allowed origins.
+/// Only called when `cors_origins` is non-empty.
+/// Uses explicit origin list (never wildcard — credentialed CORS forbids `*`).
+fn build_cors_layer(cors_origins: &[String]) -> CorsLayer {
+    let x_api_key: axum::http::HeaderName = "x-api-key".parse().unwrap();
+    let parsed: Vec<HeaderValue> = cors_origins
+        .iter()
+        .filter_map(|o| {
+            let o = o.trim();
+            // Reject `*` (AllowOrigin::list panics on it, and credentialed CORS
+            // forbids wildcard) and scheme-less entries (a real browser Origin
+            // header is always `scheme://authority`, so a bare host never matches).
+            if o == "*" || !o.contains("://") {
+                tracing::warn!(
+                    origin = %o,
+                    "CORS origin must be an explicit scheme://host[:port] (not '*') — skipped"
+                );
+                return None;
+            }
+            o.parse::<HeaderValue>()
+                .map_err(
+                    |e| tracing::warn!(origin = %o, error = %e, "invalid CORS origin — skipped"),
+                )
+                .ok()
+        })
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(parsed))
+        .allow_credentials(true)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([CONTENT_TYPE, AUTHORIZATION, x_api_key])
+}
+
 /// Build the `/admin/*` subrouter. Returns a `Router<AppState>` (state is
 /// applied by the caller's `.with_state`); `state` is threaded into the
 /// middleware layer via [`from_fn_with_state`].
 pub fn admin_router(state: AppState) -> Router<AppState> {
+    let cors_origins = state.config.cors_origins.clone();
     let protected = Router::new()
         .route("/admin/me", get(auth::me))
         // M10c — OAuth authcode login flow (start/complete), behind require_admin.
@@ -126,10 +170,14 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         // so the AdminUser extension is set when it records a mutating request.
         .layer(from_fn_with_state(state.clone(), audit::audit))
         .layer(from_fn_with_state(state, middleware::require_admin));
-    Router::new()
+    let mut router = Router::new()
         .route("/admin/login", post(auth::login))
         .route("/admin/logout", post(auth::logout))
-        .merge(protected)
+        .merge(protected);
+    if !cors_origins.is_empty() {
+        router = router.layer(build_cors_layer(&cors_origins));
+    }
+    router
 }
 
 #[cfg(test)]
@@ -267,6 +315,7 @@ mod tests {
             update_repo: None,
             update_channel: "releases".to_string(),
             update_data_dir: dir.path().to_path_buf(),
+            cors_origins: Vec::new(),
         });
         let cache: Arc<dyn crate::store::cache::CacheBackend> =
             Arc::new(crate::store::cache::MemoryCache::new());

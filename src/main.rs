@@ -71,6 +71,15 @@ struct Cli {
     )]
     trusted_proxies: Vec<std::net::IpAddr>,
 
+    /// B2: allowed cross-origin admin console Origins (repeatable / comma-separated),
+    /// e.g. https://console.example.com. Empty = same-origin only.
+    #[arg(
+        long = "cors-origin",
+        env = "GPROXY_CORS_ORIGINS",
+        value_delimiter = ','
+    )]
+    cors_origins: Vec<String>,
+
     /// §19 self-update: GitHub owner/repo for admin-triggered updates. Omit to
     /// disable self-update (admin check/apply will return 409).
     #[arg(long, env = "GPROXY_UPDATE_REPO")]
@@ -191,6 +200,7 @@ async fn main() -> anyhow::Result<()> {
             gproxy::selfupdate::Channel::Staging => "staging".to_string(),
         },
         update_data_dir,
+        cors_origins: cli.cors_origins,
     });
 
     let bind = config.bind_addr()?;

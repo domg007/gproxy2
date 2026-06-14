@@ -270,6 +270,7 @@ mod tests {
             update_repo: None,
             update_channel: "releases".to_string(),
             update_data_dir: dir.path().to_path_buf(),
+            cors_origins: Vec::new(),
         });
         let cache: Arc<dyn crate::store::cache::CacheBackend> =
             Arc::new(crate::store::cache::MemoryCache::new());
