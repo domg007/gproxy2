@@ -39,10 +39,9 @@ impl ApiError {
         }
     }
 
-    /// Short machine-readable type tag for the JSON body. Only the native
-    /// `IntoResponse` consumes it; on wasm the admin HTTP layer is absent.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn type_tag(&self) -> &'static str {
+    /// Short machine-readable type tag for the JSON body.  Cross-target so
+    /// both the native `IntoResponse` and the edge dispatcher share one mapping.
+    pub fn type_str(&self) -> &'static str {
         match self {
             ApiError::Unauthorized => "unauthorized",
             ApiError::BadRequest(_) => "bad_request",
@@ -51,15 +50,29 @@ impl ApiError {
             ApiError::Internal(_) => "internal",
         }
     }
+
+    /// Cross-target render of the error envelope `{"error":{"message","type"}}`.
+    /// The native `IntoResponse` delegates here; the edge dispatcher uses it
+    /// directly (no axum).
+    pub fn to_parts(&self) -> (http::StatusCode, Vec<u8>) {
+        let body = serde_json::json!({
+            "error": { "message": self.message(), "type": self.type_str() }
+        });
+        (self.status(), serde_json::to_vec(&body).unwrap_or_default())
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let status = self.status();
-        let body = serde_json::json!({
-            "error": { "message": self.message(), "type": self.type_tag() }
-        });
-        (status, axum::Json(body)).into_response()
+        let (status, bytes) = self.to_parts();
+        let body = axum::body::Body::from(bytes);
+        let mut resp = axum::response::Response::new(body);
+        *resp.status_mut() = status;
+        resp.headers_mut().insert(
+            http::header::CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        );
+        resp
     }
 }

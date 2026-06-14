@@ -78,3 +78,9 @@ pub async fn invalidate(state: &crate::app::AppState) {
         tracing::warn!(error = %e, "snapshot reload after admin mutation failed");
     }
 }
+
+/// Edge has no synchronous pub/sub invalidation; the §7.2 config-version poll
+/// (edge.rs) refreshes the snapshot within one interval. No-op here so CRUD
+/// cores compile on wasm.
+#[cfg(target_arch = "wasm32")]
+pub async fn invalidate(_state: &crate::app::AppState) {}
