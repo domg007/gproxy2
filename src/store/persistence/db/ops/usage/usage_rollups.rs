@@ -142,12 +142,16 @@ pub async fn list(
     granularity: &str,
     from: i64,
     to: i64,
+    user_id: Option<i64>,
 ) -> anyhow::Result<Vec<UsageRollup>> {
-    usage_rollup::Entity::find()
+    let mut sel = usage_rollup::Entity::find()
         .filter(usage_rollup::Column::Granularity.eq(granularity))
         .filter(usage_rollup::Column::BucketStart.gte(from))
-        .filter(usage_rollup::Column::BucketStart.lte(to))
-        .order_by_asc(usage_rollup::Column::BucketStart)
+        .filter(usage_rollup::Column::BucketStart.lte(to));
+    if let Some(v) = user_id {
+        sel = sel.filter(usage_rollup::Column::UserId.eq(v));
+    }
+    sel.order_by_asc(usage_rollup::Column::BucketStart)
         .all(conn)
         .await?
         .into_iter()

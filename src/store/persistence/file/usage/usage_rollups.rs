@@ -70,11 +70,17 @@ pub(crate) async fn list(
     granularity: &str,
     from: i64,
     to: i64,
+    user_id: Option<i64>,
 ) -> anyhow::Result<Vec<UsageRollup>> {
     Ok(table::load::<UsageRollup>(&path(root))
         .await?
         .rows
         .into_iter()
-        .filter(|r| r.granularity == granularity && r.bucket_start >= from && r.bucket_start <= to)
+        .filter(|r| {
+            r.granularity == granularity
+                && r.bucket_start >= from
+                && r.bucket_start <= to
+                && (user_id.is_none() || r.user_id == user_id)
+        })
         .collect())
 }

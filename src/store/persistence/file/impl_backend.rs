@@ -443,8 +443,9 @@ impl PersistenceBackend for FilePersistence {
         granularity: &str,
         from: i64,
         to: i64,
+        user_id: Option<i64>,
     ) -> anyhow::Result<Vec<UsageRollup>> {
-        usage_rollups::list(&self.root, granularity, from, to).await
+        usage_rollups::list(&self.root, granularity, from, to, user_id).await
     }
 
     async fn metrics_aggregate(

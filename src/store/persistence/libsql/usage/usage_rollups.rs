@@ -202,17 +202,38 @@ pub async fn list(
     granularity: &str,
     from: i64,
     to: i64,
+    user_id: Option<i64>,
 ) -> anyhow::Result<Vec<UsageRollup>> {
-    query(
-        client,
-        &format!(
-            "SELECT {COLS} FROM usage_rollups WHERE granularity = ? AND bucket_start >= ? \
-             AND bucket_start <= ? ORDER BY bucket_start ASC"
-        ),
-        &[arg_text(granularity), arg_integer(from), arg_integer(to)],
-    )
-    .await?
-    .iter()
-    .map(decode)
-    .collect()
+    if let Some(uid) = user_id {
+        query(
+            client,
+            &format!(
+                "SELECT {COLS} FROM usage_rollups WHERE granularity = ? AND bucket_start >= ? \
+                 AND bucket_start <= ? AND user_id = ? ORDER BY bucket_start ASC"
+            ),
+            &[
+                arg_text(granularity),
+                arg_integer(from),
+                arg_integer(to),
+                arg_integer(uid),
+            ],
+        )
+        .await?
+        .iter()
+        .map(decode)
+        .collect()
+    } else {
+        query(
+            client,
+            &format!(
+                "SELECT {COLS} FROM usage_rollups WHERE granularity = ? AND bucket_start >= ? \
+                 AND bucket_start <= ? ORDER BY bucket_start ASC"
+            ),
+            &[arg_text(granularity), arg_integer(from), arg_integer(to)],
+        )
+        .await?
+        .iter()
+        .map(decode)
+        .collect()
+    }
 }

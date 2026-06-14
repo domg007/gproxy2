@@ -181,6 +181,8 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
             "/user/keys/{id}",
             patch(user::keys::update).delete(user::keys::delete),
         )
+        .route("/user/usage", get(user::usage::usage))
+        .route("/user/usage-rollups", get(user::usage::rollups))
         .layer(from_fn_with_state(state.clone(), user::audit::audit))
         .layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()

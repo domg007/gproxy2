@@ -391,8 +391,9 @@ impl PersistenceBackend for DbPersistence {
         granularity: &str,
         from: i64,
         to: i64,
+        user_id: Option<i64>,
     ) -> anyhow::Result<Vec<UsageRollup>> {
-        ops::usage::usage_rollups::list(&self.conn, granularity, from, to).await
+        ops::usage::usage_rollups::list(&self.conn, granularity, from, to, user_id).await
     }
 
     async fn metrics_aggregate(

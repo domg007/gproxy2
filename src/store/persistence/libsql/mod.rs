@@ -378,8 +378,9 @@ impl PersistenceBackend for LibsqlPersistence {
         granularity: &str,
         from: i64,
         to: i64,
+        user_id: Option<i64>,
     ) -> anyhow::Result<Vec<UsageRollup>> {
-        usage::usage_rollups::list(&self.client, granularity, from, to).await
+        usage::usage_rollups::list(&self.client, granularity, from, to, user_id).await
     }
     async fn metrics_aggregate(&self) -> anyhow::Result<MetricsAggregate> {
         metrics::aggregate(&self.client).await
