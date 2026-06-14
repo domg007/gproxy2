@@ -3,7 +3,7 @@ import { Activity, Building2, DownloadCloud, LayoutDashboard, Plug, Route as Rou
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
-interface NavItem {
+export interface NavItem {
   to: string;
   icon: LucideIcon;
   labelKey: string;
@@ -21,11 +21,11 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/update", icon: DownloadCloud, labelKey: "nav.update" },
 ];
 
-export function NavList({ compact, onNavigate }: { compact?: boolean; onNavigate?: () => void }) {
+export function NavList({ items = NAV_ITEMS, compact, onNavigate }: { items?: NavItem[]; compact?: boolean; onNavigate?: () => void }) {
   const { t } = useTranslation();
   return (
     <nav className="grid gap-1 px-2">
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <Link
           key={item.to}
           to={item.to}
