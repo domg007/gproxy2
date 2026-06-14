@@ -29,6 +29,7 @@ function RuleSetDetailPage() {
   const { ruleSetId } = Route.useParams();
   const id = Number(ruleSetId);
   const { t } = useTranslation("rules");
+  const { t: tCommon } = useTranslation("common");
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: ruleSet } = useSuspenseQuery(ruleSetQuery(id));
@@ -93,7 +94,7 @@ function RuleSetDetailPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditRsOpen(true)}>
-            {t("common.save")}
+            {tCommon("actions.edit")}
           </Button>
           <Button
             variant="ghost"
@@ -176,7 +177,7 @@ function RuleSetDetailPage() {
         onOpenChange={setDeleteRsOpen}
         title={ruleSet.name}
         description={t("ruleSet.deleteConfirm")}
-        confirmLabel={t("ruleSet.name")}
+        confirmLabel={tCommon("actions.delete")}
         onConfirm={() => rsRemoval.mutate()}
         pending={rsRemoval.isPending}
       />
@@ -186,7 +187,7 @@ function RuleSetDetailPage() {
         onOpenChange={(o) => { if (!o) setDeleteRuleTarget(null); }}
         title={deleteRuleTarget ? t(`kind.${deleteRuleTarget.kind}`) : ""}
         description={t("rule.deleteConfirm")}
-        confirmLabel={t("rule.deleteConfirm")}
+        confirmLabel={tCommon("actions.delete")}
         onConfirm={() => deleteRuleTarget && ruleRemoval.mutate(deleteRuleTarget.id)}
         pending={ruleRemoval.isPending}
       />
