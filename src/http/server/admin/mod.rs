@@ -7,6 +7,7 @@ pub mod auth;
 pub mod crud;
 pub mod login;
 pub mod middleware;
+pub mod update;
 pub mod usage;
 
 use std::net::IpAddr;
@@ -117,6 +118,10 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         )
         // M10d audit log: most-recent mutating-admin-action trail.
         .route("/admin/audit", get(usage::list_audit))
+        // §19.10 self-update: check availability, query in-process status, trigger apply.
+        .route("/admin/update/check", get(update::check))
+        .route("/admin/update/status", get(update::status))
+        .route("/admin/update/apply", post(update::apply))
         // Audit middleware runs INNER to require_admin (added first = innermost),
         // so the AdminUser extension is set when it records a mutating request.
         .layer(from_fn_with_state(state.clone(), audit::audit))
