@@ -11,16 +11,20 @@
 //! can assert on `(status, body)` directly. The wasm `edge/mod.rs` converts the
 //! returned `Resp` into a `web_sys::Response`.
 
+pub(crate) mod authz;
+pub mod crud;
+pub(crate) mod nested;
+pub(crate) mod observability;
+pub(crate) mod settings;
+
 use bytes::Bytes;
 use http::request::Parts;
 use http::{HeaderName, HeaderValue, Method, StatusCode};
 use serde::de::DeserializeOwned;
 
 use crate::admin::guard::{guard_admin, guard_session};
-use crate::admin::invalidate;
 use crate::api::error::ApiError;
 use crate::app::AppState;
-use crate::store::persistence::records::OrgInput;
 
 /// Pure HTTP response data (no `web_sys`) so the dispatcher is natively
 /// testable. The wasm edge converts this into a `web_sys::Response`.
@@ -33,7 +37,7 @@ pub struct Resp {
 
 impl Resp {
     /// JSON response with the given status and `content-type: application/json`.
-    fn json(status: u16, value: &impl serde::Serialize) -> Result<Resp, ApiError> {
+    pub(crate) fn json(status: u16, value: &impl serde::Serialize) -> Result<Resp, ApiError> {
         let body = serde_json::to_vec(value).map_err(|e| ApiError::Internal(e.to_string()))?;
         Ok(Resp {
             status: StatusCode::from_u16(status).expect("caller passes a valid status"),
@@ -46,7 +50,7 @@ impl Resp {
     }
 
     /// Empty `204 No Content` (delete success), matching native CRUD semantics.
-    fn no_content() -> Resp {
+    pub(crate) fn no_content() -> Resp {
         Resp {
             status: StatusCode::NO_CONTENT,
             headers: vec![],
@@ -58,7 +62,7 @@ impl Resp {
 // ── Pure parse helpers (cross-target; the web_sys builders live in edge/http) ──
 
 /// Split a URI path into non-empty segments: `/a/b/c` → `["a", "b", "c"]`.
-fn segments(parts: &Parts) -> Vec<&str> {
+pub(crate) fn segments(parts: &Parts) -> Vec<&str> {
     parts
         .uri
         .path()
@@ -68,32 +72,29 @@ fn segments(parts: &Parts) -> Vec<&str> {
 }
 
 /// Parse a path segment as `i64`, mapping failures to [`ApiError::BadRequest`].
-fn parse_i64(seg: &str) -> Result<i64, ApiError> {
+pub(crate) fn parse_i64(seg: &str) -> Result<i64, ApiError> {
     seg.parse::<i64>()
         .map_err(|_| ApiError::BadRequest(format!("invalid id: {seg}")))
 }
 
 /// Deserialize a JSON request body, mapping errors to [`ApiError::BadRequest`].
-fn json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
+pub(crate) fn json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
     serde_json::from_slice(body)
         .map_err(|e| ApiError::BadRequest(format!("invalid JSON body: {e}")))
 }
 
 /// Deserialize URL-encoded query params from `parts.uri.query()`. An absent
-/// query is treated as empty. Kept here for the upcoming read endpoints (B6.2).
-///
-/// `serde_urlencoded` is a wasm-only dependency (it is declared under the
-/// wasm target in `Cargo.toml`), so this helper is wasm-gated; B6.2's read
-/// routes run on the edge worker, which is where it is needed.
-#[cfg(target_arch = "wasm32")]
+/// query is treated as empty. Now cross-target: `serde_urlencoded` is in the
+/// top-level `[dependencies]` (not wasm-gated), enabling this helper in both
+/// edge and native test builds.
 #[allow(dead_code)]
-fn query<T: DeserializeOwned>(parts: &Parts) -> Result<T, ApiError> {
+pub(crate) fn query<T: DeserializeOwned>(parts: &Parts) -> Result<T, ApiError> {
     serde_urlencoded::from_str(parts.uri.query().unwrap_or(""))
         .map_err(|e| ApiError::BadRequest(format!("invalid query: {e}")))
 }
 
 /// Map a persistence error to a 500 (the cause is logged, not leaked).
-fn internal<E: std::fmt::Display>(e: E) -> ApiError {
+pub(crate) fn internal<E: std::fmt::Display>(e: E) -> ApiError {
     ApiError::Internal(e.to_string())
 }
 
@@ -109,13 +110,35 @@ pub async fn dispatch(
     parts: &Parts,
     body: &Bytes,
 ) -> Option<Result<Resp, ApiError>> {
+    // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).
+    if let Some(r) = crud::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 2. Try nested CRUD entities (teams/models/members/rules/routing-rules/provider-rule-sets).
+    if let Some(r) = nested::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 3. Instance settings (no per-id routes).
+    if let Some(r) = settings::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 4. Authz-scoped entities (route-permissions / rate-limits / quotas).
+    if let Some(r) = authz::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 5. Read-only observability (usage / rollups / audit / logs / cred-status).
+    if let Some(r) = observability::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 6. Identity endpoints.
     let segs = segments(parts);
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
-        (&Method::GET, ["admin", "orgs"]) => orgs_list(state, parts).await,
-        (&Method::POST, ["admin", "orgs"]) => orgs_upsert(state, parts, body).await,
-        (&Method::GET, ["admin", "orgs", id]) => orgs_get(state, parts, id).await,
-        (&Method::DELETE, ["admin", "orgs", id]) => orgs_delete(state, parts, id).await,
         (&Method::GET, ["user", "me"]) => user_me(state, parts).await,
         _ => return None,
     };
@@ -131,51 +154,6 @@ async fn admin_me(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
         200,
         &serde_json::json!({ "id": u.id, "name": u.name, "is_admin": true }),
     )
-}
-
-/// `GET /admin/orgs` — list all orgs (thin glue over persistence).
-async fn orgs_list(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
-    guard_admin(state, parts).await?;
-    let orgs = state.persistence.list_orgs().await.map_err(internal)?;
-    Resp::json(200, &orgs)
-}
-
-/// `POST /admin/orgs` — insert/update an org, then invalidate (no-op on edge).
-async fn orgs_upsert(state: &AppState, parts: &Parts, body: &Bytes) -> Result<Resp, ApiError> {
-    guard_admin(state, parts).await?;
-    let input: OrgInput = json_body(body)?;
-    let org = state
-        .persistence
-        .upsert_org(input)
-        .await
-        .map_err(ApiError::from_upsert)?;
-    invalidate(state).await;
-    Resp::json(200, &org)
-}
-
-/// `GET /admin/orgs/{id}` — one org by id, 404 if absent.
-async fn orgs_get(state: &AppState, parts: &Parts, id: &str) -> Result<Resp, ApiError> {
-    guard_admin(state, parts).await?;
-    let id = parse_i64(id)?;
-    let org = state
-        .persistence
-        .get_org(id)
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| ApiError::NotFound("not found".into()))?;
-    Resp::json(200, &org)
-}
-
-/// `DELETE /admin/orgs/{id}` — 204 on removal, 404 otherwise; invalidate on hit.
-async fn orgs_delete(state: &AppState, parts: &Parts, id: &str) -> Result<Resp, ApiError> {
-    guard_admin(state, parts).await?;
-    let id = parse_i64(id)?;
-    if state.persistence.delete_org(id).await.map_err(internal)? {
-        invalidate(state).await;
-        Ok(Resp::no_content())
-    } else {
-        Err(ApiError::NotFound("not found".into()))
-    }
 }
 
 /// `GET /user/me` — the portal session identity (admits any enabled user).
