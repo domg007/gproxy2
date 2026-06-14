@@ -377,3 +377,18 @@ include!("tests_nested.rs");
 
 // Authz + observability integration tests (B6.2).
 include!("tests_authz_obs.rs");
+
+// Auth (login / logout) integration tests (B6.3 Task 1).
+include!("tests_auth.rs");
+
+// Special admin CRUD (user-keys / users / credentials) integration tests (B6.3 Task 2).
+include!("tests_special.rs");
+
+// Portal /user/* (session-scoped) integration tests (B6.3 Task 3).
+include!("tests_portal.rs");
+
+// Login-flows (edge-safe) + explicit 501 degradations (B6.3 Task 4).
+include!("tests_login_flows.rs");
+
+// Edge mutation-audit parity (B6.4).
+include!("tests_audit.rs");
