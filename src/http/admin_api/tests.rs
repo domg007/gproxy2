@@ -265,3 +265,107 @@ async fn unknown_admin_path_falls_through() {
     let p = parts("GET", "/admin/nope", None, None);
     assert!(dispatch(&state, &p, &Bytes::new()).await.is_none());
 }
+
+// ── providers CRUD (edge_crud! exercise) ─────────────────────────────────────
+
+/// Minimal provider JSON body; channel/credential_strategy must be non-empty
+/// strings; settings_json can be an empty object.
+fn provider_body(name: &str) -> Vec<u8> {
+    serde_json::json!({
+        "id": null,
+        "name": name,
+        "channel": "openai",
+        "label": null,
+        "settings_json": {},
+        "credential_strategy": "round-robin",
+        "proxy_url": null,
+        "tls_fingerprint": null,
+        "enabled": true,
+    })
+    .to_string()
+    .into_bytes()
+}
+
+#[tokio::test]
+async fn providers_crud_roundtrip() {
+    let (state, _dir) = state_with(vec![]).await;
+    let admin_id = seed_user(&state, "admin-p", true).await;
+    let cookie = cookie_for(&state, admin_id).await;
+
+    // POST → 200, capture id.
+    let p = parts("POST", "/admin/providers", Some(&cookie), None);
+    let resp = run(&state, &p, &provider_body("acme-ai"))
+        .await
+        .expect("created");
+    assert_eq!(resp.status, http::StatusCode::OK);
+    let id = parse_json(&resp)["id"].as_i64().unwrap();
+
+    // GET by id → 200, name matches.
+    let p = parts(
+        "GET",
+        &format!("/admin/providers/{id}"),
+        Some(&cookie),
+        None,
+    );
+    let resp = run(&state, &p, b"").await.expect("get");
+    assert_eq!(resp.status, http::StatusCode::OK);
+    assert_eq!(parse_json(&resp)["name"], "acme-ai");
+
+    // GET list contains it.
+    let p = parts("GET", "/admin/providers", Some(&cookie), None);
+    let resp = run(&state, &p, b"").await.expect("list");
+    let list = parse_json(&resp);
+    assert!(list.as_array().unwrap().iter().any(|o| o["id"] == id));
+
+    // DELETE → 204.
+    let p = parts(
+        "DELETE",
+        &format!("/admin/providers/{id}"),
+        Some(&cookie),
+        None,
+    );
+    let resp = run(&state, &p, b"").await.expect("delete");
+    assert_eq!(resp.status, http::StatusCode::NO_CONTENT);
+
+    // GET by id again → 404.
+    let p = parts(
+        "GET",
+        &format!("/admin/providers/{id}"),
+        Some(&cookie),
+        None,
+    );
+    let err = run(&state, &p, b"").await.expect_err("gone");
+    assert_eq!(err.status(), http::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn providers_duplicate_name_is_409() {
+    let (state, _dir) = state_with(vec![]).await;
+    let admin_id = seed_user(&state, "admin-dup", true).await;
+    let cookie = cookie_for(&state, admin_id).await;
+
+    // First upsert (id=null → insert) succeeds.
+    let p = parts("POST", "/admin/providers", Some(&cookie), None);
+    run(&state, &p, &provider_body("dup-name"))
+        .await
+        .expect("first insert ok");
+
+    // Second insert with same name and id=null → unique-name violation → 409.
+    let p = parts("POST", "/admin/providers", Some(&cookie), None);
+    let err = run(&state, &p, &provider_body("dup-name"))
+        .await
+        .expect_err("duplicate");
+    assert_eq!(err.status(), http::StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn providers_bad_id_is_400() {
+    let (state, _dir) = state_with(vec![]).await;
+    let admin_id = seed_user(&state, "admin-bad", true).await;
+    let cookie = cookie_for(&state, admin_id).await;
+
+    // Non-numeric id segment → parse_i64 → 400 BadRequest.
+    let p = parts("GET", "/admin/providers/abc", Some(&cookie), None);
+    let err = run(&state, &p, b"").await.expect_err("bad id");
+    assert_eq!(err.status(), http::StatusCode::BAD_REQUEST);
+}
