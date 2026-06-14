@@ -1,5 +1,6 @@
 import { LogOut } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -18,7 +19,12 @@ import {
 export function UserMenu() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { queryClient, user } = useRouteContext({ from: "/_app" });
+  // strict:false reads from the nearest ancestor route context — works for both /_app and /_portal
+  const ctx = useRouteContext({ strict: false });
+  const { queryClient, user } = ctx as unknown as {
+    queryClient: QueryClient;
+    user: { name: string; is_admin: boolean };
+  };
 
   const mutation = useMutation({
     mutationFn: logout,

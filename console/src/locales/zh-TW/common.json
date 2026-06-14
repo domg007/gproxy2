@@ -1,7 +1,32 @@
 {
-  "app": { "name": "gproxy" },
-  "nav": { "dashboard": "儀表板", "providers": "供應商", "routes": "路由", "orgs": "組織", "users": "使用者", "usage": "用量", "rules": "規則", "settings": "設定", "update": "更新", "title": "導覽", "openMenu": "開啟選單" },
-  "actions": { "cancel": "取消", "save": "儲存", "delete": "刪除", "deleted": "已刪除", "edit": "編輯", "close": "關閉", "copy": "複製", "copied": "已複製" },
+  "app": {
+    "name": "gproxy"
+  },
+  "nav": {
+    "dashboard": "儀表板",
+    "providers": "供應商",
+    "routes": "路由",
+    "orgs": "組織",
+    "users": "使用者",
+    "usage": "用量",
+    "rules": "規則",
+    "settings": "設定",
+    "update": "更新",
+    "title": "導覽",
+    "openMenu": "開啟選單",
+    "myAccount": "我的帳戶",
+    "adminConsole": "管理主控台"
+  },
+  "actions": {
+    "cancel": "取消",
+    "save": "儲存",
+    "delete": "刪除",
+    "deleted": "已刪除",
+    "edit": "編輯",
+    "close": "關閉",
+    "copy": "複製",
+    "copied": "已複製"
+  },
   "login": {
     "title": "登入 gproxy",
     "subtitle": "管理主控台",
@@ -12,10 +37,30 @@
     "failed": "使用者名稱或密碼錯誤",
     "throttled": "嘗試次數過多,請 {{seconds}} 秒後重試。"
   },
-  "user": { "signedInAs": "目前登入", "logout": "登出", "menu": "帳戶", "logoutFailed": "登出失敗,請重試" },
-  "theme": { "label": "主題", "light": "淺色", "dark": "深色", "system": "跟隨系統" },
-  "lang": { "label": "語言" },
-  "errors": { "network": "網路錯誤——服務是否可達?", "internal": "伺服器錯誤" },
-  "dashboard": { "placeholder": "儀表板將在 F4 階段提供。" },
-  "json": { "invalid": "JSON 無效", "format": "格式化" }
+  "user": {
+    "signedInAs": "目前登入",
+    "logout": "登出",
+    "menu": "帳戶",
+    "logoutFailed": "登出失敗,請重試"
+  },
+  "theme": {
+    "label": "主題",
+    "light": "淺色",
+    "dark": "深色",
+    "system": "跟隨系統"
+  },
+  "lang": {
+    "label": "語言"
+  },
+  "errors": {
+    "network": "網路錯誤——服務是否可達?",
+    "internal": "伺服器錯誤"
+  },
+  "dashboard": {
+    "placeholder": "儀表板將在 F4 階段提供。"
+  },
+  "json": {
+    "invalid": "JSON 無效",
+    "format": "格式化"
+  }
 }
