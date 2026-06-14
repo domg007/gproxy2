@@ -11,7 +11,7 @@
     "description": "描述",
     "add": "新增規則集",
     "empty": "尚無規則集。",
-    "deleteConfirm": "確認刪除此規則集？其中所有規則也將一併刪除。"
+    "deleteConfirm": "確認刪除此規則集？其中所有規則也將一併刪除，且掛載它的所有 provider 引用都會失效。"
   },
   "rule": {
     "kind": "規則類型",

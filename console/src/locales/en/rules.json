@@ -11,7 +11,7 @@
     "description": "Description",
     "add": "Add Rule Set",
     "empty": "No rule sets defined yet.",
-    "deleteConfirm": "Delete this rule set? All rules within it will also be removed."
+    "deleteConfirm": "Delete this rule set? All rules within it will also be removed, and any provider attachments to it will break."
   },
   "rule": {
     "kind": "Rule Kind",

@@ -26,7 +26,7 @@ export function RuleSetForm({ ruleSet, onSaved }: Props) {
 
   const mutation = useMutation({
     mutationFn: () => {
-      if (!name.trim()) throw new ApiError(0, "bad_request", t("ruleSet.name") + " is required");
+      if (!name.trim()) throw new ApiError(0, "bad_request", t("validation.nameRequired"));
       return upsertRuleSet({
         id: ruleSet?.id ?? null,
         name: name.trim(),
