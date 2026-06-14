@@ -17,7 +17,7 @@ use axum::Router;
 use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::middleware::from_fn_with_state;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderValue;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -171,10 +171,18 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         // so the AdminUser extension is set when it records a mutating request.
         .layer(from_fn_with_state(state.clone(), audit::audit))
         .layer(from_fn_with_state(state.clone(), middleware::require_admin));
-    // /user/* routes added in F7a Tasks 2-5. For now, mount an empty router
-    // gated by require_session so the layer compiles and the CORS wrap applies.
-    let user_protected =
-        Router::new().layer(from_fn_with_state(state, middleware::require_session));
+    // /user/* portal routes — all gated by require_session.
+    // Audit runs INNER to require_session (added first = innermost) so that
+    // SessionUser is already in the extensions when the audit middleware fires.
+    let user_protected = Router::new()
+        .route("/user/me", get(user::me::me))
+        .route("/user/keys", get(user::keys::list).post(user::keys::create))
+        .route(
+            "/user/keys/{id}",
+            patch(user::keys::update).delete(user::keys::delete),
+        )
+        .layer(from_fn_with_state(state.clone(), user::audit::audit))
+        .layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()
         .route("/admin/login", post(auth::login))
         .route("/admin/logout", post(auth::logout))
