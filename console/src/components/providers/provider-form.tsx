@@ -161,7 +161,7 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
           </div>
         ) : (
           <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-            {tlsCleared ? t("tls.builtin") : t("tls.builtin")}
+            {t("tls.builtin")}
           </p>
         )}
         <p className="text-xs text-muted-foreground">{t("tls.hint")}</p>
