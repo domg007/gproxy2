@@ -13,6 +13,8 @@
 //! runs before `init`, it returns a 503 with a clear message (an `AppState`
 //! cannot be synthesised inside wasm without host-supplied credentials).
 
+pub(crate) mod http;
+
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -21,6 +23,9 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Response, ResponseInit};
+// Explicit imports from the `http` external crate (the `mod http;` submodule
+// below shadows the bare `http::` path — use `::http::` or import here).
+use ::http::{HeaderMap, Method, Uri, header::HeaderName};
 
 use crate::app::AppState;
 use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig, UpstreamConfig};
@@ -220,6 +225,21 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
         _ => {}
     }
 
+    // Admin control-plane + portal: `/admin/*` and `/user/*` are served by the
+    // cross-target dispatcher (auth guard + CSRF + thin persistence glue), which
+    // returns pure `Resp` data we convert to a `web_sys::Response` here. A path
+    // under these prefixes the dispatcher does not handle → 404 (never falls
+    // through to the gateway).
+    if path.starts_with("/admin/") || path.starts_with("/user/") {
+        return match crate::http::admin_api::dispatch(state, &parts, &body).await {
+            Some(Ok(resp)) => resp_to_ws(resp),
+            Some(Err(e)) => self::http::api_err_response(&e),
+            None => self::http::api_err_response(&crate::api::error::ApiError::NotFound(
+                "not found".into(),
+            )),
+        };
+    }
+
     // Gateway: `/v1/...` is aggregated; anything else is `/{provider}/v1/...`
     // scoped (build_ctx validates and rejects malformed paths).
     let scoped = !(path == "/v1" || path.starts_with("/v1/"));
@@ -237,6 +257,20 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
 /// Build a 503 (init-not-called) plain-text response.
 fn service_unavailable(msg: &str) -> Result<Response, JsValue> {
     text_response(503, "text/plain", msg.as_bytes())
+}
+
+/// Convert the cross-target [`Resp`](crate::http::admin_api::Resp) returned by
+/// the admin/portal dispatcher into a `web_sys::Response` (status + headers +
+/// body). The dispatcher owns the status/headers/body as pure data; this is the
+/// only wasm-specific step.
+fn resp_to_ws(resp: crate::http::admin_api::Resp) -> Result<Response, JsValue> {
+    let headers = Headers::new().map_err(js_err)?;
+    for (name, value) in &resp.headers {
+        if let Ok(v) = value.to_str() {
+            headers.append(name.as_str(), v).map_err(js_err)?;
+        }
+    }
+    js_response(resp.status.as_u16(), &headers, &resp.body)
 }
 
 /// Edge replacement for the native pub/sub invalidation listener (§7.2): at
@@ -288,7 +322,7 @@ fn payload_too_large() -> Result<Response, JsValue> {
 /// native `/admin/*` middleware ([`authenticate_admin`](crate::admin::authenticate_admin)):
 /// admin session cookie (minted by a native instance / console sharing the
 /// same Turso+Upstash backing) OR an admin user's API key.
-async fn admin_ok(state: &AppState, headers: &http::HeaderMap) -> bool {
+async fn admin_ok(state: &AppState, headers: &HeaderMap) -> bool {
     crate::admin::authenticate_admin(state, headers)
         .await
         .is_some()
@@ -305,7 +339,11 @@ fn content_length_exceeds(req: &web_sys::Request, max: usize) -> bool {
 }
 
 /// Build a response with a single `Content-Type` header and a body.
-fn text_response(status: u16, content_type: &str, body: &[u8]) -> Result<Response, JsValue> {
+pub(super) fn text_response(
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> Result<Response, JsValue> {
     let headers = Headers::new().map_err(js_err)?;
     headers
         .append("content-type", content_type)
@@ -361,7 +399,11 @@ fn outcome_to_ws(
 /// detaches/overwrites the buffer and the body comes out garbled or never
 /// completes. Deno copies eagerly so a view worked there, but an owned copy is
 /// correct everywhere.
-fn js_response(status: u16, headers: &Headers, body: &[u8]) -> Result<Response, JsValue> {
+pub(super) fn js_response(
+    status: u16,
+    headers: &Headers,
+    body: &[u8],
+) -> Result<Response, JsValue> {
     let init = ResponseInit::new();
     init.set_status(status);
     init.set_headers_headers(headers);
@@ -370,12 +412,12 @@ fn js_response(status: u16, headers: &Headers, body: &[u8]) -> Result<Response, 
     Response::new_with_opt_js_u8_array_and_init(Some(&js_body), &init).map_err(js_err)
 }
 
-/// Convert `web_sys::Request` → `(http::request::Parts, Bytes)`.
+/// Convert `web_sys::Request` → `(::http::request::Parts, Bytes)`.
 async fn ws_request_to_parts(
     req: web_sys::Request,
-) -> Result<(http::request::Parts, Bytes), JsValue> {
-    let method = http::Method::from_bytes(req.method().as_bytes()).map_err(js_err)?;
-    let uri: http::Uri = req.url().parse().map_err(js_err)?;
+) -> Result<(::http::request::Parts, Bytes), JsValue> {
+    let method = Method::from_bytes(req.method().as_bytes()).map_err(js_err)?;
+    let uri: Uri = req.url().parse().map_err(js_err)?;
 
     // Read body via array_buffer.
     let body_bytes: Bytes = {
@@ -386,7 +428,7 @@ async fn ws_request_to_parts(
 
     // Copy headers; skip empty/unparseable names so a bad header can't poison
     // the whole builder.
-    let mut builder = http::Request::builder().method(method).uri(uri);
+    let mut builder = ::http::Request::builder().method(method).uri(uri);
     let ws_headers = req.headers();
     if let Some(iter) = js_sys::try_iter(&ws_headers).map_err(js_err)? {
         for entry in iter {
@@ -397,7 +439,7 @@ async fn ws_request_to_parts(
             if name.is_empty() {
                 continue;
             }
-            if let Ok(hn) = http::header::HeaderName::try_from(name.as_str()) {
+            if let Ok(hn) = HeaderName::try_from(name.as_str()) {
                 builder = builder.header(hn, val.as_str());
             }
         }

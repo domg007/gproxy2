@@ -55,11 +55,12 @@ GPROXY_CORS_ORIGINS=https://console.example.com   # 逗号分隔多个;必须是
 把 `dist/` 作为 edge 平台静态资源(Cloudflare Workers assets / Vercel / Netlify / **EdgeOne Pages**)
 随 worker 一起部署,与 edge worker **同源** → cookie/CSRF 天然工作,不依赖 CORS。
 
-> **⚠️ 现状限制(B6 / F8 待做)**:edge(wasm)worker 目前**只服务网关 + `/healthz`·`/version`·
-> `/metrics`**(`src/http/server/edge.rs`);**`/admin/*` 与 `/user/*` 仍是 native-only**(axum,cfg
-> 门控)。因此**纯 edge 部署暂时无法提供管理区/门户**——需要一个 native 实例承载 `/admin`·`/user`
-> (edge 与 native 可共享同一 Turso + Upstash 后端,session cookie 互通)。把 admin/门户核心抽成
-> axum-free、edge 经 fetch 直派发是 **F8 / B6**,尚未实现。
+> **⚠️ 现状(B6 进行中)**:edge(wasm)worker 已铺**基座 + 模板路由**(B6.1:`GET /admin/me`、
+> `/admin/orgs*` CRUD、`GET /user/me` —— 经 `src/http/admin_api.rs` 跨目标 dispatcher 在 edge 上服务),
+> 但**其余 `/admin/*`·`/user/*` 路由仍在 B6.2/B6.3 铺设中**,native-only。因此当前**纯 edge 部署尚不能
+> 提供完整管理区/门户**——仍需一个 native 实例承载完整 `/admin`·`/user`(edge 与 native 共享同一
+> Turso + Upstash 后端,session cookie 互通)。降级项(self-update、claudecode cookie 登录)edge 不
+> 支持。完整 edge 管理面 = **F8 / B6**,分阶推进中。
 
 ---
 

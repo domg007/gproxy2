@@ -8,6 +8,7 @@ use http::StatusCode;
 #[derive(Debug)]
 pub enum ApiError {
     Unauthorized,
+    Forbidden(String),
     BadRequest(String),
     NotFound(String),
     Conflict(String),
@@ -19,6 +20,7 @@ impl ApiError {
     pub fn status(&self) -> StatusCode {
         match self {
             ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApiError::Forbidden(_) => StatusCode::FORBIDDEN,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
@@ -31,6 +33,7 @@ impl ApiError {
     pub fn message(&self) -> String {
         match self {
             ApiError::Unauthorized => "unauthorized".to_string(),
+            ApiError::Forbidden(m) => m.clone(),
             ApiError::BadRequest(m) | ApiError::NotFound(m) | ApiError::Conflict(m) => m.clone(),
             ApiError::Internal(cause) => {
                 tracing::error!(error = %cause, "admin api internal error");
@@ -39,16 +42,37 @@ impl ApiError {
         }
     }
 
-    /// Short machine-readable type tag for the JSON body. Only the native
-    /// `IntoResponse` consumes it; on wasm the admin HTTP layer is absent.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn type_tag(&self) -> &'static str {
+    /// Short machine-readable type tag for the JSON body.  Cross-target so
+    /// both the native `IntoResponse` and the edge dispatcher share one mapping.
+    pub fn type_str(&self) -> &'static str {
         match self {
             ApiError::Unauthorized => "unauthorized",
+            ApiError::Forbidden(_) => "forbidden",
             ApiError::BadRequest(_) => "bad_request",
             ApiError::NotFound(_) => "not_found",
             ApiError::Conflict(_) => "conflict",
             ApiError::Internal(_) => "internal",
+        }
+    }
+
+    /// Cross-target render of the error envelope `{"error":{"message","type"}}`.
+    /// The native `IntoResponse` delegates here; the edge dispatcher uses it
+    /// directly (no axum).
+    pub fn to_parts(&self) -> (http::StatusCode, Vec<u8>) {
+        let body = serde_json::json!({
+            "error": { "message": self.message(), "type": self.type_str() }
+        });
+        (self.status(), serde_json::to_vec(&body).unwrap_or_default())
+    }
+
+    /// Map an upsert error: a unique-constraint conflict (a `ConflictError`
+    /// carried in `anyhow`) becomes 409 with its human-readable message;
+    /// anything else is a generic 500. Cross-target so the native CRUD handlers
+    /// and the edge dispatcher map `ConflictError` identically.
+    pub fn from_upsert(e: anyhow::Error) -> Self {
+        match e.downcast_ref::<crate::store::persistence::ConflictError>() {
+            Some(c) => ApiError::Conflict(c.0.clone()),
+            None => ApiError::Internal(e.to_string()),
         }
     }
 }
@@ -56,10 +80,14 @@ impl ApiError {
 #[cfg(not(target_arch = "wasm32"))]
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let status = self.status();
-        let body = serde_json::json!({
-            "error": { "message": self.message(), "type": self.type_tag() }
-        });
-        (status, axum::Json(body)).into_response()
+        let (status, bytes) = self.to_parts();
+        let body = axum::body::Body::from(bytes);
+        let mut resp = axum::response::Response::new(body);
+        *resp.status_mut() = status;
+        resp.headers_mut().insert(
+            http::header::CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        );
+        resp
     }
 }

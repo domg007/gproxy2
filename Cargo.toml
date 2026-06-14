@@ -86,6 +86,9 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "ResponseInit", "WorkerGlobalScope"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 http-body-util = "0.1"
+# edge/http.rs query-string parsing (wasm-safe, pure-Rust; axum pulls this transitively but we
+# declare it directly so the version is stable and the dep is explicit).
+serde_urlencoded = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
