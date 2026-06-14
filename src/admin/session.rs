@@ -26,6 +26,17 @@ pub struct AdminUser {
     pub name: String,
 }
 
+/// Portal/session identity — admits ANY enabled user (admin or not). Carries
+/// is_admin + org/team so /user/* can scope effective rules without a re-fetch.
+#[derive(Debug, Clone)]
+pub struct SessionUser {
+    pub id: i64,
+    pub name: String,
+    pub is_admin: bool,
+    pub org_id: i64,
+    pub team_id: Option<i64>,
+}
+
 /// Mint a session: random opaque token → cache `sess:{token}` = user_id.
 ///
 /// A failed cache write is an error: returning the token anyway would hand the
@@ -68,6 +79,38 @@ pub async fn validate(
     Some(AdminUser {
         id: user.id,
         name: user.name,
+    })
+}
+
+/// Like `validate` but does NOT require is_admin (only `enabled`). Refreshes the
+/// sliding TTL identically. Returns the full session identity.
+pub async fn validate_session(
+    cache: &dyn CacheBackend,
+    db: &dyn PersistenceBackend,
+    token: &str,
+) -> Option<SessionUser> {
+    let raw = cache.get(&key(token)).await?;
+    let bytes: [u8; 8] = raw.try_into().ok()?;
+    let user_id = i64::from_le_bytes(bytes);
+    let user = db.get_user(user_id).await.ok().flatten()?;
+    if !user.enabled {
+        return None; // NOTE: no is_admin gate
+    }
+    // Slide the TTL on each successful use — best-effort: a failed refresh
+    // just means the session expires on the original schedule.
+    let _ = cache
+        .set(
+            &key(token),
+            user_id.to_le_bytes().to_vec(),
+            Some(SESSION_TTL),
+        )
+        .await;
+    Some(SessionUser {
+        id: user.id,
+        name: user.name,
+        is_admin: user.is_admin,
+        org_id: user.org_id,
+        team_id: user.team_id,
     })
 }
 

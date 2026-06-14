@@ -9,6 +9,7 @@ pub mod login;
 pub mod middleware;
 pub mod update;
 pub mod usage;
+pub mod user;
 
 use std::net::IpAddr;
 
@@ -169,11 +170,16 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         // Audit middleware runs INNER to require_admin (added first = innermost),
         // so the AdminUser extension is set when it records a mutating request.
         .layer(from_fn_with_state(state.clone(), audit::audit))
-        .layer(from_fn_with_state(state, middleware::require_admin));
+        .layer(from_fn_with_state(state.clone(), middleware::require_admin));
+    // /user/* routes added in F7a Tasks 2-5. For now, mount an empty router
+    // gated by require_session so the layer compiles and the CORS wrap applies.
+    let user_protected =
+        Router::new().layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()
         .route("/admin/login", post(auth::login))
         .route("/admin/logout", post(auth::logout))
-        .merge(protected);
+        .merge(protected)
+        .merge(user_protected);
     if !cors_origins.is_empty() {
         router = router.layer(build_cors_layer(&cors_origins));
     }

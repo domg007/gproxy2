@@ -40,6 +40,34 @@ pub async fn require_admin(
     }
 }
 
+/// Gate a router behind [`authenticate_session`](crate::admin::authenticate_session)
+/// (session cookie, any enabled user). On success the resolved
+/// [`SessionUser`](crate::admin::session::SessionUser) is inserted into request
+/// extensions for handlers.
+///
+/// Reuses the same [`csrf_ok`] check as [`require_admin`]: state-changing
+/// cookie-authenticated requests must pass the same-origin guard.
+pub async fn require_session(
+    State(state): State<AppState>,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    if !csrf_ok(&req, &state.config.cors_origins) {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            "cross-origin request refused",
+        )
+            .into_response();
+    }
+    match crate::admin::authenticate_session(&state, req.headers()).await {
+        Some(user) => {
+            req.extensions_mut().insert(user);
+            next.run(req).await
+        }
+        None => ApiError::Unauthorized.into_response(),
+    }
+}
+
 /// Same-origin guard for cookie-authenticated mutations — defense-in-depth atop
 /// the session cookie's `SameSite=Lax` attribute.
 ///
