@@ -374,3 +374,6 @@ async fn providers_bad_id_is_400() {
 // under the 500-line cap. `include!` keeps them in the same test module so
 // they share all helpers defined above.
 include!("tests_nested.rs");
+
+// Authz + observability integration tests (B6.2).
+include!("tests_authz_obs.rs");

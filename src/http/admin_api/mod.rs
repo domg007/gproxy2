@@ -11,8 +11,10 @@
 //! can assert on `(status, body)` directly. The wasm `edge/mod.rs` converts the
 //! returned `Resp` into a `web_sys::Response`.
 
+pub(crate) mod authz;
 pub mod crud;
 pub(crate) mod nested;
+pub(crate) mod observability;
 pub(crate) mod settings;
 
 use bytes::Bytes;
@@ -123,7 +125,17 @@ pub async fn dispatch(
         return Some(r);
     }
 
-    // 4. Identity endpoints.
+    // 4. Authz-scoped entities (route-permissions / rate-limits / quotas).
+    if let Some(r) = authz::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 5. Read-only observability (usage / rollups / audit / logs / cred-status).
+    if let Some(r) = observability::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 6. Identity endpoints.
     let segs = segments(parts);
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
