@@ -14,10 +14,13 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppUsersIndexRouteImport } from './routes/_app/users/index'
 import { Route as AppUsageIndexRouteImport } from './routes/_app/usage/index'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppRulesIndexRouteImport } from './routes/_app/rules/index'
 import { Route as AppRoutesIndexRouteImport } from './routes/_app/routes/index'
 import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/index'
 import { Route as AppOrgsIndexRouteImport } from './routes/_app/orgs/index'
 import { Route as AppUsersUserIdRouteImport } from './routes/_app/users/$userId'
+import { Route as AppRulesRuleSetIdRouteImport } from './routes/_app/rules/$ruleSetId'
 import { Route as AppRoutesRouteIdRouteImport } from './routes/_app/routes/$routeId'
 import { Route as AppProvidersProviderIdRouteImport } from './routes/_app/providers/$providerId'
 import { Route as AppOrgsOrgIdRouteImport } from './routes/_app/orgs/$orgId'
@@ -46,6 +49,16 @@ const AppUsageIndexRoute = AppUsageIndexRouteImport.update({
   path: '/usage/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRulesIndexRoute = AppRulesIndexRouteImport.update({
+  id: '/rules/',
+  path: '/rules/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRoutesIndexRoute = AppRoutesIndexRouteImport.update({
   id: '/routes/',
   path: '/routes/',
@@ -64,6 +77,11 @@ const AppOrgsIndexRoute = AppOrgsIndexRouteImport.update({
 const AppUsersUserIdRoute = AppUsersUserIdRouteImport.update({
   id: '/users/$userId',
   path: '/users/$userId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRulesRuleSetIdRoute = AppRulesRuleSetIdRouteImport.update({
+  id: '/rules/$ruleSetId',
+  path: '/rules/$ruleSetId',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRoutesRouteIdRoute = AppRoutesRouteIdRouteImport.update({
@@ -88,10 +106,13 @@ export interface FileRoutesByFullPath {
   '/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/rules/$ruleSetId': typeof AppRulesRuleSetIdRoute
   '/users/$userId': typeof AppUsersUserIdRoute
   '/orgs/': typeof AppOrgsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
   '/routes/': typeof AppRoutesIndexRoute
+  '/rules/': typeof AppRulesIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/usage/': typeof AppUsageIndexRoute
   '/users/': typeof AppUsersIndexRoute
 }
@@ -101,10 +122,13 @@ export interface FileRoutesByTo {
   '/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/rules/$ruleSetId': typeof AppRulesRuleSetIdRoute
   '/users/$userId': typeof AppUsersUserIdRoute
   '/orgs': typeof AppOrgsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
   '/routes': typeof AppRoutesIndexRoute
+  '/rules': typeof AppRulesIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
   '/usage': typeof AppUsageIndexRoute
   '/users': typeof AppUsersIndexRoute
 }
@@ -116,10 +140,13 @@ export interface FileRoutesById {
   '/_app/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/_app/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/_app/routes/$routeId': typeof AppRoutesRouteIdRoute
+  '/_app/rules/$ruleSetId': typeof AppRulesRuleSetIdRoute
   '/_app/users/$userId': typeof AppUsersUserIdRoute
   '/_app/orgs/': typeof AppOrgsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
   '/_app/routes/': typeof AppRoutesIndexRoute
+  '/_app/rules/': typeof AppRulesIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/usage/': typeof AppUsageIndexRoute
   '/_app/users/': typeof AppUsersIndexRoute
 }
@@ -131,10 +158,13 @@ export interface FileRouteTypes {
     | '/orgs/$orgId'
     | '/providers/$providerId'
     | '/routes/$routeId'
+    | '/rules/$ruleSetId'
     | '/users/$userId'
     | '/orgs/'
     | '/providers/'
     | '/routes/'
+    | '/rules/'
+    | '/settings/'
     | '/usage/'
     | '/users/'
   fileRoutesByTo: FileRoutesByTo
@@ -144,10 +174,13 @@ export interface FileRouteTypes {
     | '/orgs/$orgId'
     | '/providers/$providerId'
     | '/routes/$routeId'
+    | '/rules/$ruleSetId'
     | '/users/$userId'
     | '/orgs'
     | '/providers'
     | '/routes'
+    | '/rules'
+    | '/settings'
     | '/usage'
     | '/users'
   id:
@@ -158,10 +191,13 @@ export interface FileRouteTypes {
     | '/_app/orgs/$orgId'
     | '/_app/providers/$providerId'
     | '/_app/routes/$routeId'
+    | '/_app/rules/$ruleSetId'
     | '/_app/users/$userId'
     | '/_app/orgs/'
     | '/_app/providers/'
     | '/_app/routes/'
+    | '/_app/rules/'
+    | '/_app/settings/'
     | '/_app/usage/'
     | '/_app/users/'
   fileRoutesById: FileRoutesById
@@ -208,6 +244,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUsageIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/rules/': {
+      id: '/_app/rules/'
+      path: '/rules'
+      fullPath: '/rules/'
+      preLoaderRoute: typeof AppRulesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/routes/': {
       id: '/_app/routes/'
       path: '/routes'
@@ -234,6 +284,13 @@ declare module '@tanstack/react-router' {
       path: '/users/$userId'
       fullPath: '/users/$userId'
       preLoaderRoute: typeof AppUsersUserIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/rules/$ruleSetId': {
+      id: '/_app/rules/$ruleSetId'
+      path: '/rules/$ruleSetId'
+      fullPath: '/rules/$ruleSetId'
+      preLoaderRoute: typeof AppRulesRuleSetIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/routes/$routeId': {
@@ -265,10 +322,13 @@ interface AppRouteChildren {
   AppOrgsOrgIdRoute: typeof AppOrgsOrgIdRoute
   AppProvidersProviderIdRoute: typeof AppProvidersProviderIdRoute
   AppRoutesRouteIdRoute: typeof AppRoutesRouteIdRoute
+  AppRulesRuleSetIdRoute: typeof AppRulesRuleSetIdRoute
   AppUsersUserIdRoute: typeof AppUsersUserIdRoute
   AppOrgsIndexRoute: typeof AppOrgsIndexRoute
   AppProvidersIndexRoute: typeof AppProvidersIndexRoute
   AppRoutesIndexRoute: typeof AppRoutesIndexRoute
+  AppRulesIndexRoute: typeof AppRulesIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppUsageIndexRoute: typeof AppUsageIndexRoute
   AppUsersIndexRoute: typeof AppUsersIndexRoute
 }
@@ -278,10 +338,13 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrgsOrgIdRoute: AppOrgsOrgIdRoute,
   AppProvidersProviderIdRoute: AppProvidersProviderIdRoute,
   AppRoutesRouteIdRoute: AppRoutesRouteIdRoute,
+  AppRulesRuleSetIdRoute: AppRulesRuleSetIdRoute,
   AppUsersUserIdRoute: AppUsersUserIdRoute,
   AppOrgsIndexRoute: AppOrgsIndexRoute,
   AppProvidersIndexRoute: AppProvidersIndexRoute,
   AppRoutesIndexRoute: AppRoutesIndexRoute,
+  AppRulesIndexRoute: AppRulesIndexRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppUsageIndexRoute: AppUsageIndexRoute,
   AppUsersIndexRoute: AppUsersIndexRoute,
 }

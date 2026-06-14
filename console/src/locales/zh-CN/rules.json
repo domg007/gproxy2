@@ -1,0 +1,139 @@
+{
+  "title": "规则",
+  "subtitle": "规则集、转换规则与供应商路由",
+  "tabs": {
+    "routingRules": "路由规则",
+    "ruleSets": "规则集"
+  },
+  "ruleSet": {
+    "name": "规则集名称",
+    "enabled": "启用",
+    "description": "描述",
+    "add": "添加规则集",
+    "empty": "暂无规则集。",
+    "deleteConfirm": "确认删除此规则集？其中所有规则也将一并删除，且挂载它的所有 provider 引用都会失效。"
+  },
+  "rule": {
+    "kind": "规则类型",
+    "sortOrder": "排序",
+    "enabled": "启用",
+    "filterModelPattern": "模型过滤模式",
+    "filterOperationKeys": "操作键过滤",
+    "configJson": "配置（JSON）",
+    "add": "添加规则",
+    "empty": "此规则集暂无规则。",
+    "deleteConfirm": "确认删除此规则？",
+    "rawJson": "原始 JSON",
+    "list": "规则",
+    "switchToRaw": "以 JSON 编辑",
+    "switchToStructured": "以表单编辑",
+    "rawJsonError": "请修正 JSON 错误后再切换回表单"
+  },
+  "kind": {
+    "system_text": "系统文本",
+    "rewrite": "改写",
+    "sanitize": "清洗",
+    "cache_breakpoint": "缓存断点",
+    "header": "请求头"
+  },
+  "config": {
+    "text": "文本",
+    "position": "位置",
+    "path": "JSON 路径",
+    "action": "操作",
+    "value": "值",
+    "pattern": "模式（正则）",
+    "replacement": "替换内容",
+    "target": "目标",
+    "index": "索引",
+    "ttl": "TTL（秒）",
+    "name": "请求头名称",
+    "mode": "模式",
+    "positionOptions": {
+      "prepend": "前置",
+      "append": "追加"
+    },
+    "actionOptions": {
+      "set": "设置",
+      "delete": "删除",
+      "merge": "合并"
+    },
+    "targetOptions": {
+      "system": "系统",
+      "tools": "工具",
+      "last_message": "最后一条消息"
+    },
+    "modeOptions": {
+      "override": "覆盖",
+      "merge": "合并"
+    },
+    "noTtl": "无 TTL"
+  },
+  "operation": {
+    "list_models": "列出模型",
+    "get_model": "获取模型",
+    "count_tokens": "统计 Token",
+    "generate_content": "生成内容",
+    "stream_generate_content": "流式生成内容",
+    "create_image": "创建图像",
+    "edit_image": "编辑图像",
+    "create_embedding": "创建嵌入",
+    "compact_content": "压缩内容",
+    "create_conversation": "创建对话"
+  },
+  "implementation": {
+    "passthrough": "直通",
+    "transform_to": "转换为",
+    "local": "本地",
+    "unsupported": "不支持"
+  },
+  "routingRule": {
+    "operation": "操作",
+    "kind": "协议类型",
+    "implementation": "实现方式",
+    "destOperation": "目标操作",
+    "destKind": "目标协议类型",
+    "sortOrder": "排序",
+    "enabled": "启用",
+    "add": "添加路由规则",
+    "empty": "该供应商暂无路由规则。",
+    "deleteConfirm": "确认删除此路由规则？",
+    "legacy": "旧版",
+    "inherit": "— 继承 —"
+  },
+  "providerRuleSet": {
+    "ruleSet": "规则集",
+    "sortOrder": "排序",
+    "enabled": "启用",
+    "attach": "附加规则集",
+    "unattach": "解除附加",
+    "unattachConfirm": "确认将此规则集从供应商中解除？",
+    "empty": "该供应商暂未附加任何规则集。"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "reset": "重置"
+  },
+  "validation": {
+    "nameRequired": "名称不能为空",
+    "sortOrderRequired": "排序必须为有效数字",
+    "configTextRequired": "文本不能为空",
+    "configPathRequired": "路径不能为空",
+    "configActionRequired": "操作不能为空",
+    "configPatternRequired": "模式不能为空",
+    "configTargetRequired": "目标不能为空",
+    "configHeaderNameRequired": "请求头名称不能为空",
+    "configInvalid": "配置 JSON 无效",
+    "filterJsonInvalid": "操作键过滤必须为有效 JSON"
+  },
+  "protocolKind": {
+    "open_ai_responses": "OpenAI Responses",
+    "open_ai_chat_completions": "OpenAI Chat Completions",
+    "claude_messages": "Claude Messages",
+    "gemini_generate_content": "Gemini Generate Content",
+    "open_ai": "OpenAI",
+    "claude": "Claude",
+    "gemini": "Gemini"
+  }
+}
