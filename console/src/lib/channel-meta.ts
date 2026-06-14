@@ -1,4 +1,17 @@
 export type SecretFamily = "api_key" | "oauth_tokens" | "service_account" | "github_token";
+
+/** Default base_url per channel. Absent = channel has no public default (custom requires explicit input). */
+export const DEFAULT_BASE_URL: Record<string, string> = {
+  openai: "https://api.openai.com",
+  claude_api: "https://api.anthropic.com",
+  aistudio: "https://generativelanguage.googleapis.com",
+  vertexexpress: "https://aiplatform.googleapis.com",
+  deepseek: "https://api.deepseek.com",
+  groq: "https://api.groq.com/openai",
+  nvidia: "https://integrate.api.nvidia.com",
+  vercel: "https://ai-gateway.vercel.sh",
+  openrouter: "https://openrouter.ai/api",
+};
 export type LoginMode = "authcode" | "device" | "cookie";
 
 export interface ChannelMeta {

@@ -91,6 +91,11 @@ pub(super) async fn dispatch(
             upstream_logs(state, parts, request_id).await
         }
 
+        // Effective routing matrix per provider (B6 parity).
+        (&Method::GET, ["admin", "providers", pid, "routing-rules", "effective"]) => {
+            effective_routing(state, parts, pid).await
+        }
+
         _ => return None,
     };
     Some(r)
@@ -194,5 +199,12 @@ async fn upstream_logs(
         .list_upstream_requests(request_id)
         .await
         .map_err(internal)?;
+    Resp::json(200, &rows)
+}
+
+async fn effective_routing(state: &AppState, parts: &Parts, pid: &str) -> Result<Resp, ApiError> {
+    guard_admin(state, parts).await?;
+    let provider_id = super::parse_i64(pid)?;
+    let rows = crate::api::routing::effective_routes(state, provider_id).await?;
     Resp::json(200, &rows)
 }

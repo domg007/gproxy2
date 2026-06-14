@@ -87,6 +87,23 @@
     "local": "本地",
     "unsupported": "不支持"
   },
+  "effective": {
+    "title": "生效路由",
+    "caption": "以下是当前生效的路由决策。默认值由系统计算（同协议直通；否则自动转换到通道原生协议；count_tokens 在 OpenAI 通道本地执行）。在下方添加覆盖规则以修改某个单元格。",
+    "source": {
+      "default": "默认",
+      "override": "覆盖"
+    },
+    "columns": {
+      "operation": "操作",
+      "kind": "入站协议",
+      "impl": "实现方式",
+      "source": "来源"
+    }
+  },
+  "overrides": {
+    "title": "覆盖规则"
+  },
   "routingRule": {
     "operation": "操作",
     "kind": "协议类型",
@@ -97,6 +114,7 @@
     "enabled": "启用",
     "add": "添加路由规则",
     "empty": "该供应商暂无路由规则。",
+    "emptyOverrides": "无覆盖 — 使用上方默认",
     "deleteConfirm": "确认删除此路由规则？",
     "legacy": "旧版",
     "inherit": "— 继承 —"

@@ -87,6 +87,23 @@
     "local": "Local",
     "unsupported": "Unsupported"
   },
+  "effective": {
+    "title": "Effective Routing",
+    "caption": "These are the effective routing decisions. Defaults are computed (native passthrough; else auto-transform to the channel's native protocol; count_tokens on OpenAI served locally). Add an override below to change a cell.",
+    "source": {
+      "default": "Default",
+      "override": "Override"
+    },
+    "columns": {
+      "operation": "Operation",
+      "kind": "Inbound Kind",
+      "impl": "Implementation",
+      "source": "Source"
+    }
+  },
+  "overrides": {
+    "title": "Overrides"
+  },
   "routingRule": {
     "operation": "Operation",
     "kind": "Protocol Kind",
@@ -97,6 +114,7 @@
     "enabled": "Enabled",
     "add": "Add Routing Rule",
     "empty": "No routing rules defined for this provider.",
+    "emptyOverrides": "No overrides — using the defaults above",
     "deleteConfirm": "Delete this routing rule?",
     "legacy": "Legacy",
     "inherit": "— inherit —"

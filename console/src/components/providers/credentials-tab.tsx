@@ -10,6 +10,7 @@ import { channelMeta } from "@/lib/channel-meta";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
+import { CredentialBulkImport } from "@/components/providers/credential-bulk-import";
 import { CredentialForm } from "@/components/providers/credential-form";
 import { HealthBadge } from "@/components/providers/health-badge";
 import { OAuthWizard } from "@/components/providers/oauth-wizard";
@@ -33,6 +34,7 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
   const [deleteTarget, setDeleteTarget] = useState<CredentialView | undefined>(undefined);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [usageTarget, setUsageTarget] = useState<CredentialView | undefined>(undefined);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const removal = useMutation({
     mutationFn: (id: number) => deleteCredential(id),
@@ -94,6 +96,11 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
         {(meta?.loginModes.length ?? 0) > 0 && (
           <Button variant="outline" onClick={() => setWizardOpen(true)}>
             {t("creds.oauth")}
+          </Button>
+        )}
+        {meta?.family === "api_key" && (
+          <Button variant="outline" onClick={() => setBulkOpen(true)}>
+            {t("creds.bulk.button")}
           </Button>
         )}
         <Button onClick={openCreate}>
@@ -179,6 +186,20 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
         title={`${t("usage.title")} — ${usageTarget ? credName(usageTarget, t("creds.unnamed", { id: usageTarget.id })) : ""}`}
       >
         {usageTarget && <UsageCard credentialId={usageTarget.id} />}
+      </EntityDialog>
+
+      <EntityDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        title={t("creds.bulk.title")}
+        description={t("creds.bulk.textareaHint")}
+        wide
+      >
+        <CredentialBulkImport
+          key={bulkOpen ? "open" : "closed"}
+          providerId={provider.id}
+          onClose={() => setBulkOpen(false)}
+        />
       </EntityDialog>
     </div>
   );

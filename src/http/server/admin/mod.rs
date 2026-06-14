@@ -163,6 +163,11 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         )
         // M10d audit log: most-recent mutating-admin-action trail.
         .route("/admin/audit", get(usage::list_audit))
+        // B6 effective routing matrix per provider.
+        .route(
+            "/admin/providers/{provider_id}/routing-rules/effective",
+            get(usage::effective_routing),
+        )
         // §19.10 self-update: check availability, query in-process status, trigger apply.
         .route("/admin/update/check", get(update::check))
         .route("/admin/update/status", get(update::status))

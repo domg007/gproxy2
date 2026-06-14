@@ -5,8 +5,12 @@
   "tabs": { "settings": "Settings", "credentials": "Credentials", "models": "Models" },
   "fields": {
     "name": "Name", "label": "Label", "channel": "Channel", "strategy": "Credential strategy",
-    "proxyUrl": "Outbound proxy URL", "enabled": "Enabled", "settings": "Settings JSON",
-    "tlsFingerprint": "TLS fingerprint JSON", "weight": "Weight", "kind": "Kind",
+    "proxyUrl": "Outbound proxy URL", "enabled": "Enabled",
+    "baseUrl": "Base URL", "circuitBreaker": "Circuit breaker (optional)",
+    "consecutiveFailures": "Consecutive failures", "cooldownSecs": "Cooldown (secs)",
+    "location": "Location (vertex)", "profileArn": "Profile ARN (kiro)",
+    "tlsProfile": "TLS fingerprint",
+    "weight": "Weight", "kind": "Kind",
     "rpm": "RPM limit", "tpm": "TPM limit", "credLabel": "Label"
   },
   "strategy": { "round_robin": "Round robin", "sticky": "Sticky" },
@@ -14,9 +18,15 @@
   "form": {
     "create": "Create provider", "edit": "Edit provider", "required": "Required",
     "channelWarning": "Changing the channel of an existing provider can break its credentials.",
-    "settingsHint": "Known keys: base_url (custom channel requires it), circuit_breaker, tokenizer_map, location (vertex), profile_arn (kiro).",
-    "tlsHint": "Optional — overrides per-channel TLS/HTTP2 fingerprint. Leave empty for none.",
+    "baseUrlRequired": "Required for custom channel",
+    "baseUrlHint": "Leave empty to use the channel's built-in default.",
     "saved": "Saved"
+  },
+  "tls": {
+    "builtin": "Using channel built-in profile (automatic)",
+    "custom": "Custom TLS fingerprint set (via API/import)",
+    "clear": "Clear",
+    "hint": "Custom fingerprints are an advanced API/import setting."
   },
   "delete": {
     "provider": "Delete provider",
@@ -28,7 +38,18 @@
     "add": "Add credential", "oauth": "Connect via OAuth", "manual": "Add manually",
     "empty": "No credentials yet.", "edit": "Edit credential",
     "secretKept": "Leave empty to keep the stored secret.",
-    "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}"
+    "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}",
+    "bulk": {
+      "button": "Bulk import",
+      "title": "Bulk import credentials",
+      "textareaLabel": "API keys (one per line)",
+      "textareaHint": "One key per line. Optional: key,label or key<TAB>label. Lines starting with # are ignored.",
+      "import": "Import {{count}} key(s)",
+      "importing": "Importing {{done}}/{{total}}…",
+      "summary": "Created {{created}}, failed {{failed}}, skipped {{dupes}} duplicate(s)",
+      "close": "Close",
+      "empty": "No valid lines"
+    }
   },
   "secret": {
     "apiKey": "API key", "saJson": "Service-account JSON", "tokensJson": "Token JSON",
