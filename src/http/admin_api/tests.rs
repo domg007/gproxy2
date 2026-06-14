@@ -369,3 +369,8 @@ async fn providers_bad_id_is_400() {
     let err = run(&state, &p, b"").await.expect_err("bad id");
     assert_eq!(err.status(), http::StatusCode::BAD_REQUEST);
 }
+
+// Nested CRUD tests + instance_settings tests live in a separate file to stay
+// under the 500-line cap. `include!` keeps them in the same test module so
+// they share all helpers defined above.
+include!("tests_nested.rs");

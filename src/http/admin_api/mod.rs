@@ -12,6 +12,8 @@
 //! returned `Resp` into a `web_sys::Response`.
 
 pub mod crud;
+pub(crate) mod nested;
+pub(crate) mod settings;
 
 use bytes::Bytes;
 use http::request::Parts;
@@ -106,12 +108,22 @@ pub async fn dispatch(
     parts: &Parts,
     body: &Bytes,
 ) -> Option<Result<Resp, ApiError>> {
-    // 1. Try CRUD entities (providers/routes/aliases/rule-sets/orgs).
+    // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).
     if let Some(r) = crud::dispatch(state, parts, body).await {
         return Some(r);
     }
 
-    // 2. Identity endpoints.
+    // 2. Try nested CRUD entities (teams/models/members/rules/routing-rules/provider-rule-sets).
+    if let Some(r) = nested::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 3. Instance settings (no per-id routes).
+    if let Some(r) = settings::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 4. Identity endpoints.
     let segs = segments(parts);
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
