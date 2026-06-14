@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppUsersIndexRouteImport } from './routes/_app/users/index'
 import { Route as AppUsageIndexRouteImport } from './routes/_app/usage/index'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppRoutesIndexRouteImport } from './routes/_app/routes/index'
 import { Route as AppProvidersIndexRouteImport } from './routes/_app/providers/index'
 import { Route as AppOrgsIndexRouteImport } from './routes/_app/orgs/index'
@@ -44,6 +45,11 @@ const AppUsersIndexRoute = AppUsersIndexRouteImport.update({
 const AppUsageIndexRoute = AppUsageIndexRouteImport.update({
   id: '/usage/',
   path: '/usage/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRoutesIndexRoute = AppRoutesIndexRouteImport.update({
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/orgs/': typeof AppOrgsIndexRoute
   '/providers/': typeof AppProvidersIndexRoute
   '/routes/': typeof AppRoutesIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/usage/': typeof AppUsageIndexRoute
   '/users/': typeof AppUsersIndexRoute
 }
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/orgs': typeof AppOrgsIndexRoute
   '/providers': typeof AppProvidersIndexRoute
   '/routes': typeof AppRoutesIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
   '/usage': typeof AppUsageIndexRoute
   '/users': typeof AppUsersIndexRoute
 }
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/_app/orgs/': typeof AppOrgsIndexRoute
   '/_app/providers/': typeof AppProvidersIndexRoute
   '/_app/routes/': typeof AppRoutesIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/usage/': typeof AppUsageIndexRoute
   '/_app/users/': typeof AppUsersIndexRoute
 }
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/orgs/'
     | '/providers/'
     | '/routes/'
+    | '/settings/'
     | '/usage/'
     | '/users/'
   fileRoutesByTo: FileRoutesByTo
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/orgs'
     | '/providers'
     | '/routes'
+    | '/settings'
     | '/usage'
     | '/users'
   id:
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/_app/orgs/'
     | '/_app/providers/'
     | '/_app/routes/'
+    | '/_app/settings/'
     | '/_app/usage/'
     | '/_app/users/'
   fileRoutesById: FileRoutesById
@@ -206,6 +218,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/usage/'
       preLoaderRoute: typeof AppUsageIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/routes/': {
@@ -269,6 +288,7 @@ interface AppRouteChildren {
   AppOrgsIndexRoute: typeof AppOrgsIndexRoute
   AppProvidersIndexRoute: typeof AppProvidersIndexRoute
   AppRoutesIndexRoute: typeof AppRoutesIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppUsageIndexRoute: typeof AppUsageIndexRoute
   AppUsersIndexRoute: typeof AppUsersIndexRoute
 }
@@ -282,6 +302,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrgsIndexRoute: AppOrgsIndexRoute,
   AppProvidersIndexRoute: AppProvidersIndexRoute,
   AppRoutesIndexRoute: AppRoutesIndexRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppUsageIndexRoute: AppUsageIndexRoute,
   AppUsersIndexRoute: AppUsersIndexRoute,
 }
