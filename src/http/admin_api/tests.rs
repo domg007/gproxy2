@@ -377,3 +377,6 @@ include!("tests_nested.rs");
 
 // Authz + observability integration tests (B6.2).
 include!("tests_authz_obs.rs");
+
+// Auth (login / logout) integration tests (B6.3 Task 1).
+include!("tests_auth.rs");

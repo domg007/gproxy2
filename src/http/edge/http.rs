@@ -17,11 +17,17 @@ use crate::api::error::ApiError;
 
 /// Convert an [`ApiError`] into a `web_sys::Response` using [`ApiError::to_parts`].
 pub fn api_err_response(e: &ApiError) -> Result<Response, JsValue> {
+    let extra = e.extra_headers();
     let (status, bytes) = e.to_parts();
     let headers = Headers::new().map_err(js_err)?;
     headers
         .append("content-type", "application/json")
         .map_err(js_err)?;
+    for (name, value) in &extra {
+        if let Ok(v) = value.to_str() {
+            headers.append(name.as_str(), v).map_err(js_err)?;
+        }
+    }
     super::js_response(status.as_u16(), &headers, &bytes)
 }
 

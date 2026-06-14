@@ -11,6 +11,7 @@
 //! can assert on `(status, body)` directly. The wasm `edge/mod.rs` converts the
 //! returned `Resp` into a `web_sys::Response`.
 
+pub(crate) mod auth;
 pub(crate) mod authz;
 pub mod crud;
 pub(crate) mod nested;
@@ -25,6 +26,7 @@ use serde::de::DeserializeOwned;
 use crate::admin::guard::{guard_admin, guard_session};
 use crate::api::error::ApiError;
 use crate::app::AppState;
+use crate::store::persistence::records::AuditLogInput;
 
 /// Pure HTTP response data (no `web_sys`) so the dispatcher is natively
 /// testable. The wasm edge converts this into a `web_sys::Response`.
@@ -98,6 +100,13 @@ pub(crate) fn internal<E: std::fmt::Display>(e: E) -> ApiError {
     ApiError::Internal(e.to_string())
 }
 
+/// Write an audit log entry. Direct `await` (no `tokio::spawn`) so this works
+/// on edge (wasm) where spawning is unavailable. Native login/logout go through
+/// their own `record_audit` (spawn-based); this helper is edge/test only.
+pub(crate) async fn audit(state: &AppState, input: AuditLogInput) {
+    let _ = state.persistence.append_audit_log(input).await;
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
 /// Route an `/admin/*` or `/user/*` request to its handler.
@@ -110,6 +119,20 @@ pub async fn dispatch(
     parts: &Parts,
     body: &Bytes,
 ) -> Option<Result<Resp, ApiError>> {
+    // 0. Public auth endpoints (login/logout): no guard, no CSRF required.
+    //    Must come BEFORE the guarded arms so a cookie-less login POST is not
+    //    refused by guard_admin.
+    let segs = segments(parts);
+    match (&parts.method, segs.as_slice()) {
+        (&Method::POST, ["admin", "login"]) => {
+            return Some(auth::login(state, parts, body).await);
+        }
+        (&Method::POST, ["admin", "logout"]) => {
+            return Some(auth::logout(state, parts).await);
+        }
+        _ => {}
+    }
+
     // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).
     if let Some(r) = crud::dispatch(state, parts, body).await {
         return Some(r);
@@ -136,7 +159,6 @@ pub async fn dispatch(
     }
 
     // 6. Identity endpoints.
-    let segs = segments(parts);
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
         (&Method::GET, ["user", "me"]) => user_me(state, parts).await,
