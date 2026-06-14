@@ -64,11 +64,11 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
       <div className="flex justify-end">
         {rawMode ? (
           <Button type="button" variant="ghost" size="sm" onClick={exitRaw}>
-            {t("rule.rawJson")} (structured)
+            {t("rule.switchToStructured")}
           </Button>
         ) : (
           <Button type="button" variant="ghost" size="sm" onClick={enterRaw}>
-            {t("rule.rawJson")}
+            {t("rule.switchToRaw")}
           </Button>
         )}
       </div>
@@ -82,7 +82,7 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
           />
           {!rawValid && (
             <p className="text-xs text-destructive">
-              Fix JSON errors to switch back to structured view.
+              {t("rule.rawJsonError")}
             </p>
           )}
         </div>

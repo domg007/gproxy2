@@ -23,7 +23,11 @@
     "add": "新增規則",
     "empty": "此規則集尚無規則。",
     "deleteConfirm": "確認刪除此規則？",
-    "rawJson": "原始 JSON"
+    "rawJson": "原始 JSON",
+    "list": "規則",
+    "switchToRaw": "以 JSON 編輯",
+    "switchToStructured": "以表單編輯",
+    "rawJsonError": "請修正 JSON 錯誤後再切換回表單"
   },
   "kind": {
     "system_text": "系統文字",
@@ -108,5 +112,17 @@
     "save": "儲存",
     "cancel": "取消",
     "reset": "重設"
+  },
+  "validation": {
+    "nameRequired": "名稱不能為空",
+    "sortOrderRequired": "排序必須為有效數字",
+    "configTextRequired": "文字不能為空",
+    "configPathRequired": "路徑不能為空",
+    "configActionRequired": "操作不能為空",
+    "configPatternRequired": "模式不能為空",
+    "configTargetRequired": "目標不能為空",
+    "configHeaderNameRequired": "標頭名稱不能為空",
+    "configInvalid": "設定 JSON 無效",
+    "filterJsonInvalid": "操作鍵過濾必須為有效 JSON"
   }
 }

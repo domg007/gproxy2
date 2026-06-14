@@ -20,14 +20,15 @@ interface Props {
   onSaved?: (r: Rule) => void;
 }
 
-function validateConfig(kind: string, cfg: unknown): string | null {
+function validateConfig(kind: string, cfg: unknown, t: (k: string) => string): string | null {
   const c = cfg as Record<string, unknown> | null | undefined;
-  if (!c) return `config required`;
-  if (kind === "system_text" && !c.text) return `config.text is required`;
-  if (kind === "rewrite" && (!c.path || !c.action)) return `config.path and action are required`;
-  if (kind === "sanitize" && !c.pattern) return `config.pattern is required`;
-  if (kind === "cache_breakpoint" && !c.target) return `config.target is required`;
-  if (kind === "header" && !c.name) return `config.name is required`;
+  if (!c) return t("validation.configInvalid");
+  if (kind === "system_text" && !c.text) return t("validation.configTextRequired");
+  if (kind === "rewrite" && !c.path) return t("validation.configPathRequired");
+  if (kind === "rewrite" && !c.action) return t("validation.configActionRequired");
+  if (kind === "sanitize" && !c.pattern) return t("validation.configPatternRequired");
+  if (kind === "cache_breakpoint" && !c.target) return t("validation.configTargetRequired");
+  if (kind === "header" && !c.name) return t("validation.configHeaderNameRequired");
   return null;
 }
 
@@ -56,14 +57,16 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
   const mutation = useMutation({
     mutationFn: () => {
       const orderNum = Number(sortOrder);
-      if (!Number.isInteger(orderNum)) throw new ApiError(0, "bad_request", "sort_order must be an integer");
-      if (!configValid) throw new ApiError(0, "bad_request", "Invalid JSON in config");
-      const cfgErr = validateConfig(kind, configValue);
+      if (!Number.isFinite(orderNum)) throw new ApiError(0, "bad_request", t("validation.sortOrderRequired"));
+      if (!configValid) throw new ApiError(0, "bad_request", t("validation.configInvalid"));
+      const cfgErr = validateConfig(kind, configValue, t);
       if (cfgErr) throw new ApiError(0, "bad_request", cfgErr);
 
       const fopParsed = fopText.trim()
         ? parseJsonText(fopText)
         : { ok: true as const, value: null };
+      if (fopText.trim() && !fopParsed.ok)
+        throw new ApiError(0, "bad_request", t("validation.filterJsonInvalid"));
 
       return upsertRule(ruleSetId, {
         id: rule?.id ?? null,

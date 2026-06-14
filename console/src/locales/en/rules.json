@@ -23,7 +23,11 @@
     "add": "Add Rule",
     "empty": "No rules in this set.",
     "deleteConfirm": "Delete this rule?",
-    "rawJson": "Raw JSON"
+    "rawJson": "Raw JSON",
+    "list": "Rules",
+    "switchToRaw": "Edit as JSON",
+    "switchToStructured": "Edit as Form",
+    "rawJsonError": "Fix JSON errors to switch back to structured view"
   },
   "kind": {
     "system_text": "System Text",
@@ -108,5 +112,17 @@
     "save": "Save",
     "cancel": "Cancel",
     "reset": "Reset"
+  },
+  "validation": {
+    "nameRequired": "Name is required",
+    "sortOrderRequired": "Sort order must be a valid number",
+    "configTextRequired": "Text is required",
+    "configPathRequired": "Path is required",
+    "configActionRequired": "Action is required",
+    "configPatternRequired": "Pattern is required",
+    "configTargetRequired": "Target is required",
+    "configHeaderNameRequired": "Header name is required",
+    "configInvalid": "Configuration has invalid JSON",
+    "filterJsonInvalid": "Filter operation keys must be valid JSON"
   }
 }

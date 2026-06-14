@@ -112,7 +112,7 @@ function RuleSetDetailPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <h2 className="font-medium">{t("tabs.ruleSets")}</h2>
+        <h2 className="font-medium">{t("rule.list")}</h2>
         <Button size="sm" onClick={() => setAddRuleOpen(true)}>
           <Plus className="size-4" aria-hidden />
           <span className="hidden sm:inline">{t("rule.add")}</span>
@@ -163,7 +163,7 @@ function RuleSetDetailPage() {
         }} />
       </EntityDialog>
 
-      <EntityDialog open={editRule !== null} onOpenChange={(o) => { if (!o) setEditRule(null); }} title={t("rule.kind")} wide>
+      <EntityDialog open={editRule !== null} onOpenChange={(o) => { if (!o) setEditRule(null); }} title={editRule ? t(`kind.${editRule.kind}`) : t("rule.add")} wide>
         {editRule && (
           <RuleForm ruleSetId={id} rule={editRule} onSaved={() => {
             setEditRule(null);

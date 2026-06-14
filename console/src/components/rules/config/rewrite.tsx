@@ -26,8 +26,15 @@ export function RewriteFields({ value, onChange, onValidChange }: Props) {
 
   // Reset valueText when action changes to delete
   useEffect(() => {
-    if (!showValue) onValidChange?.(true);
-  }, [showValue, onValidChange]);
+    if (!showValue) {
+      onValidChange?.(true);
+      // Drop value_json from the parent config when switching to delete
+      const { value_json: _v, ...rest } = value;
+      onChange({ ...rest });
+    }
+    // Only trigger on showValue change (driven by action)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showValue]);
 
   const handleValueText = (text: string) => {
     setValueText(text);
