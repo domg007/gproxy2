@@ -189,6 +189,10 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
             "/user/route-permissions",
             get(user::authz::route_permissions),
         )
+        .route(
+            "/user/change-password",
+            post(user::account::change_password),
+        )
         .layer(from_fn_with_state(state.clone(), user::audit::audit))
         .layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()
