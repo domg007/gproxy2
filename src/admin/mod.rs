@@ -1,6 +1,8 @@
 //! Admin control-plane: caller auth + session store + config CRUD
 //! invalidation helper.
 
+pub mod csrf;
+pub mod guard;
 pub mod login;
 pub mod session;
 

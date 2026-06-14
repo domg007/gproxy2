@@ -8,6 +8,7 @@ use http::StatusCode;
 #[derive(Debug)]
 pub enum ApiError {
     Unauthorized,
+    Forbidden(String),
     BadRequest(String),
     NotFound(String),
     Conflict(String),
@@ -19,6 +20,7 @@ impl ApiError {
     pub fn status(&self) -> StatusCode {
         match self {
             ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApiError::Forbidden(_) => StatusCode::FORBIDDEN,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
@@ -31,6 +33,7 @@ impl ApiError {
     pub fn message(&self) -> String {
         match self {
             ApiError::Unauthorized => "unauthorized".to_string(),
+            ApiError::Forbidden(m) => m.clone(),
             ApiError::BadRequest(m) | ApiError::NotFound(m) | ApiError::Conflict(m) => m.clone(),
             ApiError::Internal(cause) => {
                 tracing::error!(error = %cause, "admin api internal error");
@@ -44,6 +47,7 @@ impl ApiError {
     pub fn type_str(&self) -> &'static str {
         match self {
             ApiError::Unauthorized => "unauthorized",
+            ApiError::Forbidden(_) => "forbidden",
             ApiError::BadRequest(_) => "bad_request",
             ApiError::NotFound(_) => "not_found",
             ApiError::Conflict(_) => "conflict",
