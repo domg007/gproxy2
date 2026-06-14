@@ -27,6 +27,7 @@ import { Route as AppRoutesRouteIdRouteImport } from './routes/_app/routes/$rout
 import { Route as AppProvidersProviderIdRouteImport } from './routes/_app/providers/$providerId'
 import { Route as AppOrgsOrgIdRouteImport } from './routes/_app/orgs/$orgId'
 import { Route as PortalAccountUsageIndexRouteImport } from './routes/_portal/account/usage/index'
+import { Route as PortalAccountSecurityIndexRouteImport } from './routes/_portal/account/security/index'
 import { Route as PortalAccountLimitsIndexRouteImport } from './routes/_portal/account/limits/index'
 import { Route as PortalAccountKeysIndexRouteImport } from './routes/_portal/account/keys/index'
 
@@ -118,6 +119,12 @@ const PortalAccountUsageIndexRoute = PortalAccountUsageIndexRouteImport.update({
   path: '/account/usage/',
   getParentRoute: () => PortalRoute,
 } as any)
+const PortalAccountSecurityIndexRoute =
+  PortalAccountSecurityIndexRouteImport.update({
+    id: '/account/security/',
+    path: '/account/security/',
+    getParentRoute: () => PortalRoute,
+  } as any)
 const PortalAccountLimitsIndexRoute =
   PortalAccountLimitsIndexRouteImport.update({
     id: '/account/limits/',
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
   '/users/': typeof AppUsersIndexRoute
   '/account/keys/': typeof PortalAccountKeysIndexRoute
   '/account/limits/': typeof PortalAccountLimitsIndexRoute
+  '/account/security/': typeof PortalAccountSecurityIndexRoute
   '/account/usage/': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRoutesByTo {
@@ -168,6 +176,7 @@ export interface FileRoutesByTo {
   '/users': typeof AppUsersIndexRoute
   '/account/keys': typeof PortalAccountKeysIndexRoute
   '/account/limits': typeof PortalAccountLimitsIndexRoute
+  '/account/security': typeof PortalAccountSecurityIndexRoute
   '/account/usage': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRoutesById {
@@ -191,6 +200,7 @@ export interface FileRoutesById {
   '/_app/users/': typeof AppUsersIndexRoute
   '/_portal/account/keys/': typeof PortalAccountKeysIndexRoute
   '/_portal/account/limits/': typeof PortalAccountLimitsIndexRoute
+  '/_portal/account/security/': typeof PortalAccountSecurityIndexRoute
   '/_portal/account/usage/': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRouteTypes {
@@ -213,6 +223,7 @@ export interface FileRouteTypes {
     | '/users/'
     | '/account/keys/'
     | '/account/limits/'
+    | '/account/security/'
     | '/account/usage/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -233,6 +244,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/account/keys'
     | '/account/limits'
+    | '/account/security'
     | '/account/usage'
   id:
     | '__root__'
@@ -255,6 +267,7 @@ export interface FileRouteTypes {
     | '/_app/users/'
     | '/_portal/account/keys/'
     | '/_portal/account/limits/'
+    | '/_portal/account/security/'
     | '/_portal/account/usage/'
   fileRoutesById: FileRoutesById
 }
@@ -392,6 +405,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalAccountUsageIndexRouteImport
       parentRoute: typeof PortalRoute
     }
+    '/_portal/account/security/': {
+      id: '/_portal/account/security/'
+      path: '/account/security'
+      fullPath: '/account/security/'
+      preLoaderRoute: typeof PortalAccountSecurityIndexRouteImport
+      parentRoute: typeof PortalRoute
+    }
     '/_portal/account/limits/': {
       id: '/_portal/account/limits/'
       path: '/account/limits'
@@ -448,12 +468,14 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 interface PortalRouteChildren {
   PortalAccountKeysIndexRoute: typeof PortalAccountKeysIndexRoute
   PortalAccountLimitsIndexRoute: typeof PortalAccountLimitsIndexRoute
+  PortalAccountSecurityIndexRoute: typeof PortalAccountSecurityIndexRoute
   PortalAccountUsageIndexRoute: typeof PortalAccountUsageIndexRoute
 }
 
 const PortalRouteChildren: PortalRouteChildren = {
   PortalAccountKeysIndexRoute: PortalAccountKeysIndexRoute,
   PortalAccountLimitsIndexRoute: PortalAccountLimitsIndexRoute,
+  PortalAccountSecurityIndexRoute: PortalAccountSecurityIndexRoute,
   PortalAccountUsageIndexRoute: PortalAccountUsageIndexRoute,
 }
 
