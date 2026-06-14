@@ -79,7 +79,11 @@ pub async fn login(State(state): State<AppState>, request: Request) -> Response 
                     is_admin: user.is_admin,
                 },
             };
-            let cookie = session::set_cookie(&token, session::cookies_secure());
+            let cookie = session::set_cookie(
+                &token,
+                session::cookies_secure(),
+                !state.config.cors_origins.is_empty(),
+            );
             ([(SET_COOKIE, cookie)], Json(body)).into_response()
         }
         None => {
@@ -171,7 +175,10 @@ pub async fn logout(State(state): State<AppState>, headers: axum::http::HeaderMa
     {
         session::revoke(state.cache.as_ref(), tok).await;
     }
-    let cookie = session::clear_cookie(session::cookies_secure());
+    let cookie = session::clear_cookie(
+        session::cookies_secure(),
+        !state.config.cors_origins.is_empty(),
+    );
     ([(SET_COOKIE, cookie)], axum::http::StatusCode::NO_CONTENT).into_response()
 }
 

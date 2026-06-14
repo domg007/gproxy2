@@ -51,6 +51,7 @@ axum = { version = "0.8", features = ["http2", "json"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 # §16.2 overload protection: bounded in-flight concurrency + load-shed → 503.
 tower = { version = "0.5", default-features = false, features = ["util", "limit", "load-shed"] }
+tower-http = { version = "0.6", features = ["cors"] }
 clap = { version = "4", features = ["derive", "env"] }
 redis = { version = "1", features = ["tokio-comp", "connection-manager"], optional = true }
 sea-orm = { version = "2.0.0-rc.40", features = ["runtime-tokio-rustls", "sqlx-sqlite", "sqlx-postgres", "sqlx-mysql"], optional = true }
