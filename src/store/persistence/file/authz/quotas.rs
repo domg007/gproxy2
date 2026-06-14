@@ -43,7 +43,9 @@ pub(crate) async fn upsert(root: &Path, input: QuotaInput) -> anyhow::Result<Quo
                 row.scope = input.scope;
                 row.scope_id = input.scope_id;
                 row.quota_total = input.quota_total;
-                row.cost_used = input.cost_used;
+                // cost_used is billing-owned (accumulated via add_cost); an admin
+                // edit of an EXISTING quota must NOT clobber it. Keep row.cost_used.
+                // (The insert-with-id branch below still honors input for §18 import.)
                 row.updated_at = now;
                 row.clone()
             } else {

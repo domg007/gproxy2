@@ -72,7 +72,10 @@ pub async fn upsert(conn: &DatabaseConnection, input: QuotaInput) -> anyhow::Res
                 am.scope = Set(input.scope.as_str().to_owned());
                 am.scope_id = Set(input.scope_id);
                 am.quota_total = Set(input.quota_total.to_string());
-                am.cost_used = Set(input.cost_used.to_string());
+                // cost_used is billing-owned (accumulated via add_cost). An admin
+                // edit of an EXISTING quota must NOT clobber it — keep the stored
+                // value (am.cost_used stays Set to `existing` from `.into()`).
+                // Seeding/import (the insert branches below) still honors input.
                 am.updated_at = Set(now);
                 am.update(conn).await.map_err(conflict)?
             }
