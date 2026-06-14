@@ -133,3 +133,51 @@ async fn add_quota_cost_accumulates() {
         .expect("absent row is a no-op");
     assert!(fp.get_quota(Scope::Org, 999).await.expect("get").is_none());
 }
+
+/// Regression: editing an existing quota (e.g. changing `quota_total` from the
+/// admin UI) must NOT clobber the billing-accumulated `cost_used`, even when the
+/// request body carries a stale `cost_used`. Seeding (insert) still honors input.
+#[tokio::test]
+async fn quota_upsert_preserves_accumulated_cost_used() {
+    use rust_decimal::Decimal;
+
+    let (_dir, fp) = open().await;
+    let seeded = fp
+        .upsert_quota(QuotaInput {
+            id: None,
+            scope: Scope::User,
+            scope_id: 7,
+            quota_total: Decimal::from(100),
+            cost_used: Decimal::ZERO,
+        })
+        .await
+        .expect("seed quota");
+
+    // Billing accumulates cost.
+    fp.add_quota_cost(Scope::User, 7, Decimal::from(42))
+        .await
+        .expect("charge");
+
+    // Admin edits quota_total and sends a STALE cost_used=0 (the clobber case).
+    fp.upsert_quota(QuotaInput {
+        id: Some(seeded.id),
+        scope: Scope::User,
+        scope_id: 7,
+        quota_total: Decimal::from(250),
+        cost_used: Decimal::ZERO, // stale — must be ignored on update
+    })
+    .await
+    .expect("edit quota_total");
+
+    let q = fp
+        .get_quota(Scope::User, 7)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(q.quota_total, Decimal::from(250), "quota_total updated");
+    assert_eq!(
+        q.cost_used,
+        Decimal::from(42),
+        "cost_used preserved, not clobbered by the stale request body"
+    );
+}

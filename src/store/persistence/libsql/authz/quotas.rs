@@ -64,15 +64,17 @@ pub async fn upsert(client: &LibsqlClient, input: QuotaInput) -> anyhow::Result<
 
     let id = match input.id {
         Some(id) if get_by_id(client, id).await?.is_some() => {
+            // cost_used is billing-owned (accumulated via add_cost). Editing an
+            // EXISTING quota must NOT clobber it — omit it from the UPDATE. The
+            // INSERT branch below (seed/import to an absent id) still honors input.
             client
                 .execute(
-                    "UPDATE quotas SET scope=?, scope_id=?, quota_total=?, cost_used=?, updated_at=? \
+                    "UPDATE quotas SET scope=?, scope_id=?, quota_total=?, updated_at=? \
                      WHERE id=?",
                     &[
                         arg_text(input.scope.as_str()),
                         arg_integer(input.scope_id),
                         arg_text(&input.quota_total.to_string()),
-                        arg_text(&input.cost_used.to_string()),
                         arg_integer(now),
                         arg_integer(id),
                     ],
