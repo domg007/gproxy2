@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { upsertProvider, type Provider } from "@/api/providers";
 import { ApiError } from "@/api/http";
 import { CHANNELS } from "@/lib/channel-meta";
-import { JsonField, parseJsonText } from "@/components/form/json-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +12,9 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  SettingsFields, type SettingsState, initSettingsState, assembleSettings,
+} from "./settings-fields";
 
 interface ProviderFormProps {
   /** undefined = create */
@@ -24,7 +26,6 @@ const STRATEGIES = ["round_robin", "sticky"] as const;
 
 export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
   const { t } = useTranslation("providers");
-  const { t: tc } = useTranslation("common"); // json.invalid lives in common
   const queryClient = useQueryClient();
   const editing = provider !== undefined;
 
@@ -34,30 +35,44 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
   const [strategy, setStrategy] = useState(provider?.credential_strategy ?? "round_robin");
   const [proxyUrl, setProxyUrl] = useState(provider?.proxy_url ?? "");
   const [enabled, setEnabled] = useState(provider?.enabled ?? true);
-  const [settingsText, setSettingsText] = useState(
-    JSON.stringify(provider?.settings_json ?? {}, null, 2),
+  const [settings, setSettings] = useState<SettingsState>(() =>
+    initSettingsState(provider?.settings_json),
   );
-  const [tlsText, setTlsText] = useState(
-    provider?.tls_fingerprint == null ? "" : JSON.stringify(provider.tls_fingerprint, null, 2),
-  );
+  // TLS: track whether user has clicked "Clear" (only relevant when tls_fingerprint is set)
+  const [tlsCleared, setTlsCleared] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const hasTls = provider?.tls_fingerprint != null;
 
   const mutation = useMutation({
     mutationFn: () => {
-      const settings = parseJsonText(settingsText.trim() === "" ? "{}" : settingsText);
-      const tls = tlsText.trim() === "" ? { ok: true as const, value: null } : parseJsonText(tlsText);
       if (!name.trim()) throw new ApiError(0, "bad_request", t("form.required"));
-      if (!settings.ok || !tls.ok) throw new ApiError(0, "bad_request", tc("json.invalid"));
+      if (channel === "custom" && !settings.baseUrl.trim()) {
+        throw new ApiError(0, "bad_request", t("form.baseUrlRequired"));
+      }
+
+      const settings_json = assembleSettings(provider?.settings_json, settings, channel);
+
+      // tls_fingerprint semantics (backend: #[serde(default)] → absent == None == SQL NULL on UPDATE):
+      //   - To PRESERVE existing: re-send the current value
+      //   - To CLEAR existing: omit (absent → None → NULL)
+      //   - No existing value: omit (nothing to preserve or clear)
+      const tlsPayload: { tls_fingerprint?: unknown } = {};
+      if (hasTls && !tlsCleared) {
+        tlsPayload.tls_fingerprint = provider!.tls_fingerprint;
+      }
+      // if hasTls && tlsCleared: omit → backend sets NULL (clears)
+      // if !hasTls: omit → no change (was already NULL)
+
       return upsertProvider({
         id: provider?.id ?? null,
         name: name.trim(),
         channel,
         label: label.trim() === "" ? null : label.trim(),
-        settings_json: settings.value,
+        settings_json,
         credential_strategy: strategy,
         proxy_url: proxyUrl.trim() === "" ? null : proxyUrl.trim(),
-        // Omit when none — JSON null round-trips as Some(Value::Null) server-side.
-        ...(tls.value !== null ? { tls_fingerprint: tls.value } : {}),
+        ...tlsPayload,
         enabled,
       });
     },
@@ -90,7 +105,7 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
       </div>
       <div className="grid gap-2">
         <Label>{t("fields.channel")}</Label>
-        <Select value={channel} onValueChange={setChannel}>
+        <Select value={channel} onValueChange={(v) => { setChannel(v); setSettings(initSettingsState(provider?.settings_json)); }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {(["api_key", "oauth_tokens", "service_account", "github_token"] as const).map((family) => {
@@ -126,14 +141,32 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
         <Label htmlFor="p-proxy">{t("fields.proxyUrl")}</Label>
         <Input id="p-proxy" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} placeholder="socks5://… / http://…" />
       </div>
+
+      {/* Structured settings — no raw JSON */}
+      <SettingsFields
+        channel={channel}
+        state={settings}
+        onChange={(next) => setSettings((prev) => ({ ...prev, ...next }))}
+      />
+
+      {/* TLS fingerprint — status row, no JSON authoring */}
       <div className="grid gap-2">
-        <Label htmlFor="p-settings">{t("fields.settings")}</Label>
-        <JsonField id="p-settings" value={settingsText} onChange={setSettingsText} hint={t("form.settingsHint")} />
+        <Label>{t("fields.tlsProfile")}</Label>
+        {hasTls && !tlsCleared ? (
+          <div className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
+            <span className="flex-1 text-muted-foreground">{t("tls.custom")}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => setTlsCleared(true)}>
+              {t("tls.clear")}
+            </Button>
+          </div>
+        ) : (
+          <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+            {tlsCleared ? t("tls.builtin") : t("tls.builtin")}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">{t("tls.hint")}</p>
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="p-tls">{t("fields.tlsFingerprint")}</Label>
-        <JsonField id="p-tls" value={tlsText} onChange={setTlsText} rows={3} hint={t("form.tlsHint")} />
-      </div>
+
       <div className="flex items-center justify-between">
         <Label htmlFor="p-enabled">{t("fields.enabled")}</Label>
         <Switch id="p-enabled" checked={enabled} onCheckedChange={setEnabled} />
