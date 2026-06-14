@@ -9,6 +9,7 @@ pub mod login;
 pub mod middleware;
 pub mod update;
 pub mod usage;
+pub mod user;
 
 use std::net::IpAddr;
 
@@ -16,7 +17,7 @@ use axum::Router;
 use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::middleware::from_fn_with_state;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderValue;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -169,11 +170,36 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         // Audit middleware runs INNER to require_admin (added first = innermost),
         // so the AdminUser extension is set when it records a mutating request.
         .layer(from_fn_with_state(state.clone(), audit::audit))
-        .layer(from_fn_with_state(state, middleware::require_admin));
+        .layer(from_fn_with_state(state.clone(), middleware::require_admin));
+    // /user/* portal routes — all gated by require_session.
+    // Audit runs INNER to require_session (added first = innermost) so that
+    // SessionUser is already in the extensions when the audit middleware fires.
+    let user_protected = Router::new()
+        .route("/user/me", get(user::me::me))
+        .route("/user/keys", get(user::keys::list).post(user::keys::create))
+        .route(
+            "/user/keys/{id}",
+            patch(user::keys::update).delete(user::keys::delete),
+        )
+        .route("/user/usage", get(user::usage::usage))
+        .route("/user/usage-rollups", get(user::usage::rollups))
+        .route("/user/quota", get(user::authz::quota))
+        .route("/user/rate-limits", get(user::authz::rate_limits))
+        .route(
+            "/user/route-permissions",
+            get(user::authz::route_permissions),
+        )
+        .route(
+            "/user/change-password",
+            post(user::account::change_password),
+        )
+        .layer(from_fn_with_state(state.clone(), user::audit::audit))
+        .layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()
         .route("/admin/login", post(auth::login))
         .route("/admin/logout", post(auth::logout))
-        .merge(protected);
+        .merge(protected)
+        .merge(user_protected);
     if !cors_origins.is_empty() {
         router = router.layer(build_cors_layer(&cors_origins));
     }

@@ -393,11 +393,14 @@ pub trait PersistenceBackend: Send + Sync {
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup>;
 
     /// List rollup buckets for `granularity` with `bucket_start` in `[from, to]`.
+    /// When `user_id` is `Some(v)` only buckets whose `user_id == v` are returned;
+    /// `None` returns all buckets (admin / billing paths).
     async fn list_usage_rollups(
         &self,
         granularity: &str,
         from: i64,
         to: i64,
+        user_id: Option<i64>,
     ) -> anyhow::Result<Vec<UsageRollup>>;
 
     /// §15.3: a persistence-derived metrics snapshot (token/request totals from

@@ -93,7 +93,7 @@ pub async fn list_usage_rollups(
     Ok(Json(
         state
             .persistence
-            .list_usage_rollups(&q.granularity, q.from, q.to)
+            .list_usage_rollups(&q.granularity, q.from, q.to, None)
             .await
             .map_err(internal)?,
     ))

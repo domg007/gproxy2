@@ -126,7 +126,7 @@ async fn verify_admin(state: &AppState, req: &LoginRequest) -> Option<User> {
         .get_user_by_name(&req.username)
         .await
         .ok()??;
-    if !user.enabled || !user.is_admin {
+    if !user.enabled {
         return None;
     }
     let hash = user.password.as_deref()?;

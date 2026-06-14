@@ -53,6 +53,19 @@ pub async fn authenticate_admin(
     })
 }
 
+/// Resolve the portal session identity from the cookie only (user keys are proxy
+/// credentials, NOT a portal login). Admits any enabled user.
+pub async fn authenticate_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Option<session::SessionUser> {
+    let token = headers
+        .get(COOKIE)
+        .and_then(|h| h.to_str().ok())
+        .and_then(session::parse_cookie)?;
+    session::validate_session(state.cache.as_ref(), state.persistence.as_ref(), token).await
+}
+
 /// After a config mutation: tell peers to reload — version stamp + pub/sub
 /// (see [`invalidation::broadcast`](crate::app::invalidation::broadcast)) —
 /// and reload locally now (so this instance serves the change immediately).

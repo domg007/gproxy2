@@ -175,7 +175,7 @@ mod tests {
         // Rollups counted exactly once per granularity.
         for gran in ["hour", "day"] {
             let rollups = db
-                .list_usage_rollups(gran, 0, i64::MAX)
+                .list_usage_rollups(gran, 0, i64::MAX, None)
                 .await
                 .expect("rollups");
             assert_eq!(rollups.len(), 1, "{gran}");
