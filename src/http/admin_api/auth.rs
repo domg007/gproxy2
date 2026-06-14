@@ -197,7 +197,7 @@ fn too_many_requests() -> ApiError {
 ///
 /// The per-USER throttle (`loginfail:user:{name}`) is the primary brute-force
 /// cap and is unaffected by IP forging; this is defense-in-depth.
-fn edge_client_ip(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn edge_client_ip(headers: &HeaderMap) -> Option<String> {
     fn single(headers: &HeaderMap, name: &str) -> Option<String> {
         headers
             .get(name)

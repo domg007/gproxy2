@@ -389,3 +389,6 @@ include!("tests_portal.rs");
 
 // Login-flows (edge-safe) + explicit 501 degradations (B6.3 Task 4).
 include!("tests_login_flows.rs");
+
+// Edge mutation-audit parity (B6.4).
+include!("tests_audit.rs");
