@@ -183,6 +183,12 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
         )
         .route("/user/usage", get(user::usage::usage))
         .route("/user/usage-rollups", get(user::usage::rollups))
+        .route("/user/quota", get(user::authz::quota))
+        .route("/user/rate-limits", get(user::authz::rate_limits))
+        .route(
+            "/user/route-permissions",
+            get(user::authz::route_permissions),
+        )
         .layer(from_fn_with_state(state.clone(), user::audit::audit))
         .layer(from_fn_with_state(state, middleware::require_session));
     let mut router = Router::new()
