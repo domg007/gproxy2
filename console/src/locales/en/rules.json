@@ -66,7 +66,8 @@
     "modeOptions": {
       "override": "Override",
       "merge": "Merge"
-    }
+    },
+    "noTtl": "No TTL"
   },
   "operation": {
     "list_models": "List Models",
@@ -97,7 +98,8 @@
     "add": "Add Routing Rule",
     "empty": "No routing rules defined for this provider.",
     "deleteConfirm": "Delete this routing rule?",
-    "legacy": "Legacy"
+    "legacy": "Legacy",
+    "inherit": "— inherit —"
   },
   "providerRuleSet": {
     "ruleSet": "Rule Set",
@@ -124,5 +126,14 @@
     "configHeaderNameRequired": "Header name is required",
     "configInvalid": "Configuration has invalid JSON",
     "filterJsonInvalid": "Filter operation keys must be valid JSON"
+  },
+  "protocolKind": {
+    "open_ai_responses": "OpenAI Responses",
+    "open_ai_chat_completions": "OpenAI Chat Completions",
+    "claude_messages": "Claude Messages",
+    "gemini_generate_content": "Gemini Generate Content",
+    "open_ai": "OpenAI",
+    "claude": "Claude",
+    "gemini": "Gemini"
   }
 }

@@ -21,6 +21,10 @@ interface Props {
 type Op = typeof OPERATIONS[number];
 type Kind = typeof KINDS[number];
 
+// Radix Select forbids an empty-string item value; use a sentinel for the
+// "inherit" (null) choice on the optional dest_* selects and map it back to "".
+const INHERIT = "__inherit__";
+
 /** Returns OPERATIONS ∪ {current} so a legacy value isn't silently dropped. */
 function operationOptions(current?: string | null): string[] {
   const set = [...OPERATIONS] as string[];
@@ -121,7 +125,7 @@ export function RoutingRuleForm({ providerId, rule, onSaved }: Props) {
               <SelectItem key={k} value={k}>
                 {isLegacy(k, KINDS)
                   ? `(${t("routingRule.legacy")}) ${k}`
-                  : t(`kind.${k as Kind}`)}
+                  : t(`protocolKind.${k as Kind}`)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -144,10 +148,10 @@ export function RoutingRuleForm({ providerId, rule, onSaved }: Props) {
         <>
           <div className="grid gap-1">
             <Label htmlFor="rr-dest-op">{t("routingRule.destOperation")}</Label>
-            <Select value={destOperation} onValueChange={setDestOperation}>
-              <SelectTrigger id="rr-dest-op"><SelectValue placeholder="— inherit —" /></SelectTrigger>
+            <Select value={destOperation || INHERIT} onValueChange={(v) => setDestOperation(v === INHERIT ? "" : v)}>
+              <SelectTrigger id="rr-dest-op"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— inherit —</SelectItem>
+                <SelectItem value={INHERIT}>{t("routingRule.inherit")}</SelectItem>
                 {destOpOptions.map((op) => (
                   <SelectItem key={op} value={op}>
                     {isLegacy(op, OPERATIONS)
@@ -161,15 +165,15 @@ export function RoutingRuleForm({ providerId, rule, onSaved }: Props) {
 
           <div className="grid gap-1">
             <Label htmlFor="rr-dest-kind">{t("routingRule.destKind")}</Label>
-            <Select value={destKind} onValueChange={setDestKind}>
-              <SelectTrigger id="rr-dest-kind"><SelectValue placeholder="— inherit —" /></SelectTrigger>
+            <Select value={destKind || INHERIT} onValueChange={(v) => setDestKind(v === INHERIT ? "" : v)}>
+              <SelectTrigger id="rr-dest-kind"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— inherit —</SelectItem>
+                <SelectItem value={INHERIT}>{t("routingRule.inherit")}</SelectItem>
                 {destKOptions.map((k) => (
                   <SelectItem key={k} value={k}>
                     {isLegacy(k, KINDS)
                       ? `(${t("routingRule.legacy")}) ${k}`
-                      : t(`kind.${k as Kind}`)}
+                      : t(`protocolKind.${k as Kind}`)}
                   </SelectItem>
                 ))}
               </SelectContent>

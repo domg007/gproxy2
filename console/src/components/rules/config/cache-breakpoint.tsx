@@ -7,6 +7,9 @@ import {
 
 interface CacheBreakpointValue { target?: string; index?: number; ttl?: string }
 
+// Radix Select forbids an empty-string item value; sentinel for the "no TTL" choice.
+const TTL_NONE = "__none__";
+
 interface Props {
   value: CacheBreakpointValue;
   onChange: (v: unknown) => void;
@@ -46,12 +49,12 @@ export function CacheBreakpointFields({ value, onChange }: Props) {
       <div className="grid gap-1">
         <Label htmlFor="cfg-cb-ttl">{t("config.ttl")}</Label>
         <Select
-          value={value.ttl ?? ""}
-          onValueChange={(v) => onChange({ ...value, ttl: v || undefined })}
+          value={value.ttl ?? TTL_NONE}
+          onValueChange={(v) => onChange({ ...value, ttl: v === TTL_NONE ? undefined : v })}
         >
-          <SelectTrigger id="cfg-cb-ttl"><SelectValue placeholder="no TTL" /></SelectTrigger>
+          <SelectTrigger id="cfg-cb-ttl"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">no TTL</SelectItem>
+            <SelectItem value={TTL_NONE}>{t("config.noTtl")}</SelectItem>
             <SelectItem value="5m">5m</SelectItem>
             <SelectItem value="1h">1h</SelectItem>
           </SelectContent>

@@ -66,7 +66,8 @@
     "modeOptions": {
       "override": "覆盖",
       "merge": "合并"
-    }
+    },
+    "noTtl": "无 TTL"
   },
   "operation": {
     "list_models": "列出模型",
@@ -97,7 +98,8 @@
     "add": "添加路由规则",
     "empty": "该供应商暂无路由规则。",
     "deleteConfirm": "确认删除此路由规则？",
-    "legacy": "旧版"
+    "legacy": "旧版",
+    "inherit": "— 继承 —"
   },
   "providerRuleSet": {
     "ruleSet": "规则集",
@@ -124,5 +126,14 @@
     "configHeaderNameRequired": "请求头名称不能为空",
     "configInvalid": "配置 JSON 无效",
     "filterJsonInvalid": "操作键过滤必须为有效 JSON"
+  },
+  "protocolKind": {
+    "open_ai_responses": "OpenAI Responses",
+    "open_ai_chat_completions": "OpenAI Chat Completions",
+    "claude_messages": "Claude Messages",
+    "gemini_generate_content": "Gemini Generate Content",
+    "open_ai": "OpenAI",
+    "claude": "Claude",
+    "gemini": "Gemini"
   }
 }

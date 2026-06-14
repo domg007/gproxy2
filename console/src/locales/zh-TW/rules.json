@@ -66,7 +66,8 @@
     "modeOptions": {
       "override": "覆寫",
       "merge": "合併"
-    }
+    },
+    "noTtl": "無 TTL"
   },
   "operation": {
     "list_models": "列出模型",
@@ -97,7 +98,8 @@
     "add": "新增路由規則",
     "empty": "此供應商尚無路由規則。",
     "deleteConfirm": "確認刪除此路由規則？",
-    "legacy": "舊版"
+    "legacy": "舊版",
+    "inherit": "— 繼承 —"
   },
   "providerRuleSet": {
     "ruleSet": "規則集",
@@ -124,5 +126,14 @@
     "configHeaderNameRequired": "標頭名稱不能為空",
     "configInvalid": "設定 JSON 無效",
     "filterJsonInvalid": "操作鍵過濾必須為有效 JSON"
+  },
+  "protocolKind": {
+    "open_ai_responses": "OpenAI Responses",
+    "open_ai_chat_completions": "OpenAI Chat Completions",
+    "claude_messages": "Claude Messages",
+    "gemini_generate_content": "Gemini Generate Content",
+    "open_ai": "OpenAI",
+    "claude": "Claude",
+    "gemini": "Gemini"
   }
 }

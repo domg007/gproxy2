@@ -21,7 +21,7 @@ function opLabel(op: string, t: (k: string) => string): string {
 }
 
 function kindLabel(k: string, t: (key: string) => string): string {
-  return (KINDS as readonly string[]).includes(k) ? t(`kind.${k as Kind}`) : k;
+  return (KINDS as readonly string[]).includes(k) ? t(`protocolKind.${k as Kind}`) : k;
 }
 
 function destLabel(op: string | null, k: string | null, t: (key: string) => string): string {
