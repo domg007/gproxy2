@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { ProviderForm } from "@/components/providers/provider-form";
 import { CredentialsTab } from "@/components/providers/credentials-tab";
 import { ModelsTab } from "@/components/providers/models-tab";
+import { RoutingRulesTab } from "@/components/providers/routing-rules-tab";
+import { ProviderRuleSetsTab } from "@/components/providers/provider-rule-sets-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +29,7 @@ function ProviderDetailPage() {
   const { providerId } = Route.useParams();
   const id = Number(providerId);
   const { t } = useTranslation("providers");
+  const { t: tRules } = useTranslation("rules");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: provider } = useSuspenseQuery(providerQuery(id));
@@ -63,6 +66,8 @@ function ProviderDetailPage() {
           <TabsTrigger value="settings">{t("tabs.settings")}</TabsTrigger>
           <TabsTrigger value="credentials">{t("tabs.credentials")}</TabsTrigger>
           <TabsTrigger value="models">{t("tabs.models")}</TabsTrigger>
+          <TabsTrigger value="routing-rules">{tRules("tabs.routingRules")}</TabsTrigger>
+          <TabsTrigger value="rule-sets">{tRules("tabs.ruleSets")}</TabsTrigger>
         </TabsList>
         <TabsContent value="settings" className="max-w-2xl pt-2">
           <ProviderForm provider={provider} onSaved={() => void 0} />
@@ -72,6 +77,12 @@ function ProviderDetailPage() {
         </TabsContent>
         <TabsContent value="models" className="pt-2">
           <ModelsTab provider={provider} />
+        </TabsContent>
+        <TabsContent value="routing-rules" className="pt-2">
+          <RoutingRulesTab providerId={id} />
+        </TabsContent>
+        <TabsContent value="rule-sets" className="pt-2">
+          <ProviderRuleSetsTab providerId={id} />
         </TabsContent>
       </Tabs>
 
