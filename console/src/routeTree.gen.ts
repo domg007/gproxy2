@@ -26,6 +26,7 @@ import { Route as AppRulesRuleSetIdRouteImport } from './routes/_app/rules/$rule
 import { Route as AppRoutesRouteIdRouteImport } from './routes/_app/routes/$routeId'
 import { Route as AppProvidersProviderIdRouteImport } from './routes/_app/providers/$providerId'
 import { Route as AppOrgsOrgIdRouteImport } from './routes/_app/orgs/$orgId'
+import { Route as PortalAccountUsageIndexRouteImport } from './routes/_portal/account/usage/index'
 import { Route as PortalAccountKeysIndexRouteImport } from './routes/_portal/account/keys/index'
 
 const LoginRoute = LoginRouteImport.update({
@@ -111,6 +112,11 @@ const AppOrgsOrgIdRoute = AppOrgsOrgIdRouteImport.update({
   path: '/orgs/$orgId',
   getParentRoute: () => AppRoute,
 } as any)
+const PortalAccountUsageIndexRoute = PortalAccountUsageIndexRouteImport.update({
+  id: '/account/usage/',
+  path: '/account/usage/',
+  getParentRoute: () => PortalRoute,
+} as any)
 const PortalAccountKeysIndexRoute = PortalAccountKeysIndexRouteImport.update({
   id: '/account/keys/',
   path: '/account/keys/',
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/usage/': typeof AppUsageIndexRoute
   '/users/': typeof AppUsersIndexRoute
   '/account/keys/': typeof PortalAccountKeysIndexRoute
+  '/account/usage/': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
@@ -152,6 +159,7 @@ export interface FileRoutesByTo {
   '/usage': typeof AppUsageIndexRoute
   '/users': typeof AppUsersIndexRoute
   '/account/keys': typeof PortalAccountKeysIndexRoute
+  '/account/usage': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -173,6 +181,7 @@ export interface FileRoutesById {
   '/_app/usage/': typeof AppUsageIndexRoute
   '/_app/users/': typeof AppUsersIndexRoute
   '/_portal/account/keys/': typeof PortalAccountKeysIndexRoute
+  '/_portal/account/usage/': typeof PortalAccountUsageIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -193,6 +202,7 @@ export interface FileRouteTypes {
     | '/usage/'
     | '/users/'
     | '/account/keys/'
+    | '/account/usage/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/users'
     | '/account/keys'
+    | '/account/usage'
   id:
     | '__root__'
     | '/_app'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/_app/usage/'
     | '/_app/users/'
     | '/_portal/account/keys/'
+    | '/_portal/account/usage/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -360,6 +372,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOrgsOrgIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_portal/account/usage/': {
+      id: '/_portal/account/usage/'
+      path: '/account/usage'
+      fullPath: '/account/usage/'
+      preLoaderRoute: typeof PortalAccountUsageIndexRouteImport
+      parentRoute: typeof PortalRoute
+    }
     '/_portal/account/keys/': {
       id: '/_portal/account/keys/'
       path: '/account/keys'
@@ -408,10 +427,12 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 interface PortalRouteChildren {
   PortalAccountKeysIndexRoute: typeof PortalAccountKeysIndexRoute
+  PortalAccountUsageIndexRoute: typeof PortalAccountUsageIndexRoute
 }
 
 const PortalRouteChildren: PortalRouteChildren = {
   PortalAccountKeysIndexRoute: PortalAccountKeysIndexRoute,
+  PortalAccountUsageIndexRoute: PortalAccountUsageIndexRoute,
 }
 
 const PortalRouteWithChildren =

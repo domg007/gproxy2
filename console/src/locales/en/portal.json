@@ -37,6 +37,7 @@
     "latency": "Latency",
     "loadMore": "Load more",
     "route": "Route",
+    "clearFilters": "Clear filters",
     "preset": {
       "1h": "Last hour",
       "24h": "Last 24 h",
