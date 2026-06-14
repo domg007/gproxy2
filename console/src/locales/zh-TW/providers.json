@@ -38,7 +38,18 @@
     "add": "新增憑證", "oauth": "OAuth 連線", "manual": "手動新增",
     "empty": "尚無憑證。", "edit": "編輯憑證",
     "secretKept": "留空則保留已儲存的金鑰。",
-    "hasSecret": "已存金鑰", "noSecret": "無金鑰", "unnamed": "憑證 #{{id}}"
+    "hasSecret": "已存金鑰", "noSecret": "無金鑰", "unnamed": "憑證 #{{id}}",
+    "bulk": {
+      "button": "批量匯入",
+      "title": "批量匯入憑證",
+      "textareaLabel": "API Key 清單（每行一個）",
+      "textareaHint": "每行一個 key。可選格式：key,label 或 key<Tab>label。以 # 開頭的行忽略。",
+      "import": "匯入 {{count}} 個",
+      "importing": "匯入中 {{done}}/{{total}}…",
+      "summary": "已建立 {{created}} 個，失敗 {{failed}} 個，跳過重複 {{dupes}} 個",
+      "close": "關閉",
+      "empty": "沒有有效行"
+    }
   },
   "secret": {
     "apiKey": "API Key", "saJson": "服務帳號 JSON", "tokensJson": "Token JSON",

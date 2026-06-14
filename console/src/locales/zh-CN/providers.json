@@ -38,7 +38,18 @@
     "add": "添加凭证", "oauth": "OAuth 接入", "manual": "手动添加",
     "empty": "还没有凭证。", "edit": "编辑凭证",
     "secretKept": "留空则保留已存储的密钥。",
-    "hasSecret": "已存密钥", "noSecret": "无密钥", "unnamed": "凭证 #{{id}}"
+    "hasSecret": "已存密钥", "noSecret": "无密钥", "unnamed": "凭证 #{{id}}",
+    "bulk": {
+      "button": "批量导入",
+      "title": "批量导入凭证",
+      "textareaLabel": "API Key 列表（每行一个）",
+      "textareaHint": "每行一个 key。可选格式：key,label 或 key<Tab>label。以 # 开头的行忽略。",
+      "import": "导入 {{count}} 个",
+      "importing": "导入中 {{done}}/{{total}}…",
+      "summary": "已创建 {{created}} 个，失败 {{failed}} 个，跳过重复 {{dupes}} 个",
+      "close": "关闭",
+      "empty": "没有有效行"
+    }
   },
   "secret": {
     "apiKey": "API Key", "saJson": "服务账号 JSON", "tokensJson": "Token JSON",

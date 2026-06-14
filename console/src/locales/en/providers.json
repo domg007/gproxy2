@@ -38,7 +38,18 @@
     "add": "Add credential", "oauth": "Connect via OAuth", "manual": "Add manually",
     "empty": "No credentials yet.", "edit": "Edit credential",
     "secretKept": "Leave empty to keep the stored secret.",
-    "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}"
+    "hasSecret": "secret stored", "noSecret": "no secret", "unnamed": "credential #{{id}}",
+    "bulk": {
+      "button": "Bulk import",
+      "title": "Bulk import credentials",
+      "textareaLabel": "API keys (one per line)",
+      "textareaHint": "One key per line. Optional: key,label or key<TAB>label. Lines starting with # are ignored.",
+      "import": "Import {{count}} key(s)",
+      "importing": "Importing {{done}}/{{total}}…",
+      "summary": "Created {{created}}, failed {{failed}}, skipped {{dupes}} duplicate(s)",
+      "close": "Close",
+      "empty": "No valid lines"
+    }
   },
   "secret": {
     "apiKey": "API key", "saJson": "Service-account JSON", "tokensJson": "Token JSON",
