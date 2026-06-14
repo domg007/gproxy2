@@ -364,6 +364,9 @@ mod tests {
             max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
             max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
             trusted_proxies: Vec::new(),
+            update_repo: None,
+            update_channel: "releases".to_string(),
+            update_data_dir: dir.path().to_path_buf(),
         });
         let cache: Arc<dyn crate::store::cache::CacheBackend> =
             Arc::new(crate::store::cache::MemoryCache::new());

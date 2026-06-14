@@ -71,6 +71,20 @@ struct Cli {
     )]
     trusted_proxies: Vec<std::net::IpAddr>,
 
+    /// §19 self-update: GitHub owner/repo for admin-triggered updates. Omit to
+    /// disable self-update (admin check/apply will return 409).
+    #[arg(long, env = "GPROXY_UPDATE_REPO")]
+    update_repo: Option<String>,
+
+    /// §19.3 channel for admin-triggered self-update (`releases` or `staging`).
+    ///
+    /// Uses a DISTINCT env var (`GPROXY_UPDATE_CHANNEL_SERVE`) to avoid a clap
+    /// collision with the `update` subcommand's `GPROXY_UPDATE_CHANNEL` env —
+    /// both map different args but clap would error if the same env key appeared
+    /// in two different arg definitions within the same parse call.
+    #[arg(long, env = "GPROXY_UPDATE_CHANNEL_SERVE", default_value = "releases")]
+    update_channel: gproxy::selfupdate::Channel,
+
     /// Admin username for the first-boot bootstrap / credential override (§14.2).
     #[arg(long, env = "GPROXY_ADMIN_USER", default_value = "admin")]
     admin_user: String,
@@ -155,6 +169,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let cache_cfg = CacheConfig::from_url(cli.redis_url);
+    // Clone data_dir BEFORE from_parts moves it, so update_data_dir can also
+    // refer to the same directory (self-update stages under <data_dir>/.update).
+    let update_data_dir = cli.data_dir.clone();
     let persistence_cfg = PersistenceConfig::from_parts(cli.persistence, cli.data_dir, cli.dsn)?;
     let upstream_cfg = UpstreamConfig::from_proxy_url(cli.upstream_proxy_url);
 
@@ -168,6 +185,12 @@ async fn main() -> anyhow::Result<()> {
         max_attempts: cli.max_attempts,
         max_in_flight: cli.max_in_flight,
         trusted_proxies: cli.trusted_proxies,
+        update_repo: cli.update_repo,
+        update_channel: match cli.update_channel {
+            gproxy::selfupdate::Channel::Releases => "releases".to_string(),
+            gproxy::selfupdate::Channel::Staging => "staging".to_string(),
+        },
+        update_data_dir,
     });
 
     let bind = config.bind_addr()?;
