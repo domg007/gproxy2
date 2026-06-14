@@ -1,6 +1,6 @@
 {
   "app": { "name": "gproxy" },
-  "nav": { "dashboard": "Dashboard", "providers": "Providers", "routes": "Routes", "orgs": "Organizations", "users": "Users", "usage": "Usage", "rules": "Rules", "settings": "Settings", "title": "Navigation", "openMenu": "Open menu" },
+  "nav": { "dashboard": "Dashboard", "providers": "Providers", "routes": "Routes", "orgs": "Organizations", "users": "Users", "usage": "Usage", "rules": "Rules", "settings": "Settings", "update": "Updates", "title": "Navigation", "openMenu": "Open menu" },
   "actions": { "cancel": "Cancel", "save": "Save", "delete": "Delete", "deleted": "Deleted", "edit": "Edit", "close": "Close", "copy": "Copy", "copied": "Copied" },
   "login": {
     "title": "Sign in to gproxy",

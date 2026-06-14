@@ -144,6 +144,22 @@ pub struct RuntimeConfig {
     /// loopback (always trusted). A connection from any other peer has its
     /// forwarding headers ignored — the peer IS the client.
     pub trusted_proxies: Vec<std::net::IpAddr>,
+    /// §19 self-update: GitHub `owner/repo` hosting the signed manifest +
+    /// release artifacts. `None` = self-update disabled (admin check/apply → 409).
+    pub update_repo: Option<String>,
+    /// §19.3 release channel tracked by admin self-update.
+    ///
+    /// Stored as `String` ("releases" | "staging") rather than
+    /// `crate::selfupdate::Channel` because the `selfupdate` module is
+    /// `#[cfg(not(target_arch = "wasm32"))]` in `lib.rs` — the module is
+    /// entirely absent under `wasm32-unknown-unknown`, so the enum type is not
+    /// visible there.  The handler (Task 2) will parse this into `Channel`
+    /// on the native path.  Valid values: "releases" (default), "staging".
+    pub update_channel: String,
+    /// Directory under which self-update stages downloads (`<dir>/.update`, §19.5).
+    /// Sourced from `--data-dir` (always set; default `./data`) so the `db`
+    /// persistence backend also has a writable staging dir.
+    pub update_data_dir: std::path::PathBuf,
 }
 
 /// Default per-request failover attempt cap (`GPROXY_MAX_ATTEMPTS`).
@@ -195,6 +211,9 @@ mod tests {
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             max_in_flight: DEFAULT_MAX_IN_FLIGHT,
             trusted_proxies: Vec::new(),
+            update_repo: None,
+            update_channel: "releases".to_string(),
+            update_data_dir: PathBuf::from("./data"),
         }
     }
 
