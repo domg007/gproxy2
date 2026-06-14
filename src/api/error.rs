@@ -16,6 +16,9 @@ pub enum ApiError {
     /// 429 Too Many Requests. The inner string is the `Retry-After` value in
     /// seconds (e.g. "60"). Used by the login throttle.
     TooManyRequests(String),
+    /// 501 Not Implemented. Used for endpoints that are intentionally absent on
+    /// the edge build (e.g. cookie-login, self-update, credential-usage).
+    NotImplemented(String),
 }
 
 impl ApiError {
@@ -29,6 +32,7 @@ impl ApiError {
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            ApiError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
         }
     }
 
@@ -44,6 +48,7 @@ impl ApiError {
                 "internal error".to_string()
             }
             ApiError::TooManyRequests(_) => "too many login attempts".to_string(),
+            ApiError::NotImplemented(m) => m.clone(),
         }
     }
 
@@ -58,6 +63,7 @@ impl ApiError {
             ApiError::Conflict(_) => "conflict",
             ApiError::Internal(_) => "internal",
             ApiError::TooManyRequests(_) => "too_many_requests",
+            ApiError::NotImplemented(_) => "not_implemented",
         }
     }
 
