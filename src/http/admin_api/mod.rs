@@ -17,6 +17,7 @@ pub mod crud;
 pub(crate) mod nested;
 pub(crate) mod observability;
 pub(crate) mod settings;
+pub(crate) mod special;
 
 use bytes::Bytes;
 use http::request::Parts;
@@ -158,7 +159,15 @@ pub async fn dispatch(
         return Some(r);
     }
 
-    // 6. Identity endpoints.
+    // 6. Special admin CRUD (user-keys / users / credentials) with server-side
+    //    crypto: key gen + seal, password hash, secret seal, redaction.
+    //    Must come BEFORE the identity arm (step 7) and AFTER nested (step 2)
+    //    so the 4-seg `users/{uid}/keys` arm is evaluated before `users/{id}`.
+    if let Some(r) = special::dispatch(state, parts, body).await {
+        return Some(r);
+    }
+
+    // 7. Identity endpoints.
     let r = match (&parts.method, segs.as_slice()) {
         (&Method::GET, ["admin", "me"]) => admin_me(state, parts).await,
         (&Method::GET, ["user", "me"]) => user_me(state, parts).await,
