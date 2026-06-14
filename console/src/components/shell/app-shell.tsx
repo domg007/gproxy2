@@ -1,11 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AreaSwitcher } from "@/components/shell/area-switcher";
 import { LocaleControls } from "@/components/locale-controls";
-import { NavList } from "@/components/shell/nav";
+import { NavList, NAV_ITEMS, type NavItem } from "@/components/shell/nav";
 import { UserMenu } from "@/components/shell/user-menu";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+
+type ShellFrom = "/_app" | "/_portal";
 
 function Brand({ compact }: { compact?: boolean }) {
   const { t } = useTranslation();
@@ -19,7 +22,15 @@ function Brand({ compact }: { compact?: boolean }) {
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  navItems = NAV_ITEMS,
+  contextFrom = "/_app",
+}: {
+  children: ReactNode;
+  navItems?: NavItem[];
+  contextFrom?: ShellFrom;
+}) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { t } = useTranslation();
   return (
@@ -28,7 +39,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="sticky top-0 hidden h-svh w-14 shrink-0 flex-col border-r bg-background md:flex xl:w-60">
         <Brand compact />
         <div className="flex-1 overflow-y-auto py-2">
-          <NavList compact />
+          <NavList items={navItems} compact />
         </div>
         <div className="border-t p-2 text-center text-[10px] text-muted-foreground xl:text-left xl:px-4">
           <span className="hidden xl:inline">v{__APP_VERSION__} · {__APP_COMMIT__}</span>
@@ -51,11 +62,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               </SheetHeader>
               <Brand />
               <div className="py-2">
-                <NavList onNavigate={() => setDrawerOpen(false)} />
+                <NavList items={navItems} onNavigate={() => setDrawerOpen(false)} />
               </div>
             </SheetContent>
           </Sheet>
           <div className="flex-1" />
+          <AreaSwitcher contextFrom={contextFrom} />
           <LocaleControls />
           <UserMenu />
         </header>

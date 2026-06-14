@@ -3,9 +3,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
-import { createFileRoute, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
+import { createFileRoute, isRedirect, redirect, useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { login, sessionQuery } from "@/api/auth";
+import { portalSessionQuery } from "@/api/portal";
 import { ApiError } from "@/api/http";
 import { LocaleControls } from "@/components/locale-controls";
 import { Button } from "@/components/ui/button";
@@ -15,12 +16,21 @@ import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/login")({
   beforeLoad: async ({ context }) => {
+    // Admin session: already signed in as admin → go to admin console
     try {
       await context.queryClient.ensureQueryData(sessionQuery);
-    } catch {
-      return; // not signed in — show the login page
+      throw redirect({ to: "/" });
+    } catch (e) {
+      if (isRedirect(e)) throw e;
     }
-    throw redirect({ to: "/" });
+    // Portal session: signed in as non-admin → go to portal
+    try {
+      await context.queryClient.ensureQueryData(portalSessionQuery);
+      throw redirect({ to: "/account/keys" });
+    } catch (e) {
+      if (isRedirect(e)) throw e;
+    }
+    // Neither session valid — show login page
   },
   component: LoginPage,
 });
@@ -46,7 +56,7 @@ function LoginPage() {
     mutationFn: (values: FormValues) => login(values.username, values.password),
     onSuccess: (data) => {
       queryClient.setQueryData(sessionQuery.queryKey, data.user);
-      void navigate({ to: "/" });
+      void navigate({ to: data.user.is_admin ? "/" : "/account/keys" });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 429) {

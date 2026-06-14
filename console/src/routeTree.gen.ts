@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PortalRouteImport } from './routes/_portal'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppUsersIndexRouteImport } from './routes/_app/users/index'
@@ -25,10 +26,15 @@ import { Route as AppRulesRuleSetIdRouteImport } from './routes/_app/rules/$rule
 import { Route as AppRoutesRouteIdRouteImport } from './routes/_app/routes/$routeId'
 import { Route as AppProvidersProviderIdRouteImport } from './routes/_app/providers/$providerId'
 import { Route as AppOrgsOrgIdRouteImport } from './routes/_app/orgs/$orgId'
+import { Route as PortalAccountKeysIndexRouteImport } from './routes/_portal/account/keys/index'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortalRoute = PortalRouteImport.update({
+  id: '/_portal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -105,6 +111,11 @@ const AppOrgsOrgIdRoute = AppOrgsOrgIdRouteImport.update({
   path: '/orgs/$orgId',
   getParentRoute: () => AppRoute,
 } as any)
+const PortalAccountKeysIndexRoute = PortalAccountKeysIndexRouteImport.update({
+  id: '/account/keys/',
+  path: '/account/keys/',
+  getParentRoute: () => PortalRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -122,10 +133,11 @@ export interface FileRoutesByFullPath {
   '/update/': typeof AppUpdateIndexRoute
   '/usage/': typeof AppUsageIndexRoute
   '/users/': typeof AppUsersIndexRoute
+  '/account/keys/': typeof PortalAccountKeysIndexRoute
 }
 export interface FileRoutesByTo {
-  '/login': typeof LoginRoute
   '/': typeof AppIndexRoute
+  '/login': typeof LoginRoute
   '/orgs/$orgId': typeof AppOrgsOrgIdRoute
   '/providers/$providerId': typeof AppProvidersProviderIdRoute
   '/routes/$routeId': typeof AppRoutesRouteIdRoute
@@ -139,10 +151,12 @@ export interface FileRoutesByTo {
   '/update': typeof AppUpdateIndexRoute
   '/usage': typeof AppUsageIndexRoute
   '/users': typeof AppUsersIndexRoute
+  '/account/keys': typeof PortalAccountKeysIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/_portal': typeof PortalRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/': typeof AppIndexRoute
   '/_app/orgs/$orgId': typeof AppOrgsOrgIdRoute
@@ -158,6 +172,7 @@ export interface FileRoutesById {
   '/_app/update/': typeof AppUpdateIndexRoute
   '/_app/usage/': typeof AppUsageIndexRoute
   '/_app/users/': typeof AppUsersIndexRoute
+  '/_portal/account/keys/': typeof PortalAccountKeysIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -177,10 +192,11 @@ export interface FileRouteTypes {
     | '/update/'
     | '/usage/'
     | '/users/'
+    | '/account/keys/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/login'
     | '/'
+    | '/login'
     | '/orgs/$orgId'
     | '/providers/$providerId'
     | '/routes/$routeId'
@@ -194,9 +210,11 @@ export interface FileRouteTypes {
     | '/update'
     | '/usage'
     | '/users'
+    | '/account/keys'
   id:
     | '__root__'
     | '/_app'
+    | '/_portal'
     | '/login'
     | '/_app/'
     | '/_app/orgs/$orgId'
@@ -212,10 +230,12 @@ export interface FileRouteTypes {
     | '/_app/update/'
     | '/_app/usage/'
     | '/_app/users/'
+    | '/_portal/account/keys/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  PortalRoute: typeof PortalRouteWithChildren
   LoginRoute: typeof LoginRoute
 }
 
@@ -226,6 +246,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_portal': {
+      id: '/_portal'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PortalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -333,6 +360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOrgsOrgIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_portal/account/keys/': {
+      id: '/_portal/account/keys/'
+      path: '/account/keys'
+      fullPath: '/account/keys/'
+      preLoaderRoute: typeof PortalAccountKeysIndexRouteImport
+      parentRoute: typeof PortalRoute
+    }
   }
 }
 
@@ -372,8 +406,20 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface PortalRouteChildren {
+  PortalAccountKeysIndexRoute: typeof PortalAccountKeysIndexRoute
+}
+
+const PortalRouteChildren: PortalRouteChildren = {
+  PortalAccountKeysIndexRoute: PortalAccountKeysIndexRoute,
+}
+
+const PortalRouteWithChildren =
+  PortalRoute._addFileChildren(PortalRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  PortalRoute: PortalRouteWithChildren,
   LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
