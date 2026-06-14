@@ -187,12 +187,31 @@ fn too_many_requests() -> ApiError {
 }
 
 /// Resolve the client IP on edge where there is no peer socket.
-/// Walks XFF right-to-left (first non-loopback hop), then X-Real-IP.
-/// On edge, all peers are the platform network — trusted — so XFF is always
-/// honored (equivalent to native `client_ip` with peer=None/trusted).
+/// Resolve the client IP for the login throttle / audit. Prefers a
+/// platform-STAMPED header (unspoofable on that platform) over the
+/// client-controllable `x-forwarded-for`, in order: `cf-connecting-ip`
+/// (Cloudflare Workers — authoritative), then `x-real-ip` (commonly set by the
+/// edge platform / reverse proxy), then the `x-forwarded-for` rightmost
+/// non-loopback hop (least trusted — a client can forge it, so it is only a
+/// best-effort fallback when the stamped headers are absent).
+///
+/// The per-USER throttle (`loginfail:user:{name}`) is the primary brute-force
+/// cap and is unaffected by IP forging; this is defense-in-depth.
 fn edge_client_ip(headers: &HeaderMap) -> Option<String> {
-    // Walk XFF entries right-to-left; take the rightmost non-loopback entry.
-    let xff = headers
+    fn single(headers: &HeaderMap, name: &str) -> Option<String> {
+        headers
+            .get(name)
+            .and_then(|h| h.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    }
+    // 1-2: platform-stamped headers, trusted first.
+    if let Some(ip) = single(headers, "cf-connecting-ip").or_else(|| single(headers, "x-real-ip")) {
+        return Some(ip);
+    }
+    // 3: client-controllable XFF — rightmost non-loopback hop.
+    headers
         .get_all("x-forwarded-for")
         .iter()
         .filter_map(|h| h.to_str().ok())
@@ -207,13 +226,5 @@ fn edge_client_ip(headers: &HeaderMap) -> Option<String> {
                 .map(|ip| !ip.is_loopback())
                 .unwrap_or(true) // non-IP: treat as client-supplied
         })
-        .map(str::to_owned);
-    xff.or_else(|| {
-        headers
-            .get("x-real-ip")
-            .and_then(|h| h.to_str().ok())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    })
+        .map(str::to_owned)
 }
