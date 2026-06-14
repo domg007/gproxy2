@@ -12,6 +12,7 @@ import { RoutingRuleForm } from "@/components/rules/routing-rule-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EffectiveRoutingTable } from "./effective-routing";
 
 type Op = typeof OPERATIONS[number];
 type Kind = typeof KINDS[number];
@@ -84,44 +85,49 @@ export function RoutingRulesTab({ providerId }: { providerId: number }) {
   ];
 
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-end">
-        <Button onClick={openCreate}>
-          <Plus className="size-4" aria-hidden />
-          {t("routingRule.add")}
-        </Button>
-      </div>
+    <div className="grid gap-6">
+      <EffectiveRoutingTable providerId={providerId} />
 
-      {isPending ? (
-        <div className="grid gap-2" aria-busy="true">
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
+      <section className="grid gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">{t("overrides.title")}</h3>
+          <Button onClick={openCreate}>
+            <Plus className="size-4" aria-hidden />
+            {t("routingRule.add")}
+          </Button>
         </div>
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={rules ?? []}
-          rowKey={(r) => r.id}
-          empty={t("routingRule.empty")}
-          onRowClick={openEdit}
-          renderCard={(r) => (
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-sm">{opLabel(r.operation, t)} / {kindLabel(r.kind, t)}</span>
-                <Badge variant={r.enabled ? "secondary" : "outline"}>{r.enabled ? "on" : "off"}</Badge>
+
+        {isPending ? (
+          <div className="grid gap-2" aria-busy="true">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+          </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={rules ?? []}
+            rowKey={(r) => r.id}
+            empty={t("routingRule.emptyOverrides")}
+            onRowClick={openEdit}
+            renderCard={(r) => (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">{opLabel(r.operation, t)} / {kindLabel(r.kind, t)}</span>
+                  <Badge variant={r.enabled ? "secondary" : "outline"}>{r.enabled ? "on" : "off"}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline" className="font-mono">{t(`implementation.${r.implementation}`)}</Badge>
+                  {(r.dest_operation ?? r.dest_kind) && (
+                    <span>{destLabel(r.dest_operation, r.dest_kind, t)}</span>
+                  )}
+                  <span>#{r.sort_order}</span>
+                </div>
+                {actions(r)}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline" className="font-mono">{t(`implementation.${r.implementation}`)}</Badge>
-                {(r.dest_operation ?? r.dest_kind) && (
-                  <span>{destLabel(r.dest_operation, r.dest_kind, t)}</span>
-                )}
-                <span>#{r.sort_order}</span>
-              </div>
-              {actions(r)}
-            </div>
-          )}
-        />
-      )}
+            )}
+          />
+        )}
+      </section>
 
       <EntityDialog
         open={formOpen}
