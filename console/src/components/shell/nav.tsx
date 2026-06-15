@@ -41,7 +41,7 @@ export function NavList({ items = NAV_ITEMS, compact, onNavigate }: { items?: Na
           title={compact ? t(item.labelKey) : undefined}
         >
           <item.icon className="size-4 shrink-0" aria-hidden />
-          <span className={cn(compact && "hidden xl:inline")}>{t(item.labelKey)}</span>
+          <span className={cn(compact && "hidden")}>{t(item.labelKey)}</span>
         </Link>
       ))}
     </nav>

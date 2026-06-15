@@ -15,7 +15,9 @@
     "title": "Navigation",
     "openMenu": "Open menu",
     "myAccount": "My Account",
-    "adminConsole": "Admin Console"
+    "adminConsole": "Admin Console",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "actions": {
     "cancel": "Cancel",
