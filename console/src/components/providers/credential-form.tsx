@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { TlsFingerprintField } from "./tls-fingerprint-field";
 
 interface CredentialFormProps {
   providerId: number;
@@ -35,12 +36,9 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
   const [rpm, setRpm] = useState(credential?.rpm_limit?.toString() ?? "");
   const [tpm, setTpm] = useState(credential?.tpm_limit?.toString() ?? "");
   const [proxyUrl, setProxyUrl] = useState(credential?.proxy_url ?? "");
-  // TLS: track whether user clicked "Clear" (only relevant when tls_fingerprint is set).
-  const [tlsCleared, setTlsCleared] = useState(false);
+  const [tls, setTls] = useState<unknown>(credential?.tls_fingerprint ?? null);
   const [enabled, setEnabled] = useState(credential?.enabled ?? true);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const hasTls = credential?.tls_fingerprint != null;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -51,14 +49,10 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
       if (editing && secretText.trim() !== "" && secret === null) {
         throw new ApiError(0, "bad_request", tc("json.invalid"));
       }
-      // tls_fingerprint semantics (backend CredentialUpsert: #[serde(default)] →
-      // absent == None == SQL NULL on UPDATE):
-      //   - PRESERVE existing: re-send the current value
-      //   - CLEAR existing: omit (absent → None → NULL)
-      //   - No existing value: omit (nothing to preserve or clear)
+      // tls_fingerprint: send blob to set/update; omit (absent) to clear → backend NULL
       const tlsPayload: { tls_fingerprint?: unknown } = {};
-      if (hasTls && !tlsCleared) {
-        tlsPayload.tls_fingerprint = credential!.tls_fingerprint;
+      if (tls != null) {
+        tlsPayload.tls_fingerprint = tls;
       }
       return upsertCredential(providerId, {
         id: credential?.id ?? null,
@@ -115,23 +109,8 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
         <Label htmlFor="c-proxy">{t("fields.proxyUrl")}</Label>
         <Input id="c-proxy" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} />
       </div>
-      {/* TLS fingerprint — credential-level override; status row, no JSON authoring */}
-      <div className="grid gap-2">
-        <Label>{t("fields.tlsProfile")}</Label>
-        {hasTls && !tlsCleared ? (
-          <div className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-            <span className="flex-1 text-muted-foreground">{t("tls.custom")}</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => setTlsCleared(true)}>
-              {t("tls.clear")}
-            </Button>
-          </div>
-        ) : (
-          <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-            {t("tls.builtinCred")}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">{t("tls.hint")}</p>
-      </div>
+      {/* TLS fingerprint — popover preset picker */}
+      <TlsFingerprintField value={tls} onChange={setTls} label={t("fields.tlsProfile")} />
       <div className="flex items-center justify-between">
         <Label htmlFor="c-enabled">{t("fields.enabled")}</Label>
         <Switch id="c-enabled" checked={enabled} onCheckedChange={setEnabled} />

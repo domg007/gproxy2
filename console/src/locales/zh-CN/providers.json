@@ -23,11 +23,11 @@
     "saved": "已保存"
   },
   "tls": {
-    "builtin": "使用渠道内置默认（自动）",
-    "builtinCred": "使用供应商/渠道默认（自动）",
     "custom": "已设置自定义 TLS 指纹（经 API/导入设置）",
     "clear": "清除",
-    "hint": "自定义指纹为高级项，经 API/导入设置。"
+    "title": "TLS 指纹预设",
+    "default": "渠道默认(自动)",
+    "customExisting": "自定义(现有)"
   },
   "delete": {
     "provider": "删除供应商",

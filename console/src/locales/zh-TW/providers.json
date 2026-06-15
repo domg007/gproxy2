@@ -23,11 +23,11 @@
     "saved": "已儲存"
   },
   "tls": {
-    "builtin": "使用通道內建預設（自動）",
-    "builtinCred": "使用供應商/通道預設（自動）",
     "custom": "已設定自訂 TLS 指紋（經 API/匯入設定）",
     "clear": "清除",
-    "hint": "自訂指紋為進階項目，經 API/匯入設定。"
+    "title": "TLS 指紋預設",
+    "default": "通道預設(自動)",
+    "customExisting": "自訂(現有)"
   },
   "delete": {
     "provider": "刪除供應商",

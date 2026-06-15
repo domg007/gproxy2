@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   SettingsFields, type SettingsState, initSettingsState, assembleSettings,
 } from "./settings-fields";
+import { TlsFingerprintField } from "./tls-fingerprint-field";
 
 interface ProviderFormProps {
   /** undefined = create */
@@ -38,11 +39,8 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
   const [settings, setSettings] = useState<SettingsState>(() =>
     initSettingsState(provider?.settings_json),
   );
-  // TLS: track whether user has clicked "Clear" (only relevant when tls_fingerprint is set)
-  const [tlsCleared, setTlsCleared] = useState(false);
+  const [tls, setTls] = useState<unknown>(provider?.tls_fingerprint ?? null);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const hasTls = provider?.tls_fingerprint != null;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -53,16 +51,11 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
 
       const settings_json = assembleSettings(provider?.settings_json, settings, channel);
 
-      // tls_fingerprint semantics (backend: #[serde(default)] → absent == None == SQL NULL on UPDATE):
-      //   - To PRESERVE existing: re-send the current value
-      //   - To CLEAR existing: omit (absent → None → NULL)
-      //   - No existing value: omit (nothing to preserve or clear)
+      // tls_fingerprint: send blob to set/update; omit (absent) to clear → backend NULL
       const tlsPayload: { tls_fingerprint?: unknown } = {};
-      if (hasTls && !tlsCleared) {
-        tlsPayload.tls_fingerprint = provider!.tls_fingerprint;
+      if (tls != null) {
+        tlsPayload.tls_fingerprint = tls;
       }
-      // if hasTls && tlsCleared: omit → backend sets NULL (clears)
-      // if !hasTls: omit → no change (was already NULL)
 
       return upsertProvider({
         id: provider?.id ?? null,
@@ -149,23 +142,8 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
         onChange={(next) => setSettings((prev) => ({ ...prev, ...next }))}
       />
 
-      {/* TLS fingerprint — status row, no JSON authoring */}
-      <div className="grid gap-2">
-        <Label>{t("fields.tlsProfile")}</Label>
-        {hasTls && !tlsCleared ? (
-          <div className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-            <span className="flex-1 text-muted-foreground">{t("tls.custom")}</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => setTlsCleared(true)}>
-              {t("tls.clear")}
-            </Button>
-          </div>
-        ) : (
-          <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
-            {t("tls.builtin")}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">{t("tls.hint")}</p>
-      </div>
+      {/* TLS fingerprint — popover preset picker */}
+      <TlsFingerprintField value={tls} onChange={setTls} label={t("fields.tlsProfile")} />
 
       <div className="flex items-center justify-between">
         <Label htmlFor="p-enabled">{t("fields.enabled")}</Label>
