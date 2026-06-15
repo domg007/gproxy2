@@ -23,11 +23,15 @@
     "saved": "已儲存"
   },
   "tls": {
-    "custom": "已設定自訂 TLS 指紋（經 API/匯入設定）",
-    "clear": "清除",
-    "title": "TLS 指紋預設",
+    "custom": "自訂",
+    "title": "TLS 指紋",
+    "preset": "預設",
     "default": "通道預設(自動)",
-    "customExisting": "自訂(現有)"
+    "customExisting": "自訂(現有)",
+    "jsonHint": "選預設快速填入,或直接編輯 JSON 自訂指紋",
+    "apply": "套用",
+    "invalid": "JSON 格式無效",
+    "edit": "編輯"
   },
   "delete": {
     "provider": "刪除供應商",
