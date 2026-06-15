@@ -23,11 +23,15 @@
     "saved": "Saved"
   },
   "tls": {
-    "custom": "Custom TLS fingerprint set (via API/import)",
-    "clear": "Clear",
-    "title": "TLS fingerprint preset",
+    "custom": "Custom",
+    "title": "TLS fingerprint",
+    "preset": "Preset",
     "default": "Channel default (automatic)",
-    "customExisting": "Custom (existing)"
+    "customExisting": "Custom (existing)",
+    "jsonHint": "Pick a preset to fill, or edit the JSON for a custom fingerprint",
+    "apply": "Apply",
+    "invalid": "Invalid JSON",
+    "edit": "Edit"
   },
   "delete": {
     "provider": "Delete provider",

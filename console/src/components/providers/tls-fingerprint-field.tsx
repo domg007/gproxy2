@@ -1,11 +1,17 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ChevronDownIcon } from "lucide-react";
+import { PencilIcon } from "lucide-react";
 import { tlsPresetsQuery } from "@/api/providers";
+import { JsonField, parseJsonText } from "@/components/form/json-field";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 
 const SENTINEL_DEFAULT = "__default__";
 const SENTINEL_CUSTOM = "__custom__";
@@ -32,6 +38,11 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return stableStringify(a) === stableStringify(b);
 }
 
+/** Pretty JSON for editing; null/undefined → empty string. */
+function toDraft(v: unknown): string {
+  return v == null ? "" : JSON.stringify(v, null, 2);
+}
+
 interface TlsFingerprintFieldProps {
   value: unknown;
   onChange: (v: unknown) => void;
@@ -40,79 +51,134 @@ interface TlsFingerprintFieldProps {
 
 export function TlsFingerprintField({ value, onChange, label }: TlsFingerprintFieldProps) {
   const { t } = useTranslation("providers");
+  const { t: tc } = useTranslation("common");
   const { data: presets = [] } = useQuery(tlsPresetsQuery);
 
-  const isDefault = value == null;
-  const matchedPreset = isDefault ? null : presets.find((p) => deepEqual(value, p.fingerprint)) ?? null;
-  const isCustom = !isDefault && matchedPreset === null;
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState(false);
 
-  const triggerLabel = isDefault
-    ? t("tls.default").replace(" (自动)", "").replace(" (automatic)", "").replace(" (自動)", "")
-    : matchedPreset
-    ? matchedPreset.label
+  // Seed the editor from the current value whenever the dialog opens.
+  useEffect(() => {
+    if (open) {
+      setDraft(toDraft(value));
+      setError(false);
+    }
+  }, [open, value]);
+
+  // What the trigger button shows (reflects the saved value, not the draft).
+  const savedMatch = value == null ? null : presets.find((p) => deepEqual(value, p.fingerprint)) ?? null;
+  const triggerLabel = value == null
+    ? t("tls.default")
+    : savedMatch
+    ? savedMatch.label
     : t("tls.customExisting");
 
-  // Which radio is currently selected
-  const radioValue = isDefault
+  // The Select's shown value reflects the *draft* (recomputed on every keystroke).
+  const trimmed = draft.trim();
+  const draftParsed = trimmed === "" ? null : parseJsonText(draft);
+  const draftMatch = draftParsed && draftParsed.ok
+    ? presets.find((p) => deepEqual(draftParsed.value, p.fingerprint)) ?? null
+    : null;
+  const selectValue = trimmed === ""
     ? SENTINEL_DEFAULT
-    : matchedPreset
-    ? matchedPreset.id
+    : draftMatch
+    ? draftMatch.id
     : SENTINEL_CUSTOM;
+  const showCustomOption = selectValue === SENTINEL_CUSTOM;
 
-  function handleRadioChange(val: string) {
+  function handlePreset(val: string) {
+    setError(false);
+    if (val === SENTINEL_CUSTOM) return; // not a fill action, just reflects state
     if (val === SENTINEL_DEFAULT) {
-      onChange(null);
-    } else if (val === SENTINEL_CUSTOM) {
-      onChange(value); // preserve the existing custom blob (no-op)
+      setDraft("");
     } else {
       const preset = presets.find((p) => p.id === val);
-      if (preset) onChange(preset.fingerprint);
+      if (preset) setDraft(JSON.stringify(preset.fingerprint, null, 2));
     }
+  }
+
+  function handleApply() {
+    if (trimmed === "") {
+      onChange(null);
+      setOpen(false);
+      return;
+    }
+    const parsed = parseJsonText(draft);
+    if (!parsed.ok) {
+      setError(true);
+      return;
+    }
+    onChange(parsed.value);
+    setOpen(false);
   }
 
   return (
     <div className="grid gap-2">
       {label && <Label>{label}</Label>}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-fit justify-between gap-2"
-            aria-label={label ? `${label}: ${triggerLabel}` : triggerLabel}
-          >
-            <span>{triggerLabel}</span>
-            <ChevronDownIcon className="size-4 text-muted-foreground" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-64 p-3">
-          <p className="mb-3 text-sm font-medium">{t("tls.title")}</p>
-          <RadioGroup value={radioValue} onValueChange={handleRadioChange} className="gap-2">
-            <div className="flex items-center gap-2">
-              <RadioGroupItem id="tls-default" value={SENTINEL_DEFAULT} />
-              <Label htmlFor="tls-default" className="cursor-pointer font-normal text-sm">
-                {t("tls.default")}
-              </Label>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-fit justify-between gap-2"
+        aria-label={label ? `${label}: ${triggerLabel}` : triggerLabel}
+        onClick={() => setOpen(true)}
+      >
+        <span>{triggerLabel}</span>
+        <PencilIcon className="size-3.5 text-muted-foreground" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t("tls.title")}</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="tls-preset">{t("tls.preset")}</Label>
+              <Select value={selectValue} onValueChange={handlePreset}>
+                <SelectTrigger id="tls-preset" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SENTINEL_DEFAULT}>{t("tls.default")}</SelectItem>
+                  {presets.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                  {showCustomOption && (
+                    <SelectItem value={SENTINEL_CUSTOM} disabled>
+                      {t("tls.custom")}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
-            {presets.map((preset) => (
-              <div key={preset.id} className="flex items-center gap-2">
-                <RadioGroupItem id={`tls-${preset.id}`} value={preset.id} />
-                <Label htmlFor={`tls-${preset.id}`} className="cursor-pointer font-normal text-sm">
-                  {preset.label}
-                </Label>
-              </div>
-            ))}
-            {isCustom && (
-              <div className="flex items-center gap-2">
-                <RadioGroupItem id="tls-custom" value={SENTINEL_CUSTOM} />
-                <Label htmlFor="tls-custom" className="cursor-pointer font-normal text-sm text-muted-foreground">
-                  {t("tls.customExisting")}
-                </Label>
-              </div>
-            )}
-          </RadioGroup>
-        </PopoverContent>
-      </Popover>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="tls-json">JSON</Label>
+              <JsonField
+                id="tls-json"
+                value={draft}
+                onChange={(text) => { setDraft(text); setError(false); }}
+                rows={10}
+                hint={t("tls.jsonHint")}
+              />
+              {error && <p className="text-xs text-destructive">{t("tls.invalid")}</p>}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              {tc("actions.cancel")}
+            </Button>
+            <Button type="button" onClick={handleApply}>
+              {t("tls.apply")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
