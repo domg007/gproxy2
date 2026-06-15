@@ -51,7 +51,13 @@ pub(super) async fn create_provider_seeded(
         .await
         .map_err(ApiError::from_upsert)?;
     if is_create {
-        crate::api::routing::seed_default_routing(state, rec.id).await?;
+        crate::api::routing::seed_default_routing(
+            state.persistence.as_ref(),
+            state.channels.as_ref(),
+            rec.id,
+            false,
+        )
+        .await?;
     }
     invalidate(state).await;
     Resp::json(200, &rec)
@@ -66,7 +72,13 @@ pub(super) async fn reset_routing(
 ) -> Result<Resp, ApiError> {
     guard_admin(state, parts).await?;
     let provider_id = parse_i64(pid)?;
-    crate::api::routing::seed_default_routing(state, provider_id).await?;
+    crate::api::routing::seed_default_routing(
+        state.persistence.as_ref(),
+        state.channels.as_ref(),
+        provider_id,
+        true,
+    )
+    .await?;
     invalidate(state).await;
     let rows = state
         .persistence

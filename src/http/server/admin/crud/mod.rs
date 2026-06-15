@@ -1070,7 +1070,10 @@ mod tests {
         };
 
         let rows = load(app.clone(), cookie.clone(), provider_id).await;
-        assert_eq!(rows.len(), 12);
+        // The full executable surface (content-gen + count/models/embeddings/…),
+        // at least the 12 content-generation cells.
+        let seeded = rows.len();
+        assert!(seeded >= 12, "seeded {seeded} rows");
         // every seeded row is a real rule (has an id) on the openai channel.
         let same = find(&rows, "generate_content", "open_ai_chat_completions");
         assert_eq!(same["implementation"], "passthrough", "{same}");
@@ -1078,7 +1081,8 @@ mod tests {
         let cross = find(&rows, "generate_content", "claude_messages");
         assert_eq!(cross["implementation"], "transform_to", "{cross}");
         assert_eq!(cross["dest_kind"], "open_ai_chat_completions");
-        let ct = find(&rows, "count_tokens", "open_ai_chat_completions");
+        // count_tokens is keyed by provider family; on openai → local.
+        let ct = find(&rows, "count_tokens", "open_ai");
         assert_eq!(ct["implementation"], "local", "{ct}");
 
         // Edit one cell: overwrite (generate_content, claude_messages) → unsupported.
@@ -1107,7 +1111,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let rows = load(app.clone(), cookie.clone(), provider_id).await;
-        assert_eq!(rows.len(), 12, "edit overwrote in place, no new row");
+        assert_eq!(rows.len(), seeded, "edit overwrote in place, no new row");
         assert_eq!(
             find(&rows, "generate_content", "claude_messages")["implementation"],
             "unsupported"
@@ -1128,7 +1132,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let rows = load(app, cookie, provider_id).await;
-        assert_eq!(rows.len(), 12);
+        assert_eq!(rows.len(), seeded);
         assert_eq!(
             find(&rows, "generate_content", "claude_messages")["implementation"],
             "transform_to",

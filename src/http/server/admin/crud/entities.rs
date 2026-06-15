@@ -156,7 +156,13 @@ pub mod providers {
             .await
             .map_err(upsert_err)?;
         if is_create {
-            crate::api::routing::seed_default_routing(&state, rec.id).await?;
+            crate::api::routing::seed_default_routing(
+                state.persistence.as_ref(),
+                state.channels.as_ref(),
+                rec.id,
+                false,
+            )
+            .await?;
         }
         invalidate(&state).await;
         Ok(Json(rec))

@@ -175,7 +175,13 @@ pub mod routing_rules {
         State(state): State<AppState>,
         Path(provider_id): Path<i64>,
     ) -> Result<Json<Vec<RoutingRule>>, ApiError> {
-        crate::api::routing::seed_default_routing(&state, provider_id).await?;
+        crate::api::routing::seed_default_routing(
+            state.persistence.as_ref(),
+            state.channels.as_ref(),
+            provider_id,
+            true,
+        )
+        .await?;
         invalidate(&state).await;
         Ok(Json(
             state
