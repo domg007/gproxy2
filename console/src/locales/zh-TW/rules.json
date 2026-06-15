@@ -19,7 +19,7 @@
     "enabled": "啟用",
     "filterModelPattern": "模型過濾模式",
     "filterOperationKeys": "操作鍵過濾",
-    "configJson": "設定（JSON）",
+    "configJson": "設定",
     "add": "新增規則",
     "empty": "此規則集尚無規則。",
     "deleteConfirm": "確認刪除此規則？",

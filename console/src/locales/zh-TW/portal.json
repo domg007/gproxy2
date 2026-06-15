@@ -18,6 +18,7 @@
     "label": "標籤",
     "prefix": "前綴",
     "enabled": "已啟用",
+    "disabled": "已停用",
     "enable": "啟用",
     "disable": "停用",
     "disableConfirm": "停用該 API 金鑰？使用它的用戶端將被拒絕。",
@@ -72,6 +73,7 @@
     "tooShort": "新密碼至少需要 12 個字元。",
     "changed": "密碼變更成功。",
     "identity": {
+      "title": "帳戶資料",
       "name": "姓名",
       "org": "組織",
       "team": "團隊"

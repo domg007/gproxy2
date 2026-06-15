@@ -19,7 +19,7 @@
     "enabled": "Enabled",
     "filterModelPattern": "Filter Model Pattern",
     "filterOperationKeys": "Filter Operation Keys",
-    "configJson": "Configuration (JSON)",
+    "configJson": "Configuration",
     "add": "Add Rule",
     "empty": "No rules in this set.",
     "deleteConfirm": "Delete this rule?",

@@ -69,6 +69,7 @@
     "loadError": "載入健康狀態失敗",
     "title": "憑證健康",
     "allHealthy": "所有憑證狀態正常",
+    "noEvents": "暫無健康事件",
     "breaker": "熔斷器開啟",
     "recovered": "已恢復",
     "rate_limited": "被限速",

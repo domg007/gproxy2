@@ -54,6 +54,7 @@ export function HealthPanel() {
   const rows = data ?? [];
   const counts = countByKind(rows);
   const unhealthy = rows.filter((r) => r.health_kind !== "recovered");
+  const noEvents = rows.length === 0;
   const allHealthy = unhealthy.length === 0;
 
   return (
@@ -77,7 +78,9 @@ export function HealthPanel() {
 
       {/* Summary / unhealthy list */}
       {allHealthy ? (
-        <p className="text-sm text-muted-foreground">{t("health.allHealthy")}</p>
+        <p className="text-sm text-muted-foreground">
+          {noEvents ? t("health.noEvents") : t("health.allHealthy")}
+        </p>
       ) : (
         <Card size="sm">
           <CardHeader>

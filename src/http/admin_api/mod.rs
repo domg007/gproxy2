@@ -260,8 +260,25 @@ async fn admin_me(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
 }
 
 /// `GET /user/me` — the portal session identity (admits any enabled user).
+/// Org/team ids are resolved to human names for the portal (parity with the
+/// native `user::me::me` handler).
 async fn user_me(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
     let u = guard_session(state, parts).await?;
+    let org_name = state
+        .persistence
+        .get_org(u.org_id)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map(|o| o.name);
+    let team_name = match u.team_id {
+        Some(tid) => state
+            .persistence
+            .get_team(tid)
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?
+            .map(|t| t.name),
+        None => None,
+    };
     Resp::json(
         200,
         &serde_json::json!({
@@ -269,7 +286,9 @@ async fn user_me(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
             "name": u.name,
             "is_admin": u.is_admin,
             "org_id": u.org_id,
+            "org_name": org_name,
             "team_id": u.team_id,
+            "team_name": team_name,
         }),
     )
 }
