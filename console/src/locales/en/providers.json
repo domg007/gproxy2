@@ -24,6 +24,7 @@
   },
   "tls": {
     "builtin": "Using channel built-in profile (automatic)",
+    "builtinCred": "Using the provider/channel default (automatic)",
     "custom": "Custom TLS fingerprint set (via API/import)",
     "clear": "Clear",
     "hint": "Custom fingerprints are an advanced API/import setting."

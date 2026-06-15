@@ -24,7 +24,7 @@ function SecurityPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t("account.identity.name")}</CardTitle>
+          <CardTitle className="text-base">{t("account.identity.title")}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm">
           <div className="flex items-center gap-4">
@@ -33,12 +33,14 @@ function SecurityPage() {
           </div>
           <div className="flex items-center gap-4">
             <span className="w-24 font-medium text-muted-foreground">{t("account.identity.org")}</span>
-            <span>{user?.org_id ?? "—"}</span>
+            <span>{user?.org_name ?? "—"}</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="w-24 font-medium text-muted-foreground">{t("account.identity.team")}</span>
-            <span>{user?.team_id != null ? user.team_id : "—"}</span>
-          </div>
+          {user?.team_id != null && (
+            <div className="flex items-center gap-4">
+              <span className="w-24 font-medium text-muted-foreground">{t("account.identity.team")}</span>
+              <span>{user.team_name ?? "—"}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

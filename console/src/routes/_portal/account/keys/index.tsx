@@ -67,7 +67,7 @@ function MyKeysPage() {
     {
       key: "enabled",
       header: t("keys.enabled"),
-      cell: (k) => <Badge variant={k.enabled ? "secondary" : "outline"}>{k.enabled ? t("keys.enable") : t("keys.disable")}</Badge>,
+      cell: (k) => <Badge variant={k.enabled ? "secondary" : "outline"}>{k.enabled ? t("keys.enabled") : t("keys.disabled")}</Badge>,
     },
     {
       key: "toggle",
@@ -133,7 +133,7 @@ function MyKeysPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">{k.label ?? "—"}</span>
                 <Badge variant={k.enabled ? "secondary" : "outline"}>
-                  {k.enabled ? t("keys.enable") : t("keys.disable")}
+                  {k.enabled ? t("keys.enabled") : t("keys.disabled")}
                 </Badge>
               </div>
               <span className="font-mono text-xs text-muted-foreground">{k.key_prefix}</span>

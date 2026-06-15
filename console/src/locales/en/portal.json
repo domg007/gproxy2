@@ -18,6 +18,7 @@
     "label": "Label",
     "prefix": "Prefix",
     "enabled": "Enabled",
+    "disabled": "Disabled",
     "enable": "Enable",
     "disable": "Disable",
     "disableConfirm": "Disable this API key? Clients using it will be rejected.",
@@ -72,6 +73,7 @@
     "tooShort": "New password must be at least 12 characters.",
     "changed": "Password changed successfully.",
     "identity": {
+      "title": "Profile",
       "name": "Name",
       "org": "Organization",
       "team": "Team"

@@ -69,6 +69,7 @@
     "loadError": "Failed to load health status",
     "title": "Credential health",
     "allHealthy": "All credentials healthy",
+    "noEvents": "No health events yet",
     "breaker": "Circuit open",
     "recovered": "Recovered",
     "rate_limited": "Rate limited",

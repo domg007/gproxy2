@@ -19,7 +19,7 @@
     "enabled": "启用",
     "filterModelPattern": "模型过滤模式",
     "filterOperationKeys": "操作键过滤",
-    "configJson": "配置（JSON）",
+    "configJson": "配置",
     "add": "添加规则",
     "empty": "此规则集暂无规则。",
     "deleteConfirm": "确认删除此规则？",

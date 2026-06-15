@@ -18,6 +18,7 @@
     "label": "标签",
     "prefix": "前缀",
     "enabled": "已启用",
+    "disabled": "已停用",
     "enable": "启用",
     "disable": "禁用",
     "disableConfirm": "禁用该 API 密钥？使用它的客户端将被拒绝。",
@@ -72,6 +73,7 @@
     "tooShort": "新密码至少需要 12 个字符。",
     "changed": "密码修改成功。",
     "identity": {
+      "title": "账户资料",
       "name": "姓名",
       "org": "组织",
       "team": "团队"

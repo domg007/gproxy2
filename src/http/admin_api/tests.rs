@@ -215,6 +215,10 @@ async fn user_me_non_admin_ok_no_cookie_401() {
     let v = parse_json(&resp);
     assert_eq!(v["id"].as_i64().unwrap(), user_id);
     assert_eq!(v["is_admin"], false);
+    // Org/team resolve to names; seed_user creates org "org-bob" with no team.
+    assert_eq!(v["org_name"], "org-bob");
+    assert!(v["team_id"].is_null());
+    assert!(v["team_name"].is_null());
 
     // No cookie → 401.
     let p = parts("GET", "/user/me", None, None);
