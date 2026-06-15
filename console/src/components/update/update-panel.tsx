@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -11,21 +10,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export const Route = createFileRoute("/_app/update/")({
-  loader: ({ context }) => context.queryClient.ensureQueryData(updateStatusQuery),
-  component: UpdatePage,
-});
-
-function UpdatePage() {
+/** Self-update controls (check / status / apply). Rendered inside the Settings
+ *  page's "Updates" tab. */
+export function UpdatePanel() {
   const { t } = useTranslation("update");
   const qc = useQueryClient();
 
-  // --- check query (manual, disabled until user clicks) ---
   const check = useQuery(updateCheckQuery);
   const checkData = check.data;
   const checkError = check.error as ApiError | null;
 
-  // --- apply mutation ---
   const [confirmOpen, setConfirmOpen] = useState(false);
   const apply = useMutation({
     mutationFn: applyUpdate,
@@ -36,12 +30,10 @@ function UpdatePage() {
     },
     onError: (e) => {
       setConfirmOpen(false);
-      const msg = e instanceof ApiError ? e.message : String(e);
-      toast.error(msg);
+      toast.error(e instanceof ApiError ? e.message : String(e));
     },
   });
 
-  // --- status query (poll every 2s while apply is in flight) ---
   const applying = apply.isPending;
   const status = useQuery({
     ...updateStatusQuery,
@@ -50,12 +42,7 @@ function UpdatePage() {
   const statusData = status.data;
 
   return (
-    <div className="grid gap-4 p-4 md:p-6">
-      <div>
-        <h1 className="text-xl font-semibold">{t("title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-      </div>
-
+    <div className="grid gap-4">
       <div className="grid gap-4 md:grid-cols-2">
         {/* Check section */}
         <Card>
@@ -132,11 +119,7 @@ function UpdatePage() {
       {/* Apply section — shown only when check returned available===true */}
       {checkData?.available && (
         <div>
-          <Button
-            variant="default"
-            disabled={applying}
-            onClick={() => setConfirmOpen(true)}
-          >
+          <Button variant="default" disabled={applying} onClick={() => setConfirmOpen(true)}>
             {applying && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />}
             {t("apply.button")}
           </Button>

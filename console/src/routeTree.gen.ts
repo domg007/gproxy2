@@ -15,7 +15,6 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppUsersIndexRouteImport } from './routes/_app/users/index'
 import { Route as AppUsageIndexRouteImport } from './routes/_app/usage/index'
-import { Route as AppUpdateIndexRouteImport } from './routes/_app/update/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppRulesIndexRouteImport } from './routes/_app/rules/index'
 import { Route as AppRoutesIndexRouteImport } from './routes/_app/routes/index'
@@ -57,11 +56,6 @@ const AppUsersIndexRoute = AppUsersIndexRouteImport.update({
 const AppUsageIndexRoute = AppUsageIndexRouteImport.update({
   id: '/usage/',
   path: '/usage/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppUpdateIndexRoute = AppUpdateIndexRouteImport.update({
-  id: '/update/',
-  path: '/update/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
@@ -150,7 +144,6 @@ export interface FileRoutesByFullPath {
   '/routes/': typeof AppRoutesIndexRoute
   '/rules/': typeof AppRulesIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
-  '/update/': typeof AppUpdateIndexRoute
   '/usage/': typeof AppUsageIndexRoute
   '/users/': typeof AppUsersIndexRoute
   '/account/keys/': typeof PortalAccountKeysIndexRoute
@@ -171,7 +164,6 @@ export interface FileRoutesByTo {
   '/routes': typeof AppRoutesIndexRoute
   '/rules': typeof AppRulesIndexRoute
   '/settings': typeof AppSettingsIndexRoute
-  '/update': typeof AppUpdateIndexRoute
   '/usage': typeof AppUsageIndexRoute
   '/users': typeof AppUsersIndexRoute
   '/account/keys': typeof PortalAccountKeysIndexRoute
@@ -195,7 +187,6 @@ export interface FileRoutesById {
   '/_app/routes/': typeof AppRoutesIndexRoute
   '/_app/rules/': typeof AppRulesIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
-  '/_app/update/': typeof AppUpdateIndexRoute
   '/_app/usage/': typeof AppUsageIndexRoute
   '/_app/users/': typeof AppUsersIndexRoute
   '/_portal/account/keys/': typeof PortalAccountKeysIndexRoute
@@ -218,7 +209,6 @@ export interface FileRouteTypes {
     | '/routes/'
     | '/rules/'
     | '/settings/'
-    | '/update/'
     | '/usage/'
     | '/users/'
     | '/account/keys/'
@@ -239,7 +229,6 @@ export interface FileRouteTypes {
     | '/routes'
     | '/rules'
     | '/settings'
-    | '/update'
     | '/usage'
     | '/users'
     | '/account/keys'
@@ -262,7 +251,6 @@ export interface FileRouteTypes {
     | '/_app/routes/'
     | '/_app/rules/'
     | '/_app/settings/'
-    | '/_app/update/'
     | '/_app/usage/'
     | '/_app/users/'
     | '/_portal/account/keys/'
@@ -319,13 +307,6 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/usage/'
       preLoaderRoute: typeof AppUsageIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/update/': {
-      id: '/_app/update/'
-      path: '/update'
-      fullPath: '/update/'
-      preLoaderRoute: typeof AppUpdateIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/': {
@@ -441,7 +422,6 @@ interface AppRouteChildren {
   AppRoutesIndexRoute: typeof AppRoutesIndexRoute
   AppRulesIndexRoute: typeof AppRulesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
-  AppUpdateIndexRoute: typeof AppUpdateIndexRoute
   AppUsageIndexRoute: typeof AppUsageIndexRoute
   AppUsersIndexRoute: typeof AppUsersIndexRoute
 }
@@ -458,7 +438,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppRoutesIndexRoute: AppRoutesIndexRoute,
   AppRulesIndexRoute: AppRulesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
-  AppUpdateIndexRoute: AppUpdateIndexRoute,
   AppUsageIndexRoute: AppUsageIndexRoute,
   AppUsersIndexRoute: AppUsersIndexRoute,
 }
