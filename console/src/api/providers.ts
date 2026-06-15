@@ -1,6 +1,12 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "./http";
 
+export interface TlsPreset {
+  id: string;
+  label: string;
+  fingerprint: unknown;
+}
+
 export interface Provider {
   id: number;
   name: string;
@@ -32,6 +38,12 @@ export interface ProviderInput {
 export const providersQuery = queryOptions({
   queryKey: ["providers"],
   queryFn: () => api<Provider[]>("/admin/providers"),
+});
+
+export const tlsPresetsQuery = queryOptions({
+  queryKey: ["tls-presets"],
+  queryFn: () => api<TlsPreset[]>("/admin/tls-presets"),
+  staleTime: 1000 * 60 * 60, // 1 hour — static list
 });
 
 export const providerQuery = (id: number) =>

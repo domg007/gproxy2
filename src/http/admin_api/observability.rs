@@ -96,6 +96,9 @@ pub(super) async fn dispatch(
             effective_routing(state, parts, pid).await
         }
 
+        // Named TLS fingerprint presets for the Console picker (B6 parity).
+        (&Method::GET, ["admin", "tls-presets"]) => tls_presets(state, parts).await,
+
         _ => return None,
     };
     Some(r)
@@ -207,4 +210,9 @@ async fn effective_routing(state: &AppState, parts: &Parts, pid: &str) -> Result
     let provider_id = super::parse_i64(pid)?;
     let rows = crate::api::routing::effective_routes(state, provider_id).await?;
     Resp::json(200, &rows)
+}
+
+async fn tls_presets(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
+    guard_admin(state, parts).await?;
+    Resp::json(200, &crate::api::tls_presets::tls_presets())
 }
