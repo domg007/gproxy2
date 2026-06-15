@@ -87,38 +87,6 @@
     "local": "本地",
     "unsupported": "不支持"
   },
-  "effective": {
-    "title": "生效路由",
-    "caption": "以下是当前生效的路由决策。默认值由系统计算（同协议直通；否则自动转换到通道原生协议；count_tokens 在 OpenAI 通道本地执行）。在下方添加覆盖规则以修改某个单元格。",
-    "source": {
-      "default": "默认",
-      "override": "覆盖"
-    },
-    "columns": {
-      "operation": "操作",
-      "kind": "入站协议",
-      "impl": "实现方式",
-      "source": "来源"
-    }
-  },
-  "overrides": {
-    "title": "覆盖规则"
-  },
-  "routingRule": {
-    "operation": "操作",
-    "kind": "协议类型",
-    "implementation": "实现方式",
-    "destOperation": "目标操作",
-    "destKind": "目标协议类型",
-    "sortOrder": "排序",
-    "enabled": "启用",
-    "add": "添加路由规则",
-    "empty": "该供应商暂无路由规则。",
-    "emptyOverrides": "无覆盖 — 使用上方默认",
-    "deleteConfirm": "确认删除此路由规则？",
-    "legacy": "旧版",
-    "inherit": "— 继承 —"
-  },
   "providerRuleSet": {
     "ruleSet": "规则集",
     "sortOrder": "排序",
@@ -153,5 +121,26 @@
     "open_ai": "OpenAI",
     "claude": "Claude",
     "gemini": "Gemini"
+  },
+  "routing": {
+    "title": "路由",
+    "caption": "该 provider 的完整生效路由。灰色行为系统默认(自动);点任意行改成你要的行为——改过的行标为「自定义」,可一键恢复默认。点「新增路由」可为其它操作/协议组合添加。",
+    "add": "新增路由",
+    "addTitle": "新增路由",
+    "editTitle": "编辑路由",
+    "behavior": "行为",
+    "destKind": "目标协议",
+    "reset": "恢复默认",
+    "delete": "删除",
+    "source": {
+      "default": "默认",
+      "custom": "自定义"
+    },
+    "columns": {
+      "operation": "操作",
+      "kind": "入站协议",
+      "behavior": "行为",
+      "source": "来源"
+    }
   }
 }

@@ -87,38 +87,6 @@
     "local": "本地",
     "unsupported": "不支援"
   },
-  "effective": {
-    "title": "生效路由",
-    "caption": "以下是目前生效的路由決策。預設值由系統計算（同協定直通；否則自動轉換至通道原生協定；count_tokens 在 OpenAI 通道本地執行）。在下方新增覆寫規則以修改某個格。",
-    "source": {
-      "default": "預設",
-      "override": "覆寫"
-    },
-    "columns": {
-      "operation": "操作",
-      "kind": "入站協定",
-      "impl": "實作方式",
-      "source": "來源"
-    }
-  },
-  "overrides": {
-    "title": "覆寫規則"
-  },
-  "routingRule": {
-    "operation": "操作",
-    "kind": "協定類型",
-    "implementation": "實作方式",
-    "destOperation": "目標操作",
-    "destKind": "目標協定類型",
-    "sortOrder": "排序",
-    "enabled": "啟用",
-    "add": "新增路由規則",
-    "empty": "此供應商尚無路由規則。",
-    "emptyOverrides": "無覆寫 — 使用上方預設",
-    "deleteConfirm": "確認刪除此路由規則？",
-    "legacy": "舊版",
-    "inherit": "— 繼承 —"
-  },
   "providerRuleSet": {
     "ruleSet": "規則集",
     "sortOrder": "排序",
@@ -153,5 +121,26 @@
     "open_ai": "OpenAI",
     "claude": "Claude",
     "gemini": "Gemini"
+  },
+  "routing": {
+    "title": "路由",
+    "caption": "該 provider 的完整生效路由。灰色列為系統預設(自動);點任意列改成你要的行為——改過的列標為「自訂」,可一鍵恢復預設。點「新增路由」可為其它操作/協議組合新增。",
+    "add": "新增路由",
+    "addTitle": "新增路由",
+    "editTitle": "編輯路由",
+    "behavior": "行為",
+    "destKind": "目標協議",
+    "reset": "恢復預設",
+    "delete": "刪除",
+    "source": {
+      "default": "預設",
+      "custom": "自訂"
+    },
+    "columns": {
+      "operation": "操作",
+      "kind": "入站協議",
+      "behavior": "行為",
+      "source": "來源"
+    }
   }
 }
