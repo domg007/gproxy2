@@ -15,6 +15,7 @@ use serde::Deserialize;
 use super::crud::internal;
 use crate::api::error::ApiError;
 use crate::api::routing::EffectiveRoute;
+use crate::api::tls_presets::TlsPreset;
 use crate::app::AppState;
 use crate::channel::UsageSnapshot;
 use crate::store::persistence::UsageQuery as StoreUsageQuery;
@@ -216,4 +217,12 @@ pub async fn upstream_logs(
             .await
             .map_err(internal)?,
     ))
+}
+
+/// `GET /admin/tls-presets` — static curated list of named TLS fingerprint
+/// presets (agent profiles from `docs/agent-tls-fingerprints.md` §5).
+/// No DB access — returns a constant list. Use the Console picker to store a
+/// chosen preset's `fingerprint` blob into a provider/credential `tls_fingerprint`.
+pub async fn tls_presets() -> Json<Vec<TlsPreset>> {
+    Json(crate::api::tls_presets::tls_presets())
 }
