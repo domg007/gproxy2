@@ -84,8 +84,10 @@ pub enum RoutingDecision {
 }
 
 /// Decide how to service `source` on a channel whose native content kind is
-/// `target_kind`. Explicit rules win; the default is native-passthrough or
-/// auto-transform to the channel's native kind.
+/// `target_kind`, at REQUEST time. Routing is driven entirely by stored rules:
+/// an explicit rule wins; **no matching rule means `Unsupported`**. Channel
+/// defaults are materialized into real rules at provider creation (see
+/// [`crate::api::routing::seed_default_routing`]) — they are not recomputed here.
 pub fn decide(
     rules: &[CompiledRoutingRule],
     source: OperationKey,
@@ -107,11 +109,19 @@ pub fn decide(
             }),
         };
     }
-    // §6.3 default: openai-family channels have no count endpoint worth
-    // hitting by default — serve locally. claude/gemini targets keep their
-    // native/transform upstream count. (OpenAI official DOES expose
-    // `/v1/responses/input_tokens`; the operator opts into passthrough via an
-    // explicit rule.)
+    RoutingDecision::Unsupported
+}
+
+/// The computed default decision for one `(source, target_kind)` cell. Used to
+/// MATERIALIZE defaults at provider creation / reset — never at request time.
+/// native-passthrough, else auto-transform to the channel's native kind;
+/// count_tokens on an openai-family target is served locally (§6.3).
+pub fn default_decision(
+    source: OperationKey,
+    target_kind: ContentGenerationKind,
+) -> RoutingDecision {
+    // §6.3: openai-family channels have no count endpoint worth hitting by
+    // default — serve locally. (The operator can opt into passthrough via a rule.)
     if source.operation == Operation::CountTokens && target_kind.provider() == Provider::OpenAi {
         return RoutingDecision::Local;
     }
@@ -157,12 +167,12 @@ mod tests {
         let src = cg(Operation::GenerateContent, K::ClaudeMessages);
         // same kind → passthrough
         assert_eq!(
-            decide(&[], src, K::ClaudeMessages),
+            default_decision(src, K::ClaudeMessages),
             RoutingDecision::Passthrough
         );
         // cross kind → auto transform to channel native
         assert_eq!(
-            decide(&[], src, K::OpenAiChatCompletions),
+            default_decision(src, K::OpenAiChatCompletions),
             RoutingDecision::TransformTo(cg(Operation::GenerateContent, K::OpenAiChatCompletions))
         );
         // openai-family non-content op on an openai-kind channel → native
@@ -171,8 +181,19 @@ mod tests {
             crate::protocol::Provider::OpenAi,
         );
         assert_eq!(
-            decide(&[], emb, K::OpenAiChatCompletions),
+            default_decision(emb, K::OpenAiChatCompletions),
             RoutingDecision::Passthrough
+        );
+    }
+
+    #[test]
+    fn no_rule_is_unsupported() {
+        use ContentGenerationKind as K;
+        // At request time, an unseeded cell (no matching rule) is unsupported.
+        let src = cg(Operation::GenerateContent, K::ClaudeMessages);
+        assert_eq!(
+            decide(&[], src, K::ClaudeMessages),
+            RoutingDecision::Unsupported
         );
     }
 

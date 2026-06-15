@@ -195,6 +195,18 @@ async fn build_state(
     crate::app::import::import_bundle(persistence.as_ref(), import_cipher, bundle)
         .await
         .expect("import");
+    // Materialize each provider's default routing rules (fill-missing, so the
+    // bundle's explicit rules win), matching production's seed-at-creation.
+    for p in persistence.list_providers().await.expect("providers") {
+        crate::api::routing::seed_default_routing(
+            persistence.as_ref(),
+            channels.as_ref(),
+            p.id,
+            false,
+        )
+        .await
+        .expect("seed routing");
+    }
     let snapshot = ControlPlaneSnapshot::build(persistence.as_ref(), 1)
         .await
         .expect("snapshot");
