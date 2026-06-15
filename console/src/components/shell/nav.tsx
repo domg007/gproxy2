@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, Building2, DownloadCloud, LayoutDashboard, Plug, Route as RouteIcon, Settings, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
+import { Activity, Building2, LayoutDashboard, Plug, Route as RouteIcon, Settings, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/usage", icon: Activity, labelKey: "nav.usage" },
   { to: "/rules", icon: SlidersHorizontal, labelKey: "nav.rules" },
   { to: "/settings", icon: Settings, labelKey: "nav.settings" },
-  { to: "/update", icon: DownloadCloud, labelKey: "nav.update" },
 ];
 
 export function NavList({ items = NAV_ITEMS, compact, onNavigate }: { items?: NavItem[]; compact?: boolean; onNavigate?: () => void }) {

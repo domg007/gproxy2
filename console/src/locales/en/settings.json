@@ -44,5 +44,9 @@
   "form": {
     "nameRequired": "Instance name is required"
   },
-  "empty": "No instance settings yet. Click Save to create the initial configuration."
+  "empty": "No instance settings yet. Click Save to create the initial configuration.",
+  "tabs": {
+    "general": "General",
+    "updates": "Updates"
+  }
 }
