@@ -91,11 +91,6 @@ pub(super) async fn dispatch(
             upstream_logs(state, parts, request_id).await
         }
 
-        // Effective routing matrix per provider (B6 parity).
-        (&Method::GET, ["admin", "providers", pid, "routing-rules", "effective"]) => {
-            effective_routing(state, parts, pid).await
-        }
-
         // Named TLS fingerprint presets for the Console picker (B6 parity).
         (&Method::GET, ["admin", "tls-presets"]) => tls_presets(state, parts).await,
 
@@ -205,10 +200,17 @@ async fn upstream_logs(
     Resp::json(200, &rows)
 }
 
-async fn effective_routing(state: &AppState, parts: &Parts, pid: &str) -> Result<Resp, ApiError> {
+/// `GET /admin/providers/{id}/routing-rules` — the full routing view (default
+/// matrix + custom rule ids). Exposed so the edge dispatcher can resolve it
+/// before the generic nested CRUD list.
+pub(super) async fn routing_view(
+    state: &AppState,
+    parts: &Parts,
+    pid: &str,
+) -> Result<Resp, ApiError> {
     guard_admin(state, parts).await?;
     let provider_id = super::parse_i64(pid)?;
-    let rows = crate::api::routing::effective_routes(state, provider_id).await?;
+    let rows = crate::api::routing::routing_view(state, provider_id).await?;
     Resp::json(200, &rows)
 }
 

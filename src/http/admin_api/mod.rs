@@ -191,6 +191,15 @@ async fn route(state: &AppState, parts: &Parts, body: &Bytes) -> Option<Result<R
         _ => {}
     }
 
+    // Routing view: GET /admin/providers/{id}/routing-rules returns the computed
+    // matrix (default cells + custom rule ids), not the raw rows. Must resolve
+    // BEFORE the generic nested CRUD list (step 2) which matches the same path.
+    if let (&Method::GET, ["admin", "providers", pid, "routing-rules"]) =
+        (&parts.method, segs.as_slice())
+    {
+        return Some(observability::routing_view(state, parts, pid).await);
+    }
+
     // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).
     if let Some(r) = crud::dispatch(state, parts, body).await {
         return Some(r);

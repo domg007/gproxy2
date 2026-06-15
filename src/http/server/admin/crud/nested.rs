@@ -124,15 +124,64 @@ crud_nested!(
     delete = delete_rule,
 );
 
-crud_nested!(
-    mod routing_rules,
-    record = RoutingRule,
-    input = RoutingRuleInput,
-    parent = provider_id,
-    list = list_routing_rules,
-    upsert = upsert_routing_rule,
-    delete = delete_routing_rule,
-);
+// routing-rules: /admin/providers/{provider_id}/routing-rules
+//                DELETE /admin/routing-rules/{id}
+//
+// Hand-rolled (not crud_nested!): GET returns the computed routing *view*
+// (default 3×4 matrix + custom rule ids), not the raw stored rows — there is no
+// separate "effective" endpoint. POST/DELETE behave like the macro.
+pub mod routing_rules {
+    use super::*;
+
+    /// `GET /admin/providers/{provider_id}/routing-rules` — the routing view.
+    pub async fn list(
+        State(state): State<AppState>,
+        Path(provider_id): Path<i64>,
+    ) -> Result<Json<Vec<crate::api::routing::RoutingViewRow>>, ApiError> {
+        Ok(Json(
+            crate::api::routing::routing_view(&state, provider_id).await?,
+        ))
+    }
+
+    /// `POST /admin/providers/{provider_id}/routing-rules` — upsert a rule.
+    pub async fn upsert(
+        State(state): State<AppState>,
+        Path(parent_id): Path<i64>,
+        Json(input): Json<RoutingRuleInput>,
+    ) -> Result<Json<RoutingRule>, ApiError> {
+        if input.provider_id != parent_id {
+            return Err(ApiError::BadRequest(format!(
+                "body provider_id {} does not match URL parent {parent_id}",
+                input.provider_id
+            )));
+        }
+        let rec = state
+            .persistence
+            .upsert_routing_rule(input)
+            .await
+            .map_err(upsert_err)?;
+        invalidate(&state).await;
+        Ok(Json(rec))
+    }
+
+    /// `DELETE /admin/routing-rules/{id}` — 204 on removal, 404 otherwise.
+    pub async fn delete(
+        State(state): State<AppState>,
+        Path(id): Path<i64>,
+    ) -> Result<axum::response::Response, ApiError> {
+        if state
+            .persistence
+            .delete_routing_rule(id)
+            .await
+            .map_err(internal)?
+        {
+            invalidate(&state).await;
+            Ok(StatusCode::NO_CONTENT.into_response())
+        } else {
+            Err(ApiError::NotFound("not found".into()))
+        }
+    }
+}
 
 crud_nested!(
     mod provider_rule_sets,
