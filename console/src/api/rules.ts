@@ -22,10 +22,9 @@ export const RULE_KINDS = ["system_text","rewrite","sanitize","cache_breakpoint"
 export const ruleSetsQuery = queryOptions({ queryKey: ["rule-sets"], queryFn: () => api<RuleSet[]>("/admin/rule-sets") });
 export const ruleSetQuery = (id: number) => queryOptions({ queryKey: ["rule-sets", id], queryFn: () => api<RuleSet>(`/admin/rule-sets/${id}`) });
 export const rulesQuery = (rsId: number) => queryOptions({ queryKey: ["rule-sets", rsId, "rules"], queryFn: () => api<Rule[]>(`/admin/rule-sets/${rsId}/rules`) });
-export interface EffectiveRoute { operation: string; kind: string; implementation: string; dest_operation: string | null; dest_kind: string | null; source: "default" | "override"; }
+export interface RoutingRow { operation: string; kind: string; implementation: string; dest_operation: string | null; dest_kind: string | null; source: "default" | "custom"; id: number | null; sort_order: number | null; cell: boolean; }
 
-export const routingRulesQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "routing-rules"], queryFn: () => api<RoutingRule[]>(`/admin/providers/${pid}/routing-rules`) });
-export const effectiveRoutingQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "routing-rules", "effective"], queryFn: () => api<EffectiveRoute[]>(`/admin/providers/${pid}/routing-rules/effective`) });
+export const routingRulesQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "routing-rules"], queryFn: () => api<RoutingRow[]>(`/admin/providers/${pid}/routing-rules`) });
 export const providerRuleSetsQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "rule-sets"], queryFn: () => api<ProviderRuleSet[]>(`/admin/providers/${pid}/rule-sets`) });
 
 export function upsertRuleSet(i: RuleSetInput) { return api<RuleSet>("/admin/rule-sets", { method: "POST", body: JSON.stringify(i) }); }

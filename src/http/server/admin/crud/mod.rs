@@ -1018,7 +1018,7 @@ mod tests {
     /// - after inserting an explicit rule for (`generate_content`, `claude_messages`)
     ///   → source becomes "override"
     #[tokio::test]
-    async fn effective_routing_matrix() {
+    async fn routing_view_matrix() {
         use crate::store::persistence::records::{ProviderInput, RoutingRuleInput};
         insecure_cookies();
         let (state, _dir, admin_id) = seeded_state().await;
@@ -1048,12 +1048,10 @@ mod tests {
         let resp = app
             .clone()
             .oneshot(
-                Request::get(format!(
-                    "/admin/providers/{provider_id}/routing-rules/effective"
-                ))
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())
-                .unwrap(),
+                Request::get(format!("/admin/providers/{provider_id}/routing-rules"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
             )
             .await
             .unwrap();
@@ -1077,6 +1075,8 @@ mod tests {
         let same = find("generate_content", "open_ai_chat_completions");
         assert_eq!(same["implementation"], "passthrough", "{same}");
         assert_eq!(same["source"], "default");
+        assert!(same["id"].is_null());
+        assert_eq!(same["cell"], true);
         assert!(same["dest_operation"].is_null());
 
         // cross-kind → transform_to the channel's native kind
@@ -1111,12 +1111,10 @@ mod tests {
         let app2 = crate::http::server::router(state);
         let resp2 = app2
             .oneshot(
-                Request::get(format!(
-                    "/admin/providers/{provider_id}/routing-rules/effective"
-                ))
-                .header(header::COOKIE, &cookie)
-                .body(Body::empty())
-                .unwrap(),
+                Request::get(format!("/admin/providers/{provider_id}/routing-rules"))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
             )
             .await
             .unwrap();
@@ -1133,10 +1131,12 @@ mod tests {
                 .clone()
         };
 
-        // The overridden cell now reflects the stored rule.
+        // The customized cell now reflects the stored rule + carries its id.
         let overridden = find2("generate_content", "claude_messages");
         assert_eq!(overridden["implementation"], "unsupported", "{overridden}");
-        assert_eq!(overridden["source"], "override");
+        assert_eq!(overridden["source"], "custom");
+        assert!(overridden["id"].is_i64());
+        assert_eq!(overridden["cell"], true);
 
         // Other cells are untouched — still "default".
         let unchanged = find2("generate_content", "open_ai_chat_completions");
