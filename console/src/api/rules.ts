@@ -22,9 +22,8 @@ export const RULE_KINDS = ["system_text","rewrite","sanitize","cache_breakpoint"
 export const ruleSetsQuery = queryOptions({ queryKey: ["rule-sets"], queryFn: () => api<RuleSet[]>("/admin/rule-sets") });
 export const ruleSetQuery = (id: number) => queryOptions({ queryKey: ["rule-sets", id], queryFn: () => api<RuleSet>(`/admin/rule-sets/${id}`) });
 export const rulesQuery = (rsId: number) => queryOptions({ queryKey: ["rule-sets", rsId, "rules"], queryFn: () => api<Rule[]>(`/admin/rule-sets/${rsId}/rules`) });
-export interface RoutingRow { operation: string; kind: string; implementation: string; dest_operation: string | null; dest_kind: string | null; source: "default" | "custom"; id: number | null; sort_order: number | null; cell: boolean; }
 
-export const routingRulesQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "routing-rules"], queryFn: () => api<RoutingRow[]>(`/admin/providers/${pid}/routing-rules`) });
+export const routingRulesQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "routing-rules"], queryFn: () => api<RoutingRule[]>(`/admin/providers/${pid}/routing-rules`) });
 export const providerRuleSetsQuery = (pid: number) => queryOptions({ queryKey: ["providers", pid, "rule-sets"], queryFn: () => api<ProviderRuleSet[]>(`/admin/providers/${pid}/rule-sets`) });
 
 export function upsertRuleSet(i: RuleSetInput) { return api<RuleSet>("/admin/rule-sets", { method: "POST", body: JSON.stringify(i) }); }
@@ -33,5 +32,6 @@ export function upsertRule(rsId: number, i: RuleInput) { return api<Rule>(`/admi
 export function deleteRule(id: number) { return api<void>(`/admin/rules/${id}`, { method: "DELETE" }); }
 export function upsertRoutingRule(pid: number, i: RoutingRuleInput) { return api<RoutingRule>(`/admin/providers/${pid}/routing-rules`, { method: "POST", body: JSON.stringify(i) }); }
 export function deleteRoutingRule(id: number) { return api<void>(`/admin/routing-rules/${id}`, { method: "DELETE" }); }
+export function resetRoutingDefaults(pid: number) { return api<RoutingRule[]>(`/admin/providers/${pid}/routing-rules/reset`, { method: "POST" }); }
 export function upsertProviderRuleSet(pid: number, i: ProviderRuleSetInput) { return api<ProviderRuleSet>(`/admin/providers/${pid}/rule-sets`, { method: "POST", body: JSON.stringify(i) }); }
 export function deleteProviderRuleSet(id: number) { return api<void>(`/admin/provider-rule-sets/${id}`, { method: "DELETE" }); }

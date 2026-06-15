@@ -21,6 +21,61 @@ use crate::store::persistence::records::{
 
 use super::{Resp, internal, json_body, parse_i64, segments};
 
+/// `POST /admin/providers` — create/update a provider; on create, seed the
+/// channel's default routing rules. Channel is immutable after creation.
+/// Resolved by the edge dispatcher before the generic providers CRUD.
+pub(super) async fn create_provider_seeded(
+    state: &AppState,
+    parts: &Parts,
+    body: &Bytes,
+) -> Result<Resp, ApiError> {
+    guard_admin(state, parts).await?;
+    let input: ProviderInput = json_body(body)?;
+    let is_create = input.id.is_none();
+    if let Some(id) = input.id {
+        let existing = state
+            .persistence
+            .get_provider(id)
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| ApiError::NotFound("provider not found".into()))?;
+        if existing.channel != input.channel {
+            return Err(ApiError::BadRequest(
+                "channel cannot be changed after creation".into(),
+            ));
+        }
+    }
+    let rec = state
+        .persistence
+        .upsert_provider(input)
+        .await
+        .map_err(ApiError::from_upsert)?;
+    if is_create {
+        crate::api::routing::seed_default_routing(state, rec.id).await?;
+    }
+    invalidate(state).await;
+    Resp::json(200, &rec)
+}
+
+/// `POST /admin/providers/{id}/routing-rules/reset` — re-seed the channel's
+/// default routing rules and return the resulting set.
+pub(super) async fn reset_routing(
+    state: &AppState,
+    parts: &Parts,
+    pid: &str,
+) -> Result<Resp, ApiError> {
+    guard_admin(state, parts).await?;
+    let provider_id = parse_i64(pid)?;
+    crate::api::routing::seed_default_routing(state, provider_id).await?;
+    invalidate(state).await;
+    let rows = state
+        .persistence
+        .list_routing_rules(provider_id)
+        .await
+        .map_err(internal)?;
+    Resp::json(200, &rows)
+}
+
 // ── edge_crud! macro ─────────────────────────────────────────────────────────
 
 /// Generate a `dispatch_<name>` function that handles the four standard CRUD

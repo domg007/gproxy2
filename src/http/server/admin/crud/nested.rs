@@ -126,20 +126,24 @@ crud_nested!(
 
 // routing-rules: /admin/providers/{provider_id}/routing-rules
 //                DELETE /admin/routing-rules/{id}
+//                POST   /admin/providers/{provider_id}/routing-rules/reset
 //
-// Hand-rolled (not crud_nested!): GET returns the computed routing *view*
-// (default 3×4 matrix + custom rule ids), not the raw stored rows — there is no
-// separate "effective" endpoint. POST/DELETE behave like the macro.
+// Hand-rolled (not crud_nested!): GET is a plain load (the default rules are
+// materialized at provider creation); `reset` re-seeds the channel defaults.
 pub mod routing_rules {
     use super::*;
 
-    /// `GET /admin/providers/{provider_id}/routing-rules` — the routing view.
+    /// `GET /admin/providers/{provider_id}/routing-rules` — load the stored rules.
     pub async fn list(
         State(state): State<AppState>,
         Path(provider_id): Path<i64>,
-    ) -> Result<Json<Vec<crate::api::routing::RoutingViewRow>>, ApiError> {
+    ) -> Result<Json<Vec<RoutingRule>>, ApiError> {
         Ok(Json(
-            crate::api::routing::routing_view(&state, provider_id).await?,
+            state
+                .persistence
+                .list_routing_rules(provider_id)
+                .await
+                .map_err(internal)?,
         ))
     }
 
@@ -162,6 +166,24 @@ pub mod routing_rules {
             .map_err(upsert_err)?;
         invalidate(&state).await;
         Ok(Json(rec))
+    }
+
+    /// `POST /admin/providers/{provider_id}/routing-rules/reset` — recompute the
+    /// channel's default rules (create-or-overwrite the 3×4 cells), returning the
+    /// resulting rule set.
+    pub async fn reset(
+        State(state): State<AppState>,
+        Path(provider_id): Path<i64>,
+    ) -> Result<Json<Vec<RoutingRule>>, ApiError> {
+        crate::api::routing::seed_default_routing(&state, provider_id).await?;
+        invalidate(&state).await;
+        Ok(Json(
+            state
+                .persistence
+                .list_routing_rules(provider_id)
+                .await
+                .map_err(internal)?,
+        ))
     }
 
     /// `DELETE /admin/routing-rules/{id}` — 204 on removal, 404 otherwise.

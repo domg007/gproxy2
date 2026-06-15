@@ -124,23 +124,23 @@
   },
   "routing": {
     "title": "Routing",
-    "caption": "The provider's full effective routing. Grey rows are system defaults (automatic); click any row to set the behavior you want — changed rows are marked Custom and can be reverted. Use Add route to cover other operation/protocol pairs.",
+    "caption": "How this provider routes each operation × inbound protocol. Defaults were initialized from the channel at creation — edit a row, add a rule, or delete one. Reset defaults recomputes them from the channel.",
     "add": "Add route",
     "addTitle": "Add route",
     "editTitle": "Edit route",
     "behavior": "Behavior",
     "destKind": "Destination protocol",
-    "reset": "Reset to default",
     "delete": "Delete",
-    "source": {
-      "default": "Default",
-      "custom": "Custom"
-    },
+    "deleteConfirm": "Delete this routing rule?",
+    "resetAll": "Reset defaults",
+    "resetConfirm": "Recompute all routing rules from the channel defaults? Your edits to the default cells will be overwritten.",
+    "resetDone": "Routing defaults restored",
+    "empty": "No routing rules yet.",
+    "initialize": "Initialize defaults",
     "columns": {
       "operation": "Operation",
       "kind": "Inbound protocol",
-      "behavior": "Behavior",
-      "source": "Source"
+      "behavior": "Behavior"
     }
   }
 }

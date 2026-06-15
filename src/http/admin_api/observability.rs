@@ -200,20 +200,6 @@ async fn upstream_logs(
     Resp::json(200, &rows)
 }
 
-/// `GET /admin/providers/{id}/routing-rules` — the full routing view (default
-/// matrix + custom rule ids). Exposed so the edge dispatcher can resolve it
-/// before the generic nested CRUD list.
-pub(super) async fn routing_view(
-    state: &AppState,
-    parts: &Parts,
-    pid: &str,
-) -> Result<Resp, ApiError> {
-    guard_admin(state, parts).await?;
-    let provider_id = super::parse_i64(pid)?;
-    let rows = crate::api::routing::routing_view(state, provider_id).await?;
-    Resp::json(200, &rows)
-}
-
 async fn tls_presets(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
     guard_admin(state, parts).await?;
     Resp::json(200, &crate::api::tls_presets::tls_presets())

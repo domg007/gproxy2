@@ -98,7 +98,7 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
       </div>
       <div className="grid gap-2">
         <Label>{t("fields.channel")}</Label>
-        <Select value={channel} onValueChange={(v) => { setChannel(v); setSettings(initSettingsState(provider?.settings_json)); }}>
+        <Select value={channel} disabled={editing} onValueChange={(v) => { setChannel(v); setSettings(initSettingsState(provider?.settings_json)); }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {(["api_key", "oauth_tokens", "service_account", "github_token"] as const).map((family) => {
@@ -115,9 +115,7 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
             })}
           </SelectContent>
         </Select>
-        {provider !== undefined && channel !== provider.channel && (
-          <p className="text-xs text-amber-600 dark:text-amber-500">{t("form.channelWarning")}</p>
-        )}
+        {editing && <p className="text-xs text-muted-foreground">{t("form.channelLocked")}</p>}
       </div>
       <div className="grid gap-2">
         <Label>{t("fields.strategy")}</Label>

@@ -109,15 +109,76 @@ crud_entity!(
     delete = delete_org,
 );
 
-crud_entity!(
-    mod providers,
-    record = Provider,
-    input = ProviderInput,
-    list = list_providers,
-    get = get_provider,
-    upsert = upsert_provider,
-    delete = delete_provider,
-);
+// providers is hand-rolled (not crud_entity!): creation seeds the channel's
+// default routing rules (so GET /routing-rules is a plain load), and the channel
+// is immutable after creation.
+pub mod providers {
+    use super::*;
+
+    pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Provider>>, ApiError> {
+        Ok(Json(
+            state.persistence.list_providers().await.map_err(internal)?,
+        ))
+    }
+
+    pub async fn get(
+        State(state): State<AppState>,
+        Path(id): Path<i64>,
+    ) -> Result<Json<Provider>, ApiError> {
+        match state.persistence.get_provider(id).await.map_err(internal)? {
+            Some(rec) => Ok(Json(rec)),
+            None => Err(ApiError::NotFound("not found".into())),
+        }
+    }
+
+    pub async fn upsert(
+        State(state): State<AppState>,
+        Json(input): Json<ProviderInput>,
+    ) -> Result<Json<Provider>, ApiError> {
+        let is_create = input.id.is_none();
+        // Channel is immutable after creation (it determines the default routing).
+        if let Some(id) = input.id {
+            let existing = state
+                .persistence
+                .get_provider(id)
+                .await
+                .map_err(internal)?
+                .ok_or_else(|| ApiError::NotFound("provider not found".into()))?;
+            if existing.channel != input.channel {
+                return Err(ApiError::BadRequest(
+                    "channel cannot be changed after creation".into(),
+                ));
+            }
+        }
+        let rec = state
+            .persistence
+            .upsert_provider(input)
+            .await
+            .map_err(upsert_err)?;
+        if is_create {
+            crate::api::routing::seed_default_routing(&state, rec.id).await?;
+        }
+        invalidate(&state).await;
+        Ok(Json(rec))
+    }
+
+    pub async fn delete(
+        State(state): State<AppState>,
+        Path(id): Path<i64>,
+    ) -> Result<axum::response::Response, ApiError> {
+        if state
+            .persistence
+            .delete_provider(id)
+            .await
+            .map_err(internal)?
+        {
+            invalidate(&state).await;
+            Ok(StatusCode::NO_CONTENT.into_response())
+        } else {
+            Err(ApiError::NotFound("not found".into()))
+        }
+    }
+}
 
 crud_entity!(
     mod routes,

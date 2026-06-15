@@ -13,7 +13,7 @@ mod user_keys;
 mod users;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use crate::app::AppState;
 
@@ -138,6 +138,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/admin/providers/{provider_id}/routing-rules",
             get(nested::routing_rules::list).post(nested::routing_rules::upsert),
+        )
+        .route(
+            "/admin/providers/{provider_id}/routing-rules/reset",
+            post(nested::routing_rules::reset),
         )
         .route(
             "/admin/routing-rules/{id}",
@@ -1007,139 +1011,128 @@ mod tests {
         assert_eq!(list[0]["request_id"], "req-up");
     }
 
-    /// Effective routing matrix: a provider on the `openai` channel (native
-    /// `OpenAiChatCompletions`) produces the expected decisions for key cells
-    /// and correctly tags stored-rule cells as `source: "override"`.
-    ///
-    /// Checked cells (of the 12-cell 3×4 matrix):
-    /// - `generate_content` × `open_ai_chat_completions` → passthrough (default)
-    /// - `generate_content` × `claude_messages`           → transform_to (default)
-    /// - `count_tokens`     × `open_ai_chat_completions`  → local (default, §6.3)
-    /// - after inserting an explicit rule for (`generate_content`, `claude_messages`)
-    ///   → source becomes "override"
+    /// Routing defaults are materialized at provider creation, edited as plain
+    /// rules, and restored by `reset`. Creating an `openai`-channel provider via
+    /// the HTTP path seeds the 12-cell 3×4 matrix; a custom edit persists; `reset`
+    /// recomputes the channel defaults.
     #[tokio::test]
-    async fn routing_view_matrix() {
-        use crate::store::persistence::records::{ProviderInput, RoutingRuleInput};
+    async fn routing_seed_and_reset() {
+        use crate::store::persistence::records::RoutingRuleInput;
         insecure_cookies();
         let (state, _dir, admin_id) = seeded_state().await;
         let cookie = admin_cookie(&state, admin_id).await;
-
-        // Seed an openai provider.
-        let provider_id = state
-            .persistence
-            .upsert_provider(ProviderInput {
-                id: None,
-                name: "openai-test".into(),
-                channel: "openai".into(),
-                label: None,
-                settings_json: serde_json::json!({}),
-                credential_strategy: "weighted".into(),
-                proxy_url: None,
-                tls_fingerprint: None,
-                enabled: true,
-            })
-            .await
-            .unwrap()
-            .id;
-
         let app = crate::http::server::router(state.clone());
 
-        // --- Phase 1: no stored rules — all cells are "default". ---
+        // Create the provider via HTTP so creation seeds the default rules.
+        let create_body = serde_json::json!({
+            "id": null, "name": "openai-test", "channel": "openai", "label": null,
+            "settings_json": {}, "credential_strategy": "weighted", "proxy_url": null,
+            "enabled": true,
+        });
         let resp = app
             .clone()
             .oneshot(
-                Request::get(format!("/admin/providers/{provider_id}/routing-rules"))
+                Request::post("/admin/providers")
                     .header(header::COOKIE, &cookie)
-                    .body(Body::empty())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(create_body.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        let rows: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let rows = rows.as_array().unwrap();
+        let created: serde_json::Value =
+            serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        let provider_id = created["id"].as_i64().unwrap();
 
-        // 3 ops × 4 kinds = 12 rows.
-        assert_eq!(rows.len(), 12);
-
-        // Helper: find a row by (operation, kind).
-        let find = |op: &str, kind: &str| {
+        // GET is a plain load — creation seeded the 12 default rows.
+        let load = |app: axum::Router, cookie: String, pid: i64| async move {
+            let resp = app
+                .oneshot(
+                    Request::get(format!("/admin/providers/{pid}/routing-rules"))
+                        .header(header::COOKIE, cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+            let v: serde_json::Value =
+                serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes())
+                    .unwrap();
+            v.as_array().unwrap().clone()
+        };
+        let find = |rows: &[serde_json::Value], op: &str, kind: &str| {
             rows.iter()
                 .find(|r| r["operation"] == op && r["kind"] == kind)
                 .unwrap_or_else(|| panic!("no row for ({op},{kind})"))
                 .clone()
         };
 
-        // same-kind passthrough (openai ch → chat_completions)
-        let same = find("generate_content", "open_ai_chat_completions");
+        let rows = load(app.clone(), cookie.clone(), provider_id).await;
+        assert_eq!(rows.len(), 12);
+        // every seeded row is a real rule (has an id) on the openai channel.
+        let same = find(&rows, "generate_content", "open_ai_chat_completions");
         assert_eq!(same["implementation"], "passthrough", "{same}");
-        assert_eq!(same["source"], "default");
-        assert!(same["id"].is_null());
-        assert_eq!(same["cell"], true);
-        assert!(same["dest_operation"].is_null());
-
-        // cross-kind → transform_to the channel's native kind
-        let cross = find("generate_content", "claude_messages");
+        assert!(same["id"].is_i64());
+        let cross = find(&rows, "generate_content", "claude_messages");
         assert_eq!(cross["implementation"], "transform_to", "{cross}");
-        assert_eq!(cross["source"], "default");
         assert_eq!(cross["dest_kind"], "open_ai_chat_completions");
-
-        // count_tokens on an openai-family channel → local (§6.3 default)
-        let ct = find("count_tokens", "open_ai_chat_completions");
+        let ct = find(&rows, "count_tokens", "open_ai_chat_completions");
         assert_eq!(ct["implementation"], "local", "{ct}");
-        assert_eq!(ct["source"], "default");
 
-        // --- Phase 2: insert an explicit rule for (generate_content, claude_messages). ---
-        state
-            .persistence
-            .upsert_routing_rule(RoutingRuleInput {
-                id: None,
-                provider_id,
-                operation: "generate_content".into(),
-                kind: "claude_messages".into(),
-                implementation: "unsupported".into(),
-                dest_operation: None,
-                dest_kind: None,
-                sort_order: 0,
-                enabled: true,
-            })
-            .await
-            .unwrap();
-
-        // Re-request (no snapshot invalidation needed — handler re-reads DB directly).
-        let app2 = crate::http::server::router(state);
-        let resp2 = app2
+        // Edit one cell: overwrite (generate_content, claude_messages) → unsupported.
+        let rule_id = cross["id"].as_i64().unwrap();
+        let edit = RoutingRuleInput {
+            id: Some(rule_id),
+            provider_id,
+            operation: "generate_content".into(),
+            kind: "claude_messages".into(),
+            implementation: "unsupported".into(),
+            dest_operation: None,
+            dest_kind: None,
+            sort_order: 0,
+            enabled: true,
+        };
+        let resp = app
+            .clone()
             .oneshot(
-                Request::get(format!("/admin/providers/{provider_id}/routing-rules"))
+                Request::post(format!("/admin/providers/{provider_id}/routing-rules"))
                     .header(header::COOKIE, &cookie)
-                    .body(Body::empty())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&edit).unwrap()))
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(resp2.status(), StatusCode::OK);
-        let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
-        let rows2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
-        let rows2 = rows2.as_array().unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let rows = load(app.clone(), cookie.clone(), provider_id).await;
+        assert_eq!(rows.len(), 12, "edit overwrote in place, no new row");
+        assert_eq!(
+            find(&rows, "generate_content", "claude_messages")["implementation"],
+            "unsupported"
+        );
 
-        let find2 = |op: &str, kind: &str| {
-            rows2
-                .iter()
-                .find(|r| r["operation"] == op && r["kind"] == kind)
-                .unwrap_or_else(|| panic!("no row for ({op},{kind})"))
-                .clone()
-        };
-
-        // The customized cell now reflects the stored rule + carries its id.
-        let overridden = find2("generate_content", "claude_messages");
-        assert_eq!(overridden["implementation"], "unsupported", "{overridden}");
-        assert_eq!(overridden["source"], "custom");
-        assert!(overridden["id"].is_i64());
-        assert_eq!(overridden["cell"], true);
-
-        // Other cells are untouched — still "default".
-        let unchanged = find2("generate_content", "open_ai_chat_completions");
-        assert_eq!(unchanged["source"], "default");
+        // Reset → the edited cell is restored to the channel default.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post(format!(
+                    "/admin/providers/{provider_id}/routing-rules/reset"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let rows = load(app, cookie, provider_id).await;
+        assert_eq!(rows.len(), 12);
+        assert_eq!(
+            find(&rows, "generate_content", "claude_messages")["implementation"],
+            "transform_to",
+            "reset restored the default"
+        );
     }
 }
