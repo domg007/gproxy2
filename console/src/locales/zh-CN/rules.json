@@ -124,23 +124,23 @@
   },
   "routing": {
     "title": "路由",
-    "caption": "该 provider 的完整生效路由。灰色行为系统默认(自动);点任意行改成你要的行为——改过的行标为「自定义」,可一键恢复默认。点「新增路由」可为其它操作/协议组合添加。",
+    "caption": "该 provider 对每个 操作 × 入站协议 的路由。默认值在创建时按渠道初始化——可编辑某行、新增规则或删除。「重置默认」按渠道重新计算。",
     "add": "新增路由",
     "addTitle": "新增路由",
     "editTitle": "编辑路由",
     "behavior": "行为",
     "destKind": "目标协议",
-    "reset": "恢复默认",
     "delete": "删除",
-    "source": {
-      "default": "默认",
-      "custom": "自定义"
-    },
+    "deleteConfirm": "删除这条路由规则?",
+    "resetAll": "重置默认",
+    "resetConfirm": "按渠道默认重新计算所有路由规则?你对默认格的修改会被覆盖。",
+    "resetDone": "已恢复路由默认",
+    "empty": "尚无路由规则。",
+    "initialize": "初始化默认",
     "columns": {
       "operation": "操作",
       "kind": "入站协议",
-      "behavior": "行为",
-      "source": "来源"
+      "behavior": "行为"
     }
   }
 }

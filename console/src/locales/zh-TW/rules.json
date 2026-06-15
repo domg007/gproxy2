@@ -124,23 +124,23 @@
   },
   "routing": {
     "title": "路由",
-    "caption": "該 provider 的完整生效路由。灰色列為系統預設(自動);點任意列改成你要的行為——改過的列標為「自訂」,可一鍵恢復預設。點「新增路由」可為其它操作/協議組合新增。",
+    "caption": "該 provider 對每個 操作 × 入站協議 的路由。預設值在建立時按通道初始化——可編輯某列、新增規則或刪除。「重設預設」按通道重新計算。",
     "add": "新增路由",
     "addTitle": "新增路由",
     "editTitle": "編輯路由",
     "behavior": "行為",
     "destKind": "目標協議",
-    "reset": "恢復預設",
     "delete": "刪除",
-    "source": {
-      "default": "預設",
-      "custom": "自訂"
-    },
+    "deleteConfirm": "刪除這條路由規則?",
+    "resetAll": "重設預設",
+    "resetConfirm": "按通道預設重新計算所有路由規則?你對預設格的修改會被覆寫。",
+    "resetDone": "已恢復路由預設",
+    "empty": "尚無路由規則。",
+    "initialize": "初始化預設",
     "columns": {
       "operation": "操作",
       "kind": "入站協議",
-      "behavior": "行為",
-      "source": "來源"
+      "behavior": "行為"
     }
   }
 }

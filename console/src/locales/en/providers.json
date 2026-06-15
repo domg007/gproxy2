@@ -41,10 +41,10 @@
     "create": "Create provider",
     "edit": "Edit provider",
     "required": "Required",
-    "channelWarning": "Changing the channel of an existing provider can break its credentials.",
     "baseUrlRequired": "Required for custom channel",
     "baseUrlHint": "Leave empty to use the channel's built-in default.",
-    "saved": "Saved"
+    "saved": "Saved",
+    "channelLocked": "Channel is fixed after creation."
   },
   "tls": {
     "custom": "Custom",

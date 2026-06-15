@@ -191,13 +191,16 @@ async fn route(state: &AppState, parts: &Parts, body: &Bytes) -> Option<Result<R
         _ => {}
     }
 
-    // Routing view: GET /admin/providers/{id}/routing-rules returns the computed
-    // matrix (default cells + custom rule ids), not the raw rows. Must resolve
-    // BEFORE the generic nested CRUD list (step 2) which matches the same path.
-    if let (&Method::GET, ["admin", "providers", pid, "routing-rules"]) =
+    // Provider create seeds the channel's default routing rules; channel is
+    // immutable on update. Must resolve BEFORE the generic CRUD providers upsert.
+    if let (&Method::POST, ["admin", "providers"]) = (&parts.method, segs.as_slice()) {
+        return Some(crud::create_provider_seeded(state, parts, body).await);
+    }
+    // Reset a provider's routing rules to the channel defaults.
+    if let (&Method::POST, ["admin", "providers", pid, "routing-rules", "reset"]) =
         (&parts.method, segs.as_slice())
     {
-        return Some(observability::routing_view(state, parts, pid).await);
+        return Some(crud::reset_routing(state, parts, pid).await);
     }
 
     // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).

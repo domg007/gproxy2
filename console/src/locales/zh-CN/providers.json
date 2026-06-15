@@ -41,10 +41,10 @@
     "create": "创建供应商",
     "edit": "编辑供应商",
     "required": "必填",
-    "channelWarning": "修改已有供应商的渠道可能使其凭证全部失效。",
     "baseUrlRequired": "custom 渠道必填",
     "baseUrlHint": "留空使用渠道内置默认值。",
-    "saved": "已保存"
+    "saved": "已保存",
+    "channelLocked": "渠道在创建后不可更改。"
   },
   "tls": {
     "custom": "自定义",

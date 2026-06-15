@@ -41,10 +41,10 @@
     "create": "建立供應商",
     "edit": "編輯供應商",
     "required": "必填",
-    "channelWarning": "修改既有供應商的通道可能使其憑證全部失效。",
     "baseUrlRequired": "custom 通道必填",
     "baseUrlHint": "留空使用通道內建預設值。",
-    "saved": "已儲存"
+    "saved": "已儲存",
+    "channelLocked": "通道在建立後不可變更。"
   },
   "tls": {
     "custom": "自訂",
