@@ -2,7 +2,7 @@
 //!
 //! Kiro exposes no OpenAI/Claude/Gemini-compatible surface: chat goes through
 //! the Smithy REST-JSON `POST /generateAssistantResponse`, whose RESPONSE is an
-//! AWS binary event-stream. `target_kind` is `OpenAiResponses`, so the M2 layer
+//! AWS binary event-stream. The upstream speaks the OpenAI Responses format, so the M2 layer
 //! sees Responses on both sides — but the channel must SHAPE both directions:
 //!
 //!   * **request** ([`prepare`](KiroChannel::prepare)) — convert the inbound
@@ -39,7 +39,7 @@ use crate::channel::{
     PreparedRequest,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
+use crate::protocol::Provider;
 
 use response::KiroStreamDecoder;
 
@@ -61,8 +61,59 @@ impl Channel for KiroChannel {
         "kiro"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::OpenAiResponses
+    fn provider_family(&self) -> Provider {
+        Provider::OpenAi
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, local, pass, pv, xform};
+        use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
+        vec![
+            pass(ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Claude), ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Gemini), ListModels, pv(P::OpenAi)),
+            local(CountTokens, pv(P::OpenAi)),
+            local(CountTokens, pv(P::Claude)),
+            local(CountTokens, pv(P::Gemini)),
+            pass(GenerateContent, cg(OpenAiResponses)),
+            xform(
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+                GenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                GenerateContent,
+                cg(ClaudeMessages),
+                GenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                GenerateContent,
+                cg(GeminiGenerateContent),
+                GenerateContent,
+                cg(OpenAiResponses),
+            ),
+            pass(StreamGenerateContent, cg(OpenAiResponses)),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+        ]
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]

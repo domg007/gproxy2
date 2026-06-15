@@ -45,14 +45,13 @@ pub fn plan_for(
     cp: &ControlPlaneSnapshot,
     provider_id: i64,
     source: OperationKey,
-    target_kind: ContentGenerationKind,
 ) -> Result<TransformPlan, PipelineError> {
     let rules = cp
         .routing_rules_by_provider
         .get(&provider_id)
         .map(|r| r.as_slice())
         .unwrap_or(&[]);
-    match routing::decide(rules, source, target_kind) {
+    match routing::decide(rules, source) {
         RoutingDecision::Passthrough => Ok(TransformPlan::Passthrough),
         RoutingDecision::Local => Ok(TransformPlan::Local),
         RoutingDecision::Unsupported => Err(PipelineError::RuleUnsupported),

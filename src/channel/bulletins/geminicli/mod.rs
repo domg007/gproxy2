@@ -2,7 +2,7 @@
 //! Code Assist envelope). FIRST envelope channel — `antigravity` reuses this
 //! shape.
 //!
-//! `target_kind` is `GeminiGenerateContent`: the request is a Gemini
+//! the request is a Gemini
 //! `generateContent` body, but Code Assist nests it under `request` alongside
 //! routing metadata (`{model, project, user_prompt_id, request:<body>}`) and
 //! nests the response under `.response`. [`prepare`](GeminiCliChannel::prepare)
@@ -29,7 +29,7 @@ use crate::channel::{
     PreparedRequest,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
+use crate::protocol::Provider;
 
 pub struct GeminiCliChannel;
 
@@ -40,8 +40,87 @@ impl Channel for GeminiCliChannel {
         "geminicli"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::GeminiGenerateContent
+    fn provider_family(&self) -> Provider {
+        Provider::Gemini
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, pass, pv, xform};
+        use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
+        vec![
+            pass(ListModels, pv(P::Gemini)),
+            xform(ListModels, pv(P::Claude), ListModels, pv(P::Gemini)),
+            xform(ListModels, pv(P::OpenAi), ListModels, pv(P::Gemini)),
+            pass(GetModel, pv(P::Gemini)),
+            xform(GetModel, pv(P::Claude), GetModel, pv(P::Gemini)),
+            xform(GetModel, pv(P::OpenAi), GetModel, pv(P::Gemini)),
+            pass(CountTokens, pv(P::Gemini)),
+            xform(CountTokens, pv(P::Claude), CountTokens, pv(P::Gemini)),
+            xform(CountTokens, pv(P::OpenAi), CountTokens, pv(P::Gemini)),
+            pass(GenerateContent, cg(GeminiGenerateContent)),
+            xform(
+                GenerateContent,
+                cg(ClaudeMessages),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                GenerateContent,
+                cg(OpenAiResponses),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            pass(StreamGenerateContent, cg(GeminiGenerateContent)),
+            xform(
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                CreateImage,
+                pv(P::OpenAi),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            xform(
+                EditImage,
+                pv(P::OpenAi),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+            pass(CreateEmbedding, pv(P::Gemini)),
+            xform(
+                CreateEmbedding,
+                pv(P::OpenAi),
+                CreateEmbedding,
+                pv(P::Gemini),
+            ),
+            xform(
+                CompactContent,
+                pv(P::OpenAi),
+                GenerateContent,
+                cg(GeminiGenerateContent),
+            ),
+        ]
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]

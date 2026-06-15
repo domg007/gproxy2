@@ -71,7 +71,6 @@ pub async fn run_failover(
                 &cp,
                 cand.provider.id,
                 ctx.op.expect("classified"),
-                channel.target_kind(),
             ) {
                 // `local` is intentional config addressed to this request —
                 // serve it here, never shop for another candidate.

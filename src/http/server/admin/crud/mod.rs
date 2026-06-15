@@ -1080,8 +1080,9 @@ mod tests {
         assert!(same["id"].is_i64());
         let cross = find(&rows, "generate_content", "claude_messages");
         assert_eq!(cross["implementation"], "transform_to", "{cross}");
+        // openai's non-openai inbound transforms to chat (v2 chat-native).
         assert_eq!(cross["dest_kind"], "open_ai_chat_completions");
-        // count_tokens is keyed by provider family; on openai → local.
+        // count_tokens on an openai-family channel is served locally (§6.3).
         let ct = find(&rows, "count_tokens", "open_ai");
         assert_eq!(ct["implementation"], "local", "{ct}");
 

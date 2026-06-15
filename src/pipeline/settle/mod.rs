@@ -122,7 +122,7 @@ impl SettleCtx {
             kind: enum_str(&op.kind),
             model: cand.upstream_model_id.clone(),
             inbound,
-            upstream_family: channel.target_kind().provider(),
+            upstream_family: channel.provider_family(),
             request_body,
             pricing,
             channel: Arc::clone(channel),

@@ -4,7 +4,7 @@
 //!
 //! There is no `refresh_token` — `needs_refresh` keys off the cached Copilot
 //! token's expiry and `refresh` always re-exchanges from the GitHub token. The
-//! request is plain OpenAI chat completions (`target_kind` stays
+//! request is plain OpenAI chat completions (the native format stays
 //! `OpenAiChatCompletions`): NO envelope, NO stream decoder, NO normalize, body
 //! verbatim. Login is the GitHub device flow ([`auth::device_start`] /
 //! [`auth::device_poll`]).
@@ -23,7 +23,7 @@ use crate::channel::{
     Channel, ChannelError, ChannelLogin, DeviceInit, DevicePoll, PrepareCtx, PreparedRequest,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
+use crate::protocol::Provider;
 
 /// Re-exchange the Copilot token slightly before it expires to avoid racing a
 /// 401 mid-flight.
@@ -38,8 +38,63 @@ impl Channel for CopilotCliChannel {
         "copilot_cli"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::OpenAiChatCompletions
+    fn provider_family(&self) -> Provider {
+        Provider::OpenAi
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, pass, pv, xform};
+        use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
+        vec![
+            pass(ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Claude), ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Gemini), ListModels, pv(P::OpenAi)),
+            pass(GetModel, pv(P::OpenAi)),
+            xform(GetModel, pv(P::Claude), GetModel, pv(P::OpenAi)),
+            xform(GetModel, pv(P::Gemini), GetModel, pv(P::OpenAi)),
+            pass(CountTokens, pv(P::OpenAi)),
+            xform(CountTokens, pv(P::Claude), CountTokens, pv(P::OpenAi)),
+            xform(CountTokens, pv(P::Gemini), CountTokens, pv(P::OpenAi)),
+            pass(GenerateContent, cg(OpenAiChatCompletions)),
+            xform(
+                GenerateContent,
+                cg(OpenAiResponses),
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            xform(
+                GenerateContent,
+                cg(ClaudeMessages),
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            xform(
+                GenerateContent,
+                cg(GeminiGenerateContent),
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            pass(StreamGenerateContent, cg(OpenAiChatCompletions)),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+            ),
+            pass(CompactContent, pv(P::OpenAi)),
+        ]
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]

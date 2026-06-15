@@ -1,7 +1,7 @@
 //! Codex channel — OpenAI ChatGPT-backend Responses API over OAuth2
 //! (`refresh_token` grant) plus the `codex_exec` impersonation header set.
 //!
-//! `target_kind` is `OpenAiResponses`: the upstream already speaks Responses
+//! the upstream natively speaks the OpenAI Responses format
 //! SSE, so there is NO envelope, NO stream decoder, NO normalize. This channel
 //! does, however, SHAPE the request body in [`prepare`](CodexChannel::prepare)
 //! (documented body mutation) — forcing `stream`/`store`, stripping sampling
@@ -25,7 +25,7 @@ use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
+use crate::protocol::Provider;
 
 pub struct CodexChannel;
 
@@ -36,8 +36,87 @@ impl Channel for CodexChannel {
         "codex"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::OpenAiResponses
+    fn provider_family(&self) -> Provider {
+        Provider::OpenAi
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, local, pass, pv, xform};
+        use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
+        vec![
+            pass(ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Claude), ListModels, pv(P::OpenAi)),
+            xform(ListModels, pv(P::Gemini), ListModels, pv(P::OpenAi)),
+            pass(GetModel, pv(P::OpenAi)),
+            xform(GetModel, pv(P::Claude), GetModel, pv(P::OpenAi)),
+            xform(GetModel, pv(P::Gemini), GetModel, pv(P::OpenAi)),
+            local(CountTokens, pv(P::OpenAi)),
+            local(CountTokens, pv(P::Claude)),
+            local(CountTokens, pv(P::Gemini)),
+            xform(
+                GenerateContent,
+                cg(OpenAiResponses),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                GenerateContent,
+                cg(ClaudeMessages),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                GenerateContent,
+                cg(GeminiGenerateContent),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            pass(StreamGenerateContent, cg(OpenAiResponses)),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                CreateImage,
+                pv(P::OpenAi),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            xform(
+                EditImage,
+                pv(P::OpenAi),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
+            pass(CreateEmbedding, pv(P::OpenAi)),
+            xform(
+                CreateEmbedding,
+                pv(P::Gemini),
+                CreateEmbedding,
+                pv(P::OpenAi),
+            ),
+            pass(CompactContent, pv(P::OpenAi)),
+        ]
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
