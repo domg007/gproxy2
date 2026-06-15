@@ -128,7 +128,7 @@ export function TlsFingerprintField({ value, onChange, label }: TlsFingerprintFi
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t("tls.title")}</DialogTitle>
           </DialogHeader>

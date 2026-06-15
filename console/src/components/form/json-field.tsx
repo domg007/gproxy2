@@ -37,7 +37,7 @@ export function JsonField({ id, value, onChange, rows = 6, placeholder, hint }: 
         spellCheck={false}
         aria-invalid={invalid}
         aria-describedby={describedBy}
-        className={cn("font-mono text-xs", invalid && "border-destructive")}
+        className={cn("max-h-[50vh] overflow-y-auto font-mono text-xs", invalid && "border-destructive")}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => setTouched(true)}
       />
