@@ -469,6 +469,14 @@ impl PersistenceBackend for FilePersistence {
         downstream_requests::list(&self.root, request_id).await
     }
 
+    async fn list_recent_downstream_requests(
+        &self,
+        limit: u64,
+        before_id: Option<i64>,
+    ) -> anyhow::Result<Vec<DownstreamRequest>> {
+        downstream_requests::list_recent(&self.root, limit, before_id).await
+    }
+
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,

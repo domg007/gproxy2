@@ -416,6 +416,14 @@ impl PersistenceBackend for DbPersistence {
         ops::logs::downstream_requests::list(&self.conn, request_id).await
     }
 
+    async fn list_recent_downstream_requests(
+        &self,
+        limit: u64,
+        before_id: Option<i64>,
+    ) -> anyhow::Result<Vec<DownstreamRequest>> {
+        ops::logs::downstream_requests::list_recent(&self.conn, limit, before_id).await
+    }
+
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,

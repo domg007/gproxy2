@@ -8,6 +8,7 @@ import { DataTable, type DataColumn } from "@/components/data-table";
 import { UsageFilters } from "@/components/observability/usage-filters";
 import { RequestDrawer } from "@/components/observability/request-drawer";
 import { AuditTab } from "@/components/observability/audit-tab";
+import { LogsTab } from "@/components/observability/logs-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -51,8 +52,8 @@ function UsagePage() {
     useInfiniteQuery(usageInfiniteQuery(filter));
   const rows = data?.pages.flat() ?? [];
 
-  function openDrawer(row: Usage) {
-    setSelectedRid(row.request_id);
+  function openRid(rid: string) {
+    setSelectedRid(rid);
     setDrawerOpen(true);
   }
 
@@ -128,11 +129,12 @@ function UsagePage() {
 
   return (
     <div className="grid gap-4 p-4 md:p-6">
-      <h1 className="text-xl font-semibold">{t("usage.explorer")}</h1>
+      <h1 className="text-xl font-semibold">{t("statistics")}</h1>
 
       <Tabs defaultValue="usage">
         <TabsList>
           <TabsTrigger value="usage">{t("usage.tab.usage")}</TabsTrigger>
+          <TabsTrigger value="logs">{t("usage.tab.logs")}</TabsTrigger>
           <TabsTrigger value="audit">{t("usage.tab.audit")}</TabsTrigger>
         </TabsList>
 
@@ -151,7 +153,7 @@ function UsagePage() {
               rows={rows}
               rowKey={(r) => r.id}
               empty={t("usage.empty")}
-              onRowClick={openDrawer}
+              onRowClick={(r) => openRid(r.request_id)}
               renderCard={(r) => (
                 <div className="grid gap-1">
                   <div className="flex items-center justify-between gap-2">
@@ -185,6 +187,10 @@ function UsagePage() {
               </Button>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-4 space-y-4">
+          <LogsTab onSelect={openRid} />
         </TabsContent>
 
         <TabsContent value="audit" className="mt-4 space-y-4">

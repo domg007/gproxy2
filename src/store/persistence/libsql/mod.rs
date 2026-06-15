@@ -397,6 +397,13 @@ impl PersistenceBackend for LibsqlPersistence {
     ) -> anyhow::Result<Vec<DownstreamRequest>> {
         logs::downstream_requests::list(&self.client, request_id).await
     }
+    async fn list_recent_downstream_requests(
+        &self,
+        limit: u64,
+        before_id: Option<i64>,
+    ) -> anyhow::Result<Vec<DownstreamRequest>> {
+        logs::downstream_requests::list_recent(&self.client, limit, before_id).await
+    }
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,

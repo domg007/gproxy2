@@ -84,3 +84,24 @@ pub async fn list(
     .map(decode)
     .collect()
 }
+
+/// Recent rows across all requests, `id` DESC, keyset cursor `before_id`.
+pub async fn list_recent(
+    client: &LibsqlClient,
+    limit: u64,
+    before_id: Option<i64>,
+) -> anyhow::Result<Vec<DownstreamRequest>> {
+    let mut sql = format!("SELECT {COLS} FROM downstream_requests WHERE 1=1");
+    let mut args: Vec<serde_json::Value> = Vec::new();
+    if let Some(v) = before_id {
+        sql.push_str(" AND id < ?");
+        args.push(arg_integer(v));
+    }
+    sql.push_str(" ORDER BY id DESC LIMIT ?");
+    args.push(arg_integer(limit as i64));
+    query(client, &sql, &args)
+        .await?
+        .iter()
+        .map(decode)
+        .collect()
+}
