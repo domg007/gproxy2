@@ -5,7 +5,7 @@
   "nav": {
     "dashboard": "仪表盘",
     "providers": "供应商",
-    "routes": "路由",
+    "routes": "负载均衡",
     "orgs": "组织",
     "users": "用户",
     "usage": "用量",
