@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AreaSwitcher } from "@/components/shell/area-switcher";
 import { LocaleControls } from "@/components/locale-controls";
@@ -7,8 +7,33 @@ import { NavList, NAV_ITEMS, type NavItem } from "@/components/shell/nav";
 import { UserMenu } from "@/components/shell/user-menu";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 type ShellFrom = "/_app" | "/_portal";
+
+const COLLAPSE_KEY = "gproxy.sidebar.collapsed";
+
+/** Sidebar collapse preference, persisted across reloads. Defaults to expanded. */
+function useSidebarCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore storage failures (private mode, etc.) */
+      }
+      return next;
+    });
+  return [collapsed, toggle];
+}
 
 function Brand({ compact }: { compact?: boolean }) {
   const { t } = useTranslation();
@@ -17,7 +42,7 @@ function Brand({ compact }: { compact?: boolean }) {
       <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-xs text-primary-foreground">
         g
       </span>
-      <span className={compact ? "hidden xl:inline" : undefined}>{t("app.name")}</span>
+      <span className={compact ? "hidden" : undefined}>{t("app.name")}</span>
     </div>
   );
 }
@@ -32,18 +57,44 @@ export function AppShell({
   contextFrom?: ShellFrom;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const { t } = useTranslation();
   return (
     <div className="flex min-h-svh">
-      {/* tablet: icon rail (md..xl) · desktop: full sidebar (xl+) */}
-      <aside className="sticky top-0 hidden h-svh w-14 shrink-0 flex-col border-r bg-background md:flex xl:w-60">
-        <Brand compact />
+      {/* md+: collapsible sidebar (icon rail when collapsed, labelled when expanded) */}
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-svh shrink-0 flex-col border-r bg-background transition-[width] duration-200 md:flex",
+          collapsed ? "w-14" : "w-60",
+        )}
+      >
+        <Brand compact={collapsed} />
         <div className="flex-1 overflow-y-auto py-2">
-          <NavList items={navItems} compact />
+          <NavList items={navItems} compact={collapsed} />
         </div>
-        <div className="border-t p-2 text-center text-[10px] text-muted-foreground xl:text-left xl:px-4">
-          <span className="hidden xl:inline">v{__APP_VERSION__} · {__APP_COMMIT__}</span>
-          <span className="xl:hidden">v{__APP_VERSION__}</span>
+        <div className="border-t p-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? t("nav.expand") : t("nav.collapse")}
+            aria-expanded={!collapsed}
+            title={collapsed ? t("nav.expand") : t("nav.collapse")}
+            className={cn("w-full text-muted-foreground", collapsed ? "justify-center px-2" : "justify-start gap-2")}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
+            ) : (
+              <>
+                <PanelLeftClose className="size-4 shrink-0" aria-hidden />
+                <span>{t("nav.collapse")}</span>
+              </>
+            )}
+          </Button>
+          <div className={cn("pt-2 text-[10px] text-muted-foreground", collapsed ? "text-center" : "px-2")}>
+            {collapsed ? `v${__APP_VERSION__}` : `v${__APP_VERSION__} · ${__APP_COMMIT__}`}
+          </div>
         </div>
       </aside>
 

@@ -15,7 +15,9 @@
     "title": "导航",
     "openMenu": "打开菜单",
     "myAccount": "我的账户",
-    "adminConsole": "管理控制台"
+    "adminConsole": "管理控制台",
+    "collapse": "收起",
+    "expand": "展开"
   },
   "actions": {
     "cancel": "取消",
