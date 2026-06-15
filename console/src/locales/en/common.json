@@ -5,7 +5,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "providers": "Providers",
-    "routes": "Routes",
+    "routes": "Load Balancing",
     "orgs": "Organizations",
     "users": "Users",
     "usage": "Usage",
