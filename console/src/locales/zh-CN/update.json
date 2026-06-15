@@ -29,5 +29,14 @@
     "failed": "失败",
     "stagedRestartNotice": "新的二进制文件已暂存。请重启 gproxy 服务以使更新生效。",
     "failedError": "错误"
+  },
+  "channel": {
+    "label": "更新渠道",
+    "hint": "本实例自更新跟踪哪个发布通道。",
+    "default": "默认",
+    "releases": "稳定版",
+    "staging": "预发布版",
+    "saved": "已保存更新渠道",
+    "noSettings": "请先配置实例设置。"
   }
 }

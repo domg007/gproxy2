@@ -29,5 +29,14 @@
     "failed": "失敗",
     "stagedRestartNotice": "新的二進位檔案已暫存。請重新啟動 gproxy 服務以使更新生效。",
     "failedError": "錯誤"
+  },
+  "channel": {
+    "label": "更新頻道",
+    "hint": "本實例自更新追蹤哪個發布頻道。",
+    "default": "預設",
+    "releases": "穩定版",
+    "staging": "預發布版",
+    "saved": "已儲存更新頻道",
+    "noSettings": "請先設定實例設定。"
   }
 }

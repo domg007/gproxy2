@@ -29,5 +29,14 @@
     "failed": "Failed",
     "stagedRestartNotice": "A new binary has been staged. Restart the gproxy service for the update to take effect.",
     "failedError": "Error"
+  },
+  "channel": {
+    "label": "Update Channel",
+    "hint": "Which release track this instance self-updates from.",
+    "default": "Default",
+    "releases": "Stable releases",
+    "staging": "Staging (pre-release)",
+    "saved": "Update channel saved",
+    "noSettings": "Configure instance settings first."
   }
 }

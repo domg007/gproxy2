@@ -6,7 +6,6 @@
     "outbound": "對外代理",
     "usageLogging": "用量與日誌",
     "retention": "保留策略",
-    "updates": "更新",
     "tokenizer": "分詞器"
   },
   "fields": {
@@ -20,18 +19,12 @@
     "enableDownstreamLogBody": "記錄下游請求/回應體",
     "disableLogRedaction": "停用日誌遮蔽",
     "enableTokenizerDownload": "啟用分詞器下載",
-    "updateChannel": "更新頻道",
     "retentionDays": "日誌保留天數"
   },
   "spoof": {
     "inherit": "繼承自路由",
     "on": "一律開啟",
     "off": "一律關閉"
-  },
-  "channel": {
-    "default": "預設",
-    "releases": "穩定版",
-    "staging": "預發布版"
   },
   "retention": {
     "forever": "留空表示永久保留日誌"
@@ -44,9 +37,5 @@
   "form": {
     "nameRequired": "執行個體名稱為必填"
   },
-  "empty": "尚無執行個體設定。點擊儲存以建立初始設定。",
-  "tabs": {
-    "general": "通用",
-    "updates": "更新"
-  }
+  "empty": "尚無執行個體設定。點擊儲存以建立初始設定。"
 }

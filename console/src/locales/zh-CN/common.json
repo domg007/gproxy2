@@ -16,7 +16,8 @@
     "myAccount": "我的账户",
     "adminConsole": "管理控制台",
     "collapse": "收起",
-    "expand": "展开"
+    "expand": "展开",
+    "update": "更新"
   },
   "actions": {
     "cancel": "取消",

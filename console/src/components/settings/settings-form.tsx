@@ -165,18 +165,6 @@ export function SettingsForm({ settings, onSaved }: { settings?: InstanceSetting
           )}
         </Section>
 
-        <Section title={t("sections.updates")}>
-          <Label htmlFor="settings-channel">{t("fields.updateChannel")}</Label>
-          <Select value={f.updateChannel} onValueChange={set("updateChannel")}>
-            <SelectTrigger id="settings-channel"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">{t("channel.default")}</SelectItem>
-              <SelectItem value="releases">{t("channel.releases")}</SelectItem>
-              <SelectItem value="staging">{t("channel.staging")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </Section>
-
         <Section title={t("sections.tokenizer")}>
           <SwitchField id="s-tokenizer" label={t("fields.enableTokenizerDownload")} checked={f.enableTokenizerDownload} onCheckedChange={set("enableTokenizerDownload")} />
         </Section>
