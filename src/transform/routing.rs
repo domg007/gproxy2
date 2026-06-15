@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::protocol::{ContentGenerationKind, Operation, OperationKey, OperationKind, Provider};
+use crate::protocol::{Operation, OperationKey, OperationKind};
 use crate::store::persistence::records::RoutingRule;
 
 /// `routing_rules.implementation`, parsed.
@@ -83,16 +83,13 @@ pub enum RoutingDecision {
     Unsupported,
 }
 
-/// Decide how to service `source` on a channel whose native content kind is
-/// `target_kind`, at REQUEST time. Routing is driven entirely by stored rules:
-/// an explicit rule wins; **no matching rule means `Unsupported`**. Channel
-/// defaults are materialized into real rules at provider creation (see
+/// Decide how to service `source` on a channel. Routing is driven entirely by
+/// stored rules: an explicit rule wins; **no matching rule means `Unsupported`**.
+/// Channel defaults are materialized into real rules at provider creation (see
 /// [`crate::api::routing::seed_default_routing`]) — they are not recomputed here.
-pub fn decide(
-    rules: &[CompiledRoutingRule],
-    source: OperationKey,
-    target_kind: ContentGenerationKind,
-) -> RoutingDecision {
+/// A `transform_to` rule whose `dest_kind` is missing is malformed and yields
+/// `Unsupported`.
+pub fn decide(rules: &[CompiledRoutingRule], source: OperationKey) -> RoutingDecision {
     if let Some(rule) = rules
         .iter()
         .find(|r| r.operation == source.operation && r.kind == source.kind)
@@ -101,89 +98,25 @@ pub fn decide(
             RuleImpl::Passthrough => RoutingDecision::Passthrough,
             RuleImpl::Local => RoutingDecision::Local,
             RuleImpl::Unsupported => RoutingDecision::Unsupported,
-            RuleImpl::TransformTo => RoutingDecision::TransformTo(OperationKey {
-                operation: rule.dest_operation.unwrap_or(source.operation),
-                kind: rule
-                    .dest_kind
-                    .unwrap_or_else(|| default_target_kind(source, target_kind)),
-            }),
+            RuleImpl::TransformTo => match rule.dest_kind {
+                Some(kind) => RoutingDecision::TransformTo(OperationKey {
+                    operation: rule.dest_operation.unwrap_or(source.operation),
+                    kind,
+                }),
+                None => RoutingDecision::Unsupported,
+            },
         };
     }
     RoutingDecision::Unsupported
 }
 
-/// The computed default decision for one `(source, target_kind)` cell. Used to
-/// MATERIALIZE defaults at provider creation / reset — never at request time.
-/// native-passthrough, else auto-transform to the channel's native kind;
-/// count_tokens on an openai-family target is served locally (§6.3).
-pub fn default_decision(
-    source: OperationKey,
-    target_kind: ContentGenerationKind,
-) -> RoutingDecision {
-    // §6.3: openai-family channels have no count endpoint worth hitting by
-    // default — serve locally. (The operator can opt into passthrough via a rule.)
-    if source.operation == Operation::CountTokens && target_kind.provider() == Provider::OpenAi {
-        return RoutingDecision::Local;
-    }
-    if is_native(source.kind, target_kind) {
-        return RoutingDecision::Passthrough;
-    }
-    RoutingDecision::TransformTo(OperationKey {
-        operation: source.operation,
-        kind: default_target_kind(source, target_kind),
-    })
-}
-
-/// Native = the inbound wire shape is already what the channel speaks.
-fn is_native(source_kind: OperationKind, target: ContentGenerationKind) -> bool {
-    match source_kind {
-        OperationKind::ContentGeneration(k) => k == target,
-        // Non-content operations are provider-family-shaped (e.g. OpenAI
-        // embeddings) and native on any channel of the same family — this is
-        // exactly M1's implicit passthrough behavior, preserved.
-        OperationKind::Provider(p) => p == target.provider(),
-    }
-}
-
-fn default_target_kind(source: OperationKey, target: ContentGenerationKind) -> OperationKind {
-    if source.operation.is_content_generation() {
-        OperationKind::ContentGeneration(target)
-    } else {
-        OperationKind::Provider(target.provider())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::ContentGenerationKind;
 
     fn cg(op: Operation, k: ContentGenerationKind) -> OperationKey {
         OperationKey::content_generation(op, k)
-    }
-
-    #[test]
-    fn default_decisions() {
-        use ContentGenerationKind as K;
-        let src = cg(Operation::GenerateContent, K::ClaudeMessages);
-        // same kind → passthrough
-        assert_eq!(
-            default_decision(src, K::ClaudeMessages),
-            RoutingDecision::Passthrough
-        );
-        // cross kind → auto transform to channel native
-        assert_eq!(
-            default_decision(src, K::OpenAiChatCompletions),
-            RoutingDecision::TransformTo(cg(Operation::GenerateContent, K::OpenAiChatCompletions))
-        );
-        // openai-family non-content op on an openai-kind channel → native
-        let emb = OperationKey::provider(
-            Operation::CreateEmbedding,
-            crate::protocol::Provider::OpenAi,
-        );
-        assert_eq!(
-            default_decision(emb, K::OpenAiChatCompletions),
-            RoutingDecision::Passthrough
-        );
     }
 
     #[test]
@@ -191,10 +124,7 @@ mod tests {
         use ContentGenerationKind as K;
         // At request time, an unseeded cell (no matching rule) is unsupported.
         let src = cg(Operation::GenerateContent, K::ClaudeMessages);
-        assert_eq!(
-            decide(&[], src, K::ClaudeMessages),
-            RoutingDecision::Unsupported
-        );
+        assert_eq!(decide(&[], src), RoutingDecision::Unsupported);
     }
 
     #[test]
@@ -210,9 +140,6 @@ mod tests {
             Operation::GenerateContent,
             ContentGenerationKind::ClaudeMessages,
         );
-        assert_eq!(
-            decide(&[rule], src, ContentGenerationKind::ClaudeMessages),
-            RoutingDecision::Unsupported
-        );
+        assert_eq!(decide(&[rule], src), RoutingDecision::Unsupported);
     }
 }

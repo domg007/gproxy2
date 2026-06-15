@@ -241,7 +241,6 @@ mod tests {
     use crate::config::{CacheConfig, PersistenceConfig, RuntimeConfig, UpstreamConfig};
     use crate::crypto::envelope::is_envelope;
     use crate::http::client::{ClientError, UpstreamClient};
-    use crate::protocol::ContentGenerationKind;
     use crate::store::persistence::FilePersistence;
     use crate::store::persistence::records::CredentialInput;
 
@@ -275,8 +274,11 @@ mod tests {
         fn id(&self) -> &'static str {
             "fake_refresh"
         }
-        fn target_kind(&self) -> ContentGenerationKind {
-            ContentGenerationKind::OpenAiChatCompletions
+        fn provider_family(&self) -> crate::protocol::Provider {
+            crate::protocol::Provider::OpenAi
+        }
+        fn routing_table(&self) -> crate::channel::routes::RouteList {
+            Vec::new()
         }
         fn prepare(&self, _ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
             Err(ChannelError::Unsupported("prepare"))
@@ -613,8 +615,11 @@ mod tests {
         fn id(&self) -> &'static str {
             "always_fresh"
         }
-        fn target_kind(&self) -> ContentGenerationKind {
-            ContentGenerationKind::OpenAiChatCompletions
+        fn provider_family(&self) -> crate::protocol::Provider {
+            crate::protocol::Provider::OpenAi
+        }
+        fn routing_table(&self) -> crate::channel::routes::RouteList {
+            Vec::new()
         }
         fn prepare(&self, _ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
             Err(ChannelError::Unsupported("prepare"))

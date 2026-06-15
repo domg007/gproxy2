@@ -13,6 +13,7 @@ pub mod oauth;
 pub mod prepared;
 pub mod registry;
 pub mod resolve;
+pub mod routes;
 pub mod usage;
 
 use std::sync::Arc;
@@ -22,7 +23,6 @@ use http::{HeaderMap, StatusCode};
 use serde_json::Value;
 
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
 
 pub use disposition::Disposition;
 pub use login::{AuthCodeStart, ChannelLogin, DeviceInit, DevicePoll};
@@ -77,17 +77,20 @@ pub struct PrepareCtx<'a> {
     pub body: Bytes,
 }
 
-/// Pure upstream access adapter (§6.3). Implementors provide `id`, `target_kind`
-/// and `prepare`; the rest have sensible defaults.
+/// Pure upstream access adapter (§6.3). Implementors provide `id`,
+/// `provider_family`, `routing_table` and `prepare`; the rest have sensible
+/// defaults.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Channel: Send + Sync {
     /// Stable channel id used as the registry key (matches `Provider.channel`).
     fn id(&self) -> &'static str;
 
-    /// The native content-generation wire format this channel speaks. Pins the
-    /// M2 transform-bypass predicate (`source_kind == target_kind`) at M1 time.
-    fn target_kind(&self) -> ContentGenerationKind;
+    /// The provider family this channel's upstream belongs to (billing/usage).
+    fn provider_family(&self) -> crate::protocol::Provider;
+
+    /// The channel's explicit routing surface (ported from its capabilities).
+    fn routing_table(&self) -> crate::channel::routes::RouteList;
 
     /// Inject auth, resolve endpoint + method, set an ABSOLUTE upstream URL.
     /// Pure access — no transform/rules, no body mutation. Moves `ctx.body` in.

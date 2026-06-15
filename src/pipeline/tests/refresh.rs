@@ -9,7 +9,6 @@ use std::sync::atomic::AtomicUsize;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, TransportKind};
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
 
 /// A claude-speaking channel whose bearer token IS `secret["access_token"]`, so
 /// the wire request reflects exactly which secret prepare ran with. `refresh`
@@ -25,8 +24,17 @@ impl Channel for RefreshChannel {
         "test_refresh"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::ClaudeMessages
+    fn provider_family(&self) -> crate::protocol::Provider {
+        crate::protocol::Provider::Claude
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, pass};
+        use crate::protocol::{ContentGenerationKind::ClaudeMessages, Operation::*};
+        vec![
+            pass(GenerateContent, cg(ClaudeMessages)),
+            pass(StreamGenerateContent, cg(ClaudeMessages)),
+        ]
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {

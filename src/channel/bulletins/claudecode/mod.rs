@@ -1,7 +1,7 @@
 //! Claude Code channel — Anthropic Messages API over OAuth2 (`refresh_token`
 //! grant) plus the claude-cli / `@anthropic-ai/sdk` impersonation header set.
 //!
-//! `target_kind` is `ClaudeMessages`: the request is a verbatim Claude-messages
+//! the request is a verbatim Claude-messages
 //! passthrough — NO envelope, NO stream decoder, NO normalize. [`auth`] owns the
 //! OAuth refresh + header injection (with a cookie-bootstrap refresh fallback for
 //! credentials that carry only a `cookie`).
@@ -23,7 +23,7 @@ use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::ContentGenerationKind;
+use crate::protocol::Provider;
 
 pub struct ClaudeCodeChannel;
 
@@ -34,8 +34,68 @@ impl Channel for ClaudeCodeChannel {
         "claudecode"
     }
 
-    fn target_kind(&self) -> ContentGenerationKind {
-        ContentGenerationKind::ClaudeMessages
+    fn provider_family(&self) -> Provider {
+        Provider::Claude
+    }
+
+    fn routing_table(&self) -> crate::channel::routes::RouteList {
+        use crate::channel::routes::{cg, pass, pv, xform};
+        use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
+        vec![
+            pass(ListModels, pv(P::Claude)),
+            xform(ListModels, pv(P::OpenAi), ListModels, pv(P::Claude)),
+            xform(ListModels, pv(P::Gemini), ListModels, pv(P::Claude)),
+            pass(GetModel, pv(P::Claude)),
+            xform(GetModel, pv(P::OpenAi), GetModel, pv(P::Claude)),
+            xform(GetModel, pv(P::Gemini), GetModel, pv(P::Claude)),
+            pass(CountTokens, pv(P::Claude)),
+            xform(CountTokens, pv(P::OpenAi), CountTokens, pv(P::Claude)),
+            xform(CountTokens, pv(P::Gemini), CountTokens, pv(P::Claude)),
+            pass(GenerateContent, cg(ClaudeMessages)),
+            xform(
+                GenerateContent,
+                cg(OpenAiChatCompletions),
+                GenerateContent,
+                cg(ClaudeMessages),
+            ),
+            xform(
+                GenerateContent,
+                cg(OpenAiResponses),
+                GenerateContent,
+                cg(ClaudeMessages),
+            ),
+            xform(
+                GenerateContent,
+                cg(GeminiGenerateContent),
+                GenerateContent,
+                cg(ClaudeMessages),
+            ),
+            pass(StreamGenerateContent, cg(ClaudeMessages)),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiChatCompletions),
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+            ),
+            xform(
+                StreamGenerateContent,
+                cg(GeminiGenerateContent),
+                StreamGenerateContent,
+                cg(ClaudeMessages),
+            ),
+            xform(
+                CompactContent,
+                pv(P::OpenAi),
+                GenerateContent,
+                cg(ClaudeMessages),
+            ),
+        ]
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
