@@ -16,7 +16,8 @@
     "myAccount": "我的帳戶",
     "adminConsole": "管理主控台",
     "collapse": "收合",
-    "expand": "展開"
+    "expand": "展開",
+    "update": "更新"
   },
   "actions": {
     "cancel": "取消",

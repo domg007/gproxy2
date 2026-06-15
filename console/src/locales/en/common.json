@@ -16,7 +16,8 @@
     "myAccount": "My Account",
     "adminConsole": "Admin Console",
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "update": "Updates"
   },
   "actions": {
     "cancel": "Cancel",

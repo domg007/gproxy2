@@ -42,3 +42,23 @@ export const instanceSettingsQuery = queryOptions({
 export function upsertInstanceSettings(input: InstanceSettingsInput): Promise<InstanceSettings> {
   return api<InstanceSettings>("/admin/instance-settings", { method: "POST", body: JSON.stringify(input) });
 }
+
+/** Map a stored row to its upsert input (all fields), so a single field can be
+ *  changed without dropping the others (the API replaces the whole row). */
+export function settingsToInput(s: InstanceSettings): InstanceSettingsInput {
+  return {
+    id: s.id,
+    instance_name: s.instance_name,
+    proxy: s.proxy,
+    spoof_emulation: s.spoof_emulation,
+    enable_usage: s.enable_usage,
+    enable_upstream_log: s.enable_upstream_log,
+    enable_upstream_log_body: s.enable_upstream_log_body,
+    enable_downstream_log: s.enable_downstream_log,
+    enable_downstream_log_body: s.enable_downstream_log_body,
+    disable_log_redaction: s.disable_log_redaction,
+    enable_tokenizer_download: s.enable_tokenizer_download,
+    update_channel: s.update_channel,
+    retention_days: s.retention_days,
+  };
+}
