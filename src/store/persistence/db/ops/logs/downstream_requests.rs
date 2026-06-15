@@ -67,3 +67,23 @@ pub async fn list(
         .map(to_record)
         .collect()
 }
+
+/// Recent rows across all requests, `id` DESC, keyset cursor `before_id`.
+pub async fn list_recent(
+    conn: &DatabaseConnection,
+    limit: u64,
+    before_id: Option<i64>,
+) -> anyhow::Result<Vec<DownstreamRequest>> {
+    use sea_orm::{QueryOrder, QuerySelect};
+    let mut sel = downstream_request::Entity::find();
+    if let Some(v) = before_id {
+        sel = sel.filter(downstream_request::Column::Id.lt(v));
+    }
+    sel.order_by_desc(downstream_request::Column::Id)
+        .limit(limit)
+        .all(conn)
+        .await?
+        .into_iter()
+        .map(to_record)
+        .collect()
+}

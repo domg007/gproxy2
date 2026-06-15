@@ -423,6 +423,14 @@ pub trait PersistenceBackend: Send + Sync {
         request_id: &str,
     ) -> anyhow::Result<Vec<DownstreamRequest>>;
 
+    /// Recent downstream request logs across all requests, keyset-paginated `id`
+    /// DESC (`before_id` cursor). Powers the Logs explorer.
+    async fn list_recent_downstream_requests(
+        &self,
+        limit: u64,
+        before_id: Option<i64>,
+    ) -> anyhow::Result<Vec<DownstreamRequest>>;
+
     /// Append a raw upstream (proxy → provider) request log entry.
     async fn append_upstream_request(
         &self,

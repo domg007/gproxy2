@@ -61,3 +61,18 @@ pub(crate) async fn list(root: &Path, request_id: &str) -> anyhow::Result<Vec<Do
         .filter(|r| r.request_id == request_id)
         .collect())
 }
+
+/// Recent rows across all requests, `id` DESC, keyset cursor `before_id`.
+pub(crate) async fn list_recent(
+    root: &Path,
+    limit: u64,
+    before_id: Option<i64>,
+) -> anyhow::Result<Vec<DownstreamRequest>> {
+    let mut rows = table::load::<DownstreamRequest>(&path(root)).await?.rows;
+    rows.sort_by_key(|r| std::cmp::Reverse(r.id));
+    Ok(rows
+        .into_iter()
+        .filter(|r| before_id.is_none_or(|b| r.id < b))
+        .take(limit as usize)
+        .collect())
+}

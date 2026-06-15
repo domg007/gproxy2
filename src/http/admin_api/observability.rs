@@ -56,6 +56,14 @@ pub(crate) struct AuditQuery {
     pub limit: Option<u64>,
 }
 
+/// `?before_id=&limit=` for the logs listing (field-aligned with
+/// `LogsQuery` in `server/admin/usage.rs`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub(crate) struct LogsQuery {
+    pub before_id: Option<i64>,
+    pub limit: Option<u64>,
+}
+
 /// Route a read-only observability request to its handler.
 ///
 /// Returns `Some(result)` when the path matches; `None` to fall through.
@@ -84,6 +92,7 @@ pub(super) async fn dispatch(
         // the native `upstream-wreq` feature. The native axum router handles it.
 
         // Request logs
+        (&Method::GET, ["admin", "logs"]) => list_logs(state, parts).await,
         (&Method::GET, ["admin", "logs", request_id, "downstream"]) => {
             downstream_logs(state, parts, request_id).await
         }
@@ -167,6 +176,18 @@ async fn credential_status(state: &AppState, parts: &Parts, id: &str) -> Result<
     let rows = state
         .persistence
         .list_credential_statuses(id)
+        .await
+        .map_err(internal)?;
+    Resp::json(200, &rows)
+}
+
+async fn list_logs(state: &AppState, parts: &Parts) -> Result<Resp, ApiError> {
+    guard_admin(state, parts).await?;
+    let q: LogsQuery = query(parts)?;
+    let limit = q.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let rows = state
+        .persistence
+        .list_recent_downstream_requests(limit, q.before_id)
         .await
         .map_err(internal)?;
     Resp::json(200, &rows)

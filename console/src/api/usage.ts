@@ -134,6 +134,17 @@ export const usageInfiniteQuery = (f: Omit<UsageFilter, "before_id" | "limit">) 
       last.length >= PAGE ? last[last.length - 1].id : undefined,
   });
 
+/** Recent downstream request logs (id desc, keyset-paginated). */
+export const logsInfiniteQuery = () =>
+  infiniteQueryOptions({
+    queryKey: ["logs", "infinite"],
+    queryFn: ({ pageParam }) =>
+      api<DownstreamRequest[]>(`/admin/logs?limit=${PAGE}${pageParam != null ? `&before_id=${pageParam}` : ""}`),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last: DownstreamRequest[]) =>
+      last.length >= PAGE ? last[last.length - 1].id : undefined,
+  });
+
 export const rollupsQuery = (granularity: string, from: number, to: number) =>
   queryOptions({
     queryKey: ["usage-rollups", granularity, from, to],

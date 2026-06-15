@@ -175,6 +175,28 @@ fn usage_error(e: crate::credentials::usage::UsageError) -> ApiError {
     }
 }
 
+/// `GET /admin/logs` — recent downstream request logs (id desc, `before_id`
+/// keyset, `limit` default 100 capped 1000). The logs explorer listing.
+#[derive(Debug, Deserialize)]
+pub struct LogsQuery {
+    pub before_id: Option<i64>,
+    pub limit: Option<u64>,
+}
+
+pub async fn list_logs(
+    State(state): State<AppState>,
+    Query(q): Query<LogsQuery>,
+) -> Result<Json<Vec<DownstreamRequest>>, ApiError> {
+    let limit = q.limit.unwrap_or(DEFAULT_USAGE_LIMIT).min(MAX_USAGE_LIMIT);
+    Ok(Json(
+        state
+            .persistence
+            .list_recent_downstream_requests(limit, q.before_id)
+            .await
+            .map_err(internal)?,
+    ))
+}
+
 /// `GET /admin/logs/{request_id}/downstream` — downstream (client → proxy) log
 /// entries correlated by `request_id` (§15).
 pub async fn downstream_logs(
