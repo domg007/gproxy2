@@ -1,24 +1,23 @@
-//! Kiro model-list (整形) — Kiro has no OpenAI-compatible `/v1/models`; the
-//! model catalogue lives behind the bespoke Smithy REST endpoint
-//! `GET {base}/ListAvailableModels?origin=…&maxResults=50&profileArn=…`.
+//! Kiro model-list (整形) — Kiro has no OpenAI-compatible `/v1/models`. Captured
+//! from the real Kiro CLI, the catalogue is the AWS-JSON Smithy operation
+//! `AmazonCodeWhispererService.ListAvailableModels` on the **management** host
+//! (`POST https://management.{region}.kiro.dev/`), NOT v1's old Amazon Q
+//! `GET …/ListAvailableModels?origin=AI_EDITOR` (a different product).
 //!
-//! Two halves, both ported faithfully from v1 `channels/kiro.rs`:
-//!   * [`request`] builds that GET (called from [`super::KiroChannel::prepare`]
-//!     when the inbound request is the family model-list, i.e. a `GET /…/models`)
-//!     with the same Bearer + AWS SDK fingerprint headers the IDE sends — the
-//!     content path (`POST /generateAssistantResponse`) is left untouched.
-//!   * [`to_openai`] reprojects the Kiro list response into the OpenAI canonical
-//!     model-list wire shape so `parse_models` can read `data[].id`.
+//!   * [`request`] builds that POST (origin=KIRO_CLI + profileArn in query AND
+//!     body, `application/x-amz-json-1.0`, `x-amz-target`, Bearer).
+//!   * [`to_openai`] reprojects the `{"models":[{"modelId"}]}` response into the
+//!     OpenAI canonical model-list wire shape so `parse_models` reads `data[].id`.
 //!
 //! Best-effort: the ORIGINAL bytes are returned on parse failure or when the
-//! body is not in the expected Kiro shape.
+//! body is not in the expected shape.
 
 use bytes::Bytes;
 use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
 use http::{HeaderMap, Method, Request};
 use serde_json::{Value, json};
 
-use super::{DEFAULT_BASE_URL, ORIGIN, USER_AGENT_VALUE, auth};
+use super::{ORIGIN, auth};
 use crate::channel::ChannelError;
 use crate::channel::http_util::{build_request, join_url};
 
@@ -29,44 +28,76 @@ pub(super) fn is_model_list(method: &Method, path: &str) -> bool {
     method == Method::GET && path.trim_end_matches('/').ends_with("/models")
 }
 
-/// Build the bespoke `GET {base}/ListAvailableModels?origin=…&maxResults=50&
-/// profileArn=…` request with the Kiro Bearer + AWS SDK fingerprint headers.
-/// Mirrors v1 `build_kiro_model_list_request`.
-pub(super) fn request(secret: &Value, settings: &Value) -> Result<Request<Bytes>, ChannelError> {
-    let access_token = auth::access_token(secret)?;
-    let base = settings
-        .get("base_url")
+/// Captured from the real Kiro CLI: model-list is the AWS-JSON Smithy operation
+/// `AmazonCodeWhispererService.ListAvailableModels` on the **management** host,
+/// `POST https://management.{region}.kiro.dev/?origin=KIRO_CLI&profileArn=…`,
+/// `content-type: application/x-amz-json-1.0`, body `{"origin","profileArn"}`,
+/// Bearer auth. (v1's `GET …/ListAvailableModels?origin=AI_EDITOR` was the OLD
+/// Amazon Q product — a different client.) Response: `{"models":[{"modelId"}]}`.
+fn management_base(settings: &Value) -> String {
+    if let Some(u) = settings
+        .get("management_url")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or(DEFAULT_BASE_URL);
-
-    let mut path = format!("/ListAvailableModels?origin={ORIGIN}&maxResults=50");
-    if let Some(arn) = auth::profile_arn(secret, settings) {
-        path.push_str("&profileArn=");
-        path.push_str(&pct(arn));
+    {
+        return u.to_string();
     }
+    let region = settings
+        .get("region")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("us-east-1");
+    format!("https://management.{region}.kiro.dev")
+}
 
-    let uri = join_url(base, &path, None)?;
-    let mut req = build_request(Method::GET, uri, HeaderMap::new(), Bytes::new())?;
+/// Per-service User-Agent (`api/codewhispererruntime`) the Kiro CLI sends to the
+/// management host (distinct from the streaming UA on the runtime host).
+const UA_RUNTIME: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererruntime/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
+const TARGET: &str = "AmazonCodeWhispererService.ListAvailableModels";
+const AMZ_JSON: &str = "application/x-amz-json-1.0";
+
+/// Build the Smithy `ListAvailableModels` request captured from the Kiro CLI.
+pub(super) fn request(secret: &Value, settings: &Value) -> Result<Request<Bytes>, ChannelError> {
+    let access_token = auth::access_token(secret)?;
+    // The real request always carries profileArn (in BOTH the query and body).
+    let profile_arn = auth::profile_arn(secret, settings).ok_or_else(|| {
+        ChannelError::InvalidCredential("kiro model-list requires a profileArn".into())
+    })?;
+
+    let path = format!("/?origin={ORIGIN}&profileArn={}", pct(profile_arn));
+    let uri = join_url(&management_base(settings), &path, None)?;
+    let body = serde_json::to_vec(&json!({ "origin": ORIGIN, "profileArn": profile_arn }))
+        .map_err(|e| ChannelError::Build(format!("kiro model-list body: {e}")))?;
+
+    let mut req = build_request(Method::POST, uri, HeaderMap::new(), Bytes::from(body))?;
     let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
     let invocation = HeaderValue::from_str(&crate::util::rand::uuid_v4())
         .map_err(|e| ChannelError::Build(format!("bad invocation id: {e}")))?;
     let h = req.headers_mut();
     h.insert(AUTHORIZATION, bearer);
-    h.insert(ACCEPT, HeaderValue::from_static("application/json"));
-    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    h.insert(ACCEPT, HeaderValue::from_static("*/*"));
+    h.insert(CONTENT_TYPE, HeaderValue::from_static(AMZ_JSON));
+    h.insert(USER_AGENT, HeaderValue::from_static(UA_RUNTIME));
+    h.insert(
+        HeaderName::from_static("x-amz-user-agent"),
+        HeaderValue::from_static(UA_RUNTIME),
+    );
+    h.insert(
+        HeaderName::from_static("x-amz-target"),
+        HeaderValue::from_static(TARGET),
+    );
     h.insert(
         HeaderName::from_static("x-amzn-codewhisperer-optout"),
-        HeaderValue::from_static("true"),
+        HeaderValue::from_static("false"),
     );
-    h.insert(HeaderName::from_static("amz-sdk-invocation-id"), invocation);
     h.insert(
         HeaderName::from_static("amz-sdk-request"),
         HeaderValue::from_static("attempt=1; max=3"),
     );
+    h.insert(HeaderName::from_static("amz-sdk-invocation-id"), invocation);
     Ok(req)
 }
 
@@ -160,35 +191,42 @@ mod tests {
         let settings = json!({});
         let req = request(&secret, &settings).unwrap();
 
-        assert_eq!(req.method(), Method::GET);
-        // `base_url` defaults to the kiro REST host; the bespoke endpoint carries
-        // the origin/maxResults/profileArn query (profileArn url-encoded).
+        assert_eq!(req.method(), Method::POST);
+        // Smithy ListAvailableModels on the management host; origin+profileArn in
+        // the query AND body (captured from the real Kiro CLI).
         assert_eq!(
             req.uri().to_string(),
-            format!(
-                "{DEFAULT_BASE_URL}/ListAvailableModels?origin=AI_EDITOR&maxResults=50\
-                 &profileArn=arn%3Aaws%3Acodewhisperer%3Aus-east-1%3A1%3Aprofile%2Fx"
-            )
+            "https://management.us-east-1.kiro.dev/?origin=KIRO_CLI\
+             &profileArn=arn%3Aaws%3Acodewhisperer%3Aus-east-1%3A1%3Aprofile%2Fx"
         );
-        assert!(req.body().is_empty());
+        let body: Value = serde_json::from_slice(req.body()).unwrap();
+        assert_eq!(
+            body,
+            json!({"origin":"KIRO_CLI","profileArn":"arn:aws:codewhisperer:us-east-1:1:profile/x"})
+        );
         assert_eq!(
             req.headers().get("authorization").unwrap(),
             "Bearer kiro-token"
         );
         assert_eq!(
+            req.headers().get("x-amz-target").unwrap(),
+            "AmazonCodeWhispererService.ListAvailableModels"
+        );
+        assert_eq!(
+            req.headers().get("content-type").unwrap(),
+            "application/x-amz-json-1.0"
+        );
+        assert_eq!(
             req.headers().get("x-amzn-codewhisperer-optout").unwrap(),
-            "true"
+            "false"
         );
         assert!(req.headers().get("amz-sdk-invocation-id").is_some());
     }
 
     #[test]
-    fn omits_profile_arn_when_absent() {
-        let req = request(&json!({ "access_token": "t" }), &json!({})).unwrap();
-        assert_eq!(
-            req.uri().to_string(),
-            format!("{DEFAULT_BASE_URL}/ListAvailableModels?origin=AI_EDITOR&maxResults=50")
-        );
+    fn requires_profile_arn() {
+        // profileArn is mandatory for the kiro.dev management API.
+        assert!(request(&json!({ "access_token": "t" }), &json!({})).is_err());
     }
 
     #[test]

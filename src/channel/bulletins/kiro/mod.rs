@@ -52,12 +52,11 @@ const GENERATE_PATH: &str = "/generateAssistantResponse";
 const USER_AGENT_VALUE: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
 /// Kiro agent mode header value.
 const AGENT_MODE: &str = "vibe";
-/// Client surface reported to the Amazon Q backend — sent as the `origin` on the
-/// chat body, the usage query, and the model-list query. SINGLE source of truth:
-/// it must match the impersonated client ([`USER_AGENT_VALUE`], AmazonQ-For-CLI).
-/// If a packet capture of the real client shows a different value, change it HERE
-/// and chat / usage / model-list stay consistent.
-pub(super) const ORIGIN: &str = "AI_EDITOR";
+/// Client surface reported to the Kiro/CodeWhisperer backend — sent as the
+/// `origin` (chat body, usage, model-list). Captured from the real Kiro CLI
+/// (`kiro-cli-chat`): it is `KIRO_CLI`, NOT v1's `AI_EDITOR`. SINGLE source of
+/// truth; if a capture shows a different value, change it HERE.
+pub(super) const ORIGIN: &str = "KIRO_CLI";
 
 pub struct KiroChannel;
 
