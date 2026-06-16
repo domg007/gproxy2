@@ -517,6 +517,24 @@ mod tests {
         assert_eq!(extra["start_url"], "https://view.awsapps.com/start");
     }
 
+    #[tokio::test]
+    async fn authcode_start_rejects_social_and_unknown_methods() {
+        // social uses the device flow; an explicit/typo authcode auth_method must
+        // error WITHOUT triggering a live AWS RegisterClient.
+        let client = mock(json!({ "clientId": "x", "clientSecret": "y" }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        for method in ["social", "builder-id", "totally-bogus"] {
+            let err = KiroChannel
+                .authcode_start(&dyn_client, &json!({ "auth_method": method }), "", "s", "c")
+                .await;
+            assert!(err.is_err(), "auth_method={method} must be rejected");
+        }
+        assert!(
+            client.seen.lock().unwrap().is_empty(),
+            "rejection must happen before any network call"
+        );
+    }
+
     #[test]
     fn request_build() {
         // Minimal Responses body → Smithy conversationState with profileArn +

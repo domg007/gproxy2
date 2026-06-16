@@ -106,8 +106,10 @@ pub(super) fn needs_refresh(secret: &Value) -> bool {
 }
 
 /// Begin an interactive authcode+PKCE login, dispatched by `params.auth_method`:
-/// `external_idp` → [`external_idp`]; anything else (`builderId` default / `idc`)
-/// → [`sso_oidc`]. Social uses the device flow ([`device_start`]), not this.
+/// `external_idp` → [`external_idp`]; `builderId` (default) / `idc` →
+/// [`sso_oidc`]. `social` uses the device flow ([`device_start`]) — it (and any
+/// unknown method) is rejected here rather than silently triggering an AWS
+/// RegisterClient.
 pub(super) async fn authcode_start(
     client: &Arc<dyn UpstreamClient>,
     params: &Value,
@@ -119,7 +121,13 @@ pub(super) async fn authcode_start(
         Some("external_idp") => {
             external_idp::authcode_start(client, params, redirect_uri, state, pkce_challenge).await
         }
-        _ => sso_oidc::authcode_start(client, params, redirect_uri, state, pkce_challenge).await,
+        Some("builderId") | Some("idc") | None => {
+            sso_oidc::authcode_start(client, params, redirect_uri, state, pkce_challenge).await
+        }
+        Some(other) => Err(ChannelError::Build(format!(
+            "kiro authcode_start: unsupported auth_method '{other}' \
+             (social uses the device flow)"
+        ))),
     }
 }
 
