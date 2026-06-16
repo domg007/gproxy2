@@ -244,13 +244,24 @@ impl ChannelLogin for GeminiCliChannel {
     async fn authcode_start(
         &self,
         _client: &Arc<dyn UpstreamClient>,
-        _params: &Value,
+        params: &Value,
         redirect_uri: &str,
         state: &str,
         pkce_challenge: &str,
     ) -> Result<Option<AuthCodeStart>, ChannelError> {
-        let (authorize_url, redirect_uri) =
-            auth::authcode_start(redirect_uri, state, pkce_challenge);
+        // Two login modes the operator picks via `params.code_only`:
+        //   * code-only (default / true) — Google renders the code on
+        //     `codeassist.google.com/authcode`; no listener, operator pastes it.
+        //   * callback-URL (false) — the loopback `127.0.0.1:1455/oauth2callback`
+        //     the console/CLI catches. An explicit `redirect_uri` overrides both.
+        let effective = if !redirect_uri.trim().is_empty() {
+            redirect_uri
+        } else if params.get("code_only").and_then(Value::as_bool) == Some(false) {
+            auth::LOOPBACK_REDIRECT_URI
+        } else {
+            auth::DEFAULT_REDIRECT_URI
+        };
+        let (authorize_url, redirect_uri) = auth::authcode_start(effective, state, pkce_challenge);
         Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
@@ -482,5 +493,75 @@ mod tests {
         assert!(!GeminiCliChannel.needs_refresh(&json!({
             "access_token": "t", "expires_at_ms": now_ms + 600_000,
         })));
+    }
+
+    /// `authcode_start` never sends; this client must stay unused.
+    struct NoopUpstream;
+    #[async_trait::async_trait]
+    impl UpstreamClient for NoopUpstream {
+        async fn send(
+            &self,
+            _req: http::Request<Bytes>,
+        ) -> Result<http::Response<Bytes>, crate::http::client::ClientError> {
+            Err(crate::http::client::ClientError::Transport("noop".into()))
+        }
+    }
+
+    /// `params.code_only` picks the redirect: default / `true` → the headless
+    /// `codeassist.google.com/authcode` (paste the code); `false` → the loopback
+    /// `127.0.0.1:1455/oauth2callback` the console catches. An explicit
+    /// `redirect_uri` hint overrides both. The authorize URL carries the matching
+    /// (percent-encoded) redirect each way.
+    #[tokio::test]
+    async fn authcode_start_selects_redirect_by_code_only() {
+        let client: Arc<dyn UpstreamClient> = Arc::new(NoopUpstream);
+
+        // Default (no params) → code-only / codeassist.
+        let start = GeminiCliChannel
+            .authcode_start(&client, &json!({}), "", "ST", "CH")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(start.redirect_uri, "https://codeassist.google.com/authcode");
+        assert!(
+            start
+                .authorize_url
+                .contains("redirect_uri=https%3A%2F%2Fcodeassist.google.com%2Fauthcode")
+        );
+
+        // code_only = true → same headless default.
+        let start = GeminiCliChannel
+            .authcode_start(&client, &json!({ "code_only": true }), "", "ST", "CH")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(start.redirect_uri, "https://codeassist.google.com/authcode");
+
+        // code_only = false → callback-URL loopback.
+        let start = GeminiCliChannel
+            .authcode_start(&client, &json!({ "code_only": false }), "", "ST", "CH")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(start.redirect_uri, "http://127.0.0.1:1455/oauth2callback");
+        assert!(
+            start
+                .authorize_url
+                .contains("127.0.0.1%3A1455%2Foauth2callback")
+        );
+
+        // Explicit redirect_uri hint wins over code_only.
+        let start = GeminiCliChannel
+            .authcode_start(
+                &client,
+                &json!({ "code_only": true }),
+                "http://127.0.0.1:9999/cb",
+                "ST",
+                "CH",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(start.redirect_uri, "http://127.0.0.1:9999/cb");
     }
 }

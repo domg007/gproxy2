@@ -39,6 +39,12 @@ pub(super) const AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/
 /// An operator who *does* run the CLI's loopback listener can override this with
 /// `http://127.0.0.1:<port>/oauth2callback` via the `redirect_uri` request hint.
 pub(super) const DEFAULT_REDIRECT_URI: &str = "https://codeassist.google.com/authcode";
+/// Loopback redirect for the CALLBACK-URL login: the Gemini CLI's localhost
+/// listener (`code_assist/oauth2.ts`, the browser flow). The operator (or the
+/// console) catches `?code=…` on this URL and auto-completes. Selected with
+/// `params.code_only = false`; the operator may also pass any registered
+/// loopback `redirect_uri` directly.
+pub(super) const LOOPBACK_REDIRECT_URI: &str = "http://127.0.0.1:1455/oauth2callback";
 /// OAuth scopes requested at login (mined from v1 `GEMINICLI_OAUTH_SCOPE`).
 pub(super) const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 
