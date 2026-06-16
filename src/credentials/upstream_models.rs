@@ -146,10 +146,7 @@ fn parse_models(family: Provider, body: &[u8]) -> Vec<UpstreamModel> {
             let display_name = match family {
                 Provider::Gemini => m.get("displayName"),
                 Provider::Claude => m.get("display_name"),
-                // OpenAI's own `/v1/models` has no name field (→ None), but
-                // OpenAI-compatible aggregators (OpenRouter, Groq, …) return a
-                // friendly `name` — use it as the display label when present.
-                Provider::OpenAi => m.get("name"),
+                Provider::OpenAi => None,
             }
             .and_then(Value::as_str)
             .map(str::to_owned);
