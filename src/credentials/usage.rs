@@ -101,7 +101,7 @@ async fn fetch_with(
 /// [`super::refresh`] and `failover::attempt`. wasm / non-wreq always use the
 /// default client.
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
-fn resolve_client(
+pub(crate) fn resolve_client(
     state: &AppState,
     channel: &Arc<dyn Channel>,
     credential: &Credential,
@@ -126,7 +126,7 @@ fn resolve_client(
 }
 
 #[cfg(not(all(not(target_arch = "wasm32"), feature = "upstream-wreq")))]
-fn resolve_client(
+pub(crate) fn resolve_client(
     state: &AppState,
     _channel: &Arc<dyn Channel>,
     _credential: &Credential,

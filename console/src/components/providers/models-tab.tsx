@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { DownloadCloud, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { deleteProviderModel, providerModelsQuery, type ProviderModel } from "@/api/provider-models";
@@ -10,6 +10,7 @@ import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
 import { ModelForm } from "@/components/providers/model-form";
+import { ModelPullDialog } from "@/components/providers/model-pull-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +31,8 @@ export function ModelsTab({ provider }: { provider: Provider }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ProviderModel | undefined>(undefined);
   const [deleteTarget, setDeleteTarget] = useState<ProviderModel | undefined>(undefined);
+  const [pullOpen, setPullOpen] = useState(false);
+  const existingIds = new Set((models ?? []).map((m) => m.model_id));
 
   const removal = useMutation({
     mutationFn: (id: number) => deleteProviderModel(id),
@@ -67,7 +70,10 @@ export function ModelsTab({ provider }: { provider: Provider }) {
 
   return (
     <div className="grid gap-3">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" onClick={() => setPullOpen(true)}>
+          <DownloadCloud className="size-4" aria-hidden />{t("models.pull")}
+        </Button>
         <Button onClick={() => { setEditTarget(undefined); setFormOpen(true); }}><Plus className="size-4" aria-hidden />{t("models.add")}</Button>
       </div>
       {isPending ? (
@@ -96,6 +102,7 @@ export function ModelsTab({ provider }: { provider: Provider }) {
       <EntityDialog open={formOpen} onOpenChange={setFormOpen} title={editTarget ? t("models.edit") : t("models.add")} wide>
         <ModelForm key={editTarget?.id ?? "new"} providerId={provider.id} model={editTarget} onSaved={() => setFormOpen(false)} />
       </EntityDialog>
+      <ModelPullDialog providerId={provider.id} existing={existingIds} open={pullOpen} onOpenChange={setPullOpen} />
       <ConfirmDangerous
         open={deleteTarget !== undefined}
         onOpenChange={(o) => { if (!o) setDeleteTarget(undefined); }}
