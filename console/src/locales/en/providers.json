@@ -116,12 +116,10 @@
     "waiting": "Waiting for authorization…",
     "kiroMethod": "Kiro login method",
     "kiroMethods": {
-      "social": "Social (GitHub / Google)",
       "builderId": "AWS Builder ID",
       "idc": "AWS IAM Identity Center",
       "external_idp": "External IdP (OIDC)"
     },
-    "kiroAccount": "Account",
     "kiroStartUrl": "Start URL",
     "kiroRegion": "Region",
     "kiroStartUrlHint": "Your organization's AWS access portal URL (https://….awsapps.com/start).",

@@ -116,12 +116,10 @@
     "waiting": "等待授權中…",
     "kiroMethod": "Kiro 登入方式",
     "kiroMethods": {
-      "social": "社交帳號(GitHub / Google)",
       "builderId": "AWS Builder ID",
       "idc": "AWS IAM Identity Center",
       "external_idp": "外部 IdP(OIDC)"
     },
-    "kiroAccount": "帳號",
     "kiroStartUrl": "Start URL",
     "kiroRegion": "區域",
     "kiroStartUrlHint": "你所在組織的 AWS 存取入口網址(https://….awsapps.com/start)。",

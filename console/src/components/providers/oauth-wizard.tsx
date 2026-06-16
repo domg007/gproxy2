@@ -72,21 +72,23 @@ interface FlowProps {
   onDone: (credential: CredentialView) => void;
 }
 
-// ── Kiro: four credential-acquisition methods ──────────────────────────────────
-// social → device flow (GitHub / Google); builderId / idc / external_idp →
-// authcode + PKCE flow, each with its own start params.
-const KIRO_METHODS = ["social", "builderId", "idc", "external_idp"] as const;
+// ── Kiro: five credential-acquisition methods in one flat picker ───────────────
+// GitHub / Google → device flow (params {login_provider}); builderId / idc /
+// external_idp → authcode + PKCE flow, each with its own start params. The
+// device-vs-authcode split is an implementation detail and is NOT surfaced.
+const KIRO_METHODS = ["github", "google", "builderId", "idc", "external_idp"] as const;
 type KiroMethod = (typeof KIRO_METHODS)[number];
 
 function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
   const { t } = useTranslation("providers");
-  const [method, setMethod] = useState<KiroMethod>("social");
-  const [socialProvider, setSocialProvider] = useState("github");
+  const [method, setMethod] = useState<KiroMethod>("github");
   const [startUrl, setStartUrl] = useState("");
   const [region, setRegion] = useState("us-east-1");
   const [issuerUrl, setIssuerUrl] = useState("");
   const [clientId, setClientId] = useState("");
   const [scopes, setScopes] = useState("");
+
+  const isSocial = method === "github" || method === "google";
 
   const authParams: Record<string, unknown> =
     method === "idc"
@@ -108,6 +110,10 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
   const externalMissing =
     method === "external_idp" && (issuerUrl.trim() === "" || clientId.trim() === "");
 
+  // GitHub / Google are proper nouns (same in every locale); the rest are translated.
+  const methodLabel = (m: KiroMethod): string =>
+    m === "github" ? "GitHub" : m === "google" ? "Google" : t(`wizard.kiroMethods.${m}`);
+
   return (
     <div className="grid gap-4">
       <div className="grid gap-2">
@@ -116,27 +122,15 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {KIRO_METHODS.map((m) => (
-              <SelectItem key={m} value={m}>{t(`wizard.kiroMethods.${m}`)}</SelectItem>
+              <SelectItem key={m} value={m}>{methodLabel(m)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      {method === "social" && (
-        <>
-          <div className="grid gap-2">
-            <Label>{t("wizard.kiroAccount")}</Label>
-            <Select value={socialProvider} onValueChange={setSocialProvider}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="github">GitHub</SelectItem>
-                <SelectItem value="google">Google</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <DeviceFlow key={socialProvider} provider={provider} credLabel={credLabel} onDone={onDone}
-            params={{ login_provider: socialProvider }} />
-        </>
+      {isSocial && (
+        <DeviceFlow key={method} provider={provider} credLabel={credLabel} onDone={onDone}
+          params={{ login_provider: method }} />
       )}
 
       {method === "builderId" && (
