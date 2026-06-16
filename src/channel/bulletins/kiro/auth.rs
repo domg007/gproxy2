@@ -1,53 +1,61 @@
-//! Kiro auth — device-code login + DUAL OAuth `refresh_token` grant.
+//! Kiro auth — multi-method credential acquisition + dispatching refresh.
 //!
-//! Login is a CAPTURED device-code flow against the Kiro desktop auth host
-//! (`kiro-cli-chat`): [`device_start`] asks for a device + user code, the
-//! operator authorizes in a browser, and [`device_poll`] returns the plaintext
-//! secret once authorized. Device tokens carry no expiry; refresh kicks in via
-//! [`refresh`].
+//! Kiro (a fork of the Amazon Q Developer CLI) supports four login methods,
+//! confirmed by reverse-engineering `kiro-cli` (`crates/fig_auth`). Each lives in
+//! its own submodule:
+//!   * **social** ([`social`]) — GitHub / Google device-code via the Kiro desktop
+//!     auth service (`*.auth.desktop.kiro.dev`).
+//!   * **builderId** / **idc** ([`sso_oidc`]) — AWS SSO-OIDC (Builder ID or IAM
+//!     Identity Center) authcode + PKCE against `oidc.{region}.amazonaws.com`.
+//!   * **external_idp** ([`external_idp`]) — a generic operator-configured OIDC
+//!     provider (discovery + authcode + PKCE).
 //!
-//! Refresh distinguishes two secret shapes:
-//!   * **device / social** (GitHub via the Kiro desktop portal) — refresh hits
-//!     `{auth_base}/refreshToken` with `{"refreshToken": rt}`.
-//!   * **IdC** (AWS Identity Center / Builder ID, an OIDC client registration) —
-//!     refresh hits `https://oidc.{region}.amazonaws.com/token` with
-//!     `{clientId, clientSecret, refreshToken, grantType:"refresh_token"}`.
+//! The interactive flows are dispatched by `params.auth_method`
+//! ([`authcode_start`]); the matching [`authcode_exchange`] is dispatched by the
+//! login-session `extra` shape. [`refresh`] dispatches on the stored secret:
+//!   * `token_endpoint` present              → external_idp (form refresh)
+//!   * `client_id` + `client_secret` present → SSO-OIDC CreateToken refresh
+//!   * else                                  → social `/refreshToken`
 //!
-//! Discriminator: `client_id` + `client_secret` present → IdC, else
-//! device/social. Both endpoints take a JSON body (NOT form-urlencoded), so the
-//! shared [`oauth::token_post`](crate::channel::oauth::token_post) form helper
-//! does not fit — [`json_post`] posts a JSON body via the same
-//! [`UpstreamClient`] and parses the camelCase token response.
+//! Social + SSO-OIDC use [`json_post`] (JSON bodies); external_idp uses
+//! [`oauth::token_post`](crate::channel::oauth::token_post) (form-urlencoded).
+
+mod external_idp;
+mod social;
+mod sso_oidc;
 
 use std::sync::Arc;
 
 use bytes::Bytes;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::channel::ChannelError;
-use crate::channel::login::{DeviceInit, DevicePoll};
+use crate::channel::login::{AuthCodeStart, DeviceInit, DevicePoll};
 use crate::http::client::UpstreamClient;
 
-/// Default Kiro desktop auth host (device + social refresh + device login).
-pub(super) const DEFAULT_AUTH_BASE_URL: &str = "https://prod.us-east-1.auth.desktop.kiro.dev";
-/// User-agent the captured `kiro-cli-chat` device requests send; the auth
-/// endpoints key behaviour off it. Used by [`json_post`] for ALL auth calls.
+/// Begin a social (GitHub / Google) device-code login — see [`social::device_start`].
+pub(super) async fn device_start(
+    client: &Arc<dyn UpstreamClient>,
+    params: &Value,
+) -> Result<DeviceInit, ChannelError> {
+    social::device_start(client, params).await
+}
+
+/// Poll a pending social device-code login — see [`social::device_poll`].
+pub(super) async fn device_poll(
+    client: &Arc<dyn UpstreamClient>,
+    device_code: &str,
+) -> Result<DevicePoll, ChannelError> {
+    social::device_poll(client, device_code).await
+}
+
+/// User-agent the captured `kiro-cli-chat` auth requests send; harmless on the
+/// AWS SSO-OIDC host too. Used by [`json_post`] for ALL JSON auth calls.
 const AUTH_USER_AGENT: &str = "Kiro-CLI";
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
-/// Literal `clientId` the device flow sends (there is NO client_secret).
-const DEVICE_CLIENT_ID: &str = "Kiro-CLI";
-/// Default social login provider when `params` does not select one. The Kiro
-/// desktop auth service accepts `Github` / `Google` (canonical Display form is
-/// `GitHub`/`Google`, but the captured live request used `Github`, a documented
-/// alias — kept verbatim here for the GitHub path that is known-good).
-const DEVICE_LOGIN_PROVIDER: &str = "Github";
-/// Device tokens carry no expiry; assume a 1h access-token life so the
-/// proactive refresh path has an `expires_at_ms` to compare against.
-const DEVICE_TOKEN_TTL_MS: i64 = 3_600_000;
 
-/// Read a trimmed, non-empty string field from the secret.
+/// Read a trimmed, non-empty string field from a JSON object.
 fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
     secret
         .get(key)
@@ -56,7 +64,19 @@ fn secret_str<'a>(secret: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-/// The Kiro access token (Bearer), required by [`super::KiroChannel::prepare`].
+/// Current unix time in milliseconds (i64, matching the `expires_at_ms` secret
+/// field).
+fn now_ms() -> i64 {
+    crate::util::time::unix_now().saturating_mul(1000)
+}
+
+/// SSO-OIDC (builderId / idc) when both `client_id` and `client_secret` are
+/// present — they ride the registered-client creds; social + external_idp do not.
+fn is_sso_oidc(secret: &Value) -> bool {
+    secret_str(secret, "client_id").is_some() && secret_str(secret, "client_secret").is_some()
+}
+
+/// The access token (Bearer), required by [`super::KiroChannel::prepare`].
 pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
     secret_str(secret, "access_token")
         .ok_or_else(|| ChannelError::InvalidCredential("missing access_token".into()))
@@ -66,162 +86,6 @@ pub(super) fn access_token(secret: &Value) -> Result<&str, ChannelError> {
 /// (secret takes precedence over the provider default).
 pub(super) fn profile_arn<'a>(secret: &'a Value, settings: &'a Value) -> Option<&'a str> {
     secret_str(secret, "profile_arn").or_else(|| secret_str(settings, "profile_arn"))
-}
-
-/// IdC when both `client_id` and `client_secret` are present, else device/social.
-fn is_idc(secret: &Value) -> bool {
-    secret_str(secret, "client_id").is_some() && secret_str(secret, "client_secret").is_some()
-}
-
-/// Map an operator `params.login_provider` (case-insensitive `github`/`google`,
-/// or a bare provider string) to the wire `loginProvider` value. Defaults to
-/// [`DEVICE_LOGIN_PROVIDER`] (GitHub) when absent/unrecognised.
-fn login_provider(params: &Value) -> &'static str {
-    match params
-        .get("login_provider")
-        .or_else(|| params.get("provider"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("google") => "Google",
-        Some("github") => "Github",
-        _ => DEVICE_LOGIN_PROVIDER,
-    }
-}
-
-/// Build the device-authorization request body: the captured `kiro-cli-chat`
-/// posts `{"clientId":"Kiro-CLI","loginProvider":"Github"}` (or `"Google"`).
-fn device_start_body(provider: &str) -> Value {
-    json!({
-        "clientId": DEVICE_CLIENT_ID,
-        "loginProvider": provider,
-    })
-}
-
-/// `POST {auth_base}/oauth/device/authorization` response (camelCase).
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeviceAuthorizationResponse {
-    device_code: Option<String>,
-    user_code: Option<String>,
-    verification_uri_complete: Option<String>,
-    verification_uri: Option<String>,
-    interval_in_milliseconds: Option<u64>,
-}
-
-/// Begin a device-code login: `POST {auth_base}/oauth/device/authorization` with
-/// `{"clientId":"Kiro-CLI","loginProvider":<provider>}` (provider from
-/// `params.login_provider`, default GitHub). Maps the response to a
-/// [`DeviceInit`] (verification URL prefers the `complete` form; interval is the
-/// provider's milliseconds / 1000, floored to 1s, defaulting to 5s).
-pub(super) async fn device_start(
-    client: &Arc<dyn UpstreamClient>,
-    params: &Value,
-) -> Result<DeviceInit, ChannelError> {
-    let url = format!(
-        "{}/oauth/device/authorization",
-        DEFAULT_AUTH_BASE_URL.trim_end_matches('/')
-    );
-    let body = device_start_body(login_provider(params));
-    let resp: DeviceAuthorizationResponse = json_post(client, &url, &body).await?;
-
-    let device_code = resp
-        .device_code
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ChannelError::Build("device authorization missing deviceCode".into()))?;
-    let user_code = resp
-        .user_code
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ChannelError::Build("device authorization missing userCode".into()))?;
-    let verification_url = resp
-        .verification_uri_complete
-        .or(resp.verification_uri)
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            ChannelError::Build("device authorization missing verificationUri".into())
-        })?;
-    let interval_secs = resp
-        .interval_in_milliseconds
-        .map(|ms| (ms / 1000).max(1))
-        .unwrap_or(5);
-
-    Ok(DeviceInit {
-        device_code,
-        user_code,
-        verification_url,
-        interval_secs,
-    })
-}
-
-/// `POST {auth_base}/oauth/device/poll` response (camelCase).
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DevicePollResponse {
-    status: Option<String>,
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    profile_arn: Option<String>,
-    identity_provider: Option<String>,
-}
-
-/// Build the device-poll request body: `{"deviceCode":<code>,"clientId":"Kiro-CLI"}`.
-fn device_poll_body(device_code: &str) -> Value {
-    json!({
-        "deviceCode": device_code,
-        "clientId": DEVICE_CLIENT_ID,
-    })
-}
-
-/// Poll a pending device-code login. `authorization_pending`/`slow_down` →
-/// [`DevicePoll::Pending`]; `authorized` → [`DevicePoll::Ready`] with the
-/// plaintext secret; anything else (expired/denied) → [`DevicePoll::Denied`].
-pub(super) async fn device_poll(
-    client: &Arc<dyn UpstreamClient>,
-    device_code: &str,
-) -> Result<DevicePoll, ChannelError> {
-    let url = format!(
-        "{}/oauth/device/poll",
-        DEFAULT_AUTH_BASE_URL.trim_end_matches('/')
-    );
-    let resp: DevicePollResponse = json_post(client, &url, &device_poll_body(device_code)).await?;
-
-    match resp.status.as_deref() {
-        Some("authorization_pending") | Some("slow_down") => Ok(DevicePoll::Pending),
-        Some("authorized") => Ok(DevicePoll::Ready(device_secret(resp)?)),
-        _ => Ok(DevicePoll::Denied),
-    }
-}
-
-/// Shape an `authorized` poll response into the plaintext secret the caller
-/// seals + persists. `profile_arn` is omitted when absent; `provider` defaults
-/// to `Github`; `expires_at_ms` is set an hour out (device tokens lack expiry).
-fn device_secret(resp: DevicePollResponse) -> Result<Value, ChannelError> {
-    let access_token = resp
-        .access_token
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ChannelError::Build("device poll missing accessToken".into()))?;
-    let refresh_token = resp
-        .refresh_token
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ChannelError::Build("device poll missing refreshToken".into()))?;
-    let provider = resp
-        .identity_provider
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| DEVICE_LOGIN_PROVIDER.to_string());
-    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000) + DEVICE_TOKEN_TTL_MS;
-
-    let mut secret = json!({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "provider": provider,
-        "expires_at_ms": expires_at_ms,
-    });
-    if let Some(arn) = resp.profile_arn.filter(|s| !s.trim().is_empty()) {
-        secret["profile_arn"] = Value::String(arn);
-    }
-    Ok(secret)
 }
 
 /// Whether the access token is absent or within the skew window of expiry.
@@ -238,87 +102,69 @@ pub(super) fn needs_refresh(secret: &Value) -> bool {
     if expires_at_ms == 0 {
         return false;
     }
-    let now_ms = crate::util::time::unix_now().saturating_mul(1000);
-    now_ms > expires_at_ms - EXPIRY_SKEW_MS
+    now_ms() > expires_at_ms - EXPIRY_SKEW_MS
 }
 
-/// Kiro token-endpoint response (both social + IdC refresh share this camelCase
-/// shape). Tolerant: every field optional so a refresh that omits `refreshToken`
-/// (reuse the old one) or `profileArn` still parses.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TokenResponse {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    profile_arn: Option<String>,
-    expires_in: Option<u64>,
+/// Begin an interactive authcode+PKCE login, dispatched by `params.auth_method`:
+/// `external_idp` → [`external_idp`]; anything else (`builderId` default / `idc`)
+/// → [`sso_oidc`]. Social uses the device flow ([`device_start`]), not this.
+pub(super) async fn authcode_start(
+    client: &Arc<dyn UpstreamClient>,
+    params: &Value,
+    redirect_uri: &str,
+    state: &str,
+    pkce_challenge: &str,
+) -> Result<AuthCodeStart, ChannelError> {
+    match params.get("auth_method").and_then(Value::as_str) {
+        Some("external_idp") => {
+            external_idp::authcode_start(client, params, redirect_uri, state, pkce_challenge).await
+        }
+        _ => sso_oidc::authcode_start(client, params, redirect_uri, state, pkce_challenge).await,
+    }
 }
 
-/// Refresh the credential, dispatching on the device-social/IdC discriminator.
-/// Returns the new plaintext secret with `access_token`/`expires_at_ms` rotated,
-/// `refresh_token` + `profile_arn` rotated when present (else preserved), and
-/// every other field carried through the clone.
+/// Exchange an authcode for the plaintext secret, dispatched by the login-session
+/// `extra` stashed at [`authcode_start`]: a `token_endpoint` marks external_idp,
+/// else SSO-OIDC.
+pub(super) async fn authcode_exchange(
+    client: &Arc<dyn UpstreamClient>,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+    extra: Option<&Value>,
+) -> Result<Value, ChannelError> {
+    let extra =
+        extra.ok_or_else(|| ChannelError::Build("login session missing channel state".into()))?;
+    if extra.get("token_endpoint").is_some() {
+        external_idp::authcode_exchange(client, code, verifier, redirect_uri, extra).await
+    } else {
+        sso_oidc::authcode_exchange(client, code, verifier, redirect_uri, extra).await
+    }
+}
+
+/// Refresh the credential, dispatched on the stored secret shape (see the module
+/// doc). `settings.auth_base_url` reaches the social path; SSO-OIDC/external_idp
+/// carry their own host in the secret.
 pub(super) async fn refresh(
     client: &Arc<dyn UpstreamClient>,
     settings: &Value,
     secret: &Value,
 ) -> Result<Value, ChannelError> {
-    let refresh_token = secret_str(secret, "refresh_token")
-        .ok_or_else(|| ChannelError::InvalidCredential("missing refresh_token".into()))?
-        .to_string();
-
-    let (url, body) = if is_idc(secret) {
-        let region = secret_str(secret, "region").unwrap_or("us-east-1");
-        let client_id = secret_str(secret, "client_id").unwrap_or_default();
-        let client_secret = secret_str(secret, "client_secret").unwrap_or_default();
-        (
-            format!("https://oidc.{region}.amazonaws.com/token"),
-            json!({
-                "clientId": client_id,
-                "clientSecret": client_secret,
-                "refreshToken": refresh_token,
-                "grantType": "refresh_token",
-            }),
-        )
+    if secret_str(secret, "token_endpoint").is_some() {
+        external_idp::refresh(client, secret).await
+    } else if is_sso_oidc(secret) {
+        sso_oidc::refresh(client, secret).await
     } else {
-        let auth_base = secret_str(settings, "auth_base_url").unwrap_or(DEFAULT_AUTH_BASE_URL);
-        (
-            format!("{}/refreshToken", auth_base.trim_end_matches('/')),
-            json!({ "refreshToken": refresh_token }),
-        )
-    };
-
-    let resp: TokenResponse = json_post(client, &url, &body).await?;
-
-    let new_access = resp
-        .access_token
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ChannelError::Build("refresh response missing accessToken".into()))?;
-    let expires_at_ms = crate::util::time::unix_now().saturating_mul(1000)
-        + resp.expires_in.unwrap_or(3600) as i64 * 1000;
-
-    let mut out = secret.clone();
-    let obj = out
-        .as_object_mut()
-        .ok_or_else(|| ChannelError::Build("secret is not an object".into()))?;
-    obj.insert("access_token".into(), Value::String(new_access));
-    // refresh_token ROTATES when present — store the new one, else keep the old.
-    if let Some(rt) = resp.refresh_token.filter(|s| !s.trim().is_empty()) {
-        obj.insert("refresh_token".into(), Value::String(rt));
+        social::refresh(client, settings, secret).await
     }
-    // profile_arn is returned only by some refreshes — store it, else preserve.
-    if let Some(arn) = resp.profile_arn.filter(|s| !s.trim().is_empty()) {
-        obj.insert("profile_arn".into(), Value::String(arn));
-    }
-    obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
-    Ok(out)
 }
 
 /// POST a JSON `body` to `url` and parse the response. Mirrors
 /// [`oauth::token_post`](crate::channel::oauth::token_post) but with a JSON body
-/// (the Kiro/OIDC endpoints reject form-urlencoded). Rides the passed
-/// [`UpstreamClient`] (proxy pool / edge transport). Non-2xx →
-/// [`ChannelError::Build`] with the status + (truncated) body.
+/// (the Kiro / AWS SSO-OIDC endpoints take JSON, not form-urlencoded). Rides the
+/// passed [`UpstreamClient`] (proxy pool / edge transport). Non-2xx →
+/// [`ChannelError::Build`] with the status + (truncated) body. Shared by
+/// [`social`] and [`sso_oidc`].
 async fn json_post<T: serde::de::DeserializeOwned>(
     client: &Arc<dyn UpstreamClient>,
     url: &str,
@@ -354,74 +200,36 @@ async fn json_post<T: serde::de::DeserializeOwned>(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn device_start_body_matches_capture() {
-        // The captured kiro-cli-chat device-authorization request body.
-        let body = device_start_body(login_provider(&json!({})));
-        assert_eq!(body["clientId"], "Kiro-CLI");
-        assert_eq!(body["loginProvider"], "Github");
-        assert_eq!(
-            body.as_object().unwrap().len(),
-            2,
-            "no extra fields beyond clientId + loginProvider"
-        );
+    fn is_sso_oidc_requires_both_client_creds() {
+        assert!(is_sso_oidc(
+            &json!({ "client_id": "c", "client_secret": "s" })
+        ));
+        assert!(!is_sso_oidc(&json!({ "client_id": "c" })));
+        assert!(!is_sso_oidc(&json!({ "refresh_token": "rt" })));
+        // external_idp secret (token_endpoint, client_id, no client_secret) is
+        // NOT sso_oidc — refresh routes it by token_endpoint first.
+        assert!(!is_sso_oidc(
+            &json!({ "token_endpoint": "https://idp/t", "client_id": "c" })
+        ));
     }
 
     #[test]
-    fn login_provider_selects_google_else_github() {
-        assert_eq!(login_provider(&json!({})), "Github");
-        assert_eq!(
-            login_provider(&json!({ "login_provider": "google" })),
-            "Google"
+    fn needs_refresh_honors_skew_and_unknown_expiry() {
+        assert!(needs_refresh(&json!({})), "no access_token → refresh");
+        assert!(
+            !needs_refresh(&json!({ "access_token": "a" })),
+            "unknown expiry → valid"
         );
-        assert_eq!(
-            login_provider(&json!({ "login_provider": "GitHub" })),
-            "Github"
+        assert!(
+            !needs_refresh(&json!({ "access_token": "a", "expires_at_ms": now_ms() + 600_000 })),
+            "far future → valid"
         );
-        // `provider` alias + case-insensitive; unknown falls back to GitHub.
-        assert_eq!(login_provider(&json!({ "provider": "GOOGLE" })), "Google");
-        assert_eq!(
-            login_provider(&json!({ "login_provider": "gitlab" })),
-            "Github"
+        assert!(
+            needs_refresh(&json!({ "access_token": "a", "expires_at_ms": now_ms() + 1_000 })),
+            "within skew → refresh"
         );
-    }
-
-    #[test]
-    fn device_poll_body_carries_device_code_and_client_id() {
-        let body = device_poll_body("dev-code-xyz");
-        assert_eq!(body["deviceCode"], "dev-code-xyz");
-        assert_eq!(body["clientId"], "Kiro-CLI");
-    }
-
-    #[test]
-    fn device_secret_maps_authorized_response() {
-        let resp: DevicePollResponse = serde_json::from_value(json!({
-            "status": "authorized",
-            "accessToken": "at-1",
-            "refreshToken": "rt-1",
-            "profileArn": "arn:aws:kiro:profile/p1",
-            "identityProvider": "Github",
-        }))
-        .unwrap();
-        let secret = device_secret(resp).unwrap();
-        assert_eq!(secret["access_token"], "at-1");
-        assert_eq!(secret["refresh_token"], "rt-1");
-        assert_eq!(secret["profile_arn"], "arn:aws:kiro:profile/p1");
-        assert_eq!(secret["provider"], "Github");
-        assert!(secret["expires_at_ms"].as_i64().unwrap() > crate::util::time::unix_now() * 1000);
-    }
-
-    #[test]
-    fn device_secret_omits_absent_profile_arn_and_defaults_provider() {
-        let resp: DevicePollResponse = serde_json::from_value(json!({
-            "status": "authorized",
-            "accessToken": "at-2",
-            "refreshToken": "rt-2",
-        }))
-        .unwrap();
-        let secret = device_secret(resp).unwrap();
-        assert!(secret.get("profile_arn").is_none());
-        assert_eq!(secret["provider"], "Github");
     }
 }
