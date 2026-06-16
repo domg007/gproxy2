@@ -147,8 +147,9 @@ pub async fn device_start(
         .channels
         .login_for(&req.channel)
         .ok_or_else(|| ApiError::NotFound("unknown channel".into()))?;
+    let params = req.params.clone().unwrap_or_else(|| serde_json::json!({}));
     let init = channel
-        .device_start(&state.upstream)
+        .device_start(&state.upstream, &params)
         .await
         .map_err(|_| ApiError::BadRequest("channel has no device login".into()))?;
     let sid = login::device_start(

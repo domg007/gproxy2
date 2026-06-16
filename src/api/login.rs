@@ -43,6 +43,11 @@ pub struct DeviceStartRequest {
     pub provider_id: i64,
     #[serde(default)]
     pub name: Option<String>,
+    /// Opaque channel-specific device-login inputs forwarded to `device_start`
+    /// (e.g. `{"login_provider":"google"}` for the Kiro social provider). Omit
+    /// for the channel default.
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
 }
 
 /// `device/start` response: the one-shot session id to poll with, plus the

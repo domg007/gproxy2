@@ -267,8 +267,9 @@ impl ChannelLogin for KiroChannel {
     async fn device_start(
         &self,
         client: &Arc<dyn UpstreamClient>,
+        params: &Value,
     ) -> Result<DeviceInit, ChannelError> {
-        auth::device_start(client).await
+        auth::device_start(client, params).await
     }
 
     async fn device_poll(
@@ -473,7 +474,7 @@ mod tests {
         }));
         let dyn_client: Arc<dyn UpstreamClient> = client.clone();
         let init = KiroChannel
-            .device_start(&dyn_client)
+            .device_start(&dyn_client, &json!({}))
             .await
             .expect("device_start ok");
         assert_eq!(init.device_code, "dev-code-1");

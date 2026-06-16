@@ -38,7 +38,10 @@ const AUTH_USER_AGENT: &str = "Kiro-CLI";
 const EXPIRY_SKEW_MS: i64 = 60_000;
 /// Literal `clientId` the device flow sends (there is NO client_secret).
 const DEVICE_CLIENT_ID: &str = "Kiro-CLI";
-/// Login provider the device flow requests (GitHub via the Kiro portal).
+/// Default social login provider when `params` does not select one. The Kiro
+/// desktop auth service accepts `Github` / `Google` (canonical Display form is
+/// `GitHub`/`Google`, but the captured live request used `Github`, a documented
+/// alias — kept verbatim here for the GitHub path that is known-good).
 const DEVICE_LOGIN_PROVIDER: &str = "Github";
 /// Device tokens carry no expiry; assume a 1h access-token life so the
 /// proactive refresh path has an `expires_at_ms` to compare against.
@@ -70,12 +73,30 @@ fn is_idc(secret: &Value) -> bool {
     secret_str(secret, "client_id").is_some() && secret_str(secret, "client_secret").is_some()
 }
 
+/// Map an operator `params.login_provider` (case-insensitive `github`/`google`,
+/// or a bare provider string) to the wire `loginProvider` value. Defaults to
+/// [`DEVICE_LOGIN_PROVIDER`] (GitHub) when absent/unrecognised.
+fn login_provider(params: &Value) -> &'static str {
+    match params
+        .get("login_provider")
+        .or_else(|| params.get("provider"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("google") => "Google",
+        Some("github") => "Github",
+        _ => DEVICE_LOGIN_PROVIDER,
+    }
+}
+
 /// Build the device-authorization request body: the captured `kiro-cli-chat`
-/// posts `{"clientId":"Kiro-CLI","loginProvider":"Github"}`.
-fn device_start_body() -> Value {
+/// posts `{"clientId":"Kiro-CLI","loginProvider":"Github"}` (or `"Google"`).
+fn device_start_body(provider: &str) -> Value {
     json!({
         "clientId": DEVICE_CLIENT_ID,
-        "loginProvider": DEVICE_LOGIN_PROVIDER,
+        "loginProvider": provider,
     })
 }
 
@@ -91,17 +112,20 @@ struct DeviceAuthorizationResponse {
 }
 
 /// Begin a device-code login: `POST {auth_base}/oauth/device/authorization` with
-/// `{"clientId":"Kiro-CLI","loginProvider":"Github"}`. Maps the response to a
+/// `{"clientId":"Kiro-CLI","loginProvider":<provider>}` (provider from
+/// `params.login_provider`, default GitHub). Maps the response to a
 /// [`DeviceInit`] (verification URL prefers the `complete` form; interval is the
 /// provider's milliseconds / 1000, floored to 1s, defaulting to 5s).
 pub(super) async fn device_start(
     client: &Arc<dyn UpstreamClient>,
+    params: &Value,
 ) -> Result<DeviceInit, ChannelError> {
     let url = format!(
         "{}/oauth/device/authorization",
         DEFAULT_AUTH_BASE_URL.trim_end_matches('/')
     );
-    let resp: DeviceAuthorizationResponse = json_post(client, &url, &device_start_body()).await?;
+    let body = device_start_body(login_provider(params));
+    let resp: DeviceAuthorizationResponse = json_post(client, &url, &body).await?;
 
     let device_code = resp
         .device_code
@@ -334,13 +358,32 @@ mod tests {
     #[test]
     fn device_start_body_matches_capture() {
         // The captured kiro-cli-chat device-authorization request body.
-        let body = device_start_body();
+        let body = device_start_body(login_provider(&json!({})));
         assert_eq!(body["clientId"], "Kiro-CLI");
         assert_eq!(body["loginProvider"], "Github");
         assert_eq!(
             body.as_object().unwrap().len(),
             2,
             "no extra fields beyond clientId + loginProvider"
+        );
+    }
+
+    #[test]
+    fn login_provider_selects_google_else_github() {
+        assert_eq!(login_provider(&json!({})), "Github");
+        assert_eq!(
+            login_provider(&json!({ "login_provider": "google" })),
+            "Google"
+        );
+        assert_eq!(
+            login_provider(&json!({ "login_provider": "GitHub" })),
+            "Github"
+        );
+        // `provider` alias + case-insensitive; unknown falls back to GitHub.
+        assert_eq!(login_provider(&json!({ "provider": "GOOGLE" })), "Google");
+        assert_eq!(
+            login_provider(&json!({ "login_provider": "gitlab" })),
+            "Github"
         );
     }
 
