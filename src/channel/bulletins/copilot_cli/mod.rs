@@ -113,7 +113,18 @@ impl Channel for CopilotCliChannel {
         let machine_id = auth::machine_id(ctx.secret);
         let base = auth::base_url(ctx.secret);
 
-        let uri = join_url(&base, "/chat/completions", None)?;
+        // Copilot exposes the catalogue at `GET {base}/models`; everything else is
+        // the `POST {base}/chat/completions` passthrough. Without this, a model
+        // pull (a GET) would be forced onto `/chat/completions` → upstream 405.
+        let upstream_path = if ctx.method == http::Method::GET
+            && ctx.path.trim_end_matches('/').ends_with("/models")
+        {
+            "/models"
+        } else {
+            "/chat/completions"
+        };
+
+        let uri = join_url(&base, upstream_path, None)?;
         // Copilot injects its own auth + editor headers; no inbound forwards.
         let headers = allow_headers(ctx.headers, &[]);
         let mut req = build_request(ctx.method, uri, headers, ctx.body)?;
@@ -285,5 +296,34 @@ mod tests {
         assert!(req.headers().get("x-client-machine-id").is_some());
         // No assistant/tool turn → X-Initiator user.
         assert_eq!(req.headers().get("x-initiator").unwrap(), "user");
+    }
+
+    #[test]
+    fn prepare_routes_model_list_to_models_endpoint() {
+        // A model-list pull is a GET to a `/models` path — it must hit
+        // `{base}/models`, NOT `/chat/completions` (which 405s on GET).
+        let secret = json!({ "github_token": "ghu_abc", "copilot_token": "cop-xyz" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = CopilotCliChannel.prepare(ctx).unwrap().request;
+        assert_eq!(req.method(), Method::GET);
+        assert_eq!(
+            req.uri().to_string(),
+            "https://api.githubcopilot.com/models"
+        );
+        assert_eq!(
+            req.headers().get("authorization").unwrap(),
+            "Bearer cop-xyz"
+        );
     }
 }
