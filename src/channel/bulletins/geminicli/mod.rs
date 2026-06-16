@@ -6,11 +6,11 @@
 //! `generateContent` body, but Code Assist nests it under `request` alongside
 //! routing metadata (`{model, project, user_prompt_id, request:<body>}`) and
 //! nests the response under `.response`. [`prepare`](GeminiCliChannel::prepare)
-//! wraps via [`envelope::wrap_code_assist`]; [`normalize`] and
+//! wraps via [`envelope::wrap_code_assist`]; [`shape_response`] and
 //! [`stream_decoder`] unwrap the non-stream body and each SSE frame.
 //! [`auth`] owns the OAuth bearer + refresh + the CLI fingerprint headers.
 //!
-//! [`normalize`]: GeminiCliChannel::normalize
+//! [`shape_response`]: GeminiCliChannel::shape_response
 //! [`stream_decoder`]: GeminiCliChannel::stream_decoder
 
 mod auth;
@@ -161,7 +161,7 @@ impl Channel for GeminiCliChannel {
         Ok(PreparedRequest::new(req))
     }
 
-    fn normalize(&self, body: Bytes) -> Bytes {
+    fn shape_response(&self, body: Bytes, _ctx: &crate::channel::ShapeCtx) -> Bytes {
         envelope::unwrap_code_assist(body)
     }
 
@@ -319,9 +319,19 @@ mod tests {
 
     #[test]
     fn normalize_unwraps_and_needs_refresh_expiry() {
-        // normalize extracts `.response`.
-        let out =
-            GeminiCliChannel.normalize(Bytes::from_static(br#"{"response":{"candidates":[]}}"#));
+        // shape_response extracts `.response`.
+        let shape = crate::channel::ShapeCtx {
+            op: crate::protocol::OperationKey::content_generation(
+                crate::protocol::Operation::GenerateContent,
+                crate::protocol::ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let out = GeminiCliChannel.shape_response(
+            Bytes::from_static(br#"{"response":{"candidates":[]}}"#),
+            &shape,
+        );
         let v: Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(v, json!({"candidates": []}));
 

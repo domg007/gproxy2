@@ -10,7 +10,7 @@ use http::{HeaderMap, Method, StatusCode};
 use serde_json::Value;
 
 use crate::app::AppState;
-use crate::channel::{Channel, Disposition, PrepareCtx};
+use crate::channel::{Channel, Disposition, PrepareCtx, ShapeCtx};
 use crate::http::client::{ClientError, UpstreamClient};
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
@@ -18,6 +18,7 @@ use crate::pipeline::health_hooks;
 use crate::pipeline::outcome::ResponseBody;
 use crate::pipeline::settle;
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
+use crate::protocol::ContentGenerationKind;
 
 /// Uniform per-attempt response body source. `Streaming` is native-only; on wasm
 /// the executor always buffers, so `classify` runs identically on status+headers
@@ -69,7 +70,19 @@ pub(super) async fn attempt(
     // request_parts is memoized per (target, model) — re-running it on the
     // AuthDead retry returns the same (cached) body; cheap and idempotent. A
     // build/transform error is config, not a key fault — no health record.
-    let parts = transform_step::request_parts(ctx, cand, plan, rules, memo)?;
+    let mut parts = transform_step::request_parts(ctx, cand, plan, rules, memo)?;
+
+    // Channel REQUEST 整形 before prepare: field hygiene + header-token removal.
+    // Mutates the headers that flow into PrepareCtx. Idempotent, so re-running on
+    // the AuthDead retry is harmless.
+    let shape = ShapeCtx {
+        op: plan.shape_op(ctx),
+        stream: ctx.stream,
+        status: StatusCode::OK,
+    };
+    let mut req_headers = parts.headers.take().unwrap_or_else(|| ctx.headers.clone());
+    parts.body = channel.shape_request(parts.body, &mut req_headers, &shape);
+    parts.headers = Some(req_headers);
 
     let prepared = match channel.prepare(PrepareCtx {
         secret,
@@ -243,7 +256,22 @@ pub(super) fn materialize(
 ) -> Result<ResponseBody, PipelineError> {
     match source {
         BodySource::Buffered(b) => {
-            let b = channel.normalize(b);
+            let shape = ShapeCtx {
+                op: plan.shape_op(ctx),
+                stream: ctx.stream,
+                status,
+            };
+            // shape_response runs on ALL statuses (error bodies included).
+            let b = channel.shape_response(b, &shape);
+            // Non-stream client over a force-streamed upstream (codex/kiro):
+            // collapse the buffered event-stream into one object, then convert
+            // the target wire back to the inbound wire.
+            if status.is_success() && plan.is_aggregate_stream() && !ctx.stream {
+                let agg = aggregate_buffered_stream(channel, plan.target_kind(), &b);
+                return Ok(ResponseBody::Full(transform_step::aggregate_response_body(
+                    plan, agg,
+                )?));
+            }
             if !status.is_success() || !plan.is_transform() {
                 return Ok(ResponseBody::Full(b));
             }
@@ -281,6 +309,32 @@ pub(super) fn materialize(
             }
         }
     }
+}
+
+/// Collapse a buffered upstream event-stream into one response object: run the
+/// channel's stream decoder over the whole body (kiro Smithy→Responses SSE;
+/// codex has none → already SSE), then fold the SSE into a single JSON of the
+/// target wire `kind`. Returns the body unchanged when the target is not a
+/// content-generation kind.
+fn aggregate_buffered_stream(
+    channel: &Arc<dyn Channel>,
+    kind: Option<ContentGenerationKind>,
+    body: &Bytes,
+) -> Bytes {
+    let Some(kind) = kind else {
+        return body.clone();
+    };
+    let sse: Vec<u8> = match channel.stream_decoder() {
+        Some(mut dec) => {
+            let mut out = dec.push(body);
+            out.extend(dec.finish());
+            out
+        }
+        None => body.to_vec(),
+    };
+    Bytes::from(crate::transform::stream_adapter::aggregate_buffered(
+        kind, &sse,
+    ))
 }
 
 /// One upstream send → uniform `(status, headers, BodySource)`. Streaming on

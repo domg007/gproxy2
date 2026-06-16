@@ -77,6 +77,19 @@ pub struct PrepareCtx<'a> {
     pub body: Bytes,
 }
 
+/// Minimal context for upstream-body shaping (整形). Carries just enough for a
+/// channel to dispatch per-operation without coupling to the request/pipeline
+/// internals (v1 passed the whole request; v2 passes only this).
+#[derive(Debug, Clone, Copy)]
+pub struct ShapeCtx {
+    /// The routed upstream (target) operation + protocol family.
+    pub op: crate::protocol::OperationKey,
+    /// Inbound client stream intent (response shaping only).
+    pub stream: bool,
+    /// Upstream status (response shaping only; `OK` for request shaping).
+    pub status: StatusCode,
+}
+
 /// Pure upstream access adapter (§6.3). Implementors provide `id`,
 /// `provider_family`, `routing_table` and `prepare`; the rest have sensible
 /// defaults.
@@ -103,9 +116,19 @@ pub trait Channel: Send + Sync {
         Disposition::from_http(status, headers)
     }
 
-    /// Channel-specific fixups on the raw upstream body before transform.
-    /// M1 same-protocol: identity.
-    fn normalize(&self, body: Bytes) -> Bytes {
+    /// Channel-specific REQUEST-body shaping (整形): runs after protocol
+    /// transform + process rules, before [`prepare`](Channel::prepare). Pure
+    /// field hygiene (strip unsupported fields, cap/rename, role/tools
+    /// normalize, remove header tokens). Default: identity.
+    fn shape_request(&self, body: Bytes, _headers: &mut HeaderMap, _ctx: &ShapeCtx) -> Bytes {
+        body
+    }
+
+    /// Channel-specific RESPONSE-body shaping (整形) on the raw buffered upstream
+    /// body, before protocol transform. Operation-aware via `ctx` so a channel
+    /// can reshape model lists, fix non-standard fields, unwrap envelopes, etc.
+    /// Runs on ALL statuses (error bodies included). Default: identity.
+    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
         body
     }
 

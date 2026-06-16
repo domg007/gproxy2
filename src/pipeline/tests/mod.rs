@@ -476,6 +476,7 @@ async fn scoped_variant_suffix_strips_to_base() {
     assert_eq!(up["model"], "gpt-test", "variant suffix stripped to base");
 }
 
+mod aggregate;
 mod authz;
 mod billing;
 mod envelope;

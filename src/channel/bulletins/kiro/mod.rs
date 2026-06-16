@@ -75,23 +75,32 @@ impl Channel for KiroChannel {
             local(CountTokens, pv(P::OpenAi)),
             local(CountTokens, pv(P::Claude)),
             local(CountTokens, pv(P::Gemini)),
-            pass(GenerateContent, cg(OpenAiResponses)),
+            // Kiro's upstream ONLY speaks the AWS event-stream — there is no
+            // non-stream endpoint. Route every `GenerateContent` to a streaming
+            // upstream; the pipeline collapses the stream back to one object for
+            // non-stream clients (`TransformPlan::AggregateStream`).
+            xform(
+                GenerateContent,
+                cg(OpenAiResponses),
+                StreamGenerateContent,
+                cg(OpenAiResponses),
+            ),
             xform(
                 GenerateContent,
                 cg(OpenAiChatCompletions),
-                GenerateContent,
+                StreamGenerateContent,
                 cg(OpenAiResponses),
             ),
             xform(
                 GenerateContent,
                 cg(ClaudeMessages),
-                GenerateContent,
+                StreamGenerateContent,
                 cg(OpenAiResponses),
             ),
             xform(
                 GenerateContent,
                 cg(GeminiGenerateContent),
-                GenerateContent,
+                StreamGenerateContent,
                 cg(OpenAiResponses),
             ),
             pass(StreamGenerateContent, cg(OpenAiResponses)),

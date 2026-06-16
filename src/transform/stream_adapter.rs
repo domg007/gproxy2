@@ -105,6 +105,61 @@ pub fn convert_buffered(mut t: SseTransformer, body: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Collapse a fully-buffered provider SSE stream into a single non-stream
+/// response JSON of the **same** wire `kind`, reusing the per-format aggregators
+/// in [`stream_to_response`](crate::transform::generate_content::stream_to_response).
+///
+/// Used when the routed target op is the streaming op but the client asked for a
+/// non-stream response: the upstream still streamed, so its buffered body is SSE
+/// that must be folded back into one object. Returns the original bytes on a
+/// parse/serialize failure (best-effort — the caller already holds a body).
+pub fn aggregate_buffered(kind: ContentGenerationKind, sse_body: &[u8]) -> Vec<u8> {
+    use crate::transform::generate_content::stream_to_response as s2r;
+    use ContentGenerationKind as K;
+
+    // SSE bytes → frames; each frame's `data` is one event JSON. Skip the
+    // openai-chat `[DONE]` terminator (not an event).
+    let mut dec = SseDecoder::new();
+    let mut frames = dec.push(sse_body);
+    if let Some(tail) = dec.finish() {
+        frames.push(tail);
+    }
+    let datas: Vec<String> = frames
+        .into_iter()
+        .map(|f| f.data)
+        .filter(|d| d.trim() != "[DONE]")
+        .collect();
+
+    macro_rules! collapse {
+        ($ty:ty, $agg:path) => {{
+            let events = datas
+                .iter()
+                .filter_map(|d| serde_json::from_str::<$ty>(d.as_str()).ok());
+            serde_json::to_vec(&$agg(events))
+        }};
+    }
+
+    let out = match kind {
+        K::OpenAiResponses => collapse!(
+            crate::protocol::openai::ResponseStreamEvent,
+            s2r::openai_responses::response
+        ),
+        K::OpenAiChatCompletions => collapse!(
+            crate::protocol::openai::ChatCompletionChunk,
+            s2r::openai_chat::response
+        ),
+        K::ClaudeMessages => collapse!(
+            crate::protocol::claude::StreamEvent,
+            s2r::claude_messages::response
+        ),
+        K::GeminiGenerateContent => collapse!(
+            crate::protocol::gemini::StreamGenerateContentChunk,
+            s2r::gemini_generate_content::response
+        ),
+    };
+    out.unwrap_or_else(|_| sse_body.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +201,25 @@ mod tests {
             let v: Value = serde_json::from_str(&line[6..]).unwrap();
             assert!(v.get("type").is_some());
         }
+    }
+
+    /// Buffered chat SSE (two delta chunks + [DONE]) collapses to a single
+    /// `chat.completion` object with the concatenated content.
+    #[test]
+    fn aggregate_buffered_collapses_chat() {
+        let sse = concat!(
+            "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",",
+            "\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"he\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",",
+            "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"llo\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let out = aggregate_buffered(ContentGenerationKind::OpenAiChatCompletions, sse.as_bytes());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            v["object"], "chat.completion",
+            "collapsed to a response: {v}"
+        );
+        assert_eq!(v["choices"][0]["message"]["content"], "hello");
     }
 }

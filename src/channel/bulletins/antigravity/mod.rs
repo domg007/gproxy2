@@ -5,12 +5,12 @@
 //! `generateContent` body, nested by Code Assist under `request` alongside
 //! routing metadata (`{model, project, user_prompt_id, request:<body>}`) with
 //! the response under `.response`. [`prepare`](AntigravityChannel::prepare)
-//! wraps via [`envelope::wrap_code_assist`]; [`normalize`] and
+//! wraps via [`envelope::wrap_code_assist`]; [`shape_response`] and
 //! [`stream_decoder`] unwrap the non-stream body and each SSE frame — all shared
 //! with `geminicli`. [`auth`] owns the OAuth bearer + refresh + Antigravity's
 //! distinct fingerprint (the `antigravity/cli` User-Agent).
 //!
-//! [`normalize`]: AntigravityChannel::normalize
+//! [`shape_response`]: AntigravityChannel::shape_response
 //! [`stream_decoder`]: AntigravityChannel::stream_decoder
 
 mod auth;
@@ -152,7 +152,7 @@ impl Channel for AntigravityChannel {
         Ok(PreparedRequest::new(req))
     }
 
-    fn normalize(&self, body: Bytes) -> Bytes {
+    fn shape_response(&self, body: Bytes, _ctx: &crate::channel::ShapeCtx) -> Bytes {
         envelope::unwrap_code_assist(body)
     }
 
