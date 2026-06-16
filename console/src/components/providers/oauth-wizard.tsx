@@ -22,8 +22,6 @@ interface OAuthWizardProps {
   onDone: (credential: CredentialView) => void;
 }
 
-const KIRO_PROVIDERS = ["Enterprise", "BuilderId", "Internal"] as const;
-
 export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
   const { t } = useTranslation("providers");
   const queryClient = useQueryClient();
@@ -31,6 +29,9 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
   const modes = meta?.loginModes ?? [];
   const [mode, setMode] = useState<LoginMode>(modes[0] ?? "authcode");
   const [credLabel, setCredLabel] = useState("");
+  // Kiro has four credential methods that span both the device and authcode
+  // flows, so it gets its own picker instead of the generic mode tabs.
+  const isKiro = provider.channel === "kiro";
 
   const finish = (credential: CredentialView) => {
     void queryClient.invalidateQueries({ queryKey: ["providers", provider.id, "credentials"] });
@@ -39,7 +40,7 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
 
   return (
     <div className="grid gap-4">
-      {modes.length > 1 && (
+      {!isKiro && modes.length > 1 && (
         <Tabs value={mode} onValueChange={(v) => setMode(v as LoginMode)}>
           <TabsList>
             {modes.map((m) => (
@@ -52,9 +53,15 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
         <Label htmlFor="w-name">{t("wizard.credName")}</Label>
         <Input id="w-name" value={credLabel} onChange={(e) => setCredLabel(e.target.value)} />
       </div>
-      {mode === "authcode" && <AuthcodeFlow provider={provider} credLabel={credLabel} onDone={finish} />}
-      {mode === "device" && <DeviceFlow provider={provider} credLabel={credLabel} onDone={finish} />}
-      {mode === "cookie" && <CookieFlow provider={provider} credLabel={credLabel} onDone={finish} />}
+      {isKiro ? (
+        <KiroWizard provider={provider} credLabel={credLabel} onDone={finish} />
+      ) : (
+        <>
+          {mode === "authcode" && <AuthcodeFlow provider={provider} credLabel={credLabel} onDone={finish} />}
+          {mode === "device" && <DeviceFlow provider={provider} credLabel={credLabel} onDone={finish} />}
+          {mode === "cookie" && <CookieFlow provider={provider} credLabel={credLabel} onDone={finish} />}
+        </>
+      )}
     </div>
   );
 }
@@ -65,30 +72,129 @@ interface FlowProps {
   onDone: (credential: CredentialView) => void;
 }
 
-function AuthcodeFlow({ provider, credLabel, onDone }: FlowProps) {
+// ── Kiro: four credential-acquisition methods ──────────────────────────────────
+// social → device flow (GitHub / Google); builderId / idc / external_idp →
+// authcode + PKCE flow, each with its own start params.
+const KIRO_METHODS = ["social", "builderId", "idc", "external_idp"] as const;
+type KiroMethod = (typeof KIRO_METHODS)[number];
+
+function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
+  const { t } = useTranslation("providers");
+  const [method, setMethod] = useState<KiroMethod>("social");
+  const [socialProvider, setSocialProvider] = useState("github");
+  const [startUrl, setStartUrl] = useState("");
+  const [region, setRegion] = useState("us-east-1");
+  const [issuerUrl, setIssuerUrl] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [scopes, setScopes] = useState("");
+
+  const authParams: Record<string, unknown> =
+    method === "idc"
+      ? {
+          auth_method: "idc",
+          region: region.trim() || "us-east-1",
+          ...(startUrl.trim() !== "" ? { start_url: startUrl.trim() } : {}),
+        }
+      : method === "external_idp"
+        ? {
+            auth_method: "external_idp",
+            issuer_url: issuerUrl.trim(),
+            client_id: clientId.trim(),
+            ...(scopes.trim() !== "" ? { scopes: scopes.trim() } : {}),
+          }
+        : { auth_method: "builderId" };
+
+  const idcMissing = method === "idc" && startUrl.trim() === "";
+  const externalMissing =
+    method === "external_idp" && (issuerUrl.trim() === "" || clientId.trim() === "");
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-2">
+        <Label>{t("wizard.kiroMethod")}</Label>
+        <Select value={method} onValueChange={(v) => setMethod(v as KiroMethod)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {KIRO_METHODS.map((m) => (
+              <SelectItem key={m} value={m}>{t(`wizard.kiroMethods.${m}`)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {method === "social" && (
+        <>
+          <div className="grid gap-2">
+            <Label>{t("wizard.kiroAccount")}</Label>
+            <Select value={socialProvider} onValueChange={setSocialProvider}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="github">GitHub</SelectItem>
+                <SelectItem value="google">Google</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DeviceFlow key={socialProvider} provider={provider} credLabel={credLabel} onDone={onDone}
+            params={{ login_provider: socialProvider }} />
+        </>
+      )}
+
+      {method === "builderId" && (
+        <AuthcodeFlow key="builderId" provider={provider} credLabel={credLabel} onDone={onDone}
+          startParams={authParams} />
+      )}
+
+      {method === "idc" && (
+        <>
+          <div className="grid gap-2">
+            <Label htmlFor="kiro-start">{t("wizard.kiroStartUrl")}</Label>
+            <Input id="kiro-start" value={startUrl} onChange={(e) => setStartUrl(e.target.value)}
+              placeholder="https://….awsapps.com/start" />
+            <p className="text-xs text-muted-foreground">{t("wizard.kiroStartUrlHint")}</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="kiro-region">{t("wizard.kiroRegion")}</Label>
+            <Input id="kiro-region" value={region} onChange={(e) => setRegion(e.target.value)} />
+          </div>
+          <AuthcodeFlow key="idc" provider={provider} credLabel={credLabel} onDone={onDone}
+            startParams={authParams} disabled={idcMissing} />
+        </>
+      )}
+
+      {method === "external_idp" && (
+        <>
+          <div className="grid gap-2">
+            <Label htmlFor="kiro-issuer">{t("wizard.kiroIssuerUrl")}</Label>
+            <Input id="kiro-issuer" value={issuerUrl} onChange={(e) => setIssuerUrl(e.target.value)}
+              placeholder="https://idp.example.com" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="kiro-clientid">{t("wizard.kiroClientId")}</Label>
+            <Input id="kiro-clientid" value={clientId} onChange={(e) => setClientId(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="kiro-scopes">{t("wizard.kiroScopes")}</Label>
+            <Input id="kiro-scopes" value={scopes} onChange={(e) => setScopes(e.target.value)}
+              placeholder="openid profile email" />
+          </div>
+          <AuthcodeFlow key="external_idp" provider={provider} credLabel={credLabel} onDone={onDone}
+            startParams={authParams} disabled={externalMissing} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function AuthcodeFlow({
+  provider, credLabel, onDone, startParams, disabled,
+}: FlowProps & { startParams?: Record<string, unknown>; disabled?: boolean }) {
   const { t } = useTranslation("providers");
   const [session, setSession] = useState<LoginStartResponse | null>(null);
   const [pasted, setPasted] = useState("");
   const [pasteTouched, setPasteTouched] = useState(false);
-  // Kiro dual-mode params
-  const isKiro = provider.channel === "kiro";
-  const [kiroIdc, setKiroIdc] = useState(false);
-  const [kiroProvider, setKiroProvider] = useState<string>("Enterprise");
-  const [kiroStartUrl, setKiroStartUrl] = useState("");
-  const [kiroRegion, setKiroRegion] = useState("us-east-1");
 
   const start = useMutation({
-    mutationFn: () => {
-      const params = isKiro && kiroIdc
-        ? {
-            auth_method: "idc",
-            provider: kiroProvider,
-            region: kiroRegion.trim() || "us-east-1",
-            ...(kiroStartUrl.trim() !== "" ? { start_url: kiroStartUrl.trim() } : {}),
-          }
-        : undefined;
-      return loginFlowStart({ channel: provider.channel, params });
-    },
+    mutationFn: () => loginFlowStart({ channel: provider.channel, params: startParams }),
     onSuccess: (resp) => {
       setSession(resp);
       window.open(resp.authorize_url, "_blank", "noopener");
@@ -109,49 +215,12 @@ function AuthcodeFlow({ provider, credLabel, onDone }: FlowProps) {
   });
 
   const pasteValid = session !== null && validateCallbackUrl(pasted, session.authorize_url);
-  const kiroStartUrlMissing = isKiro && kiroIdc && kiroProvider === "Enterprise" && kiroStartUrl.trim() === "";
 
   if (session === null) {
     return (
       <div className="grid gap-4">
-        {isKiro && (
-          <>
-            <div className="grid gap-2">
-              <Label>{t("wizard.kiroMode")}</Label>
-              <Tabs value={kiroIdc ? "idc" : "social"} onValueChange={(v) => setKiroIdc(v === "idc")}>
-                <TabsList>
-                  <TabsTrigger value="social">{t("wizard.kiroSocial")}</TabsTrigger>
-                  <TabsTrigger value="idc">{t("wizard.kiroIdc")}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-            {kiroIdc && (
-              <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label>{t("wizard.kiroProvider")}</Label>
-                  <Select value={kiroProvider} onValueChange={setKiroProvider}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {KIRO_PROVIDERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="kiro-start">{t("wizard.kiroStartUrl")}</Label>
-                  <Input id="kiro-start" value={kiroStartUrl} onChange={(e) => setKiroStartUrl(e.target.value)}
-                    placeholder="https://….awsapps.com/start" />
-                  <p className="text-xs text-muted-foreground">{t("wizard.kiroStartUrlHint")}</p>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="kiro-region">{t("wizard.kiroRegion")}</Label>
-                  <Input id="kiro-region" value={kiroRegion} onChange={(e) => setKiroRegion(e.target.value)} />
-                </div>
-              </div>
-            )}
-          </>
-        )}
         {start.isError && <p className="text-sm text-destructive">{t("wizard.failed")}</p>}
-        <Button onClick={() => start.mutate()} disabled={start.isPending || kiroStartUrlMissing}>
+        <Button onClick={() => start.mutate()} disabled={start.isPending || disabled === true}>
           {start.isPending ? t("wizard.starting") : t("wizard.start")}
         </Button>
       </div>
@@ -180,7 +249,9 @@ function AuthcodeFlow({ provider, credLabel, onDone }: FlowProps) {
   );
 }
 
-function DeviceFlow({ provider, credLabel, onDone }: FlowProps) {
+function DeviceFlow({
+  provider, credLabel, onDone, params,
+}: FlowProps & { params?: Record<string, unknown> }) {
   const { t } = useTranslation("providers");
   const [session, setSession] = useState<DeviceStartResponse | null>(null);
   const [failed, setFailed] = useState(false);
@@ -196,6 +267,7 @@ function DeviceFlow({ provider, credLabel, onDone }: FlowProps) {
         channel: provider.channel,
         provider_id: provider.id,
         ...(credLabel.trim() !== "" ? { name: credLabel.trim() } : {}),
+        ...(params !== undefined ? { params } : {}),
       }),
     onSuccess: (resp) => { setFailed(false); setSession(resp); },
   });

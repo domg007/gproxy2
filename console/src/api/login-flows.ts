@@ -38,7 +38,7 @@ export function loginFlowComplete(req: LoginCompleteRequest): Promise<Credential
   return api<CredentialView>("/admin/login-flows/complete", { method: "POST", body: JSON.stringify(req) });
 }
 
-export function deviceStart(req: { channel: string; provider_id: number; name?: string }): Promise<DeviceStartResponse> {
+export function deviceStart(req: { channel: string; provider_id: number; name?: string; params?: Record<string, unknown> }): Promise<DeviceStartResponse> {
   return api<DeviceStartResponse>("/admin/login-flows/device/start", { method: "POST", body: JSON.stringify(req) });
 }
 

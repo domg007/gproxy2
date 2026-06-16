@@ -81,9 +81,9 @@ export const CHANNELS: ChannelMeta[] = [
   {
     id: "kiro",
     family: "oauth_tokens",
-    loginModes: ["authcode"],
+    loginModes: ["authcode", "device"],
     usage: true,
-    secretTemplate: { ...OAUTH_TOKENS, auth_method: "social" },
+    secretTemplate: { ...OAUTH_TOKENS },
   },
   {
     id: "copilot_cli",
