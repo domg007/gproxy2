@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { deleteUser, orgsQuery, teamsQuery, userQuery } from "@/api/identity";
 import { ApiError } from "@/api/http";
+import { EntityDialog } from "@/components/entity-dialog";
 import { ScopeAccessEditor } from "@/components/identity/scope-access-editor";
+import { UserForm } from "@/components/identity/user-form";
 import { UserKeysTab } from "@/components/identity/user-keys-tab";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +33,7 @@ function UserDetailPage() {
   const queryClient = useQueryClient();
   const { data: user } = useSuspenseQuery(userQuery(id));
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: orgs } = useQuery(orgsQuery);
   const { data: teams } = useQuery(teamsQuery(user.org_id));
@@ -67,10 +70,16 @@ function UserDetailPage() {
             <span className="text-sm text-muted-foreground">/ {teamName}</span>
           )}
         </div>
-        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteOpen(true)}>
-          <Trash2 className="size-4" aria-hidden />
-          <span className="hidden sm:inline">{t("users.delete")}</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            <Pencil className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{t("users.edit")}</span>
+          </Button>
+          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{t("users.delete")}</span>
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="keys">
@@ -85,6 +94,10 @@ function UserDetailPage() {
           <ScopeAccessEditor scope="user" scopeId={user.id} />
         </TabsContent>
       </Tabs>
+
+      <EntityDialog open={editOpen} onOpenChange={setEditOpen} title={t("users.edit")}>
+        <UserForm user={user} onSaved={() => setEditOpen(false)} />
+      </EntityDialog>
 
       <ConfirmDangerous
         open={deleteOpen}
