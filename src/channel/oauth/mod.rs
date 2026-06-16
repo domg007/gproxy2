@@ -290,6 +290,15 @@ async fn post_json_bearer(
         .map_err(|e| ChannelError::Build(format!("code assist response parse: {e}")))
 }
 
+/// Percent-encode `s`, leaving the RFC 3986 unreserved set (`A-Za-z0-9-._~`)
+/// verbatim and `%XX`-encoding every other byte. Exposed for channels that build
+/// their own authorize URLs (e.g. Kiro SSO-OIDC / external-IdP).
+pub fn percent_encode(s: &str) -> String {
+    let mut out = String::new();
+    percent_encode_into(s, &mut out);
+    out
+}
+
 /// Percent-encode `s` into `out`, leaving the RFC 3986 unreserved characters
 /// (`A-Za-z0-9-._~`) as-is and `%XX`-encoding every other byte.
 fn percent_encode_into(s: &str, out: &mut String) {

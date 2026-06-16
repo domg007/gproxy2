@@ -36,8 +36,8 @@ use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::{
-    Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, DeviceInit, DevicePoll, PrepareCtx,
-    PreparedRequest, ShapeCtx,
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, DeviceInit,
+    DevicePoll, PrepareCtx, PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
 use crate::protocol::{Operation, Provider};
@@ -264,11 +264,39 @@ impl Channel for KiroChannel {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for KiroChannel {
+    /// Interactive authcode+PKCE login for the AWS SSO-OIDC (builderId / idc) and
+    /// external-IdP methods, dispatched on `params.auth_method` (default
+    /// `builderId`). Social uses the device flow below.
+    async fn authcode_start(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        params: &Value,
+        redirect_uri: &str,
+        state: &str,
+        pkce_challenge: &str,
+    ) -> Result<Option<AuthCodeStart>, ChannelError> {
+        let started =
+            auth::authcode_start(client, params, redirect_uri, state, pkce_challenge).await?;
+        Ok(Some(started))
+    }
+
+    async fn authcode_exchange(
+        &self,
+        client: &Arc<dyn UpstreamClient>,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+        extra: Option<&Value>,
+    ) -> Result<Value, ChannelError> {
+        auth::authcode_exchange(client, code, verifier, redirect_uri, extra).await
+    }
+
     async fn device_start(
         &self,
         client: &Arc<dyn UpstreamClient>,
+        params: &Value,
     ) -> Result<DeviceInit, ChannelError> {
-        auth::device_start(client).await
+        auth::device_start(client, params).await
     }
 
     async fn device_poll(
@@ -350,16 +378,19 @@ mod tests {
     use http::{HeaderMap, Method, Response};
     use serde_json::json;
 
-    /// Mock client returning a fixed JSON body and recording each request's URI.
+    /// Mock client returning a fixed JSON body and recording each request's URI
+    /// and (JSON-parsed) request body.
     struct MockClient {
         body: Vec<u8>,
         seen: std::sync::Mutex<Vec<String>>,
+        bodies: std::sync::Mutex<Vec<Bytes>>,
     }
 
     #[async_trait::async_trait]
     impl UpstreamClient for MockClient {
         async fn send(&self, req: http::Request<Bytes>) -> Result<Response<Bytes>, ClientError> {
             self.seen.lock().unwrap().push(req.uri().to_string());
+            self.bodies.lock().unwrap().push(req.body().clone());
             Ok(Response::new(Bytes::from(self.body.clone())))
         }
     }
@@ -368,11 +399,12 @@ mod tests {
         Arc::new(MockClient {
             body: serde_json::to_vec(&body).unwrap(),
             seen: std::sync::Mutex::new(Vec::new()),
+            bodies: std::sync::Mutex::new(Vec::new()),
         })
     }
 
     #[tokio::test]
-    async fn dual_refresh() {
+    async fn refresh_dispatches_by_secret_shape() {
         // SOCIAL: refreshToken POST → rotates tokens + stores profileArn.
         let client = mock(json!({
             "accessToken": "new-access",
@@ -391,8 +423,9 @@ mod tests {
         assert!(out["expires_at_ms"].as_i64().unwrap() > crate::util::time::unix_now() * 1000);
         assert!(client.seen.lock().unwrap()[0].contains("/refreshToken"));
 
-        // IdC: region-templated oidc token POST → rotates access token; the
-        // response omits refreshToken so the old one is preserved.
+        // SSO-OIDC (builderId / idc): region-templated oidc CreateToken POST →
+        // rotates access token; the response omits refreshToken so the old one is
+        // preserved.
         let client = mock(json!({ "accessToken": "idc-access", "expiresIn": 1800 }));
         let dyn_client: Arc<dyn UpstreamClient> = client.clone();
         let secret = json!({
@@ -409,7 +442,75 @@ mod tests {
         assert_eq!(out["refresh_token"], "old-rt");
         assert!(
             client.seen.lock().unwrap()[0].contains("oidc.eu-west-1.amazonaws.com/token"),
-            "IdC refresh must hit the region-templated oidc host"
+            "SSO-OIDC refresh must hit the region-templated oidc host"
+        );
+    }
+
+    #[tokio::test]
+    async fn sso_authcode_start_registers_and_builds_authorize_url() {
+        // RegisterClient returns the dynamic client creds; authcode_start then
+        // builds the /authorize URL and stashes the creds in `extra`.
+        let client = mock(json!({ "clientId": "reg-cid", "clientSecret": "reg-secret" }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        // No params / no redirect → builderId defaults + the loopback redirect.
+        let started = KiroChannel
+            .authcode_start(&dyn_client, &json!({}), "", "st-1", "chal-1")
+            .await
+            .unwrap()
+            .expect("kiro has an authcode login");
+
+        // The first (only) call hit RegisterClient on the Builder ID oidc host.
+        assert_eq!(
+            client.seen.lock().unwrap()[0],
+            "https://oidc.us-east-1.amazonaws.com/client/register"
+        );
+        // RegisterClient body: public client, both PKCE grants, our redirect.
+        let reg: Value = serde_json::from_slice(&client.bodies.lock().unwrap()[0]).unwrap();
+        assert_eq!(reg["clientName"], "Kiro-CLI");
+        assert_eq!(reg["clientType"], "public");
+        assert_eq!(
+            reg["grantTypes"],
+            json!(["authorization_code", "refresh_token"])
+        );
+        assert_eq!(
+            reg["redirectUris"],
+            json!(["http://127.0.0.1:1455/oauth/callback"])
+        );
+        assert_eq!(reg["issuerUrl"], "https://view.awsapps.com/start");
+
+        // Authorize URL on the same host; PKCE S256; plural `scopes`.
+        assert!(
+            started
+                .authorize_url
+                .starts_with("https://oidc.us-east-1.amazonaws.com/authorize?")
+        );
+        assert!(started.authorize_url.contains("code_challenge_method=S256"));
+        assert!(started.authorize_url.contains("client_id=reg-cid"));
+        assert_eq!(started.redirect_uri, "http://127.0.0.1:1455/oauth/callback");
+
+        // `extra` carries the registered creds + target for the exchange/refresh.
+        let extra = started.extra.unwrap();
+        assert_eq!(extra["client_id"], "reg-cid");
+        assert_eq!(extra["client_secret"], "reg-secret");
+        assert_eq!(extra["region"], "us-east-1");
+        assert_eq!(extra["start_url"], "https://view.awsapps.com/start");
+    }
+
+    #[tokio::test]
+    async fn authcode_start_rejects_social_and_unknown_methods() {
+        // social uses the device flow; an explicit/typo authcode auth_method must
+        // error WITHOUT triggering a live AWS RegisterClient.
+        let client = mock(json!({ "clientId": "x", "clientSecret": "y" }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        for method in ["social", "external_idp", "builder-id", "totally-bogus"] {
+            let err = KiroChannel
+                .authcode_start(&dyn_client, &json!({ "auth_method": method }), "", "s", "c")
+                .await;
+            assert!(err.is_err(), "auth_method={method} must be rejected");
+        }
+        assert!(
+            client.seen.lock().unwrap().is_empty(),
+            "rejection must happen before any network call"
         );
     }
 
@@ -473,7 +574,7 @@ mod tests {
         }));
         let dyn_client: Arc<dyn UpstreamClient> = client.clone();
         let init = KiroChannel
-            .device_start(&dyn_client)
+            .device_start(&dyn_client, &json!({}))
             .await
             .expect("device_start ok");
         assert_eq!(init.device_code, "dev-code-1");

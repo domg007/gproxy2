@@ -104,9 +104,15 @@ pub trait ChannelLogin: Send + Sync {
     /// Begin a device-code login: ask the provider for a device + user code.
     /// `None`-by-default channels return `Unsupported`. The caller stashes the
     /// returned `device_code` server-side and polls [`device_poll`].
+    ///
+    /// `params` is opaque operator-supplied input (mirrors
+    /// [`authcode_start`](ChannelLogin::authcode_start)) — e.g.
+    /// `{"login_provider":"google"}` to pick the Kiro social provider; `{}` for
+    /// the channel default.
     async fn device_start(
         &self,
         _client: &Arc<dyn UpstreamClient>,
+        _params: &serde_json::Value,
     ) -> Result<DeviceInit, ChannelError> {
         Err(ChannelError::Unsupported("device login"))
     }

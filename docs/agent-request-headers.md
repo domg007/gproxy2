@@ -125,20 +125,42 @@ RESP: {"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-sonnet-4.5
 ```
 聊天:body = `{"conversationState":{conversationId,history,currentMessage,…}}`;resp = AWS 事件流(`assistantResponseEvent` 等帧)。
 
-**登录 = device-code 流程**(2026-06-16 抓 `kiro-cli-chat login` 实证;clientId 是字面量 `"Kiro-CLI"`,**无 clientSecret / 无 RegisterClient / 无 oidc.amazonaws.com**):
+**登录 = 四种凭证 kind**(2026-06-16 反编译 `kiro-cli`/`fig_auth` 实证,枚举字面量 `social | idc | builderId | external_idp`)。`kiro-cli login` 菜单实为 `Use with Google / GitHub / Builder ID / Your Organization`(后者 = idc);**external_idp 不是菜单项**(见下 (d))。共同点:成功后凭证 `access_token` 注入 `Authorization: Bearer`(60s 提前刷新 skew);凭证存 SQLite `auth_kv(key,value)`,**Linux 无 keyring**。
+
+**(a) social — GitHub / Google**(device-code,实抓):
 ```
 ① POST prod.{region}.auth.desktop.kiro.dev/oauth/device/authorization
    body {"clientId":"Kiro-CLI","loginProvider":"Github"}  (或 "Google")
    resp {deviceCode,userCode,verificationUriComplete:"https://app.kiro.dev/account/device?user_code=…&login_provider=Github",
          intervalInMilliseconds:5000, expiresInMilliseconds:300000}
-② POST prod.{region}.auth.desktop.kiro.dev/oauth/device/poll  {"deviceCode","clientId":"Kiro-CLI"}
-   pending: {"status":"authorization_pending", accessToken:null,…}
-   done:    {"status":"authorized", accessToken, refreshToken, profileArn, identityProvider:"Github"}
-③ 刷新: POST prod.{region}.auth.desktop.kiro.dev/refreshToken  (端点从二进制挖,未抓到实例)
-凭证存:{access_token, refresh_token, profile_arn, provider}  —— 没有 client_secret。
+② POST …/oauth/device/poll  {"deviceCode","clientId":"Kiro-CLI"}
+   pending {"status":"authorization_pending"} → done {"status":"authorized", accessToken, refreshToken, profileArn, identityProvider}
+③ 刷新 POST …/refreshToken  {"refreshToken": rt}  (无 clientId/secret)
+凭证存 {access_token, refresh_token, profile_arn, provider}。
 ```
 
-> **v2 现状**:模型列表(`76162e0`)+ 聊天/用量(`11b804b`)已全部改到 `*.kiro.dev` Smithy。**登录流程仍是错的**——v2 现在走 authcode social(`app.kiro.dev/signin`,redirect `localhost:3128`)/ IdC oidc,真实是上面的 **device-code**。待改 `ChannelLogin::device_start/device_poll`(像 copilot)。
+**(b) builderId / (c) idc — AWS SSO-OIDC**(authcode+PKCE,host `https://oidc.{region}.amazonaws.com`,REST-JSON,**无 x-amz-target / 无 SigV4**)。两者同一套代码,仅 `start_url`+`region` 不同(builderId=`view.awsapps.com/start`+`us-east-1`;idc=自配 `auth.idc.start-url`+`auth.idc.region`):
+```
+① RegisterClient POST /client/register
+   {clientName:"Kiro-CLI", clientType:"public", scopes:[codewhisperer:completions/analysis/conversations],
+    grantTypes:["authorization_code","refresh_token"], redirectUris:[loopback], issuerUrl:start_url}
+   → {clientId, clientSecret}
+② 浏览器 GET /authorize?response_type=code&client_id&redirect_uri&scopes=<空格join,plural!>&state&code_challenge&code_challenge_method=S256
+③ CreateToken POST /token  {grantType:"authorization_code", clientId, clientSecret, code, redirectUri, codeVerifier} → {accessToken, refreshToken, expiresIn}
+刷新 POST /token {grantType:"refresh_token", clientId, clientSecret, refreshToken}
+凭证存 {access_token, refresh_token, expires_at_ms, client_id, client_secret, region, start_url}。
+```
+> ⚠️ `scopes`(**plural**,空格 join)是 SSO-OIDC `/authorize` 的非标准约定;PKCE 默认流,device-code 仅为浏览器打不开时的回退。`scopePrefix` 设置默认 `codewhisperer`。**`kirocli:odic:token` 等是 SQLite KEY,不是 scope。**
+
+**(d) external_idp — 运营方自配 OIDC**(authcode+PKCE,public client,**无动态注册/无 client_secret**)。⚠️ **不是 `kiro-cli login` 的菜单项**——它由组织的"统一登录门户"(app.kiro.dev)回调里带回的 IdP 元数据自动触发(二进制:`Using unified auth portal for login`、`External IdP metadata extracted from callback`),菜单只有上面三项 + "Use with Your Organization"(=idc)。**v2 不实现**,仅留此 RE 记录:
+```
+① discovery GET {issuer_url}/.well-known/openid-configuration → {authorization_endpoint, token_endpoint}
+② 浏览器 GET {authorization_endpoint}?response_type=code&client_id&redirect_uri&scope=<configured+offline_access>&state&code_challenge&code_challenge_method=S256
+③ 交换 POST {token_endpoint}  (application/x-www-form-urlencoded)  grant_type=authorization_code&code&redirect_uri&code_verifier&client_id → {access_token, refresh_token, expires_in}
+刷新 POST {token_endpoint}  grant_type=refresh_token&refresh_token&client_id
+```
+
+> **v2 现状**:模型列表(`76162e0`)+ 聊天/用量(`11b804b`)走 `*.kiro.dev` Smithy。**菜单的三种登录已实现**:social GitHub/Google 走 `device_start`(`params.login_provider`);builderId/idc 走 `authcode_start`/`authcode_exchange`(`params.auth_method`,PKCE-only);两路 `refresh` 按凭证形态分派(`client_id`+`client_secret`→SSO-OIDC;否则 social)。代码:`src/channel/bulletins/kiro/auth/{social,sso_oidc}.rs`。**external_idp 故意不做**(非菜单项,门户驱动)。Console 向导四项对齐 kiro-cli 菜单(GitHub/Google/Builder ID/Your Organization)。**E2E 待真实账号验证。**
 
 ---
 

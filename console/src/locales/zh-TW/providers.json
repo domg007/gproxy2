@@ -114,13 +114,14 @@
     "done": "憑證已建立。",
     "deviceIntro": "在以下網址輸入此代碼",
     "waiting": "等待授權中…",
-    "kiroMode": "Kiro 登入方式",
-    "kiroSocial": "社交帳號",
-    "kiroIdc": "AWS IdC",
-    "kiroProvider": "身分提供者",
+    "kiroMethod": "Kiro 登入方式",
+    "kiroMethods": {
+      "builderId": "AWS Builder ID",
+      "idc": "AWS IAM Identity Center"
+    },
     "kiroStartUrl": "Start URL",
     "kiroRegion": "區域",
-    "kiroStartUrlHint": "Enterprise 必填;BuilderId/Internal 有內建預設值。",
+    "kiroStartUrlHint": "你所在組織的 AWS 存取入口網址(https://….awsapps.com/start)。",
     "cookieLabel": "claude.ai Cookie",
     "cookieHint": "貼上完整 Cookie 標頭或僅 sessionKey=…;只會使用 sessionKey。",
     "cookieInvalid": "貼上的內容中找不到 sessionKey。"

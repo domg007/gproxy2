@@ -114,13 +114,14 @@
     "done": "Credential created.",
     "deviceIntro": "Enter this code at",
     "waiting": "Waiting for authorization…",
-    "kiroMode": "Kiro login mode",
-    "kiroSocial": "Social",
-    "kiroIdc": "AWS IdC",
-    "kiroProvider": "Identity provider",
+    "kiroMethod": "Kiro login method",
+    "kiroMethods": {
+      "builderId": "AWS Builder ID",
+      "idc": "AWS IAM Identity Center"
+    },
     "kiroStartUrl": "Start URL",
     "kiroRegion": "Region",
-    "kiroStartUrlHint": "Required for Enterprise; BuilderId/Internal have built-in defaults.",
+    "kiroStartUrlHint": "Your organization's AWS access portal URL (https://….awsapps.com/start).",
     "cookieLabel": "claude.ai cookie",
     "cookieHint": "Paste the full Cookie header or just sessionKey=…; only sessionKey is used.",
     "cookieInvalid": "No sessionKey found in the pasted text."
