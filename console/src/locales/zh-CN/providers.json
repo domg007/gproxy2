@@ -187,6 +187,9 @@
     "selectNone": "取消全选",
     "alreadyAdded": "已添加",
     "import": "导入 {{count}} 个",
-    "imported": "已导入 {{count}} 个模型"
+    "imported": "已导入 {{count}} 个模型",
+    "pullSearch": "搜索模型…",
+    "pullShown": "显示 {{shown}} / {{total}}",
+    "pullNoMatch": "没有匹配的模型。"
   }
 }

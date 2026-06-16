@@ -187,6 +187,9 @@
     "selectNone": "Clear",
     "alreadyAdded": "Added",
     "import": "Import {{count}}",
-    "imported": "Imported {{count}} model(s)"
+    "imported": "Imported {{count}} model(s)",
+    "pullSearch": "Search models…",
+    "pullShown": "showing {{shown}} of {{total}}",
+    "pullNoMatch": "No models match your search."
   }
 }
