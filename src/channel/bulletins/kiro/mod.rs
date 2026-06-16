@@ -36,7 +36,7 @@ use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::{
-    AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
+    Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, DeviceInit, DevicePoll, PrepareCtx,
     PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
@@ -264,48 +264,19 @@ impl Channel for KiroChannel {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ChannelLogin for KiroChannel {
-    async fn authcode_start(
+    async fn device_start(
         &self,
         client: &Arc<dyn UpstreamClient>,
-        params: &Value,
-        redirect_uri: &str,
-        state: &str,
-        pkce_challenge: &str,
-    ) -> Result<Option<AuthCodeStart>, ChannelError> {
-        // IdC (AWS SSO-OIDC) needs an async RegisterClient before the authorize
-        // URL; the registered creds ride `extra` to the exchange. Else: social.
-        if auth::idc_requested(params) {
-            let (authorize_url, redirect_uri, extra) =
-                auth::idc_authcode_start(client, params, redirect_uri, state, pkce_challenge)
-                    .await?;
-            return Ok(Some(AuthCodeStart {
-                authorize_url,
-                redirect_uri,
-                extra: Some(extra),
-            }));
-        }
-        let (authorize_url, redirect_uri) =
-            auth::authcode_start(redirect_uri, state, pkce_challenge);
-        Ok(Some(AuthCodeStart {
-            authorize_url,
-            redirect_uri,
-            extra: None,
-        }))
+    ) -> Result<DeviceInit, ChannelError> {
+        auth::device_start(client).await
     }
 
-    async fn authcode_exchange(
+    async fn device_poll(
         &self,
         client: &Arc<dyn UpstreamClient>,
-        code: &str,
-        verifier: &str,
-        redirect_uri: &str,
-        extra: Option<&Value>,
-    ) -> Result<Value, ChannelError> {
-        // IdC when start stashed registered client creds; else social.
-        if let Some(extra) = extra.filter(|e| e.get("client_id").is_some()) {
-            return auth::idc_authcode_exchange(client, code, verifier, redirect_uri, extra).await;
-        }
-        auth::authcode_exchange(client, code, verifier, redirect_uri).await
+        device_code: &str,
+    ) -> Result<DevicePoll, ChannelError> {
+        auth::device_poll(client, device_code).await
     }
 }
 
@@ -488,87 +459,86 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn kiro_social_authcode_start() {
-        // Social path: client/params unused; builds the static portal URL.
-        let client: Arc<dyn UpstreamClient> = mock(json!({}));
-        let start = KiroChannel
-            .authcode_start(&client, &json!({}), "", "ST", "CH")
-            .await
-            .expect("authcode_start ok")
-            .expect("kiro supports social authcode");
-        let url = &start.authorize_url;
-        assert!(url.starts_with("https://app.kiro.dev/signin?"), "{url}");
-        assert!(url.contains("state=ST"), "{url}");
-        assert!(url.contains("code_challenge=CH"), "{url}");
-        assert!(url.contains("code_challenge_method=S256"), "{url}");
-        assert!(url.contains("redirect_uri="), "{url}");
-        assert!(url.contains("redirect_from=KiroIDE"), "{url}");
-    }
-
-    #[tokio::test]
-    async fn kiro_idc_authcode_start_registers_and_builds_url() {
-        // IdC: the mock answers the RegisterClient call; the registered client_id
-        // must flow into the authorize URL and the stashed `extra`.
-        let client: Arc<dyn UpstreamClient> = mock(json!({
-            "clientId": "cid-123",
-            "clientSecret": "csec-456",
+    async fn kiro_device_start_posts_authorization() {
+        // Captured kiro-cli-chat: device login POSTs to the auth host's
+        // /oauth/device/authorization and maps the response to a DeviceInit
+        // (verification URL prefers the `complete` form, interval is ms/1000).
+        let client = mock(json!({
+            "deviceCode": "dev-code-1",
+            "userCode": "WXYZ-1234",
+            "verificationUriComplete": "https://app.kiro.dev/device?user_code=WXYZ-1234",
+            "verificationUri": "https://app.kiro.dev/device",
+            "intervalInMilliseconds": 5000,
+            "expiresInMilliseconds": 900000,
         }));
-        let params = json!({
-            "auth_method": "idc",
-            "start_url": "https://my.awsapps.com/start",
-            "region": "us-west-2",
-        });
-        let start = KiroChannel
-            .authcode_start(&client, &params, "", "ST", "CH")
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        let init = KiroChannel
+            .device_start(&dyn_client)
             .await
-            .expect("authcode_start ok")
-            .expect("kiro idc authcode");
-        let url = &start.authorize_url;
-        assert!(
-            url.starts_with("https://oidc.us-west-2.amazonaws.com/authorize?"),
-            "{url}"
+            .expect("device_start ok");
+        assert_eq!(init.device_code, "dev-code-1");
+        assert_eq!(init.user_code, "WXYZ-1234");
+        assert_eq!(
+            init.verification_url,
+            "https://app.kiro.dev/device?user_code=WXYZ-1234"
         );
-        assert!(url.contains("response_type=code"), "{url}");
-        assert!(url.contains("client_id=cid-123"), "{url}");
-        assert!(url.contains("code_challenge=CH"), "{url}");
-        assert!(url.contains("code_challenge_method=S256"), "{url}");
-        let extra = start.extra.expect("idc extra");
-        assert_eq!(extra["client_id"], "cid-123");
-        assert_eq!(extra["client_secret"], "csec-456");
-        assert_eq!(extra["region"], "us-west-2");
-        assert_eq!(extra["provider"], "Enterprise");
+        assert_eq!(init.interval_secs, 5);
+
+        // The request hit the device-authorization endpoint on the auth host.
+        assert_eq!(
+            client.seen.lock().unwrap()[0],
+            "https://prod.us-east-1.auth.desktop.kiro.dev/oauth/device/authorization"
+        );
     }
 
     #[tokio::test]
-    async fn kiro_idc_authcode_exchange_shapes_secret() {
-        // IdC exchange uses the stashed creds and mints an `auth_method:"IdC"`
-        // secret carrying client_id/client_secret/region for later refresh.
-        let client: Arc<dyn UpstreamClient> = mock(json!({
-            "accessToken": "at-idc",
-            "refreshToken": "rt-idc",
-            "expiresIn": 3600,
-        }));
-        let extra = json!({
-            "client_id": "cid",
-            "client_secret": "csec",
-            "region": "us-west-2",
-            "provider": "Enterprise",
-        });
-        let secret = KiroChannel
-            .authcode_exchange(
-                &client,
-                "code-1",
-                "verifier-1",
-                "http://127.0.0.1/oauth/callback",
-                Some(&extra),
-            )
+    async fn kiro_device_poll_pending_then_authorized() {
+        // status authorization_pending → Pending; the request hits the poll
+        // endpoint.
+        let client = mock(json!({ "status": "authorization_pending" }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        let poll = KiroChannel
+            .device_poll(&dyn_client, "dev-code-1")
             .await
-            .expect("idc exchange");
-        assert_eq!(secret["access_token"], "at-idc");
-        assert_eq!(secret["refresh_token"], "rt-idc");
-        assert_eq!(secret["auth_method"], "IdC");
-        assert_eq!(secret["client_id"], "cid");
-        assert_eq!(secret["client_secret"], "csec");
-        assert_eq!(secret["region"], "us-west-2");
+            .expect("device_poll ok");
+        assert!(matches!(poll, DevicePoll::Pending));
+        assert_eq!(
+            client.seen.lock().unwrap()[0],
+            "https://prod.us-east-1.auth.desktop.kiro.dev/oauth/device/poll"
+        );
+
+        // status authorized → Ready with the mapped secret.
+        let client = mock(json!({
+            "status": "authorized",
+            "accessToken": "at-9",
+            "refreshToken": "rt-9",
+            "profileArn": "arn:aws:kiro:profile/p9",
+            "identityProvider": "Github",
+        }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        let poll = KiroChannel
+            .device_poll(&dyn_client, "dev-code-1")
+            .await
+            .expect("device_poll ok");
+        let secret = match poll {
+            DevicePoll::Ready(v) => v,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(secret["access_token"], "at-9");
+        assert_eq!(secret["refresh_token"], "rt-9");
+        assert_eq!(secret["profile_arn"], "arn:aws:kiro:profile/p9");
+        assert_eq!(secret["provider"], "Github");
+    }
+
+    #[tokio::test]
+    async fn kiro_device_poll_denied() {
+        // Any non-pending/non-authorized status (expired/denied) → Denied.
+        let client = mock(json!({ "status": "expired" }));
+        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
+        let poll = KiroChannel
+            .device_poll(&dyn_client, "dev-code-1")
+            .await
+            .expect("device_poll ok");
+        assert!(matches!(poll, DevicePoll::Denied));
     }
 }

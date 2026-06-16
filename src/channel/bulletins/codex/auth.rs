@@ -416,6 +416,89 @@ fn new_session_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// A fake [`UpstreamClient`] that records the outbound request and replays a
+    /// canned response. Used to assert the exact authcode-exchange wire shape.
+    struct CapturingUpstream {
+        seen: Mutex<Option<Request<Bytes>>>,
+        body: Bytes,
+    }
+
+    #[async_trait::async_trait]
+    impl UpstreamClient for CapturingUpstream {
+        async fn send(
+            &self,
+            req: Request<Bytes>,
+        ) -> Result<http::Response<Bytes>, crate::http::client::ClientError> {
+            *self.seen.lock().unwrap() = Some(req);
+            Ok(http::Response::builder()
+                .status(200)
+                .body(self.body.clone())
+                .unwrap())
+        }
+    }
+
+    /// `authcode_exchange` POSTs the PKCE authorization-code form to the OpenAI
+    /// token endpoint and maps the response into the plaintext secret — the
+    /// account id is decoded from the id_token's `chatgpt_account_id` claim.
+    #[tokio::test]
+    async fn authcode_exchange_builds_request_and_maps_secret() {
+        // id_token carrying the account-id claim (signature is opaque/unverified).
+        let id_payload = json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acct-77" }
+        });
+        let id_token = format!(
+            "hdr.{}.sig",
+            B64URL.encode(serde_json::to_vec(&id_payload).unwrap())
+        );
+        let token_resp = json!({
+            "access_token": "at-new",
+            "refresh_token": "rt-new",
+            "id_token": id_token,
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        });
+        let upstream = Arc::new(CapturingUpstream {
+            seen: Mutex::new(None),
+            body: Bytes::from(serde_json::to_vec(&token_resp).unwrap()),
+        });
+        let client: Arc<dyn UpstreamClient> = upstream.clone();
+
+        let secret = authcode_exchange(
+            &client,
+            "the-code",
+            "the-verifier",
+            "http://localhost:1455/auth/callback",
+        )
+        .await
+        .expect("exchange ok");
+
+        // --- request shape: method, URL, and the exact form body ---
+        let req = upstream.seen.lock().unwrap().take().expect("a request");
+        assert_eq!(req.method(), http::Method::POST);
+        assert_eq!(req.uri().to_string(), "https://auth.openai.com/oauth/token");
+        let body = String::from_utf8(req.body().to_vec()).unwrap();
+        // Form is application/x-www-form-urlencoded; assert each pct-encoded pair.
+        assert!(body.contains("grant_type=authorization_code"), "{body}");
+        assert!(body.contains("code=the-code"), "{body}");
+        assert!(
+            body.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"),
+            "{body}"
+        );
+        assert!(
+            body.contains(&format!("client_id={OAUTH_CLIENT_ID}")),
+            "{body}"
+        );
+        assert!(body.contains("code_verifier=the-verifier"), "{body}");
+
+        // --- secret mapping: tokens + account_id from id_token + expiry ---
+        assert_eq!(secret["access_token"], "at-new");
+        assert_eq!(secret["refresh_token"], "rt-new");
+        assert_eq!(secret["account_id"], "acct-77");
+        assert_eq!(secret["id_token"], id_token);
+        assert!(secret["expires_at_ms"].as_i64().unwrap() > crate::util::time::unix_now() * 1000);
+    }
 
     #[test]
     fn account_id_decoded_from_id_token_claim() {
