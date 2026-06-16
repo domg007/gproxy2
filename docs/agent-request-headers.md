@@ -125,7 +125,20 @@ RESP: {"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-sonnet-4.5
 ```
 聊天:body = `{"conversationState":{conversationId,history,currentMessage,…}}`;resp = AWS 事件流(`assistantResponseEvent` 等帧)。
 
-> **v2 现状**:模型列表已按此改对(`76162e0`,`management.*.kiro.dev` Smithy);**聊天/用量仍打老的 `q.amazonaws.com` + `application/json`,待迁移到 `runtime.*.kiro.dev`**。整渠道还依赖能拿到 kiro.dev 的 Bearer token(登录流程未确认)。
+**登录 = device-code 流程**(2026-06-16 抓 `kiro-cli-chat login` 实证;clientId 是字面量 `"Kiro-CLI"`,**无 clientSecret / 无 RegisterClient / 无 oidc.amazonaws.com**):
+```
+① POST prod.{region}.auth.desktop.kiro.dev/oauth/device/authorization
+   body {"clientId":"Kiro-CLI","loginProvider":"Github"}  (或 "Google")
+   resp {deviceCode,userCode,verificationUriComplete:"https://app.kiro.dev/account/device?user_code=…&login_provider=Github",
+         intervalInMilliseconds:5000, expiresInMilliseconds:300000}
+② POST prod.{region}.auth.desktop.kiro.dev/oauth/device/poll  {"deviceCode","clientId":"Kiro-CLI"}
+   pending: {"status":"authorization_pending", accessToken:null,…}
+   done:    {"status":"authorized", accessToken, refreshToken, profileArn, identityProvider:"Github"}
+③ 刷新: POST prod.{region}.auth.desktop.kiro.dev/refreshToken  (端点从二进制挖,未抓到实例)
+凭证存:{access_token, refresh_token, profile_arn, provider}  —— 没有 client_secret。
+```
+
+> **v2 现状**:模型列表(`76162e0`)+ 聊天/用量(`11b804b`)已全部改到 `*.kiro.dev` Smithy。**登录流程仍是错的**——v2 现在走 authcode social(`app.kiro.dev/signin`,redirect `localhost:3128`)/ IdC oidc,真实是上面的 **device-code**。待改 `ChannelLogin::device_start/device_poll`(像 copilot)。
 
 ---
 
