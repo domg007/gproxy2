@@ -23,9 +23,10 @@ use serde_json::Value;
 
 use crate::channel::envelope::{self, CodeAssistStreamDecoder};
 use crate::channel::http_util::{allow_headers, build_request, join_url};
+use crate::channel::shaping::{self, gemini_genconfig, vertex_normalize};
 use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
-    PreparedRequest,
+    PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
 use crate::protocol::Provider;
@@ -152,8 +153,17 @@ impl Channel for AntigravityChannel {
         Ok(PreparedRequest::new(req))
     }
 
-    fn shape_response(&self, body: Bytes, _ctx: &crate::channel::ShapeCtx) -> Bytes {
-        envelope::unwrap_code_assist(body)
+    fn shape_request(&self, body: Bytes, _headers: &mut http::HeaderMap, _ctx: &ShapeCtx) -> Bytes {
+        // Strip generationConfig fields Code Assist rejects, BEFORE the prepare
+        // envelope wrap sees the gemini body. Best-effort (no-op on non-JSON).
+        shaping::with_json_body(body, gemini_genconfig::strip)
+    }
+
+    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
+        // Unwrap the Code Assist `.response` envelope, then normalize the
+        // Vertex/Code-Assist shape to AI-Studio (citation rename, block reason).
+        let unwrapped = envelope::unwrap_code_assist(body);
+        vertex_normalize::normalize_vertex_response(unwrapped)
     }
 
     fn stream_decoder(&self) -> Option<Box<dyn ChannelStreamDecoder>> {
@@ -278,5 +288,58 @@ mod tests {
         assert_eq!(v["project"], "proj");
         assert!(v["user_prompt_id"].as_str().is_some_and(|s| s.len() == 32));
         assert_eq!(v["request"]["contents"][0]["parts"][0]["text"], "hi");
+    }
+
+    #[test]
+    fn shape_request_strips_genconfig() {
+        let shape = ShapeCtx {
+            op: crate::protocol::OperationKey::content_generation(
+                crate::protocol::Operation::GenerateContent,
+                crate::protocol::ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let mut headers = HeaderMap::new();
+        let body = Bytes::from(
+            json!({
+                "contents": [],
+                "generationConfig": {"maxOutputTokens": 1024, "responseLogprobs": true, "temperature": 0.5}
+            })
+            .to_string(),
+        );
+        let out = AntigravityChannel.shape_request(body, &mut headers, &shape);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let cfg = v["generationConfig"].as_object().unwrap();
+        assert!(!cfg.contains_key("maxOutputTokens"));
+        assert!(!cfg.contains_key("responseLogprobs"));
+        assert_eq!(cfg["temperature"], 0.5);
+    }
+
+    #[test]
+    fn shape_response_unwraps_then_normalizes() {
+        let shape = ShapeCtx {
+            op: crate::protocol::OperationKey::content_generation(
+                crate::protocol::Operation::GenerateContent,
+                crate::protocol::ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        // Code Assist envelope wrapping a Vertex-shaped citation block.
+        let body = Bytes::from(
+            json!({"response": {
+                "candidates": [{"citationMetadata": {"citations": [{"uri": "x"}]}}]
+            }})
+            .to_string(),
+        );
+        let out = AntigravityChannel.shape_response(body, &shape);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        // Envelope unwrapped (no `.response`) AND vertex-normalized.
+        assert!(v.get("response").is_none());
+        assert_eq!(
+            v["candidates"][0]["citationMetadata"]["citationSources"][0]["uri"],
+            "x"
+        );
     }
 }

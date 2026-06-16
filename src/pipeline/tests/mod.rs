@@ -423,7 +423,9 @@ async fn process_rules_apply_on_claude_passthrough() {
     let seen = fake.seen.lock().unwrap();
     assert!(seen[0].uri.contains("/v1/messages"), "passthrough path");
     let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
-    assert_eq!(up["system"], "PRELUDE", "system_text applied");
+    // claude_api's shape_request sanitizes the body: the system_text rule's
+    // "PRELUDE" string is canonicalized to the block-array form.
+    assert_eq!(up["system"][0]["text"], "PRELUDE", "system_text applied");
     assert_eq!(up["model"], "claude-test");
     assert_eq!(
         seen[0].headers.get("anthropic-beta").unwrap(),

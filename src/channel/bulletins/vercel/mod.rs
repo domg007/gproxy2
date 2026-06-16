@@ -3,9 +3,22 @@
 
 mod auth;
 
+use bytes::Bytes;
+use http::HeaderMap;
+
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
-use crate::protocol::Provider;
+use crate::channel::shaping::{self, claude_cache_control, claude_sampling};
+use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
+use crate::protocol::{ContentGenerationKind, OperationKind, Provider};
+
+/// Whether `op` targets the Claude-messages content-generation path (the only
+/// route that carries a Claude request body to shape).
+fn is_claude_messages(op: crate::protocol::OperationKey) -> bool {
+    matches!(
+        op.kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::ClaudeMessages)
+    )
+}
 
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
     default_base_url: Some("https://ai-gateway.vercel.sh"),
@@ -83,5 +96,77 @@ impl Channel for VercelChannel {
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key)?;
         Ok(PreparedRequest::new(req))
+    }
+
+    /// Claude request 整形: on the claude-messages content path (Vercel exposes
+    /// the Anthropic-compatible endpoint), sanitize the body + strip sampling
+    /// params, and drop the `context-1m` beta token that upstream rejects.
+    fn shape_request(&self, body: Bytes, headers: &mut HeaderMap, ctx: &ShapeCtx) -> Bytes {
+        if !is_claude_messages(ctx.op) {
+            return body;
+        }
+        let body = shaping::with_json_body(body, |v| {
+            claude_cache_control::sanitize_claude_body(v);
+            claude_sampling::strip_sampling_params(v);
+        });
+        shaping::anthropic_beta::strip_beta_tokens(headers, &["context-1m-2025-08-07"]);
+        body
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::{HeaderValue, StatusCode};
+    use serde_json::Value;
+
+    use crate::protocol::{Operation, OperationKey};
+
+    fn messages_ctx() -> ShapeCtx {
+        ShapeCtx {
+            op: OperationKey::content_generation(
+                Operation::StreamGenerateContent,
+                ContentGenerationKind::ClaudeMessages,
+            ),
+            stream: true,
+            status: StatusCode::OK,
+        }
+    }
+
+    #[test]
+    fn strips_sampling_and_context_1m_beta() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-beta",
+            HeaderValue::from_static("context-1m-2025-08-07"),
+        );
+        let body = Bytes::from(
+            r#"{"model":"claude-opus-4-8","messages":[],"temperature":0.7,"top_p":0.9,"top_k":40}"#,
+        );
+        let out = VercelChannel.shape_request(body, &mut headers, &messages_ctx());
+
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let map = v.as_object().unwrap();
+        assert!(!map.contains_key("temperature"));
+        assert!(!map.contains_key("top_p"));
+        assert!(!map.contains_key("top_k"));
+        // sole token dropped → header removed entirely
+        assert!(headers.get("anthropic-beta").is_none());
+    }
+
+    #[test]
+    fn openai_op_is_identity() {
+        let mut headers = HeaderMap::new();
+        let body = Bytes::from(r#"{"model":"gpt","temperature":0.7}"#);
+        let ctx = ShapeCtx {
+            op: OperationKey::content_generation(
+                Operation::GenerateContent,
+                ContentGenerationKind::OpenAiResponses,
+            ),
+            stream: false,
+            status: StatusCode::OK,
+        };
+        let out = VercelChannel.shape_request(body.clone(), &mut headers, &ctx);
+        assert_eq!(out, body);
     }
 }

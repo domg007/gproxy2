@@ -14,6 +14,7 @@ pub mod prepared;
 pub mod registry;
 pub mod resolve;
 pub mod routes;
+pub mod shaping;
 pub mod usage;
 
 use std::sync::Arc;

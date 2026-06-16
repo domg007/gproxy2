@@ -1,9 +1,12 @@
 //! OpenRouter channel — `Authorization: Bearer`, default `https://openrouter.ai/api`.
 
 mod auth;
+mod shape;
+
+use bytes::Bytes;
 
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
+use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
 use crate::protocol::Provider;
 
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
@@ -82,5 +85,12 @@ impl Channel for OpenRouterChannel {
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key)?;
         Ok(PreparedRequest::new(req))
+    }
+
+    /// Runs on ALL statuses: coerce OpenRouter's int `error.code` to a string
+    /// and synthesize an OpenAI-style `error.type` so downstream transforms
+    /// deserialize error bodies cleanly. No-op for non-error / success bodies.
+    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
+        shape::reshape_error(body)
     }
 }

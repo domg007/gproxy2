@@ -24,9 +24,10 @@ use serde_json::Value;
 
 use crate::channel::envelope::{self, CodeAssistStreamDecoder};
 use crate::channel::http_util::{allow_headers, build_request, join_url};
+use crate::channel::shaping::{self, gemini_genconfig, vertex_normalize};
 use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
-    PreparedRequest,
+    PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
 use crate::protocol::Provider;
@@ -161,8 +162,17 @@ impl Channel for GeminiCliChannel {
         Ok(PreparedRequest::new(req))
     }
 
-    fn shape_response(&self, body: Bytes, _ctx: &crate::channel::ShapeCtx) -> Bytes {
-        envelope::unwrap_code_assist(body)
+    fn shape_request(&self, body: Bytes, _headers: &mut http::HeaderMap, _ctx: &ShapeCtx) -> Bytes {
+        // Strip generationConfig fields Code Assist rejects, BEFORE the prepare
+        // envelope wrap sees the gemini body. Best-effort (no-op on non-JSON).
+        shaping::with_json_body(body, gemini_genconfig::strip)
+    }
+
+    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
+        // Unwrap the Code Assist `.response` envelope, then normalize the
+        // Vertex/Code-Assist shape to AI-Studio (citation rename, block reason).
+        let unwrapped = envelope::unwrap_code_assist(body);
+        vertex_normalize::normalize_vertex_response(unwrapped)
     }
 
     fn stream_decoder(&self) -> Option<Box<dyn ChannelStreamDecoder>> {
@@ -334,6 +344,43 @@ mod tests {
         );
         let v: Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(v, json!({"candidates": []}));
+
+        // shape_response also vertex-normalizes the unwrapped body: citations →
+        // citationSources (still unwraps `.response`).
+        let out = GeminiCliChannel.shape_response(
+            Bytes::from(
+                json!({"response": {
+                    "candidates": [{"citationMetadata": {"citations": [{"uri": "x"}]}}]
+                }})
+                .to_string(),
+            ),
+            &shape,
+        );
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert!(v.get("response").is_none());
+        assert_eq!(
+            v["candidates"][0]["citationMetadata"]["citationSources"][0]["uri"],
+            "x"
+        );
+
+        // shape_request strips generationConfig fields Code Assist rejects.
+        let mut req_headers = HeaderMap::new();
+        let out = GeminiCliChannel.shape_request(
+            Bytes::from(
+                json!({"generationConfig": {"maxOutputTokens": 8, "temperature": 0.5}}).to_string(),
+            ),
+            &mut req_headers,
+            &shape,
+        );
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert!(
+            v["generationConfig"]
+                .as_object()
+                .unwrap()
+                .get("maxOutputTokens")
+                .is_none()
+        );
+        assert_eq!(v["generationConfig"]["temperature"], 0.5);
 
         // needs_refresh: missing project_id errors cleanly in prepare.
         let settings = json!({});

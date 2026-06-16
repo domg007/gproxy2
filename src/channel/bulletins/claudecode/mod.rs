@@ -19,11 +19,21 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
+use crate::channel::shaping::{self, claude_cache_control, claude_sampling};
 use crate::channel::{
-    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{ContentGenerationKind, OperationKind, Provider};
+
+/// Whether `op` targets the Claude-messages content-generation path (the only
+/// route that carries a Claude request body to shape).
+fn is_claude_messages(op: crate::protocol::OperationKey) -> bool {
+    matches!(
+        op.kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::ClaudeMessages)
+    )
+}
 
 pub struct ClaudeCodeChannel;
 
@@ -101,6 +111,24 @@ impl Channel for ClaudeCodeChannel {
     #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
     fn default_emulation(&self) -> Option<wreq::Emulation> {
         Some(fingerprint::default_emulation())
+    }
+
+    /// Claude request 整形: runs BEFORE [`prepare`](Self::prepare), so the
+    /// sanitized body is what `cch::apply` later checksums. On the
+    /// claude-messages content path, sanitize the body (cache_control hygiene) +
+    /// strip sampling params, and drop the `context-1m` beta token. The
+    /// `oauth-2025-04-20` token is injected afterward by `auth::apply` and is
+    /// unaffected here.
+    fn shape_request(&self, body: Bytes, headers: &mut http::HeaderMap, ctx: &ShapeCtx) -> Bytes {
+        if !is_claude_messages(ctx.op) {
+            return body;
+        }
+        let body = shaping::with_json_body(body, |v| {
+            claude_cache_control::sanitize_claude_body(v);
+            claude_sampling::strip_sampling_params(v);
+        });
+        shaping::anthropic_beta::strip_beta_tokens(headers, &["context-1m-2025-08-07"]);
+        body
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
@@ -376,5 +404,58 @@ mod tests {
         assert!(url.contains("code_challenge_method=S256"), "{url}");
         assert!(url.contains("redirect_uri="), "{url}");
         assert!(url.contains("cloud-platform"), "{url}");
+    }
+
+    fn messages_ctx() -> ShapeCtx {
+        use crate::protocol::{Operation, OperationKey};
+        ShapeCtx {
+            op: OperationKey::content_generation(
+                Operation::GenerateContent,
+                ContentGenerationKind::ClaudeMessages,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        }
+    }
+
+    #[test]
+    fn shape_request_strips_sampling_and_context_1m_keeps_oauth() {
+        let mut headers = HeaderMap::new();
+        // oauth marker must survive the strip; context-1m must go.
+        headers.insert(
+            "anthropic-beta",
+            "oauth-2025-04-20,context-1m-2025-08-07".parse().unwrap(),
+        );
+        let body = Bytes::from_static(
+            br#"{"model":"claude-opus-4-8","messages":[],"temperature":0.7,"top_p":0.9,"top_k":40}"#,
+        );
+        let out = ClaudeCodeChannel.shape_request(body, &mut headers, &messages_ctx());
+
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        let map = v.as_object().unwrap();
+        assert!(!map.contains_key("temperature"));
+        assert!(!map.contains_key("top_p"));
+        assert!(!map.contains_key("top_k"));
+        // oauth survives, context-1m stripped.
+        assert_eq!(headers.get("anthropic-beta").unwrap(), "oauth-2025-04-20");
+    }
+
+    #[test]
+    fn shape_request_non_messages_op_is_identity() {
+        use crate::protocol::{Operation, OperationKey};
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-beta", "context-1m-2025-08-07".parse().unwrap());
+        let body = Bytes::from_static(b"{\"temperature\":0.7}");
+        let ctx = ShapeCtx {
+            op: OperationKey::provider(Operation::ListModels, super::Provider::Claude),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let out = ClaudeCodeChannel.shape_request(body.clone(), &mut headers, &ctx);
+        assert_eq!(out, body);
+        assert_eq!(
+            headers.get("anthropic-beta").unwrap(),
+            "context-1m-2025-08-07"
+        );
     }
 }
