@@ -118,6 +118,19 @@ async fn fetch_models_with(
     if !status.is_success() {
         return Err(ModelsError::Status(status.as_u16()));
     }
+    // Channel response 整形 (same hook proxy traffic uses): lets a channel
+    // reshape a non-standard model-list body (e.g. codex `{models}`→`{data}`,
+    // vertex `publisherModels`→`models`) into its family's canonical shape
+    // before `parse_models` reads it.
+    let op = OperationKey::provider(Operation::ListModels, family);
+    let body = channel.shape_response(
+        body,
+        &crate::channel::ShapeCtx {
+            op,
+            stream: false,
+            status,
+        },
+    );
     Ok(parse_models(family, &body))
 }
 

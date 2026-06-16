@@ -13,6 +13,7 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod shape;
 mod usage;
 
 use std::sync::Arc;
@@ -22,10 +23,10 @@ use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::{
-    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{Operation, Provider};
 
 pub struct CodexChannel;
 
@@ -191,6 +192,17 @@ impl Channel for CodexChannel {
         body: &Bytes,
     ) -> Option<crate::channel::UsageSnapshot> {
         usage::parse(status, body)
+    }
+
+    /// Reshape the codex model catalogue into the OpenAI family canonical shape.
+    /// Content ops (Responses passthrough) are returned unchanged — the codex
+    /// backend already speaks OpenAI Responses, so there is nothing to reproject.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        match ctx.op.operation {
+            Operation::ListModels => shape::shape_model_list(body),
+            Operation::GetModel => shape::shape_model_get(body),
+            _ => body,
+        }
     }
 }
 
