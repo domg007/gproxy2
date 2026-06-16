@@ -176,6 +176,17 @@
     "exposeBase": "同時公開 base 模型",
     "delete": "刪除模型",
     "deleteConfirm": "刪除模型「{{name}}」及其全部變體?",
-    "imageTiered": "分檔計價——經 API 編輯"
+    "imageTiered": "分檔計價——經 API 編輯",
+    "pull": "拉取",
+    "pullTitle": "從上游拉取模型",
+    "pulling": "正在從上游拉取…",
+    "pullError": "拉取失敗",
+    "pullEmpty": "上游沒有回傳模型。",
+    "pullCount": "共 {{total}} 個 · {{fresh}} 個可新增",
+    "selectAll": "全選可新增",
+    "selectNone": "取消全選",
+    "alreadyAdded": "已新增",
+    "import": "匯入 {{count}} 個",
+    "imported": "已匯入 {{count}} 個模型"
   }
 }

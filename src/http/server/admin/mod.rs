@@ -153,6 +153,10 @@ pub fn admin_router(state: AppState) -> Router<AppState> {
             "/admin/credentials/{id}/usage",
             get(usage::credential_usage),
         )
+        .route(
+            "/admin/providers/{provider_id}/upstream-models",
+            get(usage::upstream_models),
+        )
         .route("/admin/logs", get(usage::list_logs))
         .route(
             "/admin/logs/{request_id}/downstream",

@@ -176,6 +176,17 @@
     "exposeBase": "Expose the base model too",
     "delete": "Delete model",
     "deleteConfirm": "Delete model \"{{name}}\" and all its variants?",
-    "imageTiered": "Tiered — edit via API"
+    "imageTiered": "Tiered — edit via API",
+    "pull": "Pull",
+    "pullTitle": "Pull models from upstream",
+    "pulling": "Pulling from upstream…",
+    "pullError": "Couldn't pull models",
+    "pullEmpty": "Upstream returned no models.",
+    "pullCount": "{{total}} total · {{fresh}} new",
+    "selectAll": "Select all new",
+    "selectNone": "Clear",
+    "alreadyAdded": "Added",
+    "import": "Import {{count}}",
+    "imported": "Imported {{count}} model(s)"
   }
 }

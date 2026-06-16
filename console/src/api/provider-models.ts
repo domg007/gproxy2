@@ -44,3 +44,16 @@ export function upsertProviderModel(providerId: number, input: ProviderModelInpu
 export function deleteProviderModel(id: number): Promise<void> {
   return api<void>(`/admin/provider-models/${id}`, { method: "DELETE" });
 }
+
+export interface UpstreamModel { id: string; display_name: string | null; }
+
+/** LIVE upstream pull — keep enabled:false and refetch manually (it calls the provider's API). */
+export const upstreamModelsQuery = (providerId: number) =>
+  queryOptions({
+    queryKey: ["providers", providerId, "upstream-models"],
+    queryFn: () => api<UpstreamModel[]>(`/admin/providers/${providerId}/upstream-models`),
+    enabled: false,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });

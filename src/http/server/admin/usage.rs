@@ -175,6 +175,29 @@ fn usage_error(e: crate::credentials::usage::UsageError) -> ApiError {
     }
 }
 
+/// `GET /admin/providers/{id}/upstream-models` — LIVE: pull the provider's model
+/// list from its upstream (picks an enabled credential, refreshes token, sends a
+/// `list_models` request). Native-only (needs the upstream transport). NOT
+/// cached. No enabled credential → 400.
+pub async fn upstream_models(
+    State(state): State<AppState>,
+    Path(provider_id): Path<i64>,
+) -> Result<Json<Vec<crate::credentials::upstream_models::UpstreamModel>>, ApiError> {
+    crate::credentials::upstream_models::fetch_models(&state, provider_id)
+        .await
+        .map(Json)
+        .map_err(models_error)
+}
+
+fn models_error(e: crate::credentials::upstream_models::ModelsError) -> ApiError {
+    use crate::credentials::upstream_models::ModelsError as M;
+    match e {
+        M::ProviderNotFound | M::UnknownChannel(_) => ApiError::NotFound(e.to_string()),
+        M::NoCredential | M::Channel(_) | M::Status(_) => ApiError::BadRequest(e.to_string()),
+        M::Decrypt(_) | M::Upstream(_) | M::Internal(_) => ApiError::Internal(e.to_string()),
+    }
+}
+
 /// `GET /admin/logs` — recent downstream request logs (id desc, `before_id`
 /// keyset, `limit` default 100 capped 1000). The logs explorer listing.
 #[derive(Debug, Deserialize)]
