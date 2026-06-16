@@ -27,7 +27,7 @@ use crate::channel::ChannelError;
 
 use super::request_tools;
 
-const DEFAULT_ORIGIN: &str = "AI_EDITOR";
+const DEFAULT_ORIGIN: &str = super::ORIGIN;
 const DEFAULT_AGENT_TASK_TYPE: &str = "vibe";
 
 /// Build the Kiro `conversationState` request body from an OpenAI Responses

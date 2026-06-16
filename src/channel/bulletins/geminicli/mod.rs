@@ -16,6 +16,7 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod model_list;
 
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ use crate::channel::{
     PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{Operation, Provider};
 
 pub struct GeminiCliChannel;
 
@@ -133,6 +134,18 @@ impl Channel for GeminiCliChannel {
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let project_id = auth::project_id(ctx.secret)?;
 
+        // Code Assist has no model-list endpoint; the model-pull (GET
+        // `/v1beta/models`) is served by deriving the usable models from the
+        // per-credential quota. Issue `POST /v1internal:retrieveUserQuota`
+        // (reusing the usage plumbing) instead of the content envelope. The
+        // bespoke response is reshaped to canonical Gemini in `shape_response`.
+        if model_list::is_list_models(&ctx.method, ctx.path) {
+            let ua = auth::user_agent(ctx.upstream_model_id);
+            let req = envelope::user_quota_request(auth::BASE_URL, &access_token, project_id, &ua)?
+                .ok_or_else(|| ChannelError::Build("failed to build retrieveUserQuota".into()))?;
+            return Ok(PreparedRequest::new(req));
+        }
+
         // Wrap the gemini body in the Code Assist envelope. `ctx.body` is moved
         // out here (the request body becomes the wrapped bytes).
         let wrapped = envelope::wrap_code_assist(
@@ -168,7 +181,13 @@ impl Channel for GeminiCliChannel {
         shaping::with_json_body(body, gemini_genconfig::strip)
     }
 
-    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        // ListModels is served by the bespoke `retrieveUserQuota` endpoint;
+        // reshape its `buckets` into the canonical Gemini `{"models":[…]}` shape
+        // that `parse_models` reads.
+        if ctx.op.operation == Operation::ListModels {
+            return model_list::quota_to_model_list(body);
+        }
         // Unwrap the Code Assist `.response` envelope, then normalize the
         // Vertex/Code-Assist shape to AI-Studio (citation rename, block reason).
         let unwrapped = envelope::unwrap_code_assist(body);
@@ -325,6 +344,63 @@ mod tests {
             req.uri().to_string(),
             "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
         );
+    }
+
+    #[test]
+    fn list_models_builds_retrieve_user_quota() {
+        // The model-pull sends GET /v1beta/models; geminicli has no model-list
+        // endpoint, so it must POST /v1internal:retrieveUserQuota with
+        // `{"project":<id>}` instead of the content envelope.
+        let secret = json!({ "access_token": "tok-abc", "project_id": "proj" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1beta/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = GeminiCliChannel.prepare(ctx).unwrap().request;
+        assert_eq!(req.method(), Method::POST);
+        assert_eq!(
+            req.uri().to_string(),
+            "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
+        );
+        assert_eq!(
+            req.headers().get("authorization").unwrap(),
+            "Bearer tok-abc"
+        );
+        let v: Value = serde_json::from_slice(req.body()).unwrap();
+        assert_eq!(v, json!({ "project": "proj" }));
+    }
+
+    #[test]
+    fn shape_response_reshapes_quota_to_model_list() {
+        // ListModels op: the bespoke retrieveUserQuota buckets become canonical
+        // Gemini `{"models":[…]}`.
+        let shape = crate::channel::ShapeCtx {
+            op: crate::protocol::OperationKey::provider(
+                crate::protocol::Operation::ListModels,
+                crate::protocol::Provider::Gemini,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let out = GeminiCliChannel.shape_response(
+            Bytes::from(
+                json!({"buckets": [
+                    {"modelId": "gemini-2.5-pro", "tokenType": "REQUESTS"}
+                ]})
+                .to_string(),
+            ),
+            &shape,
+        );
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["models"][0]["name"], "models/gemini-2.5-pro");
     }
 
     #[test]

@@ -20,6 +20,7 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod model_list;
 mod request;
 mod request_tools;
 mod response;
@@ -36,10 +37,10 @@ use serde_json::Value;
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
-    PreparedRequest,
+    PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{Operation, Provider};
 
 use response::KiroStreamDecoder;
 
@@ -51,6 +52,12 @@ const GENERATE_PATH: &str = "/generateAssistantResponse";
 const USER_AGENT_VALUE: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
 /// Kiro agent mode header value.
 const AGENT_MODE: &str = "vibe";
+/// Client surface reported to the Amazon Q backend — sent as the `origin` on the
+/// chat body, the usage query, and the model-list query. SINGLE source of truth:
+/// it must match the impersonated client ([`USER_AGENT_VALUE`], AmazonQ-For-CLI).
+/// If a packet capture of the real client shows a different value, change it HERE
+/// and chat / usage / model-list stay consistent.
+pub(super) const ORIGIN: &str = "AI_EDITOR";
 
 pub struct KiroChannel;
 
@@ -131,6 +138,15 @@ impl Channel for KiroChannel {
     }
 
     fn prepare(&self, ctx: PrepareCtx<'_>) -> Result<PreparedRequest, ChannelError> {
+        // Model-list: Kiro exposes no `/v1/models`; the catalogue lives behind the
+        // bespoke `GET {base}/ListAvailableModels`. Detect the family model-list
+        // request (GET …/models) and build it directly — the content body shaper
+        // must NOT run here. All other (content) requests fall through unchanged.
+        if model_list::is_model_list(&ctx.method, ctx.path) {
+            let req = model_list::request(ctx.secret, ctx.provider_settings)?;
+            return Ok(PreparedRequest::new(req));
+        }
+
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let profile_arn = auth::profile_arn(ctx.secret, ctx.provider_settings).map(str::to_owned);
         let base = ctx
@@ -158,6 +174,17 @@ impl Channel for KiroChannel {
 
     fn stream_decoder(&self) -> Option<Box<dyn ChannelStreamDecoder>> {
         Some(Box::new(KiroStreamDecoder::new()))
+    }
+
+    /// Reproject the bespoke `ListAvailableModels` body into the OpenAI family
+    /// canonical model-list shape so `parse_models` reads `data[].id`. Content
+    /// responses are the AWS event-stream and go through [`KiroStreamDecoder`],
+    /// NOT here — so every non-`ListModels` op is returned unchanged.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        match ctx.op.operation {
+            Operation::ListModels => model_list::to_openai(body),
+            _ => body,
+        }
     }
 
     fn needs_refresh(&self, secret: &Value) -> bool {

@@ -133,6 +133,15 @@ pub trait Channel: Send + Sync {
         body
     }
 
+    /// A channel-bundled static model catalogue, for channels whose upstream
+    /// exposes no model-list endpoint (e.g. vertexexpress). When `Some`, the
+    /// admin model-pull returns it directly — no credential / upstream call. The
+    /// body is in the channel family's canonical model-list wire shape. Default:
+    /// none.
+    fn bundled_models(&self) -> Option<Bytes> {
+        None
+    }
+
     /// Optional channel-specific stream decoder (envelope unwrap / binary →
     /// SSE), applied to the raw upstream byte stream before any protocol
     /// transform. Default: none (passthrough).

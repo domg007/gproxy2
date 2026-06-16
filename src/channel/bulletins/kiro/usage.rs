@@ -28,7 +28,10 @@ pub(super) fn request(
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL);
 
-    let mut path = String::from("/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST");
+    let mut path = format!(
+        "/getUsageLimits?origin={}&resourceType=AGENTIC_REQUEST",
+        super::ORIGIN
+    );
     if let Some(arn) = auth::profile_arn(secret, settings) {
         path.push_str("&profileArn=");
         path.push_str(&pct(arn));

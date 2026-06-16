@@ -60,6 +60,12 @@ pub async fn fetch_models(
         .ok_or_else(|| ModelsError::UnknownChannel(provider.channel.clone()))?;
     let family = channel.provider_family();
 
+    // Channels with a bundled static catalogue (no upstream model-list endpoint,
+    // e.g. vertexexpress) short-circuit — no credential / upstream call needed.
+    if let Some(body) = channel.bundled_models() {
+        return Ok(parse_models(family, &body));
+    }
+
     // Pick an enabled credential — the pull authenticates to the upstream.
     let credential = state
         .persistence

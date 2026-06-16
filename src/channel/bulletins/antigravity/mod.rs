@@ -16,6 +16,7 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod model_list;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -125,6 +126,22 @@ impl Channel for AntigravityChannel {
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let project_id = auth::project_id(ctx.secret)?;
 
+        // Model-pull ListModels: Antigravity has no `/v1beta/models` endpoint —
+        // POST an empty body to the bespoke Code Assist `fetchAvailableModels`
+        // (same auth + fingerprint as content), reshaped back in shape_response.
+        if model_list::is_list_models_request(&ctx.method, ctx.path) {
+            let uri = join_url(
+                auth::BASE_URL,
+                model_list::FETCH_AVAILABLE_MODELS_PATH,
+                None,
+            )?;
+            let headers = allow_headers(ctx.headers, &[]);
+            let mut req =
+                build_request(http::Method::POST, uri, headers, Bytes::from_static(b"{}"))?;
+            auth::apply(&mut req, &access_token)?;
+            return Ok(PreparedRequest::new(req));
+        }
+
         // Wrap the gemini body in the Code Assist envelope. `ctx.body` is moved
         // out here (the request body becomes the wrapped bytes).
         let wrapped = envelope::wrap_code_assist(
@@ -159,7 +176,13 @@ impl Channel for AntigravityChannel {
         shaping::with_json_body(body, gemini_genconfig::strip)
     }
 
-    fn shape_response(&self, body: Bytes, _ctx: &ShapeCtx) -> Bytes {
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        // ListModels: reshape the bespoke `fetchAvailableModels` payload into the
+        // canonical Gemini `{models:[{name:"models/<id>", ...}]}` shape that
+        // parse_models reads (the content unwrap/normalize does not apply).
+        if ctx.op.operation == crate::protocol::Operation::ListModels {
+            return model_list::available_models_to_list_response(body);
+        }
         // Unwrap the Code Assist `.response` envelope, then normalize the
         // Vertex/Code-Assist shape to AI-Studio (citation rename, block reason).
         let unwrapped = envelope::unwrap_code_assist(body);
@@ -288,6 +311,43 @@ mod tests {
         assert_eq!(v["project"], "proj");
         assert!(v["user_prompt_id"].as_str().is_some_and(|s| s.len() == 32));
         assert_eq!(v["request"]["contents"][0]["parts"][0]["text"], "hi");
+    }
+
+    #[test]
+    fn prepare_list_models_posts_fetch_available_models() {
+        let secret = json!({ "access_token": "tok-abc", "project_id": "proj" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+
+        // The admin model-pull sends GET /v1beta/models (no model id, no verb).
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1beta/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = AntigravityChannel.prepare(ctx).unwrap().request;
+
+        // Redirected to the bespoke Code Assist fetchAvailableModels POST.
+        assert_eq!(req.method(), Method::POST);
+        assert_eq!(
+            req.uri().to_string(),
+            "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+        );
+        assert_eq!(
+            req.headers().get("authorization").unwrap(),
+            "Bearer tok-abc"
+        );
+        assert_eq!(
+            req.headers().get("user-agent").unwrap(),
+            "antigravity/cli/1.0.6 linux/amd64"
+        );
+        // Empty JSON object body (v1 fidelity), NOT the Code Assist envelope.
+        assert_eq!(req.body().as_ref(), b"{}");
     }
 
     #[test]

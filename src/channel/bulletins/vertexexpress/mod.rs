@@ -140,6 +140,14 @@ impl Channel for VertexExpressChannel {
             body
         }
     }
+
+    /// Vertex AI Express exposes no model-listing endpoint; the admin model-pull
+    /// reads this bundled Gemini-shaped catalogue instead of calling upstream.
+    fn bundled_models(&self) -> Option<Bytes> {
+        Some(Bytes::from_static(
+            include_str!("models.gemini.json").as_bytes(),
+        ))
+    }
 }
 
 #[cfg(test)]
