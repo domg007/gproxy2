@@ -91,21 +91,41 @@
 | **`x-interaction-id`** | UUIDv4,**每次交互** | **动态** ⚠️ |
 | `authorization` | `Bearer …` | 凭证 |
 
-## kiro — `POST .../generateAssistantResponse`(AWS SDK,SigV4 签名)
+## kiro — Kiro CLI(`*.kiro.dev`,AWS-JSON 1.0 Smithy,**Bearer** 非 SigV4)
+
+> 2026-06-16 用 mitmproxy 实抓本地 `kiro-cli-chat`(GitHub 登录)。**纠正上一版**:不是老 Amazon Q 的 `q.us-east-1.amazonaws.com` + SigV4,而是 **Kiro 产品**的 `*.kiro.dev` 双 host + AWS-JSON 1.0 Smithy + **Bearer token**。两个服务两个 host:
+
+| 操作 | host / `x-amz-target` |
+|---|---|
+| 模型列表 | `POST https://management.{region}.kiro.dev/?origin=KIRO_CLI&profileArn=<arn>` · `AmazonCodeWhispererService.ListAvailableModels` |
+| 聊天 | `POST https://runtime.{region}.kiro.dev/` · `AmazonCodeWhispererStreamingService.GenerateAssistantResponse` |
+| 用量 | `management.{region}.kiro.dev` · `AmazonCodeWhispererService.GetUsageLimits`(未抓,二进制确认) |
+| 登录 | `prod.us-east-1.auth.desktop.kiro.dev` |
+
+公共头(两个操作一致):
 
 | 头 | 值 / 形态 | 类 |
 |---|---|---|
-| `user-agent` | `aws-sdk-rust/1.3.15 … api/codewhispererstreaming/… app/AmazonQ-For-CLI` | 静态 |
-| `x-amz-user-agent` | `aws-sdk-rust/… api/codewhispererstreaming/… app/AmazonQ-For-CLI` | 静态 |
-| `x-amzn-kiro-agent-mode` | `vibe` | 静态 |
-| `x-amzn-codewhisperer-optout` | `true` | 静态 |
-| `content-type` | `application/x-amz-json-1.1` | 静态 |
-| **`amz-sdk-invocation-id`** | UUIDv4,每请求 | **动态** |
-| **`x-amz-date`** | `YYYYMMDDThhmmssZ` | **动态(时间戳)** |
-| **`amz-sdk-request`** | `attempt=1; max=1` | 动态(重试) |
-| `Authorization` (SigV4) / `x-amz-security-token` | AWS4-HMAC-SHA256 签名 / STS token | 凭证(SigV4,gproxy 已处理) |
+| `content-type` | `application/x-amz-json-1.0` | 静态 |
+| `x-amz-target` | `AmazonCodeWhisperer{Service\|StreamingService}.<Op>` | 静态(按操作) |
+| `user-agent` / `x-amz-user-agent` | `aws-sdk-rust/1.3.15 ua/2.1 api/codewhisperer{runtime\|streaming}/0.1.16551 … md/appVersion-2.6.1 app/AmazonQ-For-CLI` | 静态(管理面=`runtime`,运行面=`streaming`) |
+| `x-amzn-codewhisperer-optout` | `false` | 静态 |
+| `authorization` | `Bearer <kiro.dev token>`(**非 SigV4,无 `x-amz-date`/`x-amz-security-token`**) | 凭证 |
+| **`amz-sdk-invocation-id`** | UUIDv4 / 每请求 | 动态(AWS SDK 自带) |
+| `amz-sdk-request` | `attempt=1; max=3` | 静态 |
+| `accept` / `accept-encoding` | `*/*` / `gzip` | 静态 |
 
-> kiro 的"动态头"基本是 **AWS SigV4 请求签名**——gproxy 已有 AWS 鉴权逻辑覆盖,非额外伪装。
+> ⚠️ **没有 `x-amzn-kiro-agent-mode`**(真实请求不带,v2 之前误加);`origin` = **`KIRO_CLI`**(不是 v1 的 `AI_EDITOR`)。
+
+模型列表 body / resp:
+```
+REQ : {"origin":"KIRO_CLI","profileArn":"arn:aws:codewhisperer:us-east-1:<acct>:profile/<id>"}
+RESP: {"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-sonnet-4.5","modelName":…,"tokenLimits":…},…]}
+真实模型:auto / claude-sonnet-4.5 / claude-sonnet-4 / claude-haiku-4.5 / deepseek-3.2 / minimax-m2.5 / minimax-m2.1 / glm-5 / qwen3-coder-next
+```
+聊天:body = `{"conversationState":{conversationId,history,currentMessage,…}}`;resp = AWS 事件流(`assistantResponseEvent` 等帧)。
+
+> **v2 现状**:模型列表已按此改对(`76162e0`,`management.*.kiro.dev` Smithy);**聊天/用量仍打老的 `q.amazonaws.com` + `application/json`,待迁移到 `runtime.*.kiro.dev`**。整渠道还依赖能拿到 kiro.dev 的 Bearer token(登录流程未确认)。
 
 ---
 
@@ -119,7 +139,7 @@
 | **codex** | `x-codex-turn-metadata` | **JSON,内嵌 turn UUIDv7 + unix-ms + git commit + has_changes + sandbox** | **最复杂,需确认服务端校验强度** |
 | copilot | `x-client-machine-id` | UUIDv4 / 每机器持久 | 存本地复用 |
 | copilot | `x-interaction-id` | UUIDv4 / 每交互 | 简单 |
-| kiro | `amz-sdk-invocation-id` / `x-amz-date` | UUID / 时间戳 | AWS SDK 自带 |
+| kiro | `amz-sdk-invocation-id` | UUIDv4 / 每请求 | AWS SDK 自带(Bearer,**无** `x-amz-date`/SigV4) |
 
 **最关键反编译目标:codex 的 `x-codex-turn-metadata`**(JSON 结构 + UUIDv7 + 时间戳 + git 状态)和会话级 UUIDv7 的生成/复用规律。其余(gemini/antigravity)无动态伪装头。
 
@@ -156,5 +176,5 @@
 ### agy(反编译 `~/.local/bin/agy`,Go)
 - 模型路径(cloudcode-pa)**无任何动态 id 头**;UA `antigravity/cli/1.0.6 linux/amd64` 静态。✅ 无需生成逻辑。
 
-### kiro-cli(反编译 `~/.local/bin/kiro-cli`,Rust + AWS SDK)
-- 动态头全是 **AWS SDK 标准**:`amz-sdk-invocation-id`(UUIDv4/请求)、`x-amz-date`(时间戳)、SigV4 `Authorization` + `x-amz-security-token`。gproxy 已有 AWS 鉴权覆盖。`x-amzn-kiro-agent-mode: vibe` / `optout: true` 静态。✅
+### kiro-cli(2026-06-16 mitmproxy 实抓 `~/.local/bin/kiro-cli-chat`,Rust + AWS SDK)
+- **纠正旧结论**:不是 SigV4。`kiro-cli`(Kiro 产品,GitHub 登录)走 `*.kiro.dev` 双 host + AWS-JSON 1.0 Smithy + **Bearer token**——详见上面 kiro 小节。动态头只有 `amz-sdk-invocation-id`(UUIDv4/请求);**无** `x-amz-date`/`x-amz-security-token`/SigV4。**无** `x-amzn-kiro-agent-mode`;`x-amzn-codewhisperer-optout: false`;`origin: KIRO_CLI`。
