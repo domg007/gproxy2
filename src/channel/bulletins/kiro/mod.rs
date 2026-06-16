@@ -444,27 +444,6 @@ mod tests {
             client.seen.lock().unwrap()[0].contains("oidc.eu-west-1.amazonaws.com/token"),
             "SSO-OIDC refresh must hit the region-templated oidc host"
         );
-
-        // EXTERNAL_IDP: token_endpoint present → form POST to that endpoint
-        // (standard snake_case OIDC token response via oauth::token_post).
-        let client = mock(json!({ "access_token": "ext-access", "expires_in": 1200 }));
-        let dyn_client: Arc<dyn UpstreamClient> = client.clone();
-        let secret = json!({
-            "access_token": "old",
-            "refresh_token": "old-rt",
-            "token_endpoint": "https://idp.example.com/oauth/token",
-            "client_id": "ext-cid",
-            "issuer_url": "https://idp.example.com",
-        });
-        let out = auth::refresh(&dyn_client, &Value::Null, &secret)
-            .await
-            .unwrap();
-        assert_eq!(out["access_token"], "ext-access");
-        assert_eq!(out["refresh_token"], "old-rt");
-        assert!(
-            client.seen.lock().unwrap()[0].contains("idp.example.com/oauth/token"),
-            "external_idp refresh must hit the stored token_endpoint"
-        );
     }
 
     #[tokio::test]
@@ -523,7 +502,7 @@ mod tests {
         // error WITHOUT triggering a live AWS RegisterClient.
         let client = mock(json!({ "clientId": "x", "clientSecret": "y" }));
         let dyn_client: Arc<dyn UpstreamClient> = client.clone();
-        for method in ["social", "builder-id", "totally-bogus"] {
+        for method in ["social", "external_idp", "builder-id", "totally-bogus"] {
             let err = KiroChannel
                 .authcode_start(&dyn_client, &json!({ "auth_method": method }), "", "s", "c")
                 .await;

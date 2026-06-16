@@ -1,26 +1,25 @@
 //! Kiro auth — multi-method credential acquisition + dispatching refresh.
 //!
-//! Kiro (a fork of the Amazon Q Developer CLI) supports four login methods,
-//! confirmed by reverse-engineering `kiro-cli` (`crates/fig_auth`). Each lives in
-//! its own submodule:
+//! Kiro (a fork of the Amazon Q Developer CLI) exposes three login methods in
+//! its `login` menu, confirmed by reverse-engineering `kiro-cli`
+//! (`crates/fig_auth`). Each lives in its own submodule:
 //!   * **social** ([`social`]) — GitHub / Google device-code via the Kiro desktop
 //!     auth service (`*.auth.desktop.kiro.dev`).
-//!   * **builderId** / **idc** ([`sso_oidc`]) — AWS SSO-OIDC (Builder ID or IAM
-//!     Identity Center) authcode + PKCE against `oidc.{region}.amazonaws.com`.
-//!   * **external_idp** ([`external_idp`]) — a generic operator-configured OIDC
-//!     provider (discovery + authcode + PKCE).
+//!   * **builderId** / **idc** ([`sso_oidc`]) — AWS SSO-OIDC (Builder ID, or IAM
+//!     Identity Center / "Your Organization") authcode + PKCE against
+//!     `oidc.{region}.amazonaws.com`.
+//!
+//! (kiro-cli also has a portal-config-driven `external_idp` kind, but it is not a
+//! `login`-menu item, so v2 does not implement it.)
 //!
 //! The interactive flows are dispatched by `params.auth_method`
-//! ([`authcode_start`]); the matching [`authcode_exchange`] is dispatched by the
-//! login-session `extra` shape. [`refresh`] dispatches on the stored secret:
-//!   * `token_endpoint` present              → external_idp (form refresh)
+//! ([`authcode_start`], default `builderId`); [`refresh`] dispatches on the
+//! stored secret:
 //!   * `client_id` + `client_secret` present → SSO-OIDC CreateToken refresh
 //!   * else                                  → social `/refreshToken`
 //!
-//! Social + SSO-OIDC use [`json_post`] (JSON bodies); external_idp uses
-//! [`oauth::token_post`](crate::channel::oauth::token_post) (form-urlencoded).
+//! Social + SSO-OIDC use [`json_post`] (JSON bodies).
 
-mod external_idp;
 mod social;
 mod sso_oidc;
 
@@ -71,7 +70,7 @@ fn now_ms() -> i64 {
 }
 
 /// SSO-OIDC (builderId / idc) when both `client_id` and `client_secret` are
-/// present — they ride the registered-client creds; social + external_idp do not.
+/// present — they ride the registered-client creds; social tokens do not.
 fn is_sso_oidc(secret: &Value) -> bool {
     secret_str(secret, "client_id").is_some() && secret_str(secret, "client_secret").is_some()
 }
@@ -106,10 +105,9 @@ pub(super) fn needs_refresh(secret: &Value) -> bool {
 }
 
 /// Begin an interactive authcode+PKCE login, dispatched by `params.auth_method`:
-/// `external_idp` → [`external_idp`]; `builderId` (default) / `idc` →
-/// [`sso_oidc`]. `social` uses the device flow ([`device_start`]) — it (and any
-/// unknown method) is rejected here rather than silently triggering an AWS
-/// RegisterClient.
+/// `builderId` (default) / `idc` → [`sso_oidc`]. `social` uses the device flow
+/// ([`device_start`]); it (and any unknown method) is rejected here rather than
+/// silently triggering an AWS RegisterClient.
 pub(super) async fn authcode_start(
     client: &Arc<dyn UpstreamClient>,
     params: &Value,
@@ -118,9 +116,6 @@ pub(super) async fn authcode_start(
     pkce_challenge: &str,
 ) -> Result<AuthCodeStart, ChannelError> {
     match params.get("auth_method").and_then(Value::as_str) {
-        Some("external_idp") => {
-            external_idp::authcode_start(client, params, redirect_uri, state, pkce_challenge).await
-        }
         Some("builderId") | Some("idc") | None => {
             sso_oidc::authcode_start(client, params, redirect_uri, state, pkce_challenge).await
         }
@@ -131,9 +126,9 @@ pub(super) async fn authcode_start(
     }
 }
 
-/// Exchange an authcode for the plaintext secret, dispatched by the login-session
-/// `extra` stashed at [`authcode_start`]: a `token_endpoint` marks external_idp,
-/// else SSO-OIDC.
+/// Exchange an authcode for the plaintext secret (AWS SSO-OIDC). `extra` is the
+/// login-session state stashed at [`authcode_start`] (the registered client
+/// creds + region + start_url).
 pub(super) async fn authcode_exchange(
     client: &Arc<dyn UpstreamClient>,
     code: &str,
@@ -143,24 +138,18 @@ pub(super) async fn authcode_exchange(
 ) -> Result<Value, ChannelError> {
     let extra =
         extra.ok_or_else(|| ChannelError::Build("login session missing channel state".into()))?;
-    if extra.get("token_endpoint").is_some() {
-        external_idp::authcode_exchange(client, code, verifier, redirect_uri, extra).await
-    } else {
-        sso_oidc::authcode_exchange(client, code, verifier, redirect_uri, extra).await
-    }
+    sso_oidc::authcode_exchange(client, code, verifier, redirect_uri, extra).await
 }
 
-/// Refresh the credential, dispatched on the stored secret shape (see the module
-/// doc). `settings.auth_base_url` reaches the social path; SSO-OIDC/external_idp
-/// carry their own host in the secret.
+/// Refresh the credential, dispatched on the stored secret shape: `client_id` +
+/// `client_secret` present → SSO-OIDC (builderId / idc) CreateToken refresh;
+/// else the social `/refreshToken` (`settings.auth_base_url` reaches it).
 pub(super) async fn refresh(
     client: &Arc<dyn UpstreamClient>,
     settings: &Value,
     secret: &Value,
 ) -> Result<Value, ChannelError> {
-    if secret_str(secret, "token_endpoint").is_some() {
-        external_idp::refresh(client, secret).await
-    } else if is_sso_oidc(secret) {
+    if is_sso_oidc(secret) {
         sso_oidc::refresh(client, secret).await
     } else {
         social::refresh(client, settings, secret).await
@@ -217,10 +206,10 @@ mod tests {
         ));
         assert!(!is_sso_oidc(&json!({ "client_id": "c" })));
         assert!(!is_sso_oidc(&json!({ "refresh_token": "rt" })));
-        // external_idp secret (token_endpoint, client_id, no client_secret) is
-        // NOT sso_oidc — refresh routes it by token_endpoint first.
+        // A social token (refresh_token, optional profile_arn, no client creds)
+        // is NOT sso_oidc — refresh routes it to the social path.
         assert!(!is_sso_oidc(
-            &json!({ "token_endpoint": "https://idp/t", "client_id": "c" })
+            &json!({ "refresh_token": "rt", "profile_arn": "arn" })
         ));
     }
 
