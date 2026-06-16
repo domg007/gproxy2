@@ -13,6 +13,7 @@
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod shape;
 mod usage;
 
 use std::sync::Arc;
@@ -22,10 +23,10 @@ use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::{
-    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest,
+    AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{Operation, Provider};
 
 pub struct CodexChannel;
 
@@ -139,7 +140,14 @@ impl Channel for CodexChannel {
         // (`/v1/responses/compact` for the compact op); the codex backend drops
         // the `/v1` segment — base already ends in `/backend-api/codex`.
         let path = ctx.path.strip_prefix("/v1").unwrap_or(ctx.path);
-        let uri = join_url(base, path, ctx.query)?;
+        // The model-list / model-get endpoint (`/models[/{id}]`) expects a
+        // `client_version` query (v1 parity); content ops keep their own query.
+        let models_query =
+            (path == "/models" || path.starts_with("/models/")).then(|| match ctx.query {
+                Some(q) if !q.is_empty() => format!("{q}&client_version={}", auth::CODEX_VERSION),
+                _ => format!("client_version={}", auth::CODEX_VERSION),
+            });
+        let uri = join_url(base, path, models_query.as_deref().or(ctx.query))?;
 
         // Shape the Responses body for the ChatGPT backend (force stream/store,
         // strip sampling fields, lift system messages → instructions).
@@ -191,6 +199,17 @@ impl Channel for CodexChannel {
         body: &Bytes,
     ) -> Option<crate::channel::UsageSnapshot> {
         usage::parse(status, body)
+    }
+
+    /// Reshape the codex model catalogue into the OpenAI family canonical shape.
+    /// Content ops (Responses passthrough) are returned unchanged — the codex
+    /// backend already speaks OpenAI Responses, so there is nothing to reproject.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        match ctx.op.operation {
+            Operation::ListModels => shape::shape_model_list(body),
+            Operation::GetModel => shape::shape_model_get(body),
+            _ => body,
+        }
     }
 }
 
@@ -325,6 +344,34 @@ mod tests {
             req.headers().get("session-id").unwrap(),
             req.headers().get("x-client-request-id").unwrap()
         );
+    }
+
+    #[test]
+    fn model_list_request_carries_client_version() {
+        let secret = json!({ "access_token": "tok-abc" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+        // The admin model-pull sends a GET `/v1/models` (no query).
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = CodexChannel.prepare(ctx).unwrap().request;
+        assert_eq!(
+            req.uri().to_string(),
+            format!(
+                "https://chatgpt.com/backend-api/codex/models?client_version={}",
+                auth::CODEX_VERSION
+            ),
+        );
+        // GET with an empty body stays empty (normalize_responses_body no-ops).
+        assert!(req.body().is_empty());
     }
 
     #[test]

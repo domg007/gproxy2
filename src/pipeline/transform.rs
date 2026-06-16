@@ -12,7 +12,9 @@ use crate::pipeline::classify::peek_model;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::pipeline::error::PipelineError;
 use crate::process;
-use crate::protocol::{self, ContentGenerationKind, OperationKey, OperationKind, Provider};
+use crate::protocol::{
+    self, ContentGenerationKind, Operation, OperationKey, OperationKind, Provider,
+};
 use crate::transform::routing::RoutingDecision;
 use crate::transform::stream_adapter::SseTransformer;
 use crate::transform::{self, TransformContext, TransformError, TransformPair, dispatch, routing};
@@ -30,6 +32,17 @@ pub enum TransformPlan {
         source: OperationKey,
         target: OperationKey,
     },
+    /// Force a STREAMING upstream and collapse the streamed response back into a
+    /// single object for a non-stream client. codex/kiro upstreams only speak
+    /// event-streams, so a non-stream `GenerateContent` client must still stream
+    /// the upstream and then aggregate. `*_pair` are `None` when source and
+    /// target wire kinds match (only the stream-ness changes, no body convert).
+    AggregateStream {
+        request_pair: Option<TransformPair>,
+        response_pair: Option<TransformPair>,
+        source: OperationKey,
+        target: OperationKey,
+    },
     /// Serve locally — no upstream call (§6.3).
     Local,
 }
@@ -37,6 +50,34 @@ pub enum TransformPlan {
 impl TransformPlan {
     pub fn is_transform(&self) -> bool {
         matches!(self, Self::Transform { .. })
+    }
+
+    /// `AggregateStream` forces a streaming upstream + collapse on a non-stream
+    /// client.
+    pub fn is_aggregate_stream(&self) -> bool {
+        matches!(self, Self::AggregateStream { .. })
+    }
+
+    /// The op to surface in [`ShapeCtx`](crate::channel::ShapeCtx): the routed
+    /// target when one exists, else the inbound op.
+    pub fn shape_op(&self, ctx: &RequestCtx) -> OperationKey {
+        match self {
+            Self::Transform { target, .. } | Self::AggregateStream { target, .. } => *target,
+            _ => ctx.op.expect("classified before failover"),
+        }
+    }
+
+    /// Target wire kind for the stream→object collapse (content-gen only).
+    pub fn target_kind(&self) -> Option<ContentGenerationKind> {
+        match self {
+            Self::AggregateStream { target, .. } | Self::Transform { target, .. } => {
+                match target.kind {
+                    OperationKind::ContentGeneration(k) => Some(k),
+                    OperationKind::Provider(_) => None,
+                }
+            }
+            _ => None,
+        }
     }
 }
 
@@ -56,6 +97,44 @@ pub fn plan_for(
         RoutingDecision::Local => Ok(TransformPlan::Local),
         RoutingDecision::Unsupported => Err(PipelineError::RuleUnsupported),
         RoutingDecision::TransformTo(target) if target == source => Ok(TransformPlan::Passthrough),
+        // Force-stream routes (codex/kiro): inbound `GenerateContent` → upstream
+        // `StreamGenerateContent`. The upstream only speaks event-streams; stream
+        // it and collapse back to one object for non-stream clients. Any body
+        // transform here is purely the wire-KIND change (operations normalized to
+        // `GenerateContent` for pairing).
+        RoutingDecision::TransformTo(target)
+            if source.operation == Operation::GenerateContent
+                && target.operation == Operation::StreamGenerateContent =>
+        {
+            let (request_pair, response_pair) = if source.kind == target.kind {
+                (None, None)
+            } else {
+                let src = OperationKey {
+                    operation: Operation::GenerateContent,
+                    kind: source.kind,
+                };
+                let tgt = OperationKey {
+                    operation: Operation::GenerateContent,
+                    kind: target.kind,
+                };
+                let rp = transform::resolve(src, tgt).map_err(PipelineError::TransformRequest)?;
+                let sp = transform::resolve(tgt, src).map_err(PipelineError::TransformRequest)?;
+                if !dispatch::is_wired(rp) || !dispatch::is_wired(sp) {
+                    return Err(PipelineError::TransformRequest(
+                        TransformError::InvalidInput {
+                            reason: "aggregate-stream pair not wired for bytes dispatch".to_owned(),
+                        },
+                    ));
+                }
+                (Some(rp), Some(sp))
+            };
+            Ok(TransformPlan::AggregateStream {
+                request_pair,
+                response_pair,
+                source,
+                target,
+            })
+        }
         RoutingDecision::TransformTo(target) => {
             let request_pair =
                 transform::resolve(source, target).map_err(PipelineError::TransformRequest)?;
@@ -241,6 +320,51 @@ pub fn request_parts(
                 )
             }
         }
+        TransformPlan::AggregateStream {
+            request_pair,
+            source,
+            target,
+            ..
+        } => {
+            // Force a streaming upstream regardless of `ctx.stream`; the streamed
+            // response is collapsed in `materialize`. Cross-kind first converts
+            // the body to the target wire; same-kind passes it through.
+            let base = match request_pair {
+                Some(rp) => {
+                    let fwd = TransformContext::new(*source, *target);
+                    Bytes::from(
+                        dispatch::request_bytes(*rp, &fwd, &ctx.body)
+                            .map_err(PipelineError::TransformRequest)?,
+                    )
+                }
+                None => ctx.body.clone(),
+            };
+            // Gemini carries model (+ stream) in the URL; other families in body.
+            let body_carries_model = !matches!(
+                target.kind,
+                OperationKind::ContentGeneration(ContentGenerationKind::GeminiGenerateContent)
+                    | OperationKind::Provider(Provider::Gemini)
+            );
+            let body = if body_carries_model {
+                let model =
+                    (!cand.upstream_model_id.is_empty()).then_some(cand.upstream_model_id.as_str());
+                let include_usage = is_openai_chat(target.kind);
+                patch_body(&base, model, true, include_usage)?
+            } else {
+                base
+            };
+            let t = protocol::request_target(*target, &cand.upstream_model_id, true);
+            (
+                RequestParts {
+                    method: t.method.into(),
+                    path: t.path,
+                    query: t.query,
+                    body,
+                    headers: None,
+                },
+                *target,
+            )
+        }
     };
 
     // process rules act on the provider-native request
@@ -273,7 +397,11 @@ pub fn request_parts(
 /// Convert a buffered success response back to the inbound protocol.
 pub fn response_body(plan: &TransformPlan, body: Bytes) -> Result<Bytes, PipelineError> {
     match plan {
-        TransformPlan::Passthrough | TransformPlan::Local => Ok(body),
+        // AggregateStream responses go through `aggregate_response_body` instead
+        // (after the stream→object collapse), so identity here.
+        TransformPlan::Passthrough
+        | TransformPlan::Local
+        | TransformPlan::AggregateStream { .. } => Ok(body),
         TransformPlan::Transform {
             response_pair,
             source,
@@ -288,10 +416,48 @@ pub fn response_body(plan: &TransformPlan, body: Bytes) -> Result<Bytes, Pipelin
     }
 }
 
+/// Convert a collapsed-stream object (already the TARGET wire kind) back to the
+/// inbound wire. Identity when source and target kinds match (`response_pair`
+/// is `None`). Only meaningful for [`TransformPlan::AggregateStream`].
+pub fn aggregate_response_body(plan: &TransformPlan, body: Bytes) -> Result<Bytes, PipelineError> {
+    match plan {
+        TransformPlan::AggregateStream {
+            response_pair: Some(rp),
+            source,
+            target,
+            ..
+        } => {
+            let rev = TransformContext::new(*target, *source);
+            dispatch::response_bytes(*rp, &rev, &body)
+                .map(Bytes::from)
+                .map_err(PipelineError::TransformResponse)
+        }
+        _ => Ok(body),
+    }
+}
+
 /// Build the streaming adapter for a Transform plan (None for passthrough).
 pub fn stream_transformer(plan: &TransformPlan) -> Option<SseTransformer> {
     match plan {
         TransformPlan::Passthrough | TransformPlan::Local => None,
+        // Same-kind aggregate streams relay the target SSE verbatim (None);
+        // cross-kind convert the target SSE to the inbound wire.
+        TransformPlan::AggregateStream {
+            response_pair,
+            source,
+            target,
+            ..
+        } => {
+            let pair = (*response_pair)?;
+            let OperationKind::ContentGeneration(inbound) = source.kind else {
+                return None;
+            };
+            Some(SseTransformer::new(
+                pair,
+                TransformContext::new(*target, *source),
+                inbound,
+            ))
+        }
         TransformPlan::Transform {
             response_pair,
             source,

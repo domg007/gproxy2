@@ -7,16 +7,28 @@
 //! NO TLS impersonation, NO body mutation.
 
 mod auth;
+mod model_list;
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
+use crate::channel::shaping::vertex_normalize;
+use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
 use crate::http::client::UpstreamClient;
-use crate::protocol::Provider;
+use crate::protocol::{ContentGenerationKind, Operation, OperationKind, Provider};
+
+/// Whether this op is a Gemini content-generation call (the only response shape
+/// Vertex normalizes; model lists / embeddings / errors pass through untouched).
+fn is_gemini_content(ctx: &ShapeCtx) -> bool {
+    matches!(
+        ctx.op.kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::GeminiGenerateContent)
+    )
+}
 
 use auth::DEFAULT_LOCATION;
 
@@ -148,18 +160,39 @@ impl Channel for VertexChannel {
 
         let location = Self::location(ctx.provider_settings, ctx.secret);
         let host = Self::host(&location);
-        // The M2 layer encodes the verb in the path for gemini targets; vertex
-        // rebuilds its own URL against the regional host, reusing only the
-        // stream flag (`:streamGenerateContent` → SSE, else `:generateContent`).
-        let (verb, query) = if ctx.path.contains(":streamGenerateContent") {
-            (":streamGenerateContent", Some("alt=sse"))
+        // The model-pull (and any ListModels client) hits `/v1beta/models` —
+        // GET, no model id, no `:verb`. Vertex exposes a separate LIST endpoint
+        // (`.../publishers/google/models`, no trailing verb) for that.
+        let is_list_models = ctx
+            .path
+            .rsplit('/')
+            .next()
+            .is_some_and(|seg| seg == "models" && !ctx.path.contains(':'));
+        let (path, query) = if is_list_models {
+            (
+                format!(
+                    "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models"
+                ),
+                None,
+            )
         } else {
-            (":generateContent", None)
+            // The M2 layer encodes the verb in the path for gemini targets;
+            // vertex rebuilds its own URL against the regional host, reusing only
+            // the stream flag (`:streamGenerateContent` → SSE, else
+            // `:generateContent`).
+            let (verb, query) = if ctx.path.contains(":streamGenerateContent") {
+                (":streamGenerateContent", Some("alt=sse"))
+            } else {
+                (":generateContent", None)
+            };
+            (
+                format!(
+                    "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models/{}{verb}",
+                    ctx.upstream_model_id,
+                ),
+                query,
+            )
         };
-        let path = format!(
-            "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models/{}{verb}",
-            ctx.upstream_model_id,
-        );
 
         let uri = join_url(&host, &path, query)?;
         // Vertex needs no inbound forwarded headers; it injects its own auth.
@@ -171,6 +204,19 @@ impl Channel for VertexChannel {
         req.headers_mut()
             .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         Ok(PreparedRequest::new(req))
+    }
+
+    /// Normalize Gemini content responses to AI-Studio shape (citation rename,
+    /// block-reason fix), and reshape Vertex's `publisherModels` list response
+    /// into the canonical Gemini `models` shape. Other ops/kinds pass through.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        if ctx.op.operation == Operation::ListModels {
+            model_list::normalize_vertex_model_list(body)
+        } else if is_gemini_content(ctx) {
+            vertex_normalize::normalize_vertex_response(body)
+        } else {
+            body
+        }
     }
 
     fn needs_refresh(&self, secret: &Value) -> bool {
@@ -334,6 +380,32 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
     }
 
     #[test]
+    fn list_models_builds_vertex_list_endpoint() {
+        // The model-pull sends GET /v1beta/models (no model, no `:verb`); vertex
+        // must build its LIST endpoint (no trailing verb) instead of the content
+        // path.
+        let mut secret = sa_secret();
+        secret["access_token"] = json!("tok-abc");
+        let settings = json!({});
+        let headers = HeaderMap::new();
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1beta/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = VertexChannel.prepare(ctx).unwrap().request;
+        assert_eq!(
+            req.uri().to_string(),
+            "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/proj-123/locations/us-central1/publishers/google/models"
+        );
+    }
+
+    #[test]
     fn needs_refresh_expiry() {
         let now_ms = crate::util::time::unix_now().saturating_mul(1000);
         // No access_token → must refresh.
@@ -348,5 +420,39 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
             "access_token": "t",
             "expires_at_ms": now_ms + 10_000,
         })));
+    }
+
+    #[test]
+    fn shape_response_normalizes_gemini_content_only() {
+        use crate::protocol::{ContentGenerationKind, Operation, OperationKey, Provider as P};
+
+        let body = Bytes::from(
+            json!({"candidates": [{"citationMetadata": {"citations": [{"uri": "x"}]}}]})
+                .to_string(),
+        );
+
+        // Gemini content op → citations renamed to citationSources.
+        let content_ctx = ShapeCtx {
+            op: OperationKey::content_generation(
+                Operation::GenerateContent,
+                ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let out = VertexChannel.shape_response(body.clone(), &content_ctx);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            v["candidates"][0]["citationMetadata"]["citationSources"][0]["uri"],
+            "x"
+        );
+
+        // Non-content op (e.g. ListModels) → body untouched.
+        let list_ctx = ShapeCtx {
+            op: OperationKey::provider(Operation::ListModels, P::Gemini),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        assert_eq!(VertexChannel.shape_response(body.clone(), &list_ctx), body);
     }
 }

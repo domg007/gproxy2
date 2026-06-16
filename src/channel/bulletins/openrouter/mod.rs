@@ -1,10 +1,13 @@
 //! OpenRouter channel — `Authorization: Bearer`, default `https://openrouter.ai/api`.
 
 mod auth;
+mod shape;
+
+use bytes::Bytes;
 
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
-use crate::protocol::Provider;
+use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
+use crate::protocol::{Operation, Provider};
 
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
     default_base_url: Some("https://openrouter.ai/api"),
@@ -82,5 +85,19 @@ impl Channel for OpenRouterChannel {
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key)?;
         Ok(PreparedRequest::new(req))
+    }
+
+    /// On `ListModels`, fill the OpenAI model-list shape OpenRouter omits
+    /// (top-level `object: "list"`, per-item `object: "model"` + `owned_by`) so
+    /// proxy `/v1/models` deserializes strictly. On all other ops, coerce
+    /// OpenRouter's int `error.code` to a string and synthesize an OpenAI-style
+    /// `error.type` so downstream transforms deserialize error bodies cleanly.
+    /// No-op for non-error / already-shaped bodies.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        if ctx.op.operation == Operation::ListModels {
+            shape::reshape_model_list(body)
+        } else {
+            shape::reshape_error(body)
+        }
     }
 }

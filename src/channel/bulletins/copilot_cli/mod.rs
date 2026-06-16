@@ -189,6 +189,7 @@ impl ChannelLogin for CopilotCliChannel {
     async fn device_start(
         &self,
         client: &Arc<dyn UpstreamClient>,
+        _params: &serde_json::Value,
     ) -> Result<DeviceInit, ChannelError> {
         auth::device_start(client).await
     }

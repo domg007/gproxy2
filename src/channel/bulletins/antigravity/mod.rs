@@ -5,17 +5,18 @@
 //! `generateContent` body, nested by Code Assist under `request` alongside
 //! routing metadata (`{model, project, user_prompt_id, request:<body>}`) with
 //! the response under `.response`. [`prepare`](AntigravityChannel::prepare)
-//! wraps via [`envelope::wrap_code_assist`]; [`normalize`] and
+//! wraps via [`envelope::wrap_code_assist`]; [`shape_response`] and
 //! [`stream_decoder`] unwrap the non-stream body and each SSE frame — all shared
 //! with `geminicli`. [`auth`] owns the OAuth bearer + refresh + Antigravity's
 //! distinct fingerprint (the `antigravity/cli` User-Agent).
 //!
-//! [`normalize`]: AntigravityChannel::normalize
+//! [`shape_response`]: AntigravityChannel::shape_response
 //! [`stream_decoder`]: AntigravityChannel::stream_decoder
 
 mod auth;
 #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
 mod fingerprint;
+mod model_list;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -23,9 +24,10 @@ use serde_json::Value;
 
 use crate::channel::envelope::{self, CodeAssistStreamDecoder};
 use crate::channel::http_util::{allow_headers, build_request, join_url};
+use crate::channel::shaping::{self, gemini_genconfig, vertex_normalize};
 use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, ChannelStreamDecoder, PrepareCtx,
-    PreparedRequest,
+    PreparedRequest, ShapeCtx,
 };
 use crate::http::client::UpstreamClient;
 use crate::protocol::Provider;
@@ -124,6 +126,22 @@ impl Channel for AntigravityChannel {
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let project_id = auth::project_id(ctx.secret)?;
 
+        // Model-pull ListModels: Antigravity has no `/v1beta/models` endpoint —
+        // POST an empty body to the bespoke Code Assist `fetchAvailableModels`
+        // (same auth + fingerprint as content), reshaped back in shape_response.
+        if model_list::is_list_models_request(&ctx.method, ctx.path) {
+            let uri = join_url(
+                auth::BASE_URL,
+                model_list::FETCH_AVAILABLE_MODELS_PATH,
+                None,
+            )?;
+            let headers = allow_headers(ctx.headers, &[]);
+            let mut req =
+                build_request(http::Method::POST, uri, headers, Bytes::from_static(b"{}"))?;
+            auth::apply(&mut req, &access_token)?;
+            return Ok(PreparedRequest::new(req));
+        }
+
         // Wrap the gemini body in the Code Assist envelope. `ctx.body` is moved
         // out here (the request body becomes the wrapped bytes).
         let wrapped = envelope::wrap_code_assist(
@@ -152,8 +170,23 @@ impl Channel for AntigravityChannel {
         Ok(PreparedRequest::new(req))
     }
 
-    fn normalize(&self, body: Bytes) -> Bytes {
-        envelope::unwrap_code_assist(body)
+    fn shape_request(&self, body: Bytes, _headers: &mut http::HeaderMap, _ctx: &ShapeCtx) -> Bytes {
+        // Strip generationConfig fields Code Assist rejects, BEFORE the prepare
+        // envelope wrap sees the gemini body. Best-effort (no-op on non-JSON).
+        shaping::with_json_body(body, gemini_genconfig::strip)
+    }
+
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        // ListModels: reshape the bespoke `fetchAvailableModels` payload into the
+        // canonical Gemini `{models:[{name:"models/<id>", ...}]}` shape that
+        // parse_models reads (the content unwrap/normalize does not apply).
+        if ctx.op.operation == crate::protocol::Operation::ListModels {
+            return model_list::available_models_to_list_response(body);
+        }
+        // Unwrap the Code Assist `.response` envelope, then normalize the
+        // Vertex/Code-Assist shape to AI-Studio (citation rename, block reason).
+        let unwrapped = envelope::unwrap_code_assist(body);
+        vertex_normalize::normalize_vertex_response(unwrapped)
     }
 
     fn stream_decoder(&self) -> Option<Box<dyn ChannelStreamDecoder>> {
@@ -278,5 +311,95 @@ mod tests {
         assert_eq!(v["project"], "proj");
         assert!(v["user_prompt_id"].as_str().is_some_and(|s| s.len() == 32));
         assert_eq!(v["request"]["contents"][0]["parts"][0]["text"], "hi");
+    }
+
+    #[test]
+    fn prepare_list_models_posts_fetch_available_models() {
+        let secret = json!({ "access_token": "tok-abc", "project_id": "proj" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+
+        // The admin model-pull sends GET /v1beta/models (no model id, no verb).
+        let ctx = PrepareCtx {
+            secret: &secret,
+            provider_settings: &settings,
+            upstream_model_id: "",
+            method: Method::GET,
+            path: "/v1beta/models",
+            query: None,
+            headers: &headers,
+            body: Bytes::new(),
+        };
+        let req = AntigravityChannel.prepare(ctx).unwrap().request;
+
+        // Redirected to the bespoke Code Assist fetchAvailableModels POST.
+        assert_eq!(req.method(), Method::POST);
+        assert_eq!(
+            req.uri().to_string(),
+            "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+        );
+        assert_eq!(
+            req.headers().get("authorization").unwrap(),
+            "Bearer tok-abc"
+        );
+        assert_eq!(
+            req.headers().get("user-agent").unwrap(),
+            "antigravity/cli/1.0.6 linux/amd64"
+        );
+        // Empty JSON object body (v1 fidelity), NOT the Code Assist envelope.
+        assert_eq!(req.body().as_ref(), b"{}");
+    }
+
+    #[test]
+    fn shape_request_strips_genconfig() {
+        let shape = ShapeCtx {
+            op: crate::protocol::OperationKey::content_generation(
+                crate::protocol::Operation::GenerateContent,
+                crate::protocol::ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let mut headers = HeaderMap::new();
+        let body = Bytes::from(
+            json!({
+                "contents": [],
+                "generationConfig": {"maxOutputTokens": 1024, "responseLogprobs": true, "temperature": 0.5}
+            })
+            .to_string(),
+        );
+        let out = AntigravityChannel.shape_request(body, &mut headers, &shape);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let cfg = v["generationConfig"].as_object().unwrap();
+        assert!(!cfg.contains_key("maxOutputTokens"));
+        assert!(!cfg.contains_key("responseLogprobs"));
+        assert_eq!(cfg["temperature"], 0.5);
+    }
+
+    #[test]
+    fn shape_response_unwraps_then_normalizes() {
+        let shape = ShapeCtx {
+            op: crate::protocol::OperationKey::content_generation(
+                crate::protocol::Operation::GenerateContent,
+                crate::protocol::ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        // Code Assist envelope wrapping a Vertex-shaped citation block.
+        let body = Bytes::from(
+            json!({"response": {
+                "candidates": [{"citationMetadata": {"citations": [{"uri": "x"}]}}]
+            }})
+            .to_string(),
+        );
+        let out = AntigravityChannel.shape_response(body, &shape);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        // Envelope unwrapped (no `.response`) AND vertex-normalized.
+        assert!(v.get("response").is_none());
+        assert_eq!(
+            v["candidates"][0]["citationMetadata"]["citationSources"][0]["uri"],
+            "x"
+        );
     }
 }

@@ -3,16 +3,28 @@
 
 mod auth;
 
+use bytes::Bytes;
+
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
 use crate::channel::http_util::{allow_headers, allow_query, build_request, join_url};
-use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest};
-use crate::protocol::Provider;
+use crate::channel::shaping::vertex_normalize;
+use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
+use crate::protocol::{ContentGenerationKind, OperationKind, Provider};
 
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
     default_base_url: Some("https://aiplatform.googleapis.com"),
     forward_headers: &[],
     forward_query: &["alt"],
 };
+
+/// Whether this op is a Gemini content-generation call (the only response shape
+/// VertexExpress normalizes; everything else passes through untouched).
+fn is_gemini_content(ctx: &ShapeCtx) -> bool {
+    matches!(
+        ctx.op.kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::GeminiGenerateContent)
+    )
+}
 
 pub struct VertexExpressChannel;
 
@@ -117,5 +129,65 @@ impl Channel for VertexExpressChannel {
         let headers = allow_headers(ctx.headers, DEFAULTS.forward_headers);
         let req = build_request(ctx.method, uri, headers, ctx.body)?;
         Ok(PreparedRequest::new(req))
+    }
+
+    /// Normalize Gemini content responses to AI-Studio shape (citation rename,
+    /// block-reason fix). Non-content ops and other kinds pass through.
+    fn shape_response(&self, body: Bytes, ctx: &ShapeCtx) -> Bytes {
+        if is_gemini_content(ctx) {
+            vertex_normalize::normalize_vertex_response(body)
+        } else {
+            body
+        }
+    }
+
+    /// Vertex AI Express exposes no model-listing endpoint; the admin model-pull
+    /// reads this bundled Gemini-shaped catalogue instead of calling upstream.
+    fn bundled_models(&self) -> Option<Bytes> {
+        Some(Bytes::from_static(
+            include_str!("models.gemini.json").as_bytes(),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn shape_response_normalizes_gemini_content_only() {
+        use crate::protocol::{Operation, OperationKey, Provider as P};
+
+        let body = Bytes::from(
+            json!({"promptFeedback": {"blockReason": "BLOCKED_REASON_UNSPECIFIED"}}).to_string(),
+        );
+
+        // Gemini content op → block reason normalized.
+        let content_ctx = ShapeCtx {
+            op: OperationKey::content_generation(
+                Operation::GenerateContent,
+                ContentGenerationKind::GeminiGenerateContent,
+            ),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        let out = VertexExpressChannel.shape_response(body.clone(), &content_ctx);
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            v["promptFeedback"]["blockReason"],
+            "BLOCK_REASON_UNSPECIFIED"
+        );
+
+        // Non-content op → untouched.
+        let count_ctx = ShapeCtx {
+            op: OperationKey::provider(Operation::CountTokens, P::Gemini),
+            stream: false,
+            status: http::StatusCode::OK,
+        };
+        assert_eq!(
+            VertexExpressChannel.shape_response(body.clone(), &count_ctx),
+            body
+        );
     }
 }
