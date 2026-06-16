@@ -129,14 +129,33 @@ async fn complete(state: &AppState, parts: &Parts, body: &Bytes) -> Result<Resp,
 
     let bad = || ApiError::BadRequest("login failed".into());
 
-    let (code, cb_state) = parse_callback(&req.callback_url).ok_or_else(bad)?;
+    // CODE-ONLY flows (e.g. geminicli `codeassist.google.com/authcode`) return a
+    // bare authorization code with no callback URL / `state`; callback-URL flows
+    // paste the full redirect. Validate the callback up front so a malformed
+    // paste doesn't consume the one-shot session.
+    let bare_code = req.code.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let callback = if bare_code.is_none() {
+        Some(parse_callback(&req.callback_url).ok_or_else(bad)?)
+    } else {
+        None
+    };
+
     let session = login::take(state.cache.as_ref(), &req.login_session_id)
         .await
         .ok_or_else(bad)?;
-    // CSRF: the callback state MUST match the one we issued.
-    if cb_state != session.state {
-        return Err(bad());
-    }
+    let code = match (bare_code, callback) {
+        // Bare code: no `state` to verify — PKCE (the per-session verifier) is the
+        // CSRF protection, and the session is one-shot + short-TTL.
+        (Some(code), _) => code.to_string(),
+        (None, Some((code, cb_state))) => {
+            // CSRF: the callback state MUST match the one we issued.
+            if cb_state != session.state {
+                return Err(bad());
+            }
+            code
+        }
+        (None, None) => return Err(bad()),
+    };
 
     let channel = state.channels.login_for(&session.channel).ok_or_else(bad)?;
     let secret = channel

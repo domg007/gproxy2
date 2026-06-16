@@ -114,6 +114,11 @@
     "done": "憑證已建立。",
     "deviceIntro": "在以下網址輸入此代碼",
     "waiting": "等待授權中…",
+    "geminiMode": "登入方式",
+    "geminiCallback": "回呼 URL",
+    "geminiCodeOnly": "純 code",
+    "pasteCodeLabel": "貼上授權碼",
+    "pasteCodeHint": "在瀏覽器中授權後,複製頁面顯示的授權碼並貼到這裡。",
     "kiroMethod": "Kiro 登入方式",
     "kiroMethods": {
       "builderId": "AWS Builder ID",

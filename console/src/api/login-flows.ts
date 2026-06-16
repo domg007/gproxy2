@@ -14,7 +14,9 @@ export interface LoginStartResponse {
 
 export interface LoginCompleteRequest {
   login_session_id: string;
-  callback_url: string;
+  callback_url?: string;
+  /** Bare authorization code for code-only flows (no callback URL / state). */
+  code?: string;
   provider_id: number;
   name?: string;
 }

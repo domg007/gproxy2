@@ -32,6 +32,9 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
   // Kiro has four credential methods that span both the device and authcode
   // flows, so it gets its own picker instead of the generic mode tabs.
   const isKiro = provider.channel === "kiro";
+  // Geminicli's two modes are both authcode but differ in redirect + paste UI
+  // (callback URL vs bare code), so it gets a dedicated toggle.
+  const isGemini = provider.channel === "geminicli";
 
   const finish = (credential: CredentialView) => {
     void queryClient.invalidateQueries({ queryKey: ["providers", provider.id, "credentials"] });
@@ -40,7 +43,7 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
 
   return (
     <div className="grid gap-4">
-      {!isKiro && modes.length > 1 && (
+      {!isKiro && !isGemini && modes.length > 1 && (
         <Tabs value={mode} onValueChange={(v) => setMode(v as LoginMode)}>
           <TabsList>
             {modes.map((m) => (
@@ -55,6 +58,8 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
       </div>
       {isKiro ? (
         <KiroWizard provider={provider} credLabel={credLabel} onDone={finish} />
+      ) : isGemini ? (
+        <GeminiWizard provider={provider} credLabel={credLabel} onDone={finish} />
       ) : (
         <>
           {mode === "authcode" && <AuthcodeFlow provider={provider} credLabel={credLabel} onDone={finish} startParams={meta?.loginParams} />}
@@ -143,6 +148,97 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
             startParams={authParams} disabled={idcMissing} />
         </>
       )}
+    </div>
+  );
+}
+
+// ── Geminicli: two authcode modes (callback URL vs bare code) ──────────────────
+// callback URL → loopback redirect (code_only:false), paste the ?code=&state= URL.
+// code only   → codeassist redirect (code_only:true), paste the bare code Google shows.
+function GeminiWizard({ provider, credLabel, onDone }: FlowProps) {
+  const { t } = useTranslation("providers");
+  const [mode, setMode] = useState<"callback" | "code">("callback");
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-2">
+        <Label>{t("wizard.geminiMode")}</Label>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "callback" | "code")}>
+          <TabsList>
+            <TabsTrigger value="callback">{t("wizard.geminiCallback")}</TabsTrigger>
+            <TabsTrigger value="code">{t("wizard.geminiCodeOnly")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      {mode === "callback" && (
+        <AuthcodeFlow key="callback" provider={provider} credLabel={credLabel} onDone={onDone}
+          startParams={{ code_only: false }} />
+      )}
+      {mode === "code" && (
+        <CodeOnlyFlow key="code" provider={provider} credLabel={credLabel} onDone={onDone}
+          startParams={{ code_only: true }} />
+      )}
+    </div>
+  );
+}
+
+// A code-only authcode flow: open the authorize URL, then paste the BARE code the
+// provider shows (no callback URL / state — the backend skips the state check).
+function CodeOnlyFlow({
+  provider, credLabel, onDone, startParams,
+}: FlowProps & { startParams?: Record<string, unknown> }) {
+  const { t } = useTranslation("providers");
+  const [session, setSession] = useState<LoginStartResponse | null>(null);
+  const [pasted, setPasted] = useState("");
+
+  const start = useMutation({
+    mutationFn: () => loginFlowStart({ channel: provider.channel, params: startParams }),
+    onSuccess: (resp) => {
+      setSession(resp);
+      window.open(resp.authorize_url, "_blank", "noopener");
+    },
+  });
+
+  const complete = useMutation({
+    mutationFn: () => {
+      if (session === null) return Promise.reject(new Error("no session"));
+      return loginFlowComplete({
+        login_session_id: session.login_session_id,
+        code: pasted.trim(),
+        provider_id: provider.id,
+        ...(credLabel.trim() !== "" ? { name: credLabel.trim() } : {}),
+      });
+    },
+    onSuccess: onDone,
+  });
+
+  if (session === null) {
+    return (
+      <div className="grid gap-4">
+        {start.isError && <p className="text-sm text-destructive">{t("wizard.failed")}</p>}
+        <Button onClick={() => start.mutate()} disabled={start.isPending}>
+          {start.isPending ? t("wizard.starting") : t("wizard.start")}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <Button variant="outline" onClick={() => window.open(session.authorize_url, "_blank", "noopener")}>
+        <ExternalLink className="size-4" />
+        {t("wizard.openAuthorize")}
+      </Button>
+      <div className="grid gap-2">
+        <Label htmlFor="w-code">{t("wizard.pasteCodeLabel")}</Label>
+        <Textarea id="w-code" rows={2} value={pasted} spellCheck={false}
+          onChange={(e) => setPasted(e.target.value)} />
+        <p className="text-xs text-muted-foreground">{t("wizard.pasteCodeHint")}</p>
+      </div>
+      {complete.isError && <p className="text-sm text-destructive">{t("wizard.failed")}</p>}
+      <Button onClick={() => complete.mutate()} disabled={pasted.trim() === "" || complete.isPending}>
+        {complete.isPending ? t("wizard.completing") : t("wizard.complete")}
+      </Button>
     </div>
   );
 }

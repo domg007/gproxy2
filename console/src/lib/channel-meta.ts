@@ -59,7 +59,6 @@ export const CHANNELS: ChannelMeta[] = [
     usage: true,
     secretTemplate: { ...OAUTH_TOKENS, project_id: "" },
     hintKey: "geminiHint",
-    loginParams: { code_only: false },
   },
   {
     id: "antigravity",
@@ -79,7 +78,7 @@ export const CHANNELS: ChannelMeta[] = [
   {
     id: "codex",
     family: "oauth_tokens",
-    loginModes: ["authcode"],
+    loginModes: ["authcode", "device"],
     usage: true,
     secretTemplate: { ...OAUTH_TOKENS, account_id: "" },
   },
