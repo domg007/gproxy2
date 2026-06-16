@@ -57,7 +57,7 @@ export function OAuthWizard({ provider, onDone }: OAuthWizardProps) {
         <KiroWizard provider={provider} credLabel={credLabel} onDone={finish} />
       ) : (
         <>
-          {mode === "authcode" && <AuthcodeFlow provider={provider} credLabel={credLabel} onDone={finish} />}
+          {mode === "authcode" && <AuthcodeFlow provider={provider} credLabel={credLabel} onDone={finish} startParams={meta?.loginParams} />}
           {mode === "device" && <DeviceFlow provider={provider} credLabel={credLabel} onDone={finish} />}
           {mode === "cookie" && <CookieFlow provider={provider} credLabel={credLabel} onDone={finish} />}
         </>

@@ -24,6 +24,10 @@ export interface ChannelMeta {
   secretTemplate: Record<string, unknown>;
   /** providers:secret.* extra hint key, if any */
   hintKey?: string;
+  /** Extra params posted to authcode_start. geminicli needs `code_only:false` so
+   *  it uses the loopback redirect (a pasteable `?code=&state=` callback URL)
+   *  instead of the headless codeassist page that only shows a bare code. */
+  loginParams?: Record<string, unknown>;
 }
 
 const API_KEY_IDS = [
@@ -55,6 +59,7 @@ export const CHANNELS: ChannelMeta[] = [
     usage: true,
     secretTemplate: { ...OAUTH_TOKENS, project_id: "" },
     hintKey: "geminiHint",
+    loginParams: { code_only: false },
   },
   {
     id: "antigravity",
