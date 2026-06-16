@@ -72,11 +72,12 @@ interface FlowProps {
   onDone: (credential: CredentialView) => void;
 }
 
-// ── Kiro: five credential-acquisition methods in one flat picker ───────────────
-// GitHub / Google → device flow (params {login_provider}); builderId / idc /
-// external_idp → authcode + PKCE flow, each with its own start params. The
-// device-vs-authcode split is an implementation detail and is NOT surfaced.
-const KIRO_METHODS = ["github", "google", "builderId", "idc", "external_idp"] as const;
+// ── Kiro: the four login methods kiro-cli's `login` menu offers ────────────────
+// "Use with Google / GitHub / Builder ID / Your Organization". GitHub / Google →
+// device flow (params {login_provider}); Builder ID / Your-Organization(idc) →
+// authcode + PKCE. (external_idp is a real fig_auth kind but is portal-config
+// driven, NOT a menu item — so it is reachable via the API, not surfaced here.)
+const KIRO_METHODS = ["github", "google", "builderId", "idc"] as const;
 type KiroMethod = (typeof KIRO_METHODS)[number];
 
 function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
@@ -84,9 +85,6 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
   const [method, setMethod] = useState<KiroMethod>("github");
   const [startUrl, setStartUrl] = useState("");
   const [region, setRegion] = useState("us-east-1");
-  const [issuerUrl, setIssuerUrl] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [scopes, setScopes] = useState("");
 
   const isSocial = method === "github" || method === "google";
 
@@ -97,18 +95,9 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
           region: region.trim() || "us-east-1",
           ...(startUrl.trim() !== "" ? { start_url: startUrl.trim() } : {}),
         }
-      : method === "external_idp"
-        ? {
-            auth_method: "external_idp",
-            issuer_url: issuerUrl.trim(),
-            client_id: clientId.trim(),
-            ...(scopes.trim() !== "" ? { scopes: scopes.trim() } : {}),
-          }
-        : { auth_method: "builderId" };
+      : { auth_method: "builderId" };
 
   const idcMissing = method === "idc" && startUrl.trim() === "";
-  const externalMissing =
-    method === "external_idp" && (issuerUrl.trim() === "" || clientId.trim() === "");
 
   // GitHub / Google are proper nouns (same in every locale); the rest are translated.
   const methodLabel = (m: KiroMethod): string =>
@@ -152,27 +141,6 @@ function KiroWizard({ provider, credLabel, onDone }: FlowProps) {
           </div>
           <AuthcodeFlow key="idc" provider={provider} credLabel={credLabel} onDone={onDone}
             startParams={authParams} disabled={idcMissing} />
-        </>
-      )}
-
-      {method === "external_idp" && (
-        <>
-          <div className="grid gap-2">
-            <Label htmlFor="kiro-issuer">{t("wizard.kiroIssuerUrl")}</Label>
-            <Input id="kiro-issuer" value={issuerUrl} onChange={(e) => setIssuerUrl(e.target.value)}
-              placeholder="https://idp.example.com" />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="kiro-clientid">{t("wizard.kiroClientId")}</Label>
-            <Input id="kiro-clientid" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="kiro-scopes">{t("wizard.kiroScopes")}</Label>
-            <Input id="kiro-scopes" value={scopes} onChange={(e) => setScopes(e.target.value)}
-              placeholder="openid profile email" />
-          </div>
-          <AuthcodeFlow key="external_idp" provider={provider} credLabel={credLabel} onDone={onDone}
-            startParams={authParams} disabled={externalMissing} />
         </>
       )}
     </div>

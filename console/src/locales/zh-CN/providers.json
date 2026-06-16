@@ -117,15 +117,11 @@
     "kiroMethod": "Kiro 登录方式",
     "kiroMethods": {
       "builderId": "AWS Builder ID",
-      "idc": "AWS IAM Identity Center",
-      "external_idp": "外部 IdP(OIDC)"
+      "idc": "AWS IAM Identity Center"
     },
     "kiroStartUrl": "Start URL",
     "kiroRegion": "区域",
     "kiroStartUrlHint": "你所在组织的 AWS 访问门户地址(https://….awsapps.com/start)。",
-    "kiroIssuerUrl": "Issuer URL",
-    "kiroClientId": "Client ID",
-    "kiroScopes": "Scopes(可选)",
     "cookieLabel": "claude.ai Cookie",
     "cookieHint": "粘贴完整 Cookie 头或仅 sessionKey=…;只会使用 sessionKey。",
     "cookieInvalid": "粘贴内容中未找到 sessionKey。"
