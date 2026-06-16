@@ -17,48 +17,22 @@ use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue,
 use http::{HeaderMap, Method, Request};
 use serde_json::{Value, json};
 
-use super::{ORIGIN, auth};
+use super::{AMZ_JSON, ORIGIN, TARGET_LIST_MODELS, UA_MANAGEMENT, auth, management_base};
 use crate::channel::ChannelError;
 use crate::channel::http_util::{build_request, join_url};
 
 /// True when this inbound request is the family model-list request: the admin
 /// model-pull sends `GET /v1/models` (OpenAi family). Detect it from method +
-/// path so the content path (`POST /generateAssistantResponse`) is untouched.
+/// path so the content path is untouched.
 pub(super) fn is_model_list(method: &Method, path: &str) -> bool {
     method == Method::GET && path.trim_end_matches('/').ends_with("/models")
 }
 
-/// Captured from the real Kiro CLI: model-list is the AWS-JSON Smithy operation
-/// `AmazonCodeWhispererService.ListAvailableModels` on the **management** host,
+/// Build the Smithy `ListAvailableModels` request captured from the Kiro CLI:
 /// `POST https://management.{region}.kiro.dev/?origin=KIRO_CLI&profileArn=…`,
 /// `content-type: application/x-amz-json-1.0`, body `{"origin","profileArn"}`,
 /// Bearer auth. (v1's `GET …/ListAvailableModels?origin=AI_EDITOR` was the OLD
-/// Amazon Q product — a different client.) Response: `{"models":[{"modelId"}]}`.
-fn management_base(settings: &Value) -> String {
-    if let Some(u) = settings
-        .get("management_url")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return u.to_string();
-    }
-    let region = settings
-        .get("region")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("us-east-1");
-    format!("https://management.{region}.kiro.dev")
-}
-
-/// Per-service User-Agent (`api/codewhispererruntime`) the Kiro CLI sends to the
-/// management host (distinct from the streaming UA on the runtime host).
-const UA_RUNTIME: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererruntime/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
-const TARGET: &str = "AmazonCodeWhispererService.ListAvailableModels";
-const AMZ_JSON: &str = "application/x-amz-json-1.0";
-
-/// Build the Smithy `ListAvailableModels` request captured from the Kiro CLI.
+/// Amazon Q product.) Response: `{"models":[{"modelId"}]}`.
 pub(super) fn request(secret: &Value, settings: &Value) -> Result<Request<Bytes>, ChannelError> {
     let access_token = auth::access_token(secret)?;
     // The real request always carries profileArn (in BOTH the query and body).
@@ -80,14 +54,14 @@ pub(super) fn request(secret: &Value, settings: &Value) -> Result<Request<Bytes>
     h.insert(AUTHORIZATION, bearer);
     h.insert(ACCEPT, HeaderValue::from_static("*/*"));
     h.insert(CONTENT_TYPE, HeaderValue::from_static(AMZ_JSON));
-    h.insert(USER_AGENT, HeaderValue::from_static(UA_RUNTIME));
+    h.insert(USER_AGENT, HeaderValue::from_static(UA_MANAGEMENT));
     h.insert(
         HeaderName::from_static("x-amz-user-agent"),
-        HeaderValue::from_static(UA_RUNTIME),
+        HeaderValue::from_static(UA_MANAGEMENT),
     );
     h.insert(
         HeaderName::from_static("x-amz-target"),
-        HeaderValue::from_static(TARGET),
+        HeaderValue::from_static(TARGET_LIST_MODELS),
     );
     h.insert(
         HeaderName::from_static("x-amzn-codewhisperer-optout"),

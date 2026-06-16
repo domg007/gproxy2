@@ -44,19 +44,66 @@ use crate::protocol::{Operation, Provider};
 
 use response::KiroStreamDecoder;
 
-/// Amazon Q runtime host; chat lives at `/generateAssistantResponse`.
-const DEFAULT_BASE_URL: &str = "https://q.us-east-1.amazonaws.com";
-/// Kiro chat endpoint (Smithy REST-JSON, AWS event-stream response).
-const GENERATE_PATH: &str = "/generateAssistantResponse";
-/// User-Agent the Kiro IDE sends.
+/// Kiro.dev region (the management/runtime hosts are region-scoped). Override
+/// via `settings.region`; default us-east-1.
+const DEFAULT_REGION: &str = "us-east-1";
+/// AWS-JSON 1.0 content type used by both kiro.dev services.
+pub(super) const AMZ_JSON: &str = "application/x-amz-json-1.0";
+/// Smithy `x-amz-target` for the runtime (chat) service.
+const TARGET_GENERATE: &str = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse";
+/// Streaming User-Agent the Kiro CLI sends to the runtime host (chat).
 const USER_AGENT_VALUE: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererstreaming/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
-/// Kiro agent mode header value.
-const AGENT_MODE: &str = "vibe";
+/// Smithy `x-amz-target`s on the management host (model-list / usage).
+pub(super) const TARGET_LIST_MODELS: &str = "AmazonCodeWhispererService.ListAvailableModels";
+pub(super) const TARGET_USAGE: &str = "AmazonCodeWhispererService.GetUsageLimits";
+/// Runtime User-Agent the Kiro CLI sends to the management host (model-list/usage).
+pub(super) const UA_MANAGEMENT: &str = "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererruntime/0.1.16551 os/linux lang/rust/1.92.0 md/appVersion-2.6.1 app/AmazonQ-For-CLI";
 /// Client surface reported to the Kiro/CodeWhisperer backend — sent as the
 /// `origin` (chat body, usage, model-list). Captured from the real Kiro CLI
 /// (`kiro-cli-chat`): it is `KIRO_CLI`, NOT v1's `AI_EDITOR`. SINGLE source of
 /// truth; if a capture shows a different value, change it HERE.
 pub(super) const ORIGIN: &str = "KIRO_CLI";
+
+/// The Kiro region from settings (default `us-east-1`).
+pub(super) fn region(settings: &Value) -> String {
+    settings
+        .get("region")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_REGION)
+        .to_string()
+}
+
+/// The management host (model-list / usage): `https://management.{region}.kiro.dev`,
+/// or a `settings.management_url` override.
+pub(super) fn management_base(settings: &Value) -> String {
+    if let Some(u) = settings
+        .get("management_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return u.to_string();
+    }
+    format!("https://management.{}.kiro.dev", region(settings))
+}
+
+/// The runtime (chat) host: `https://runtime.{region}.kiro.dev`, or a
+/// `settings.runtime_url` / legacy `settings.base_url` override.
+fn runtime_base(settings: &Value) -> String {
+    for key in ["runtime_url", "base_url"] {
+        if let Some(u) = settings
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return u.to_string();
+        }
+    }
+    format!("https://runtime.{}.kiro.dev", region(settings))
+}
 
 pub struct KiroChannel;
 
@@ -148,13 +195,7 @@ impl Channel for KiroChannel {
 
         let access_token = auth::access_token(ctx.secret)?.to_string();
         let profile_arn = auth::profile_arn(ctx.secret, ctx.provider_settings).map(str::to_owned);
-        let base = ctx
-            .provider_settings
-            .get("base_url")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_BASE_URL);
+        let base = runtime_base(ctx.provider_settings);
 
         // Shape the inbound Responses body into Kiro's conversationState graph,
         // then lift profileArn to the top level (where Kiro expects it). The
@@ -162,12 +203,14 @@ impl Channel for KiroChannel {
         let body = request::build_request_body(&ctx.body, ctx.upstream_model_id, &gen_uuid())?;
         let body = with_profile_arn(body, profile_arn.as_deref())?;
 
-        let uri = join_url(base, GENERATE_PATH, None)?;
+        // Captured Kiro CLI chat: AWS-JSON Smithy POST to the runtime host root
+        // (the operation is the `x-amz-target`, not a path), event-stream response.
+        let uri = join_url(&base, "/", None)?;
         // Smithy/binary channel: it injects its own auth + IDE fingerprint and
         // forwards no inbound headers beyond the base content-type/accept set.
         let headers = allow_headers(ctx.headers, &[]);
         let mut req = build_request(ctx.method, uri, headers, Bytes::from(body))?;
-        apply_headers(&mut req, &access_token)?;
+        apply_headers(&mut req, &access_token, TARGET_GENERATE)?;
         Ok(PreparedRequest::new(req))
     }
 
@@ -286,7 +329,11 @@ fn with_profile_arn(body: Vec<u8>, profile_arn: Option<&str>) -> Result<Vec<u8>,
 /// Inject the Kiro Bearer + IDE fingerprint headers (agent-mode, optout, the AWS
 /// SDK retry/invocation ids, UA). `accept: */*` matches the Kiro IDE request —
 /// the event-stream body is selected by the endpoint, not Accept.
-fn apply_headers(req: &mut http::Request<Bytes>, access_token: &str) -> Result<(), ChannelError> {
+fn apply_headers(
+    req: &mut http::Request<Bytes>,
+    access_token: &str,
+    target: &'static str,
+) -> Result<(), ChannelError> {
     let bearer = HeaderValue::from_str(&format!("Bearer {access_token}"))
         .map_err(|e| ChannelError::InvalidCredential(format!("bad access_token: {e}")))?;
     let invocation_id = HeaderValue::from_str(&gen_uuid())
@@ -294,16 +341,20 @@ fn apply_headers(req: &mut http::Request<Bytes>, access_token: &str) -> Result<(
 
     let h = req.headers_mut();
     h.insert(AUTHORIZATION, bearer);
-    h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(CONTENT_TYPE, HeaderValue::from_static(AMZ_JSON));
     h.insert(ACCEPT, HeaderValue::from_static("*/*"));
     h.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     h.insert(
-        HeaderName::from_static("x-amzn-kiro-agent-mode"),
-        HeaderValue::from_static(AGENT_MODE),
+        HeaderName::from_static("x-amz-user-agent"),
+        HeaderValue::from_static(USER_AGENT_VALUE),
+    );
+    h.insert(
+        HeaderName::from_static("x-amz-target"),
+        HeaderValue::from_static(target),
     );
     h.insert(
         HeaderName::from_static("x-amzn-codewhisperer-optout"),
-        HeaderValue::from_static("true"),
+        HeaderValue::from_static("false"),
     );
     h.insert(
         HeaderName::from_static("amz-sdk-request"),
@@ -413,12 +464,19 @@ mod tests {
         };
         let req = KiroChannel.prepare(ctx).unwrap().request;
 
-        assert_eq!(
-            req.uri().to_string(),
-            "https://q.us-east-1.amazonaws.com/generateAssistantResponse"
-        );
+        // Captured Kiro CLI chat: Smithy POST to the runtime host root with the
+        // operation in `x-amz-target` (no path), AWS-JSON 1.0, no agent-mode.
+        assert_eq!(req.uri().to_string(), "https://runtime.us-east-1.kiro.dev/");
         assert_eq!(req.headers().get("authorization").unwrap(), "Bearer tok");
-        assert_eq!(req.headers().get("x-amzn-kiro-agent-mode").unwrap(), "vibe");
+        assert_eq!(
+            req.headers().get("x-amz-target").unwrap(),
+            "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
+        );
+        assert_eq!(
+            req.headers().get("content-type").unwrap(),
+            "application/x-amz-json-1.0"
+        );
+        assert!(req.headers().get("x-amzn-kiro-agent-mode").is_none());
         assert!(req.headers().get("amz-sdk-invocation-id").is_some());
 
         let v: Value = serde_json::from_slice(req.body()).unwrap();
