@@ -9,7 +9,7 @@ pub(in crate::transform::models) fn model(
 ) -> openai::Model {
     openai::Model {
         id: gemini_model_id(&input).into(),
-        created: 0,
+        created: None,
         object: openai_model_object(),
         owned_by: DEFAULT_OPENAI_OWNED_BY.to_owned(),
         extra: Default::default(),
