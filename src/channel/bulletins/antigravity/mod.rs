@@ -143,19 +143,28 @@ impl Channel for AntigravityChannel {
         }
 
         // Wrap the gemini body in the Code Assist envelope. `ctx.body` is moved
-        // out here (the request body becomes the wrapped bytes).
-        let wrapped = envelope::wrap_code_assist(
-            &ctx.body,
-            ctx.upstream_model_id,
-            project_id,
-            &envelope::random_user_prompt_id(),
-        )?;
+        // out here (the request body becomes the wrapped bytes). `:countTokens`
+        // takes a different envelope (no model/project; request is a plain
+        // GenerateContentRequest) — see `wrap_code_assist_count`.
+        let is_count = ctx.path.contains(":countTokens");
+        let wrapped = if is_count {
+            envelope::wrap_code_assist_count(&ctx.body)?
+        } else {
+            envelope::wrap_code_assist(
+                &ctx.body,
+                ctx.upstream_model_id,
+                project_id,
+                &envelope::random_user_prompt_id(),
+            )?
+        };
 
         // Verb encoded in the inbound path (shared with geminicli/vertex): the
         // Code Assist endpoints live under `/v1internal:` and stream only when
         // `alt=sse` is set explicitly.
         let (verb, query) = if ctx.path.contains(":streamGenerateContent") {
             (":streamGenerateContent", Some("alt=sse"))
+        } else if is_count {
+            (":countTokens", None)
         } else {
             (":generateContent", None)
         };

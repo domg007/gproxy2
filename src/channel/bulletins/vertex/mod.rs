@@ -179,6 +179,8 @@ impl Channel for VertexChannel {
             // `:generateContent`).
             let (verb, query) = if ctx.path.contains(":streamGenerateContent") {
                 (":streamGenerateContent", Some("alt=sse"))
+            } else if ctx.path.contains(":countTokens") {
+                (":countTokens", None)
             } else {
                 (":generateContent", None)
             };

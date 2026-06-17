@@ -61,6 +61,29 @@ pub fn wrap_code_assist(
         .map_err(|e| ChannelError::Build(format!("serialize code-assist envelope: {e}")))
 }
 
+/// Build the Code Assist `:countTokens` body. The count endpoint differs from
+/// generate: it rejects the top-level `model`/`project`/`user_prompt_id`
+/// envelope fields and wants only `request` as a plain `GenerateContentRequest`
+/// (NOT a CountTokensRequest, so no `generateContentRequest` wrapper). Mirrors
+/// CLIProxyAPI's gemini-cli/antigravity count path.
+pub fn wrap_code_assist_count(gemini_count_body: &[u8]) -> Result<Vec<u8>, ChannelError> {
+    let parsed: Value = serde_json::from_slice(gemini_count_body)
+        .map_err(|e| ChannelError::Build(format!("gemini count body is not JSON: {e}")))?;
+    // The CountTokens transform nests the real GenerateContentRequest under
+    // `generateContentRequest`; lift it up to be `request`. Fall back to a bare
+    // `{contents}` if a caller sent contents directly.
+    let mut request = parsed
+        .get("generateContentRequest")
+        .cloned()
+        .unwrap_or_else(
+            || json!({ "contents": parsed.get("contents").cloned().unwrap_or_else(|| json!([])) }),
+        );
+    force_user_roles(&mut request);
+    let envelope = json!({ "request": request });
+    serde_json::to_vec(&envelope)
+        .map_err(|e| ChannelError::Build(format!("serialize code-assist count envelope: {e}")))
+}
+
 /// Unwrap a Code Assist response: extract `.response`. On a parse failure or a
 /// missing `.response` the original body is returned unchanged.
 pub fn unwrap_code_assist(body: Bytes) -> Bytes {
@@ -256,6 +279,20 @@ mod tests {
         let mut out = dec.push(b"data: {\"response\":{\"t\":\"a\"}}\n\n");
         out.extend(dec.finish());
         assert_eq!(String::from_utf8(out).unwrap(), "data: {\"t\":\"a\"}\n\n");
+    }
+
+    #[test]
+    fn count_envelope_strips_to_bare_request() {
+        // The CountTokens transform nests the real GenerateContentRequest under
+        // `generateContentRequest`; the count envelope lifts it to `request` and
+        // drops model/project/user_prompt_id (which Code Assist `:countTokens`
+        // rejects with "Unknown name ...").
+        let body = br#"{"model":"gemini-2.5-flash","contents":[],"generateContentRequest":{"contents":[{"parts":[{"text":"hi"}]}]}}"#;
+        let v: Value = serde_json::from_slice(&wrap_code_assist_count(body).unwrap()).unwrap();
+        assert!(v.get("model").is_none() && v.get("project").is_none());
+        assert!(v.get("user_prompt_id").is_none() && v.get("generateContentRequest").is_none());
+        assert_eq!(v["request"]["contents"][0]["role"], "user");
+        assert_eq!(v["request"]["contents"][0]["parts"][0]["text"], "hi");
     }
 
     #[test]
