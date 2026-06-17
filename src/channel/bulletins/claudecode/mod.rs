@@ -148,10 +148,14 @@ impl Channel for ClaudeCodeChannel {
         let now_secs = crate::util::time::unix_now().max(0) as u64;
         let session_id = cch::session_id(&device_id, &ctx.body, now_secs);
 
-        // The model call (`POST /v1/messages*`) carries the CLI billing header +
+        // The model call (`POST /v1/messages`) carries the CLI billing header +
         // `metadata.user_id`; the `cch` checksum is computed over the final body.
-        // Other paths (e.g. token-count GET) pass through unchanged.
-        let is_messages = ctx.method == http::Method::POST && ctx.path.starts_with("/v1/messages");
+        // Match the path EXACTLY (not by prefix): the sibling
+        // `POST /v1/messages/count_tokens` endpoint rejects `metadata`
+        // ("metadata: Extra inputs are not permitted"), so it must NOT be
+        // treated as a model call. The path is already claude-native here
+        // (transform rewrote it), so this also covers openai/gemini callers.
+        let is_messages = ctx.method == http::Method::POST && ctx.path == "/v1/messages";
         let body = if is_messages {
             let account_uuid = ctx
                 .secret
@@ -359,6 +363,40 @@ mod tests {
             req.headers().get("anthropic-beta").unwrap(),
             "oauth-2025-04-20,feat-x,feat-y"
         );
+    }
+
+    #[test]
+    fn count_tokens_skips_cch_metadata_injection() {
+        // `POST /v1/messages/count_tokens` is NOT the model call: Anthropic's
+        // count endpoint rejects `metadata` ("Extra inputs are not permitted"),
+        // so cch injection must be skipped. Regression: the old prefix match
+        // (`starts_with("/v1/messages")`) injected it → 400.
+        let secret = json!({ "access_token": "tok", "account_uuid": "acct-1" });
+        let settings = json!({});
+        let headers = HeaderMap::new();
+        let body = Bytes::from_static(b"{\"model\":\"claude-haiku-4-5\",\"messages\":[]}");
+        let prepare = |path| {
+            let req = ClaudeCodeChannel
+                .prepare(PrepareCtx {
+                    secret: &secret,
+                    provider_settings: &settings,
+                    upstream_model_id: "claude-haiku-4-5",
+                    method: Method::POST,
+                    path,
+                    query: None,
+                    headers: &headers,
+                    body: body.clone(),
+                })
+                .unwrap()
+                .request;
+            serde_json::from_slice::<Value>(req.body()).unwrap()
+        };
+        // count_tokens: untouched — no metadata.
+        let count = prepare("/v1/messages/count_tokens");
+        assert!(count.get("metadata").is_none(), "count body: {count}");
+        // the real model call still gets metadata.user_id injected.
+        let msg = prepare("/v1/messages");
+        assert!(msg["metadata"]["user_id"].is_string(), "msg body: {msg}");
     }
 
     #[tokio::test]
