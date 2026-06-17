@@ -43,7 +43,7 @@ impl Channel for CopilotCliChannel {
     }
 
     fn routing_table(&self) -> crate::channel::routes::RouteList {
-        use crate::channel::routes::{cg, pass, pv, xform};
+        use crate::channel::routes::{cg, local, pass, pv, xform};
         use crate::protocol::{ContentGenerationKind::*, Operation::*, Provider as P};
         vec![
             pass(ListModels, pv(P::OpenAi)),
@@ -52,9 +52,11 @@ impl Channel for CopilotCliChannel {
             pass(GetModel, pv(P::OpenAi)),
             xform(GetModel, pv(P::Claude), GetModel, pv(P::OpenAi)),
             xform(GetModel, pv(P::Gemini), GetModel, pv(P::OpenAi)),
-            pass(CountTokens, pv(P::OpenAi)),
-            xform(CountTokens, pv(P::Claude), CountTokens, pv(P::OpenAi)),
-            xform(CountTokens, pv(P::Gemini), CountTokens, pv(P::OpenAi)),
+            // Copilot has no upstream token-count endpoint (only /chat/completions
+            // + /models); count locally like every other chat-only channel.
+            local(CountTokens, pv(P::OpenAi)),
+            local(CountTokens, pv(P::Claude)),
+            local(CountTokens, pv(P::Gemini)),
             pass(GenerateContent, cg(OpenAiChatCompletions)),
             xform(
                 GenerateContent,
