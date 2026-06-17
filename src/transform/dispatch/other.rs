@@ -32,6 +32,7 @@ pub(super) fn is_wired(pair: TransformPair) -> bool {
             // images
             | P::OpenAiCreateImageToGemini
             | P::GeminiToOpenAiCreateImage
+            | P::OpenAiCreateImageToOpenAiResponses
             | P::OpenAiEditImageToGemini
             | P::GeminiToOpenAiEditImage
             // compact (request-only and response-only pairs are each used in
@@ -78,6 +79,11 @@ pub(super) fn request_bytes(
         // images
         P::OpenAiCreateImageToGemini => run(images::create::openai_to_gemini::request, ctx, body),
         P::GeminiToOpenAiCreateImage => run(images::create::gemini_to_openai::request, ctx, body),
+        P::OpenAiCreateImageToOpenAiResponses => run(
+            images::create::openai_to_openai_responses::request,
+            ctx,
+            body,
+        ),
         P::OpenAiEditImageToGemini => run(images::edit::openai_to_gemini::request, ctx, body),
         P::GeminiToOpenAiEditImage => run(images::edit::gemini_to_openai::request, ctx, body),
         // compact
@@ -127,6 +133,11 @@ pub(super) fn response_bytes(
         // images
         P::OpenAiCreateImageToGemini => run(images::create::openai_to_gemini::response, ctx, body),
         P::GeminiToOpenAiCreateImage => run(images::create::gemini_to_openai::response, ctx, body),
+        P::OpenAiCreateImageToOpenAiResponses => run(
+            images::create::openai_to_openai_responses::response,
+            ctx,
+            body,
+        ),
         P::OpenAiEditImageToGemini => run(images::edit::openai_to_gemini::response, ctx, body),
         P::GeminiToOpenAiEditImage => run(images::edit::gemini_to_openai::response, ctx, body),
         // compact

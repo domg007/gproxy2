@@ -33,6 +33,7 @@ pub enum TransformPair {
     GeminiToOpenAiEmbeddings,
     OpenAiCreateImageToGemini,
     GeminiToOpenAiCreateImage,
+    OpenAiCreateImageToOpenAiResponses,
     OpenAiEditImageToGemini,
     GeminiToOpenAiEditImage,
     OpenAiToClaudeCompact,
@@ -204,6 +205,25 @@ fn embeddings_pair(source: Provider, target: Provider) -> Option<TransformPair> 
 fn resolve_image_generation(source: OperationKey, target: OperationKey) -> Option<TransformPair> {
     use ContentGenerationKind as Kind;
     use OperationKind as OK;
+
+    // OpenAI create-image -> OpenAI Responses: codex/ChatGPT has no images
+    // endpoint and generates via the Responses `image_generation` tool. The same
+    // pair serves both directions (request: images->responses; response:
+    // responses->images), so resolve it for the reverse ordering too.
+    if let (OK::Provider(Provider::OpenAi), OK::ContentGeneration(Kind::OpenAiResponses)) =
+        (source.kind, target.kind)
+        && target.operation.is_content_generation()
+        && source.operation == Operation::CreateImage
+    {
+        return Some(TransformPair::OpenAiCreateImageToOpenAiResponses);
+    }
+    if let (OK::ContentGeneration(Kind::OpenAiResponses), OK::Provider(Provider::OpenAi)) =
+        (source.kind, target.kind)
+        && source.operation.is_content_generation()
+        && target.operation == Operation::CreateImage
+    {
+        return Some(TransformPair::OpenAiCreateImageToOpenAiResponses);
+    }
 
     // OpenAI create/edit image -> Gemini generate-content.
     if let (OK::Provider(Provider::OpenAi), OK::ContentGeneration(Kind::GeminiGenerateContent)) =

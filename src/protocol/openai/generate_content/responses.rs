@@ -14,7 +14,7 @@ pub type ResponseWireModel = OpenAiWireModel<ResponseCreateRequest, ResponseObje
 pub type ResponseStreamWireModel =
     OpenAiWireModel<ResponseCreateRequest, super::ResponseStreamEvent>;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ResponseCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
