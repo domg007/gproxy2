@@ -95,10 +95,11 @@ impl RefreshOrchestrator {
         // non-wreq builds always use the default client.
         #[cfg(all(not(target_arch = "wasm32"), feature = "upstream-wreq"))]
         let client = {
+            let global_proxy = state.upstream_proxy_url();
             let proxy = crate::channel::resolve::effective_proxy(
                 credential,
                 provider,
-                state.config.upstream.proxy_url.as_deref(),
+                global_proxy.as_deref(),
             );
             let fingerprint =
                 crate::channel::resolve::effective_tls_fingerprint(credential, provider);

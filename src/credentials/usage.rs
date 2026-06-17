@@ -107,11 +107,9 @@ pub(crate) fn resolve_client(
     credential: &Credential,
     provider: &Provider,
 ) -> Result<Arc<dyn UpstreamClient>, UsageError> {
-    let proxy = crate::channel::resolve::effective_proxy(
-        credential,
-        provider,
-        state.config.upstream.proxy_url.as_deref(),
-    );
+    let global_proxy = state.upstream_proxy_url();
+    let proxy =
+        crate::channel::resolve::effective_proxy(credential, provider, global_proxy.as_deref());
     let fingerprint = crate::channel::resolve::effective_tls_fingerprint(credential, provider);
     let resolved = if let Some(fp) = fingerprint.as_ref() {
         state.client_pool.for_target(proxy.as_deref(), Some(fp))
