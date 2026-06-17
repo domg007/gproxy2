@@ -7,6 +7,7 @@ use super::super::common::*;
 use super::response_tools::ResponseTool;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
 pub enum ResponseItem {
     Message(ResponseMessageItem),
     Typed(TypedResponseItem),
@@ -156,6 +157,7 @@ fn require_some<T>(value: &Option<T>, field: &'static str) -> Result<(), &'stati
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
 pub enum ResponseMessageItem {
     Output(ResponseOutputMessageItem),
     Input(ResponseInputMessageItem),
@@ -687,7 +689,7 @@ pub enum ResponseToolOutputContentPart {
 pub enum ResponseMessageOutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
-        #[serde(skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         annotations: Vec<ResponseAnnotation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<Vec<TokenLogprob>>,
@@ -708,7 +710,7 @@ pub enum ResponseMessageOutputContentPart {
 pub enum ResponseOutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
-        #[serde(skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         annotations: Vec<ResponseAnnotation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<Vec<TokenLogprob>>,
@@ -1090,4 +1092,27 @@ pub struct McpToolDescription {
     pub description: Option<String>,
     #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: Extra,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `ResponseItem`/`ResponseMessageItem` must serialize FLAT
+    /// (untagged), matching their hand-written flat `Deserialize`. Before the
+    /// `#[serde(untagged)]` fix the derived `Serialize` emitted
+    /// `{"Message":{"EasyInput":{...}}}`, so the Responses backend saw no
+    /// top-level `role` and rejected `input[0]` with role `''`.
+    #[test]
+    fn input_message_serializes_flat() {
+        let flat = serde_json::json!({"type": "message", "role": "user", "content": "hi"});
+        let item: ResponseItem = serde_json::from_value(flat.clone()).unwrap();
+        let back = serde_json::to_value(&item).unwrap();
+        assert!(
+            back.get("Message").is_none() && back.get("EasyInput").is_none(),
+            "must not be externally tagged: {back}"
+        );
+        assert_eq!(back["role"], "user", "{back}");
+        assert_eq!(back, flat);
+    }
 }
