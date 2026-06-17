@@ -161,20 +161,17 @@ impl Channel for VertexChannel {
         let location = Self::location(ctx.provider_settings, ctx.secret);
         let host = Self::host(&location);
         // The model-pull (and any ListModels client) hits `/v1beta/models` —
-        // GET, no model id, no `:verb`. Vertex exposes a separate LIST endpoint
-        // (`.../publishers/google/models`, no trailing verb) for that.
+        // GET, no model id, no `:verb`. Vertex's `ListPublisherModels` (Model
+        // Garden) is NOT project-scoped: it is `GET /v1beta1/publishers/google/models`
+        // on the regional host. The `projects/{project}/locations/{location}/`
+        // prefix (used by the content path below) 404s on the LIST endpoint.
         let is_list_models = ctx
             .path
             .rsplit('/')
             .next()
             .is_some_and(|seg| seg == "models" && !ctx.path.contains(':'));
         let (path, query) = if is_list_models {
-            (
-                format!(
-                    "/v1beta1/projects/{project_id}/locations/{location}/publishers/google/models"
-                ),
-                None,
-            )
+            ("/v1beta1/publishers/google/models".to_string(), None)
         } else {
             // The M2 layer encodes the verb in the path for gemini targets;
             // vertex rebuilds its own URL against the regional host, reusing only
@@ -382,8 +379,8 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
     #[test]
     fn list_models_builds_vertex_list_endpoint() {
         // The model-pull sends GET /v1beta/models (no model, no `:verb`); vertex
-        // must build its LIST endpoint (no trailing verb) instead of the content
-        // path.
+        // must build the Model Garden `ListPublisherModels` endpoint — NOT
+        // project-scoped (the project/location prefix 404s on LIST).
         let mut secret = sa_secret();
         secret["access_token"] = json!("tok-abc");
         let settings = json!({});
@@ -401,7 +398,7 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
         let req = VertexChannel.prepare(ctx).unwrap().request;
         assert_eq!(
             req.uri().to_string(),
-            "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/proj-123/locations/us-central1/publishers/google/models"
+            "https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/google/models"
         );
     }
 

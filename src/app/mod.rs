@@ -99,6 +99,17 @@ impl AppState {
         self.snapshot.load()
     }
 
+    /// Effective default upstream proxy: the Console-set `instance_settings.proxy`
+    /// (snapshot-resident), falling back to the CLI/env `--upstream-proxy-url`.
+    /// Per-credential and per-provider proxies still override this — see
+    /// [`effective_proxy`](crate::channel::resolve::effective_proxy).
+    pub fn upstream_proxy_url(&self) -> Option<String> {
+        self.cp()
+            .proxy
+            .clone()
+            .or_else(|| self.config.upstream.proxy_url.clone())
+    }
+
     /// Rebuild the snapshot from persistence and swap it in (next version).
     pub async fn reload_snapshot(&self) -> anyhow::Result<()> {
         let next = self.cp().version.wrapping_add(1);

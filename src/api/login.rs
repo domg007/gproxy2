@@ -26,10 +26,18 @@ pub struct LoginStartResponse {
 /// `POST /admin/login-flows/complete` body. `callback_url` is the full redirect
 /// URL the provider sent the user back to (it carries `code` + `state`). The
 /// minted credential lands in `provider_id`'s pool under the optional `name`.
+///
+/// `code` is the alternative for CODE-ONLY flows (e.g. geminicli's
+/// `codeassist.google.com/authcode`) where the provider shows a bare
+/// authorization code with NO callback URL / `state`: when `code` is present it
+/// takes precedence and `callback_url` may be empty.
 #[derive(serde::Deserialize)]
 pub struct LoginCompleteRequest {
     pub login_session_id: String,
+    #[serde(default)]
     pub callback_url: String,
+    #[serde(default)]
+    pub code: Option<String>,
     pub provider_id: i64,
     #[serde(default)]
     pub name: Option<String>,

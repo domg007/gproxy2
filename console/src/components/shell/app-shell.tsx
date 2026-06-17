@@ -39,10 +39,22 @@ function Brand({ compact }: { compact?: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="flex h-14 items-center gap-2 px-4 font-semibold">
-      <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-xs text-primary-foreground">
-        g
-      </span>
-      <span className={compact ? "hidden" : undefined}>{t("app.name")}</span>
+      {/* v1 brand mark: teal (--accent #0f766e) rounded square + white G monogram. */}
+      <svg viewBox="0 0 32 32" className="size-7 shrink-0" role="img" aria-label="GPROXY">
+        <rect width="32" height="32" rx="8" fill="#0f766e" />
+        <text
+          x="16"
+          y="23"
+          textAnchor="middle"
+          fontFamily="ui-sans-serif, system-ui, sans-serif"
+          fontSize="20"
+          fontWeight="800"
+          fill="#ffffff"
+        >
+          G
+        </text>
+      </svg>
+      <span className={compact ? "hidden" : "font-bold tracking-wide"}>{t("app.name")}</span>
     </div>
   );
 }

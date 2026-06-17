@@ -91,6 +91,9 @@ pub async fn fetch_models(
 }
 
 /// Transport-injectable core: build the `list_models` request, send it, parse.
+/// Transient throttling (`429`) / server errors are retried with backoff — the
+/// gemini CLI does the same for its quota-derived model list, since Google
+/// frequently 429s the `retrieveUserQuota` endpoint a single call rides.
 async fn fetch_models_with(
     channel: &Arc<dyn Channel>,
     family: Provider,
@@ -104,41 +107,68 @@ async fn fetch_models_with(
         false,
     );
     let headers = http::HeaderMap::new();
-    let prepared = channel.prepare(PrepareCtx {
-        secret,
-        provider_settings: settings,
-        upstream_model_id: "",
-        method: http::Method::GET,
-        path: &target.path,
-        query: target.query.as_deref(),
-        headers: &headers,
-        body: Bytes::new(),
-    })?;
 
-    let resp = client
-        .send(prepared.into_http())
-        .await
-        .map_err(|e| ModelsError::Upstream(e.to_string()))?;
-    let status = resp.status();
-    let body = resp.into_body();
-    if !status.is_success() {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        // Re-prepare each attempt (`into_http` consumes the request); cheap.
+        let prepared = channel.prepare(PrepareCtx {
+            secret,
+            provider_settings: settings,
+            upstream_model_id: "",
+            method: http::Method::GET,
+            path: &target.path,
+            query: target.query.as_deref(),
+            headers: &headers,
+            body: Bytes::new(),
+        })?;
+
+        let resp = client
+            .send(prepared.into_http())
+            .await
+            .map_err(|e| ModelsError::Upstream(e.to_string()))?;
+        let status = resp.status();
+        let body = resp.into_body();
+
+        if status.is_success() {
+            // Channel response 整形 (same hook proxy traffic uses): lets a channel
+            // reshape a non-standard model-list body (e.g. codex `{models}`→`{data}`,
+            // vertex `publisherModels`→`models`) into its family's canonical shape
+            // before `parse_models` reads it.
+            let op = OperationKey::provider(Operation::ListModels, family);
+            let body = channel.shape_response(
+                body,
+                &crate::channel::ShapeCtx {
+                    op,
+                    stream: false,
+                    status,
+                },
+            );
+            return Ok(parse_models(family, &body));
+        }
+
+        // Retry transient throttling (429) / server errors a few times before
+        // surfacing — mirrors the gemini CLI's `retrieveUserQuota` retry.
+        if (status.as_u16() == 429 || status.is_server_error()) && attempt < PULL_MAX_ATTEMPTS {
+            pull_backoff(attempt).await;
+            continue;
+        }
         return Err(ModelsError::Status(status.as_u16()));
     }
-    // Channel response 整形 (same hook proxy traffic uses): lets a channel
-    // reshape a non-standard model-list body (e.g. codex `{models}`→`{data}`,
-    // vertex `publisherModels`→`models`) into its family's canonical shape
-    // before `parse_models` reads it.
-    let op = OperationKey::provider(Operation::ListModels, family);
-    let body = channel.shape_response(
-        body,
-        &crate::channel::ShapeCtx {
-            op,
-            stream: false,
-            status,
-        },
-    );
-    Ok(parse_models(family, &body))
 }
+
+/// Max model-pull attempts (1 try + 2 retries) for transient 429/5xx.
+const PULL_MAX_ATTEMPTS: u32 = 3;
+
+/// Backoff between pull retries. The pull is admin-triggered + infrequent, so a
+/// slightly longer delay than the CLI's 100ms is fine and gentler on the quota
+/// endpoint. No-op on wasm (the pull is native-only; this only keeps it edge-safe).
+#[cfg(not(target_arch = "wasm32"))]
+async fn pull_backoff(attempt: u32) {
+    tokio::time::sleep(std::time::Duration::from_millis(400 * attempt as u64)).await;
+}
+#[cfg(target_arch = "wasm32")]
+async fn pull_backoff(_attempt: u32) {}
 
 /// Parse an upstream native model-list response into `(id, display_name)` rows.
 /// openai/claude → `data[]` (`id`); gemini → `models[]` (`name`, `models/` stripped).

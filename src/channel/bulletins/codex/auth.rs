@@ -22,9 +22,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use bytes::Bytes;
 use http::Request;
 use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, USER_AGENT};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::channel::ChannelError;
+use crate::channel::login::{DeviceInit, DevicePoll};
 use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
 
@@ -146,6 +148,154 @@ pub(super) async fn authcode_exchange(
         secret["id_token"] = Value::String(id_token);
     }
     Ok(secret)
+}
+
+// ── Device-code login (`codex login --device-auth`) ─────────────────────────────
+// OpenAI's CUSTOM device grant (NOT RFC 8628): request a one-time `user_code`,
+// poll the token endpoint until the operator approves in the browser, then run
+// the SAME authorization_code + PKCE exchange as the loopback flow (only the
+// redirect_uri differs). Confirmed against `samples/codex/.../device_code_auth.rs`.
+
+/// `POST {client_id}` → `{device_auth_id, user_code, interval}`.
+const DEVICE_USERCODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
+/// `POST {device_auth_id, user_code}` → 2xx `{authorization_code, code_verifier}`;
+/// 403/404 = still pending.
+const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
+/// Page the operator opens to enter the one-time code.
+const DEVICE_VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
+/// redirect_uri bound in the device-code token exchange (the code was issued
+/// against it, so the exchange must echo it).
+const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+
+fn default_interval() -> u64 {
+    5
+}
+
+/// `usercode` response. `interval` may arrive as a number or a string.
+#[derive(Deserialize)]
+struct UserCodeResp {
+    device_auth_id: String,
+    #[serde(alias = "usercode")]
+    user_code: String,
+    #[serde(default = "default_interval", deserialize_with = "de_interval")]
+    interval: u64,
+}
+
+fn de_interval<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    match Value::deserialize(d)? {
+        Value::Number(n) => Ok(n.as_u64().unwrap_or_else(default_interval)),
+        Value::String(s) => Ok(s.trim().parse().unwrap_or_else(|_| default_interval())),
+        _ => Ok(default_interval()),
+    }
+}
+
+/// Authorized `token` poll response (the PKCE verifier is minted server-side).
+#[derive(Deserialize)]
+struct DevicePollResp {
+    authorization_code: String,
+    code_verifier: String,
+}
+
+/// Opaque server-side state packed into `DeviceInit::device_code` — the device
+/// poll needs BOTH `device_auth_id` and `user_code`, but the shared
+/// `DeviceSession` stashes only one string. Never shown to the operator.
+#[derive(serde::Serialize, Deserialize)]
+struct DeviceState {
+    device_auth_id: String,
+    user_code: String,
+}
+
+/// Begin a device-code login: `POST {usercode}` `{client_id}` → the one-time
+/// `user_code` + the verification URL the operator visits. The `device_auth_id`
+/// is packed (with the user_code) into the opaque `device_code` for polling.
+pub(super) async fn device_start(
+    client: &Arc<dyn UpstreamClient>,
+) -> Result<DeviceInit, ChannelError> {
+    let (status, body) = device_post(
+        client,
+        DEVICE_USERCODE_URL,
+        &json!({ "client_id": OAUTH_CLIENT_ID }),
+    )
+    .await?;
+    if !status.is_success() {
+        let snippet: String = String::from_utf8_lossy(&body).chars().take(256).collect();
+        return Err(ChannelError::Build(format!(
+            "codex deviceauth usercode {status}: {snippet}"
+        )));
+    }
+    let resp: UserCodeResp = serde_json::from_slice(&body)
+        .map_err(|e| ChannelError::Build(format!("codex usercode response parse: {e}")))?;
+    let device_code = serde_json::to_string(&DeviceState {
+        device_auth_id: resp.device_auth_id,
+        user_code: resp.user_code.clone(),
+    })
+    .map_err(|e| ChannelError::Build(format!("codex device state serialize: {e}")))?;
+
+    Ok(DeviceInit {
+        device_code,
+        user_code: resp.user_code,
+        verification_url: DEVICE_VERIFICATION_URL.to_string(),
+        interval_secs: resp.interval.max(1),
+    })
+}
+
+/// Poll a pending device-code login once. `403`/`404` → [`DevicePoll::Pending`];
+/// `2xx` → exchange the issued authorization code (reusing [`authcode_exchange`]
+/// with the device redirect) → [`DevicePoll::Ready`] with the plaintext secret;
+/// anything else → [`DevicePoll::Denied`].
+pub(super) async fn device_poll(
+    client: &Arc<dyn UpstreamClient>,
+    device_code: &str,
+) -> Result<DevicePoll, ChannelError> {
+    let state: DeviceState = serde_json::from_str(device_code)
+        .map_err(|e| ChannelError::Build(format!("codex device state parse: {e}")))?;
+    let (status, body) = device_post(
+        client,
+        DEVICE_TOKEN_URL,
+        &json!({ "device_auth_id": state.device_auth_id, "user_code": state.user_code }),
+    )
+    .await?;
+
+    match status.as_u16() {
+        403 | 404 => Ok(DevicePoll::Pending),
+        200..=299 => {
+            let parsed: DevicePollResp = serde_json::from_slice(&body)
+                .map_err(|e| ChannelError::Build(format!("codex device token parse: {e}")))?;
+            let secret = authcode_exchange(
+                client,
+                &parsed.authorization_code,
+                &parsed.code_verifier,
+                DEVICE_REDIRECT_URI,
+            )
+            .await?;
+            Ok(DevicePoll::Ready(secret))
+        }
+        _ => Ok(DevicePoll::Denied),
+    }
+}
+
+/// POST a JSON `body` to a device endpoint, returning `(status, body)` so the
+/// caller can branch on the status (the poll endpoint uses 403/404 for pending).
+async fn device_post(
+    client: &Arc<dyn UpstreamClient>,
+    url: &str,
+    body: &Value,
+) -> Result<(http::StatusCode, Bytes), ChannelError> {
+    let payload = serde_json::to_vec(body)
+        .map_err(|e| ChannelError::Build(format!("codex device request serialize: {e}")))?;
+    let req = Request::builder()
+        .method(http::Method::POST)
+        .uri(url)
+        .header(CONTENT_TYPE, "application/json")
+        .header(ACCEPT, "application/json")
+        .body(Bytes::from(payload))
+        .map_err(|e| ChannelError::Build(format!("codex device request build: {e}")))?;
+    let resp = client
+        .send(req)
+        .await
+        .map_err(|e| ChannelError::Build(format!("codex device request failed: {e}")))?;
+    let (parts, body) = resp.into_parts();
+    Ok((parts.status, body))
 }
 
 /// Percent-encode a query value, leaving the RFC 3986 unreserved set verbatim.
@@ -516,5 +666,120 @@ mod tests {
         let no_claim = B64URL.encode(br#"{"email":"x"}"#);
         assert_eq!(account_id_from_id_token(&format!("h.{no_claim}.s")), None);
         assert_eq!(account_id_from_id_token("not-a-jwt"), None);
+    }
+
+    /// A mock that replays a queue of `(status, body)` responses in order and
+    /// records the request URIs — drives the multi-call device-poll path.
+    struct QueueUpstream {
+        responses: Mutex<Vec<(u16, Vec<u8>)>>,
+        seen: Mutex<Vec<String>>,
+    }
+    #[async_trait::async_trait]
+    impl UpstreamClient for QueueUpstream {
+        async fn send(
+            &self,
+            req: Request<Bytes>,
+        ) -> Result<http::Response<Bytes>, crate::http::client::ClientError> {
+            self.seen.lock().unwrap().push(req.uri().to_string());
+            let (status, body) = self.responses.lock().unwrap().remove(0);
+            Ok(http::Response::builder()
+                .status(status)
+                .body(Bytes::from(body))
+                .unwrap())
+        }
+    }
+    fn queue(responses: Vec<(u16, Value)>) -> Arc<QueueUpstream> {
+        Arc::new(QueueUpstream {
+            responses: Mutex::new(
+                responses
+                    .into_iter()
+                    .map(|(s, v)| (s, serde_json::to_vec(&v).unwrap()))
+                    .collect(),
+            ),
+            seen: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// `device_start` POSTs `{client_id}` to the usercode endpoint and packs the
+    /// device_auth_id + user_code into the opaque device_code.
+    #[tokio::test]
+    async fn device_start_requests_user_code() {
+        let up = queue(vec![(
+            200,
+            json!({ "device_auth_id": "dev-1", "user_code": "WXYZ-1234", "interval": "7" }),
+        )]);
+        let client: Arc<dyn UpstreamClient> = up.clone();
+        let init = device_start(&client).await.expect("device_start ok");
+
+        assert_eq!(
+            up.seen.lock().unwrap()[0],
+            "https://auth.openai.com/api/accounts/deviceauth/usercode"
+        );
+        assert_eq!(init.user_code, "WXYZ-1234");
+        assert_eq!(
+            init.verification_url,
+            "https://auth.openai.com/codex/device"
+        );
+        assert_eq!(init.interval_secs, 7); // string "7" parsed
+        // device_code carries the poll state (device_auth_id + user_code).
+        let state: Value = serde_json::from_str(&init.device_code).unwrap();
+        assert_eq!(state["device_auth_id"], "dev-1");
+        assert_eq!(state["user_code"], "WXYZ-1234");
+    }
+
+    /// `device_poll`: 403 → Pending; an authorized poll → exchange the issued
+    /// code → Ready with the mapped secret.
+    #[tokio::test]
+    async fn device_poll_pending_then_authorized() {
+        let device_code = serde_json::to_string(&json!({
+            "device_auth_id": "dev-1", "user_code": "WXYZ-1234"
+        }))
+        .unwrap();
+
+        // 403 → still pending; the request hit the token endpoint.
+        let up = queue(vec![(403, json!({}))]);
+        let client: Arc<dyn UpstreamClient> = up.clone();
+        assert!(matches!(
+            device_poll(&client, &device_code).await.unwrap(),
+            DevicePoll::Pending
+        ));
+        assert_eq!(
+            up.seen.lock().unwrap()[0],
+            "https://auth.openai.com/api/accounts/deviceauth/token"
+        );
+
+        // Authorized: poll returns the code, then the token exchange returns the
+        // tokens → Ready with the account-id-bearing secret.
+        let id_payload =
+            json!({ "https://api.openai.com/auth": { "chatgpt_account_id": "acct-9" } });
+        let id_token = format!(
+            "h.{}.s",
+            B64URL.encode(serde_json::to_vec(&id_payload).unwrap())
+        );
+        let up = queue(vec![
+            (
+                200,
+                json!({ "authorization_code": "auth-code", "code_verifier": "ver" }),
+            ),
+            (
+                200,
+                json!({ "access_token": "at-d", "refresh_token": "rt-d", "id_token": id_token, "expires_in": 3600 }),
+            ),
+        ]);
+        let client: Arc<dyn UpstreamClient> = up.clone();
+        let secret = match device_poll(&client, &device_code).await.unwrap() {
+            DevicePoll::Ready(v) => v,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(secret["access_token"], "at-d");
+        assert_eq!(secret["refresh_token"], "rt-d");
+        assert_eq!(secret["account_id"], "acct-9");
+        // Second call hit the OAuth token endpoint with the device redirect.
+        let seen = up.seen.lock().unwrap();
+        assert_eq!(
+            seen[0],
+            "https://auth.openai.com/api/accounts/deviceauth/token"
+        );
+        assert_eq!(seen[1], "https://auth.openai.com/oauth/token");
     }
 }

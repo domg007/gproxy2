@@ -53,6 +53,11 @@ pub struct ControlPlaneSnapshot {
     /// Instance usage/log toggles (§8-E), snapshot-resident so the hot path
     /// reads them without a DB hit; hot-reloaded via §7.2 invalidation.
     pub log_settings: LogSettings,
+    /// Instance-level default upstream proxy (`instance_settings.proxy`,
+    /// Console-editable). The global fallback for [`effective_proxy`]
+    /// (per-credential / per-provider proxies still override it); hot-reloaded
+    /// via §7.2 so changing it in the Console applies without a restart.
+    pub proxy: Option<String>,
     /// Bumped on each rebuild.
     pub version: u64,
 }
@@ -116,6 +121,7 @@ impl ControlPlaneSnapshot {
             rate_limits_by_scope: HashMap::new(),
             quotas_by_scope: HashMap::new(),
             log_settings: LogSettings::default(),
+            proxy: None,
             version,
         }
     }
@@ -239,6 +245,7 @@ impl ControlPlaneSnapshot {
                 enable_downstream_log_body: s.enable_downstream_log_body,
                 disable_log_redaction: s.disable_log_redaction,
             };
+            snap.proxy = s.proxy.clone().filter(|p| !p.trim().is_empty());
         }
 
         Ok(snap)

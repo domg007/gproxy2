@@ -2,7 +2,6 @@
 //! allow-listing, and upstream request building.
 
 use bytes::Bytes;
-use http::header::HOST;
 use http::{HeaderMap, Method, Request, Uri};
 
 use crate::channel::ChannelError;
@@ -45,7 +44,8 @@ const BASE_FORWARD_HEADERS: &[&str] = &["content-type", "accept"];
 /// Allow-list filter for INBOUND headers (client → upstream): keeps the base set
 /// plus the channel's `extra`; drops everything else (client auth, cookies,
 /// `Host`, hop-by-hop, user-agent, SDK headers). The channel injects the
-/// credential's auth and a fresh `Host` itself.
+/// credential's auth itself; the upstream transport derives a fresh `Host` /
+/// `:authority` from the request URI (see [`build_request`]).
 ///
 /// `extra` entries MUST be lowercase (compared against the lowercase `HeaderName`).
 pub fn allow_headers(src: &HeaderMap, extra: &[&str]) -> HeaderMap {
@@ -118,26 +118,23 @@ pub fn join_url(base_url: &str, path: &str, query: Option<&str>) -> Result<Uri, 
     Ok(uri)
 }
 
-/// Build the upstream request: method + absolute URI + sanitized headers + a
-/// fresh `Host` from the URI authority, with `body` moved in. Channel-specific
-/// auth headers are inserted by the caller AFTER this.
+/// Build the upstream request: method + absolute URI + sanitized headers, with
+/// `body` moved in. Channel-specific auth headers are inserted by the caller
+/// AFTER this.
+///
+/// Does NOT set an explicit `Host` header — the transport derives `:authority`
+/// (HTTP/2) / `Host` (HTTP/1.1) from the URI. An explicit `Host` header breaks
+/// wreq's HTTP/2 send (h2 carries the authority as a pseudo-header and rejects a
+/// duplicate `Host`). Any `user:pass@` userinfo the `http` crate kept from
+/// `base_url` is stripped from the authority so it never reaches `:authority` /
+/// `Host`.
 pub fn build_request(
     method: Method,
     uri: Uri,
-    mut headers: HeaderMap,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Result<Request<Bytes>, ChannelError> {
-    // Derive Host from host[:port] only — never the full authority, which in the
-    // `http` crate includes any `user:pass@` userinfo present in base_url.
-    if let Some(host) = uri.host() {
-        let host_val = match uri.port_u16() {
-            Some(port) => format!("{host}:{port}"),
-            None => host.to_string(),
-        };
-        if let Ok(hv) = host_val.parse() {
-            headers.insert(HOST, hv);
-        }
-    }
+    let uri = strip_userinfo(uri)?;
     let mut req = Request::builder()
         .method(method)
         .uri(uri)
@@ -145,6 +142,29 @@ pub fn build_request(
         .map_err(|e| ChannelError::Build(e.to_string()))?;
     *req.headers_mut() = headers;
     Ok(req)
+}
+
+/// Strip any `user:pass@` userinfo from a URI's authority. The `http` crate keeps
+/// userinfo from `base_url` in the authority, and it must never leak into
+/// `:authority` / `Host`. No-op when the authority has none (the common case).
+fn strip_userinfo(uri: Uri) -> Result<Uri, ChannelError> {
+    let Some(auth) = uri.authority() else {
+        return Ok(uri);
+    };
+    if !auth.as_str().contains('@') {
+        return Ok(uri);
+    }
+    let clean = match auth.port_u16() {
+        Some(port) => format!("{}:{}", auth.host(), port),
+        None => auth.host().to_string(),
+    };
+    let mut parts = uri.into_parts();
+    parts.authority = Some(
+        clean
+            .parse()
+            .map_err(|e| ChannelError::Build(format!("authority parse: {e}")))?,
+    );
+    Uri::from_parts(parts).map_err(|e| ChannelError::Build(e.to_string()))
 }
 
 #[cfg(test)]
@@ -170,6 +190,35 @@ mod tests {
             join_url("  ", "/v1/x", None),
             Err(ChannelError::MissingSetting("base_url"))
         ));
+    }
+
+    #[test]
+    fn build_request_sets_no_explicit_host() {
+        // The transport derives :authority (HTTP/2) / Host (HTTP/1.1); an explicit
+        // Host header breaks wreq's HTTP/2 send, so build_request must not set one.
+        let uri = join_url(
+            "https://us-central1-aiplatform.googleapis.com",
+            "/v1beta1/x",
+            None,
+        )
+        .unwrap();
+        let req = build_request(Method::GET, uri, HeaderMap::new(), Bytes::new()).unwrap();
+        assert!(req.headers().get(http::header::HOST).is_none());
+        assert_eq!(
+            req.uri().host(),
+            Some("us-central1-aiplatform.googleapis.com")
+        );
+    }
+
+    #[test]
+    fn build_request_strips_userinfo_from_authority() {
+        let uri: Uri = "https://user:pass@example.com:8443/x".parse().unwrap();
+        let req = build_request(Method::GET, uri, HeaderMap::new(), Bytes::new()).unwrap();
+        assert!(req.headers().get(http::header::HOST).is_none());
+        assert_eq!(
+            req.uri().authority().map(|a| a.as_str()),
+            Some("example.com:8443")
+        );
     }
 
     #[test]

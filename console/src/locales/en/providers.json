@@ -114,6 +114,11 @@
     "done": "Credential created.",
     "deviceIntro": "Enter this code at",
     "waiting": "Waiting for authorization…",
+    "geminiMode": "Login mode",
+    "geminiCallback": "Callback URL",
+    "geminiCodeOnly": "Code only",
+    "pasteCodeLabel": "Paste the authorization code",
+    "pasteCodeHint": "Approve in the browser, then copy the authorization code shown and paste it here.",
     "kiroMethod": "Kiro login method",
     "kiroMethods": {
       "builderId": "AWS Builder ID",
