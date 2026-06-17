@@ -39,10 +39,10 @@ function Brand({ compact }: { compact?: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="flex h-14 items-center gap-2 px-4 font-semibold">
-      <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-xs text-primary-foreground">
-        g
+      <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+        G
       </span>
-      <span className={compact ? "hidden" : undefined}>{t("app.name")}</span>
+      <span className={compact ? "hidden" : "font-bold tracking-wide"}>{t("app.name")}</span>
     </div>
   );
 }
