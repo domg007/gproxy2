@@ -64,3 +64,6 @@ samples/
 # ── Console embed output (build artefacts; only .gitkeep is tracked) ──
 /assets/console/*
 !/assets/console/.gitkeep
+
+# ── channel-probe capture output (tools/channel-probe run output; never commit) ──
+probe-out/
