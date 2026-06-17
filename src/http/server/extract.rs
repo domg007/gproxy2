@@ -20,7 +20,8 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
         let (provider, rest) = trimmed
             .split_once('/')
             .ok_or(PipelineError::UnsupportedPath)?;
-        if provider.is_empty() || provider == "v1" || provider == "console" {
+        if provider.is_empty() || provider == "v1" || provider == "v1beta" || provider == "console"
+        {
             return Err(PipelineError::UnsupportedPath);
         }
         (
@@ -53,4 +54,47 @@ pub fn build_ctx(parts: Parts, body: Bytes, scoped: bool) -> Result<RequestCtx, 
 /// creation time, unique + opaque on both native and edge.
 fn gen_request_id() -> String {
     crate::util::id::ulid()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipeline::context::RoutingMode;
+
+    fn parts(path: &str) -> Parts {
+        http::Request::builder()
+            .uri(path)
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0
+    }
+
+    /// Gemini speaks `/v1beta/...`: scoped mode strips the provider but keeps the
+    /// `/v1beta/...` remainder intact for `classify` (regression for the gemini
+    /// 404 where the surface was unrouted).
+    #[test]
+    fn scoped_v1beta_strips_provider_keeps_path() {
+        let ctx = build_ctx(
+            parts("/geminicli/v1beta/models/m:generateContent"),
+            Bytes::new(),
+            true,
+        )
+        .unwrap();
+        assert!(matches!(ctx.mode, RoutingMode::Scoped { provider } if provider == "geminicli"));
+        assert_eq!(ctx.path, "/v1beta/models/m:generateContent");
+    }
+
+    #[test]
+    fn aggregated_v1beta_path_preserved() {
+        let ctx = build_ctx(parts("/v1beta/models"), Bytes::new(), false).unwrap();
+        assert!(matches!(ctx.mode, RoutingMode::Aggregated));
+        assert_eq!(ctx.path, "/v1beta/models");
+    }
+
+    /// `v1beta` is a reserved first segment, never a provider name.
+    #[test]
+    fn bare_v1beta_provider_rejected() {
+        assert!(build_ctx(parts("/v1beta/models"), Bytes::new(), true).is_err());
+    }
 }

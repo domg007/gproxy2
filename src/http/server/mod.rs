@@ -60,6 +60,11 @@ pub fn router(state: AppState) -> Router {
         let gateway = Router::new()
             .route("/v1/{*rest}", any(gateway::aggregated))
             .route("/{provider}/v1/{*rest}", any(gateway::scoped))
+            // Gemini speaks `/v1beta/...` rather than `/v1/...`; register the
+            // parallel surface so the gemini inbound spec reaches `classify`
+            // (which already handles these paths) instead of a router 404.
+            .route("/v1beta/{*rest}", any(gateway::aggregated))
+            .route("/{provider}/v1beta/{*rest}", any(gateway::scoped))
             .layer(DefaultBodyLimit::max(crate::config::MAX_BODY_BYTES))
             .layer(
                 ServiceBuilder::new()

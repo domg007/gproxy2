@@ -240,9 +240,13 @@ pub async fn fetch(req: web_sys::Request) -> Result<Response, JsValue> {
         };
     }
 
-    // Gateway: `/v1/...` is aggregated; anything else is `/{provider}/v1/...`
-    // scoped (build_ctx validates and rejects malformed paths).
-    let scoped = !(path == "/v1" || path.starts_with("/v1/"));
+    // Gateway: `/v1/...` and gemini's `/v1beta/...` are aggregated; anything
+    // else is `/{provider}/v1[beta]/...` scoped (build_ctx validates and
+    // rejects malformed paths).
+    let scoped = !(path == "/v1"
+        || path.starts_with("/v1/")
+        || path == "/v1beta"
+        || path.starts_with("/v1beta/"));
     let ctx = match crate::http::server::extract::build_ctx(parts, body, scoped) {
         Ok(c) => c,
         Err(e) => return error_to_ws(&e),
