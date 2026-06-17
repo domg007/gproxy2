@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { upsertCredential, type CredentialView } from "@/api/credentials";
+import { upsertCredential, revealSecret, type CredentialView } from "@/api/credentials";
 import { ApiError } from "@/api/http";
 import { buildSecret, SecretEditor, secretTemplateText } from "@/components/providers/secret-editor";
+import { channelMeta } from "@/lib/channel-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +41,19 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
   const [enabled, setEnabled] = useState(credential?.enabled ?? true);
   const [formError, setFormError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!editing || !credential.has_secret) return;
+    revealSecret(credential.id).then((secret) => {
+      const family = channelMeta(channel)?.family ?? "api_key";
+      if (family === "api_key") {
+        const key = (secret as Record<string, string>)?.api_key ?? "";
+        setSecretText(key);
+      } else {
+        setSecretText(JSON.stringify(secret, null, 2));
+      }
+    }).catch(() => { /* keep empty — user can still type */ });
+  }, [editing, credential?.id, credential?.has_secret, channel]);
+
   const mutation = useMutation({
     mutationFn: () => {
       const secret = buildSecret(channel, secretText);
@@ -57,7 +71,7 @@ export function CredentialForm({ providerId, channel, credential, onSaved }: Cre
       return upsertCredential(providerId, {
         id: credential?.id ?? null,
         label: label.trim() === "" ? null : label.trim(),
-        kind: credential?.kind ?? "api_key",
+        kind: credential?.kind ?? channelMeta(channel)?.family ?? "api_key",
         ...(secret !== null ? { secret_json: secret } : {}),
         weight: intOrNull(weight) ?? 100,
         rpm_limit: intOrNull(rpm),

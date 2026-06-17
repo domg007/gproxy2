@@ -104,3 +104,7 @@ export function upsertCredential(providerId: number, input: CredentialUpsert): P
 export function deleteCredential(id: number): Promise<void> {
   return api<void>(`/admin/credentials/${id}`, { method: "DELETE" });
 }
+
+export function revealSecret(id: number): Promise<unknown> {
+  return api<unknown>(`/admin/credentials/${id}/secret`);
+}

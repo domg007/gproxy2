@@ -93,6 +93,7 @@ pub fn routes() -> Router<AppState> {
             "/admin/credentials/{id}",
             axum::routing::delete(credentials::delete),
         )
+        .route("/admin/credentials/{id}/secret", get(credentials::reveal))
         // M10b T2 — user keys (digest + sealed ciphertext, redacted on read).
         .route(
             "/admin/users/{user_id}/keys",

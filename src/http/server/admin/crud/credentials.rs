@@ -99,6 +99,22 @@ pub async fn upsert(
     Ok(Json(CredentialView::from(cred)))
 }
 
+/// `GET /admin/credentials/{id}/secret` — unseal and return the plaintext
+/// secret so the edit form can pre-fill it.
+pub async fn reveal(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let cred = state
+        .persistence
+        .get_credential(id)
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| ApiError::NotFound("not found".into()))?;
+    let plain = state.cipher.open(&cred.secret_json).map_err(internal)?;
+    Ok(Json(plain))
+}
+
 /// `DELETE /admin/credentials/{id}` — 204 on removal, 404 otherwise.
 pub async fn delete(
     State(state): State<AppState>,
