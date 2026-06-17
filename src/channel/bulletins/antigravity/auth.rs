@@ -111,6 +111,9 @@ pub(super) async fn authcode_exchange(
     )
     .await?;
     secret["project_id"] = Value::String(project_id);
+    if let Some(email) = oauth::google_user_email(client, &access_token).await {
+        secret["user_email"] = Value::String(email);
+    }
     Ok(secret)
 }
 

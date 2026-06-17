@@ -290,6 +290,37 @@ async fn post_json_bearer(
         .map_err(|e| ChannelError::Build(format!("code assist response parse: {e}")))
 }
 
+/// Fetch the Google userinfo endpoint and return the email address, if any.
+/// Best-effort: returns `None` on any failure (the credential is still usable).
+pub async fn google_user_email(
+    client: &Arc<dyn UpstreamClient>,
+    access_token: &str,
+) -> Option<String> {
+    const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
+    let req = http::Request::builder()
+        .method(http::Method::GET)
+        .uri(USERINFO_URL)
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {access_token}"),
+        )
+        .header(http::header::ACCEPT, "application/json")
+        .body(bytes::Bytes::new())
+        .ok()?;
+    let resp = client.send(req).await.ok()?;
+    let (parts, body) = resp.into_parts();
+    if !parts.status.is_success() {
+        return None;
+    }
+    let payload: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    payload
+        .get("email")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 /// Percent-encode `s`, leaving the RFC 3986 unreserved set (`A-Za-z0-9-._~`)
 /// verbatim and `%XX`-encoding every other byte. Exposed for channels that build
 /// their own authorize URLs (e.g. Kiro SSO-OIDC / external-IdP).

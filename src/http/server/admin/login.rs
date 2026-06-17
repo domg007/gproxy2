@@ -117,10 +117,31 @@ pub async fn complete(
         .map_err(|_| bad())?;
 
     let sealed = state.cipher.seal(&secret).map_err(|_| bad())?;
-    let cred = seal_create(&state, req.provider_id, req.name, sealed)
+    let name = req.name.or_else(|| label_from_secret(&secret));
+    let cred = seal_create(&state, req.provider_id, name, sealed)
         .await
         .map_err(|_| bad())?;
     Ok(Json(cred))
+}
+
+/// Build a human-readable credential label from profile fields in the plaintext
+/// secret: `"email tier"` (e.g. `"user@example.com pro"`). Returns `None` when
+/// no email is present — the credential stays unnamed.
+fn label_from_secret(secret: &serde_json::Value) -> Option<String> {
+    let email = secret
+        .get("user_email")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let tier = secret
+        .get("rate_limit_tier")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match tier {
+        Some(t) => Some(format!("{email} {t}")),
+        None => Some(email.to_string()),
+    }
 }
 
 /// Seal-then-persist is shared by all four login completions: a pre-sealed
@@ -211,7 +232,8 @@ pub async fn device_poll(
         Ok(DevicePoll::Ready(secret)) => {
             login::device_clear(state.cache.as_ref(), &req.login_session_id).await;
             let sealed = state.cipher.seal(&secret).map_err(|_| bad())?;
-            let cred = seal_create(&state, session.provider_id, session.name, sealed)
+            let name = session.name.or_else(|| label_from_secret(&secret));
+            let cred = seal_create(&state, session.provider_id, name, sealed)
                 .await
                 .map_err(|_| bad())?;
             Ok(Json(
@@ -255,7 +277,8 @@ pub async fn cookie(
         .cipher
         .seal(&secret)
         .map_err(|_| ApiError::BadRequest("cookie login failed".into()))?;
-    let cred = seal_create(&state, req.provider_id, req.name, sealed).await?;
+    let name = req.name.or_else(|| label_from_secret(&secret));
+    let cred = seal_create(&state, req.provider_id, name, sealed).await?;
     Ok(Json(cred))
 }
 

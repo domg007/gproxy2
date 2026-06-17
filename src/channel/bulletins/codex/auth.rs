@@ -145,6 +145,9 @@ pub(super) async fn authcode_exchange(
         if let Some(account_id) = account_id_from_id_token(&id_token) {
             secret["account_id"] = Value::String(account_id);
         }
+        if let Some(email) = email_from_id_token(&id_token) {
+            secret["user_email"] = Value::String(email);
+        }
         secret["id_token"] = Value::String(id_token);
     }
     Ok(secret)
@@ -352,6 +355,25 @@ fn account_id_from_id_token(id_token: &str) -> Option<String> {
     payload
         .get("https://api.openai.com/auth")
         .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// Decode the user email from an OAuth `id_token` (JWT). Tries the top-level
+/// `email` claim first, then `https://api.openai.com/profile` → `email`.
+fn email_from_id_token(id_token: &str) -> Option<String> {
+    let payload_b64 = id_token.split('.').nth(1)?;
+    let bytes = B64URL.decode(payload_b64).ok()?;
+    let payload: Value = serde_json::from_slice(&bytes).ok()?;
+    payload
+        .get("email")
+        .or_else(|| {
+            payload
+                .get("https://api.openai.com/profile")
+                .and_then(|p| p.get("email"))
+        })
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())

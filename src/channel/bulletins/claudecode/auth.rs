@@ -166,9 +166,9 @@ pub(super) fn authcode_start(redirect_uri: &str, state: &str, challenge: &str) -
 /// Exchange an authorization code (+PKCE verifier) for the plaintext secret.
 /// Anthropic's `/v1/oauth/token` rejects exchanges that omit `client_id` or the
 /// `anthropic-version` / `anthropic-beta` / CLI `user-agent` headers (same as
-/// [`refresh`]), so they are sent explicitly. Maps the response to
-/// `{access_token, refresh_token?, expires_at_ms}`; account/profile fields are a
-/// follow-up (the pipeline / `/api/oauth/profile` backfills them).
+/// [`refresh`]), so they are sent explicitly. After token exchange, fetches
+/// `/api/oauth/profile` to backfill `account_uuid`, `user_email`, and
+/// `rate_limit_tier`.
 pub(super) async fn authcode_exchange(
     client: &Arc<dyn UpstreamClient>,
     code: &str,
@@ -203,8 +203,70 @@ pub(super) async fn authcode_exchange(
     if let Some(rt) = resp.refresh_token.filter(|s| !s.is_empty()) {
         secret["refresh_token"] = Value::String(rt);
     }
+    enrich_from_profile(client, &mut secret).await;
     ensure_device_id(&mut secret);
     Ok(secret)
+}
+
+/// Fetch `GET {base}/api/oauth/profile` and merge `account_uuid`, `user_email`,
+/// and `rate_limit_tier` into the plaintext secret. Best-effort: a failure is
+/// silently ignored (the credential is still usable without profile data).
+pub(super) async fn enrich_from_profile(client: &Arc<dyn UpstreamClient>, secret: &mut Value) {
+    let Some(at) = secret_str(secret, "access_token").map(ToOwned::to_owned) else {
+        return;
+    };
+    let Ok(req) = http::Request::builder()
+        .method(http::Method::GET)
+        .uri(format!("{DEFAULT_BASE_URL}/api/oauth/profile"))
+        .header(http::header::AUTHORIZATION, format!("Bearer {at}"))
+        .header(http::header::ACCEPT, "application/json")
+        .header("anthropic-beta", ANTHROPIC_BETA)
+        .header(http::header::USER_AGENT, USER_AGENT)
+        .body(Bytes::new())
+    else {
+        return;
+    };
+    let Ok(resp) = client.send(req).await else {
+        return;
+    };
+    let (parts, body) = resp.into_parts();
+    if !parts.status.is_success() {
+        return;
+    }
+    let Ok(profile) = serde_json::from_slice::<Value>(&body) else {
+        return;
+    };
+    let obj = match secret.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    if let Some(email) = profile
+        .get("account")
+        .and_then(|a| a.get("email"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj.insert("user_email".into(), Value::String(email.to_owned()));
+    }
+    if let Some(uuid) = profile
+        .get("account")
+        .and_then(|a| a.get("uuid"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj.insert("account_uuid".into(), Value::String(uuid.to_owned()));
+    }
+    if let Some(tier) = profile
+        .get("organization")
+        .and_then(|o| o.get("rate_limit_tier"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj.insert("rate_limit_tier".into(), Value::String(tier.to_owned()));
+    }
 }
 
 /// The OAuth access token, required by [`super::ClaudeCodeChannel::prepare`].
