@@ -5,7 +5,9 @@ pub(in crate::transform::generate_content) fn openai_service_tier_to_claude(
 ) -> Option<claude::RequestServiceTier> {
     let tier = match service_tier? {
         openai::ServiceTier::Auto => claude::RequestServiceTierKnown::Auto,
-        openai::ServiceTier::Default => claude::RequestServiceTierKnown::StandardOnly,
+        openai::ServiceTier::Default | openai::ServiceTier::OnDemand => {
+            claude::RequestServiceTierKnown::StandardOnly
+        }
         openai::ServiceTier::Flex | openai::ServiceTier::Scale | openai::ServiceTier::Priority => {
             claude::RequestServiceTierKnown::Auto
         }
@@ -31,7 +33,9 @@ pub(in crate::transform::generate_content) fn openai_service_tier_to_gemini(
 ) -> Option<gemini::ServiceTier> {
     let tier = match service_tier? {
         openai::ServiceTier::Auto => gemini::ServiceTierKnown::Unspecified,
-        openai::ServiceTier::Default => gemini::ServiceTierKnown::Standard,
+        openai::ServiceTier::Default | openai::ServiceTier::OnDemand => {
+            gemini::ServiceTierKnown::Standard
+        }
         openai::ServiceTier::Flex => gemini::ServiceTierKnown::Flex,
         openai::ServiceTier::Priority => gemini::ServiceTierKnown::Priority,
         openai::ServiceTier::Scale => gemini::ServiceTierKnown::Standard,

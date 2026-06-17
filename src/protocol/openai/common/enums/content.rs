@@ -26,6 +26,7 @@ strict_string_enum!(ServiceTier {
     Flex => "flex",
     Scale => "scale",
     Priority => "priority",
+    OnDemand => "on_demand",
 });
 
 strict_string_enum!(TruncationStrategy {

@@ -271,8 +271,13 @@ pub enum ChatToolCall {
 pub struct ChatCompletionResponse {
     pub id: String,
     pub choices: Vec<ChatCompletionChoice>,
+    // Some OpenAI-compatible upstreams (e.g. Copilot) omit `created`; tolerate it
+    // so the chat->claude/responses response transform doesn't 502 on decode.
+    #[serde(default)]
     pub created: u64,
     pub model: OpenAiModelId,
+    // Minimal OpenAI-compatible upstreams (e.g. Copilot) omit `object` too.
+    #[serde(default)]
     pub object: ChatCompletionObjectType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub moderation: Option<ChatCompletionModeration>,
@@ -353,4 +358,26 @@ pub struct ChatMessage {
 pub enum ChatCompletionMessageRole {
     #[serde(rename = "assistant")]
     Assistant,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal OpenAI-compatible upstreams (e.g. Copilot) omit `created`/`object`,
+    /// and providers like Groq report a `service_tier` outside the documented set
+    /// (`on_demand`). The chat response must still decode, or the chat->claude /
+    /// chat->responses RESPONSE transform 502s (regression).
+    #[test]
+    fn chat_response_tolerates_minimal_and_unknown_tier() {
+        let r: ChatCompletionResponse =
+            serde_json::from_str(r#"{"id":"x","choices":[],"model":"gpt-4o-mini"}"#).unwrap();
+        assert_eq!(r.created, 0);
+
+        let r: ChatCompletionResponse = serde_json::from_str(
+            r#"{"id":"x","choices":[],"model":"m","service_tier":"on_demand"}"#,
+        )
+        .unwrap();
+        assert!(r.service_tier.is_some());
+    }
 }

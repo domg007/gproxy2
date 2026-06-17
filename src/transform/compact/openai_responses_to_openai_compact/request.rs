@@ -22,7 +22,9 @@ pub fn request(
 fn service_tier_to_compact(service_tier: openai::ServiceTier) -> openai::CompactServiceTier {
     match service_tier {
         openai::ServiceTier::Auto => openai::CompactServiceTier::Auto,
-        openai::ServiceTier::Default => openai::CompactServiceTier::Default,
+        openai::ServiceTier::Default | openai::ServiceTier::OnDemand => {
+            openai::CompactServiceTier::Default
+        }
         openai::ServiceTier::Flex => openai::CompactServiceTier::Flex,
         openai::ServiceTier::Priority => openai::CompactServiceTier::Priority,
         // `scale` has no compact equivalent; fall back to auto.
