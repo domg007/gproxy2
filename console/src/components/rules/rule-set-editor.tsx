@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { SANITIZE_TEMPLATES, templateToRuleInputs } from "@/lib/sanitize-templates";
 import { Plus, Trash2, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -40,6 +41,7 @@ export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; pr
 
   const [editMeta, setEditMeta] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
   const [editRule, setEditRule] = useState<Rule | null>(null);
   const [delRule, setDelRule] = useState<Rule | null>(null);
 
@@ -67,6 +69,17 @@ export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; pr
         enabled: next,
       }),
     onSuccess: () => void invalidateRules(),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : String(e)),
+  });
+
+  const addTemplate = useMutation({
+    mutationFn: async (tplId: string) => {
+      const tpl = SANITIZE_TEMPLATES.find((x) => x.id === tplId)!;
+      const inputs = templateToRuleInputs(tpl, ruleSetId, rules.length);
+      for (const inp of inputs) await upsertRule(ruleSetId, inp);
+      return inputs.length;
+    },
+    onSuccess: (count) => { void invalidateRules(); setTplOpen(false); toast.success(t("sanitizeTemplate.added", { count })); },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : String(e)),
   });
 
@@ -122,9 +135,14 @@ export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; pr
       })}
 
       <Separator />
-      <Button size="sm" variant="outline" onClick={() => setAddOpen(true)} className="justify-self-start">
-        <Plus className="size-4" /> {t("rule.add")}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+          <Plus className="size-4" /> {t("rule.add")}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setTplOpen(true)}>
+          {t("sanitizeTemplate.button")}
+        </Button>
+      </div>
 
       <EntityDialog open={editMeta} onOpenChange={setEditMeta} title={ruleSet.name}>
         <RuleSetForm ruleSet={ruleSet} onSaved={() => { setEditMeta(false); void qc.invalidateQueries({ queryKey: ["rule-sets", ruleSetId] }); }} />
@@ -140,6 +158,17 @@ export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; pr
       <ConfirmDangerous open={delRule !== null} onOpenChange={(o) => { if (!o) setDelRule(null); }}
         title={delRule ? t(`kind.${delRule.kind}`) : ""} description={t("rule.deleteConfirm")}
         confirmLabel={tCommon("actions.delete")} onConfirm={() => delRule && removal.mutate(delRule.id)} pending={removal.isPending} />
+      <EntityDialog open={tplOpen} onOpenChange={setTplOpen} title={t("sanitizeTemplate.title")}>
+        <p className="mb-3 text-sm text-muted-foreground">{t("sanitizeTemplate.caption")}</p>
+        <div className="grid gap-2">
+          {SANITIZE_TEMPLATES.map((tpl) => (
+            <Button key={tpl.id} variant="outline" className="justify-start" disabled={addTemplate.isPending}
+              onClick={() => addTemplate.mutate(tpl.id)}>
+              {t("kind.sanitize")} · {tpl.id}
+            </Button>
+          ))}
+        </div>
+      </EntityDialog>
     </div>
   );
 }
