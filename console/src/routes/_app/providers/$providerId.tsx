@@ -11,7 +11,7 @@ import { ProviderForm } from "@/components/providers/provider-form";
 import { CredentialsTab } from "@/components/providers/credentials-tab";
 import { ModelsTab } from "@/components/providers/models-tab";
 import { RoutingRulesTab } from "@/components/providers/routing-rules-tab";
-import { ProviderRuleSetsTab } from "@/components/providers/provider-rule-sets-tab";
+import { ProviderRulesTab } from "@/components/providers/provider-rules-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,7 +82,7 @@ function ProviderDetailPage() {
           <RoutingRulesTab providerId={id} />
         </TabsContent>
         <TabsContent value="rule-sets" className="pt-2">
-          <ProviderRuleSetsTab providerId={id} />
+          <ProviderRulesTab providerId={id} />
         </TabsContent>
       </Tabs>
 
