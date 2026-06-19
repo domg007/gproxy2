@@ -35,3 +35,16 @@ export function deleteRoutingRule(id: number) { return api<void>(`/admin/routing
 export function resetRoutingDefaults(pid: number) { return api<RoutingRule[]>(`/admin/providers/${pid}/routing-rules/reset`, { method: "POST" }); }
 export function upsertProviderRuleSet(pid: number, i: ProviderRuleSetInput) { return api<ProviderRuleSet>(`/admin/providers/${pid}/rule-sets`, { method: "POST", body: JSON.stringify(i) }); }
 export function deleteProviderRuleSet(id: number) { return api<void>(`/admin/provider-rule-sets/${id}`, { method: "DELETE" }); }
+
+export async function cloneRuleSet(src: RuleSet, suffix: string): Promise<RuleSet> {
+  const copy = await upsertRuleSet({ name: src.name + suffix, enabled: src.enabled, description: src.description });
+  const rules = await api<Rule[]>(`/admin/rule-sets/${src.id}/rules`);
+  for (const r of rules) {
+    await upsertRule(copy.id, {
+      rule_set_id: copy.id, kind: r.kind, config_json: r.config_json,
+      filter_model_pattern: r.filter_model_pattern, filter_operation_keys: r.filter_operation_keys,
+      sort_order: r.sort_order, enabled: r.enabled,
+    });
+  }
+  return copy;
+}
