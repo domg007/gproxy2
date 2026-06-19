@@ -47,7 +47,7 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
   const createAndAttach = useMutation({
     mutationFn: async () => {
       const rs = await upsertRuleSet({
-        name: t("createAndAttach") + " " + new Date().toISOString().slice(0, 10),
+        name: t("createAndAttach") + " " + new Date().toISOString().slice(0, 19),
         enabled: true,
       });
       await upsertProviderRuleSet(providerId, {
