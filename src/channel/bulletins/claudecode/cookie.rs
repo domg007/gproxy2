@@ -27,6 +27,13 @@ const API_VERSION: &str = "2023-06-01";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
 
+/// claude.ai is Cloudflare-fronted and intermittently answers with a managed
+/// "Just a moment…" challenge instead of the real response. The challenge is
+/// roughly a per-call coin-flip and a non-browser client cannot solve it, so the
+/// Cloudflare-facing requests are simply retried (a fresh connection gets an
+/// independent roll). At 5 attempts the residual failure is ~3%.
+const COOKIE_MAX_ATTEMPTS: u32 = 5;
+
 /// Org capabilities that gate Claude Code OAuth (`user:inference` scope).
 /// API-only orgs return `permission_error` at the authorize step, so the
 /// subscription-capable membership is selected.
@@ -116,8 +123,10 @@ async fn discover_org(
     client: &Arc<dyn UpstreamClient>,
     cookie: &str,
 ) -> Result<String, ChannelError> {
-    let req = cookie_get(format!("{CLAUDE_AI_BASE}/api/bootstrap"), cookie)?;
-    let body = send_ok(client, req, "bootstrap").await?;
+    let body = send_ok(client, "bootstrap", || {
+        cookie_get(format!("{CLAUDE_AI_BASE}/api/bootstrap"), cookie)
+    })
+    .await?;
     // claude.ai may prepend a usage object before the bootstrap payload; scan
     // the JSON value stream for the one carrying `account`.
     let value = parse_bootstrap(&body)?;
@@ -162,17 +171,20 @@ async fn authorize(
     });
     let body = serde_json::to_vec(&payload)
         .map_err(|e| ChannelError::Build(format!("authorize payload: {e}")))?;
-    let req = Request::post(format!("{API_BASE}/v1/oauth/{org_uuid}/authorize"))
-        .header(CONTENT_TYPE, "application/json")
-        .header(ACCEPT, "application/json")
-        .header("cookie", format!("sessionKey={cookie}"))
-        .header("origin", CLAUDE_AI_BASE)
-        .header("anthropic-version", API_VERSION)
-        .header("anthropic-beta", OAUTH_BETA)
-        .header(http::header::USER_AGENT, USER_AGENT)
-        .body(Bytes::from(body))
-        .map_err(|e| ChannelError::Build(format!("authorize request build: {e}")))?;
-    let resp = send_ok(client, req, "authorize").await?;
+    let url = format!("{API_BASE}/v1/oauth/{org_uuid}/authorize");
+    let resp = send_ok(client, "authorize", || {
+        Request::post(url.as_str())
+            .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "application/json")
+            .header("cookie", format!("sessionKey={cookie}"))
+            .header("origin", CLAUDE_AI_BASE)
+            .header("anthropic-version", API_VERSION)
+            .header("anthropic-beta", OAUTH_BETA)
+            .header(http::header::USER_AGENT, USER_AGENT)
+            .body(Bytes::from(body.clone()))
+            .map_err(|e| ChannelError::Build(format!("authorize request build: {e}")))
+    })
+    .await?;
     let value: Value = serde_json::from_slice(&resp)
         .map_err(|e| ChannelError::Build(format!("authorize response parse: {e}")))?;
     let redirect = value
@@ -251,32 +263,72 @@ fn parse_bootstrap(body: &[u8]) -> Result<Value, ChannelError> {
 fn cookie_get(url: String, cookie: &str) -> Result<Request<Bytes>, ChannelError> {
     Request::get(url)
         .header(ACCEPT, "application/json")
+        .header("accept-language", "en-US,en;q=0.9")
+        .header("cache-control", "no-cache")
         .header("cookie", format!("sessionKey={cookie}"))
         .header("origin", CLAUDE_AI_BASE)
+        .header("referer", format!("{CLAUDE_AI_BASE}/new"))
         .body(Bytes::new())
         .map_err(|e| ChannelError::Build(format!("cookie request build: {e}")))
 }
 
-/// Send `req`, return the 2xx body. Non-2xx → `Build` with status + a snippet
-/// (the cookie rides the header, never the logged form).
-async fn send_ok(
+/// Send a Cloudflare-fronted request and return the 2xx body. `build` is invoked
+/// once per attempt — `send` consumes the request body, so it must be rebuildable.
+/// A Cloudflare "Just a moment…" managed challenge ([`is_cloudflare_challenge`])
+/// is retried up to [`COOKIE_MAX_ATTEMPTS`] times with a short backoff; any other
+/// non-2xx fails at once with the status + a body snippet (the cookie rides the
+/// header, never the logged form).
+async fn send_ok<F>(
     client: &Arc<dyn UpstreamClient>,
-    req: Request<Bytes>,
     what: &str,
-) -> Result<Bytes, ChannelError> {
-    let resp: Response<Bytes> = client
-        .send(req)
-        .await
-        .map_err(|e| ChannelError::Build(format!("{what} request failed: {e}")))?;
-    let (parts, body) = resp.into_parts();
-    if !parts.status.is_success() {
+    build: F,
+) -> Result<Bytes, ChannelError>
+where
+    F: Fn() -> Result<Request<Bytes>, ChannelError>,
+{
+    let mut last_challenge: Option<(http::StatusCode, Bytes)> = None;
+    for attempt in 0..COOKIE_MAX_ATTEMPTS {
+        let resp: Response<Bytes> = client
+            .send(build()?)
+            .await
+            .map_err(|e| ChannelError::Build(format!("{what} request failed: {e}")))?;
+        let (parts, body) = resp.into_parts();
+        if parts.status.is_success() {
+            return Ok(body);
+        }
+        if is_cloudflare_challenge(parts.status, &body) {
+            // A fresh connection on retry gets an independent challenge roll; a
+            // short increasing backoff avoids hammering the edge.
+            crate::util::time::sleep_ms(200 * (attempt as u64 + 1)).await;
+            last_challenge = Some((parts.status, body));
+            continue;
+        }
         let snippet: String = String::from_utf8_lossy(&body).chars().take(256).collect();
         return Err(ChannelError::Build(format!(
             "{what} endpoint {}: {snippet}",
             parts.status
         )));
     }
-    Ok(body)
+    let (status, body) = last_challenge.expect("loop only continues on a challenge");
+    let snippet: String = String::from_utf8_lossy(&body).chars().take(160).collect();
+    Err(ChannelError::Build(format!(
+        "{what} blocked by Cloudflare challenge after {COOKIE_MAX_ATTEMPTS} attempts ({status}): {snippet}"
+    )))
+}
+
+/// Recognise Cloudflare's interstitial managed-challenge response (the
+/// "Just a moment…" page) so it can be retried rather than surfaced as a hard
+/// failure. Served as 403 (sometimes 503) with tell-tale challenge HTML.
+fn is_cloudflare_challenge(status: http::StatusCode, body: &[u8]) -> bool {
+    use http::StatusCode as S;
+    if status != S::FORBIDDEN && status != S::SERVICE_UNAVAILABLE {
+        return false;
+    }
+    let head = String::from_utf8_lossy(&body[..body.len().min(1024)]);
+    head.contains("Just a moment")
+        || head.contains("challenge-platform")
+        || head.contains("cf-chl")
+        || head.contains("cf_chl")
 }
 
 fn query_param(url: &str, key: &str) -> Option<String> {
@@ -315,5 +367,18 @@ mod tests {
         assert_eq!(out["refresh_token"], "rt-new"); // minted adds it
         assert_eq!(out["account_uuid"], "org-9");
         assert_eq!(out["device_id"], "dev-1"); // operator field survives
+    }
+
+    #[test]
+    fn cloudflare_just_a_moment_is_a_retryable_challenge() {
+        // The interstitial HTML 403 → retryable.
+        let page = br#"<!DOCTYPE html><html><head><title>Just a moment...</title>"#;
+        assert!(is_cloudflare_challenge(http::StatusCode::FORBIDDEN, page));
+        // A genuine permission error (JSON 403) is NOT a challenge — it must
+        // surface immediately rather than burn retries.
+        let perm = br#"{"type":"error","error":{"type":"permission_error"}}"#;
+        assert!(!is_cloudflare_challenge(http::StatusCode::FORBIDDEN, perm));
+        // A success is never a challenge.
+        assert!(!is_cloudflare_challenge(http::StatusCode::OK, page));
     }
 }

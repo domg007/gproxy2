@@ -30,3 +30,15 @@ pub fn unix_now_ms() -> u64 {
 pub fn unix_now_ms() -> u64 {
     js_sys::Date::now() as u64
 }
+
+/// Async sleep abstracting the runtime timer. Native uses tokio; the wasm
+/// gateway has no timer on the paths that call this (cookie/login retries are
+/// native-only), so it is a no-op there.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn sleep_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+/// Async sleep — no-op on wasm (see the native variant).
+#[cfg(target_arch = "wasm32")]
+pub async fn sleep_ms(_ms: u64) {}
