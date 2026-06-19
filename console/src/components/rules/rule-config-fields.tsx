@@ -35,6 +35,10 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
     if (next) {
       setRawText(JSON.stringify(value ?? {}, null, 2));
       setRawValid(true);
+    } else {
+      // Structured editor is source of truth when closing — parent value is always valid.
+      setRawValid(true);
+      onValidChange?.(true);
     }
     setOpen(next);
   };

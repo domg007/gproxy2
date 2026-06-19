@@ -87,9 +87,15 @@ export function buildProviderRuleSetColumns(
 export function ProviderRuleSetCard({
   a,
   rsName,
+  onEdit,
+  onAttach,
+  onDetach,
 }: {
   a: ProviderRuleSet;
   rsName: Map<number, string>;
+  onEdit: (id: number) => void;
+  onAttach: (a: ProviderRuleSet) => void;
+  onDetach: (a: ProviderRuleSet) => void;
 }) {
   return (
     <div className="grid gap-2">
@@ -97,7 +103,10 @@ export function ProviderRuleSetCard({
         <span className="font-medium">{rsName.get(a.rule_set_id) ?? `#${a.rule_set_id}`}</span>
         <Badge variant={a.enabled ? "secondary" : "outline"}>{a.enabled ? "on" : "off"}</Badge>
       </div>
-      <span className="text-xs text-muted-foreground">#{a.sort_order}</span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">#{a.sort_order}</span>
+        <RowActions a={a} onEdit={onEdit} onAttach={onAttach} onDetach={onDetach} />
+      </div>
     </div>
   );
 }

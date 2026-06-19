@@ -114,7 +114,15 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
           rowKey={(a) => a.id}
           empty={t("providerRuleSet.empty")}
           onRowClick={(a) => setDrawerSetId(a.rule_set_id)}
-          renderCard={(a) => <ProviderRuleSetCard a={a} rsName={rsName} />}
+          renderCard={(a) => (
+            <ProviderRuleSetCard
+              a={a}
+              rsName={rsName}
+              onEdit={(id) => setDrawerSetId(id)}
+              onAttach={(a) => { setEditAttach(a); setAttachOpen(true); }}
+              onDetach={(a) => setDelAttach(a)}
+            />
+          )}
         />
       )}
 

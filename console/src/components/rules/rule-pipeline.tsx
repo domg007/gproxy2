@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { providerRuleSetsQuery, ruleSetsQuery, rulesQuery, type Rule } from "@/api/rules";
-import { groupRulesByKind } from "@/lib/rule-usage";
+import { groupRulesByKindStable } from "@/lib/rule-usage";
 import { RULE_KIND_META, summarizeRuleConfig } from "./rule-kind-meta";
 import { Badge } from "@/components/ui/badge";
 
@@ -17,12 +17,16 @@ export function RulePipeline({ providerId }: { providerId: number }) {
   const nameOf = new Map(ruleSets.map((rs) => [rs.id, rs.name]));
   const setEnabled = new Map(ruleSets.map((rs) => [rs.id, rs.enabled]));
   // Only rules from enabled sets whose rule_set is itself enabled.
+  // Sort each set's rules by (sort_order, id) BEFORE flattening so the flattened
+  // order matches the backend: attachment order, then within-set sort_order.
   const effective: { rule: Rule; setName: string }[] = enabledSets.flatMap((a, i) => {
     if (!setEnabled.get(a.rule_set_id)) return [];
-    const rs = (ruleQueries[i].data ?? []).filter((r) => r.enabled);
+    const rs = (ruleQueries[i].data ?? [])
+      .filter((r) => r.enabled)
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
     return rs.map((rule) => ({ rule, setName: nameOf.get(a.rule_set_id) ?? `#${a.rule_set_id}` }));
   });
-  const groups = groupRulesByKind(effective.map((e) => e.rule));
+  const groups = groupRulesByKindStable(effective.map((e) => e.rule));
   const setNameByRuleId = new Map(effective.map((e) => [e.rule.id, e.setName]));
 
   return (

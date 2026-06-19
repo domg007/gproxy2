@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  groupRulesByKind, sortRulesForPipeline, computeRuleSetUsage,
+  groupRulesByKind, groupRulesByKindStable, sortRulesForPipeline, computeRuleSetUsage,
 } from "./rule-usage";
 import type { Rule, ProviderRuleSet } from "@/api/rules";
 
@@ -33,6 +33,28 @@ describe("groupRulesByKind", () => {
       rule({ id: 2, kind: "system_text" }),
     ]);
     expect(groups.map((g) => g.kind)).toEqual(["system_text", "sanitize"]);
+  });
+});
+
+describe("groupRulesByKindStable", () => {
+  it("preserves attachment order within a kind, not global sort_order", () => {
+    // Set-A is attachment 0, Set-B is attachment 1 (attachment order: A then B).
+    // Set-B's rewrite has sort_order=1, Set-A's rewrite has sort_order=5.
+    // Flattened in attachment order: setA_rewrite (sort_order=5) then setB_rewrite (sort_order=1).
+    // groupRulesByKindStable must keep setA before setB within "rewrite".
+    // It must also place "rewrite" before "header" (kind-rank order).
+    const setA_rewrite = rule({ id: 10, kind: "rewrite", sort_order: 5 });
+    const setB_rewrite = rule({ id: 20, kind: "rewrite", sort_order: 1 });
+    const setA_header = rule({ id: 30, kind: "header", sort_order: 0 });
+
+    // Input order = attachment-A rules (sorted by sort_order), then attachment-B rules.
+    // Within set-A: header(0) then rewrite(5); within set-B: rewrite(1).
+    const flat = [setA_header, setA_rewrite, setB_rewrite];
+
+    const groups = groupRulesByKindStable(flat);
+    expect(groups.map((g) => g.kind)).toEqual(["rewrite", "header"]);
+    const rewrites = groups.find((g) => g.kind === "rewrite")!.rules;
+    expect(rewrites.map((r) => r.id)).toEqual([10, 20]); // setA before setB
   });
 });
 

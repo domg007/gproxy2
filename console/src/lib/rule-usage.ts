@@ -34,6 +34,20 @@ export function groupRulesByKind(rules: Rule[]): { kind: string; rules: Rule[] }
     .filter((g) => g.rules.length > 0);
 }
 
+/** Stable-partition rules into kind groups, PRESERVING the input order within each kind.
+ *  Use this when the caller has already arranged the flat list in execution order
+ *  (e.g. flattened from attachment-order → within-set sort_order) and a re-sort
+ *  within a kind would destroy that order. */
+export function groupRulesByKindStable(rules: Rule[]): { kind: string; rules: Rule[] }[] {
+  const buckets = new Map<string, Rule[]>(RULE_KIND_ORDER.map((k) => [k, []]));
+  for (const r of rules) {
+    buckets.get(r.kind)?.push(r);
+  }
+  return RULE_KIND_ORDER
+    .map((kind) => ({ kind, rules: buckets.get(kind) ?? [] }))
+    .filter((g) => g.rules.length > 0);
+}
+
 export type RuleSetScope = "private" | "shared" | "unused";
 
 /** Derived privacy: a set attached to exactly one provider is "private",
