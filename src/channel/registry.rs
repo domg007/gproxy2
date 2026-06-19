@@ -16,7 +16,7 @@ use crate::channel::{Channel, ChannelLogin};
 ///
 /// `login` is a parallel map holding the channels that support a §14.5
 /// interactive login (authcode: codex, claudecode, geminicli, antigravity,
-/// kiro; device-code: copilot_cli; cookie: claudecode); a channel absent from
+/// kiro; device-code: copilotcli; cookie: claudecode); a channel absent from
 /// it has no login flow.
 pub struct ChannelRegistry {
     map: HashMap<&'static str, Arc<dyn Channel>>,
@@ -81,7 +81,7 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
         Arc::new(bulletins::claudecode::ClaudeCodeChannel),
         Arc::new(bulletins::codex::CodexChannel),
         Arc::new(bulletins::kiro::KiroChannel),
-        Arc::new(bulletins::copilot_cli::CopilotCliChannel),
+        Arc::new(bulletins::copilotcli::CopilotCliChannel),
     ]
 }
 
@@ -104,8 +104,8 @@ fn builtin_logins() -> Vec<(&'static str, Arc<dyn ChannelLogin>)> {
         ),
         ("kiro", Arc::new(bulletins::kiro::KiroChannel)),
         (
-            "copilot_cli",
-            Arc::new(bulletins::copilot_cli::CopilotCliChannel),
+            "copilotcli",
+            Arc::new(bulletins::copilotcli::CopilotCliChannel),
         ),
     ]
 }
@@ -133,7 +133,7 @@ mod emulation_tests {
             "geminicli",
             "antigravity",
             "kiro",
-            "copilot_cli",
+            "copilotcli",
         ];
         let mut found = Vec::new();
         for ch in builtin_channels() {

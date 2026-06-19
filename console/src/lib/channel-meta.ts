@@ -90,7 +90,7 @@ export const CHANNELS: ChannelMeta[] = [
     secretTemplate: { ...OAUTH_TOKENS },
   },
   {
-    id: "copilot_cli",
+    id: "copilotcli",
     family: "github_token",
     loginModes: ["device"],
     usage: true,

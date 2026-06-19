@@ -35,7 +35,7 @@ pub struct CopilotCliChannel;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Channel for CopilotCliChannel {
     fn id(&self) -> &'static str {
-        "copilot_cli"
+        "copilotcli"
     }
 
     fn provider_family(&self) -> Provider {

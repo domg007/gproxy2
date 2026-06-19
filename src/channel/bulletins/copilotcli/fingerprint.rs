@@ -1,4 +1,4 @@
-//! Built-in TLS impersonation profile for the `copilot_cli` channel — the real
+//! Built-in TLS impersonation profile for the `copilotcli` channel — the real
 //! GitHub Copilot CLI model-path fingerprint (rustls; JA4
 //! `t13d1011h1_61a7ad8aa9b6_*`, HTTP/1.1). See `docs/agent-tls-fingerprints.md`
 //! §5. Applied when no DB `tls_fingerprint` overrides it. The user-agent is

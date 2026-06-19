@@ -73,7 +73,7 @@
 
 > ✅ **已抓真实推理调用 `streamGenerateContent` 确认**:除凭证只有 UA + Content-Type(Host/Transfer-Encoding/Accept-Encoding 由 http 客户端加)。**没有 `requestId` / `requestType` / `Accept`** —— 代码原本注入的这三个(从旧版 mined)真实 1.0.6 CLI 不发,已移除。无动态 id 头。
 
-## copilot_cli — `api.individual.githubcopilot.com`(`/models`、`/mcp/readonly`、chat)
+## copilotcli — `api.individual.githubcopilot.com`(`/models`、`/mcp/readonly`、chat)
 
 | 头 | 值 / 形态 | 类 |
 |---|---|---|

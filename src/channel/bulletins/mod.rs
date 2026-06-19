@@ -23,7 +23,7 @@ pub mod vertexexpress;
 pub mod antigravity;
 pub mod claudecode;
 pub mod codex;
-pub mod copilot_cli;
+pub mod copilotcli;
 pub mod geminicli;
 pub mod kiro;
 pub mod vertex;
