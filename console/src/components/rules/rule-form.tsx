@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { upsertRule, type Rule } from "@/api/rules";
 import { ApiError } from "@/api/http";
-import { JsonField, parseJsonText } from "@/components/form/json-field";
+import { ModelPatternField, OperationChips, toOperationArray, fromOperationArray } from "./filter-fields";
 import { RuleConfigFields } from "./rule-config-fields";
 import { RuleKindPicker } from "./rule-kind-picker";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 interface Props {
   ruleSetId: number;
   rule?: Rule;
+  modelOptions?: string[];
   onSaved?: (r: Rule) => void;
 }
 
@@ -30,7 +31,7 @@ function validateConfig(kind: string, cfg: unknown, t: (k: string) => string): s
   return null;
 }
 
-export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
+export function RuleForm({ ruleSetId, rule, modelOptions, onSaved }: Props) {
   const { t } = useTranslation("rules");
   const qc = useQueryClient();
 
@@ -38,11 +39,7 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
   const [sortOrder, setSortOrder] = useState(String(rule?.sort_order ?? 0));
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
   const [filterModelPattern, setFilterModelPattern] = useState(rule?.filter_model_pattern ?? "");
-  const [fopText, setFopText] = useState(
-    rule?.filter_operation_keys != null
-      ? JSON.stringify(rule.filter_operation_keys, null, 2)
-      : "",
-  );
+  const [ops, setOps] = useState<string[]>(toOperationArray(rule?.filter_operation_keys));
   const [configValue, setConfigValue] = useState<unknown>(rule?.config_json ?? {});
   const [configValid, setConfigValid] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
@@ -63,19 +60,13 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
       const cfgErr = validateConfig(kind, configValue, t);
       if (cfgErr) throw new ApiError(0, "bad_request", cfgErr);
 
-      const fopParsed = fopText.trim()
-        ? parseJsonText(fopText)
-        : { ok: true as const, value: null };
-      if (fopText.trim() && !fopParsed.ok)
-        throw new ApiError(0, "bad_request", t("validation.filterJsonInvalid"));
-
       return upsertRule(ruleSetId, {
         id: rule?.id ?? null,
         rule_set_id: ruleSetId,
         kind,
         config_json: configValue,
         filter_model_pattern: filterModelPattern.trim() || null,
-        filter_operation_keys: fopParsed.ok ? fopParsed.value : null,
+        filter_operation_keys: fromOperationArray(ops),
         sort_order: orderNum,
         enabled,
       });
@@ -113,25 +104,8 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
         <Label htmlFor="rule-enabled">{t("rule.enabled")}</Label>
         <Switch id="rule-enabled" checked={enabled} onCheckedChange={setEnabled} />
       </div>
-      <div className="grid gap-1">
-        <Label htmlFor="rule-fmp">{t("rule.filterModelPattern")}</Label>
-        <Input
-          id="rule-fmp"
-          value={filterModelPattern}
-          onChange={(e) => setFilterModelPattern(e.target.value)}
-          placeholder="optional regex"
-        />
-      </div>
-      <div className="grid gap-1">
-        <Label htmlFor="rule-fop">{t("rule.filterOperationKeys")}</Label>
-        <JsonField
-          id="rule-fop"
-          value={fopText}
-          onChange={setFopText}
-          rows={3}
-          placeholder='["generate_content"]'
-        />
-      </div>
+      <ModelPatternField value={filterModelPattern} onChange={setFilterModelPattern} modelOptions={modelOptions} />
+      <OperationChips value={ops} onChange={setOps} />
       <div className="grid gap-1">
         <Label>{t("rule.configJson")}</Label>
         <RuleConfigFields
