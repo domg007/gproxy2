@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 
 export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; providerId?: number }) {
   const { t } = useTranslation("rules");
+  const { t: tCommon } = useTranslation("common");
   const qc = useQueryClient();
   const { data: ruleSet } = useQuery(ruleSetQuery(ruleSetId));
   const { data: rules = [] } = useQuery(rulesQuery(ruleSetId));
@@ -138,7 +139,7 @@ export function RuleSetEditor({ ruleSetId, providerId }: { ruleSetId: number; pr
       </EntityDialog>
       <ConfirmDangerous open={delRule !== null} onOpenChange={(o) => { if (!o) setDelRule(null); }}
         title={delRule ? t(`kind.${delRule.kind}`) : ""} description={t("rule.deleteConfirm")}
-        confirmLabel={t("common.save")} onConfirm={() => delRule && removal.mutate(delRule.id)} pending={removal.isPending} />
+        confirmLabel={tCommon("actions.delete")} onConfirm={() => delRule && removal.mutate(delRule.id)} pending={removal.isPending} />
     </div>
   );
 }
