@@ -89,7 +89,13 @@ pub async fn complete(
 
     let session = login::take(state.cache.as_ref(), &req.login_session_id)
         .await
-        .ok_or_else(bad)?;
+        .ok_or_else(|| {
+            tracing::warn!(
+                login_session_id = %req.login_session_id,
+                "login complete: no/expired login session (run start again)"
+            );
+            bad()
+        })?;
     let code = match (bare_code, callback) {
         // Bare code: no `state` to verify — PKCE (the per-session verifier) is the
         // CSRF protection, and the session is one-shot + short-TTL.
@@ -97,6 +103,10 @@ pub async fn complete(
         (None, Some((code, cb_state))) => {
             // CSRF: the callback state MUST match the one we issued.
             if cb_state != session.state {
+                tracing::warn!(
+                    channel = %session.channel,
+                    "login complete: callback state does not match the issued state"
+                );
                 return Err(bad());
             }
             code
@@ -114,7 +124,16 @@ pub async fn complete(
             session.extra.as_ref(),
         )
         .await
-        .map_err(|_| bad())?;
+        .map_err(|e| {
+            // The client gets a generic error (no enumeration); the real upstream
+            // token-endpoint status + body is logged here for diagnosis.
+            tracing::warn!(
+                channel = %session.channel,
+                error = %e,
+                "login complete: authcode token exchange failed"
+            );
+            bad()
+        })?;
 
     let sealed = state.cipher.seal(&secret).map_err(|_| bad())?;
     let name = req.name.or_else(|| label_from_secret(&secret));
@@ -272,7 +291,17 @@ pub async fn cookie(
     let secret = channel
         .cookie_exchange(cookie_client, &req.cookie)
         .await
-        .map_err(|_| ApiError::BadRequest("cookie login failed".into()))?;
+        .map_err(|e| {
+            // The client gets a generic error; the real upstream step (bootstrap /
+            // authorize / token) with its status + body snippet is logged here for
+            // diagnosis. The cookie rides request headers, never the error string.
+            tracing::warn!(
+                channel = %req.channel,
+                error = %e,
+                "cookie login: exchange failed"
+            );
+            ApiError::BadRequest("cookie login failed".into())
+        })?;
     let sealed = state
         .cipher
         .seal(&secret)
