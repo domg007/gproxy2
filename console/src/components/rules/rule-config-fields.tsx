@@ -18,14 +18,25 @@ interface Props {
 
 export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props) {
   const { t } = useTranslation("rules");
+  const [rawText, setRawText] = useState<string>(() => JSON.stringify(value ?? {}, null, 2));
   const [rawValid, setRawValid] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const handleRawChange = (text: string) => {
+    setRawText(text);
     const parsed = parseJsonText(text);
     const ok = parsed.ok;
     setRawValid(ok);
     onValidChange?.(ok);
     if (ok) onChange(parsed.value);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setRawText(JSON.stringify(value ?? {}, null, 2));
+      setRawValid(true);
+    }
+    setOpen(next);
   };
 
   const v = (value ?? {}) as Record<string, unknown>;
@@ -38,12 +49,12 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
       {kind === "cache_breakpoint" && <CacheBreakpointFields value={v} onChange={onChange} />}
       {kind === "header" && <HeaderFields value={v} onChange={onChange} />}
 
-      <Collapsible>
+      <Collapsible open={open} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ChevronsUpDown className="size-3" aria-hidden /> {t("advanced")}
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-2">
-          <JsonField value={JSON.stringify(value ?? {}, null, 2)} onChange={handleRawChange} rows={8} />
+          <JsonField value={rawText} onChange={handleRawChange} rows={8} />
           {!rawValid && <p className="text-xs text-destructive">{t("rule.rawJsonError")}</p>}
         </CollapsibleContent>
       </Collapsible>
