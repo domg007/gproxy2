@@ -32,7 +32,7 @@ pub struct ClaudeApiChannel;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Channel for ClaudeApiChannel {
     fn id(&self) -> &'static str {
-        "claude_api"
+        "claudeapi"
     }
 
     fn provider_family(&self) -> Provider {

@@ -100,7 +100,7 @@ const BUNDLE: &str = r#"{
   "route_permissions": [{ "id": 1, "scope": "user", "scope_id": 1, "route_pattern": "*" }],
   "providers": [
     { "id": 1, "name": "oai", "channel": "openai", "label": null, "settings_json": { "base_url": "http://fake.local" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true },
-    { "id": 2, "name": "cla", "channel": "claude_api", "label": null, "settings_json": { "base_url": "http://fake.local" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true }
+    { "id": 2, "name": "cla", "channel": "claudeapi", "label": null, "settings_json": { "base_url": "http://fake.local" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true }
   ],
   "credentials": [
     { "id": 1, "provider_id": 1, "label": null, "secret_json": { "api_key": "up-key" }, "proxy_url": null, "tls_fingerprint": null, "enabled": true },
@@ -423,14 +423,14 @@ async fn process_rules_apply_on_claude_passthrough() {
     let seen = fake.seen.lock().unwrap();
     assert!(seen[0].uri.contains("/v1/messages"), "passthrough path");
     let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
-    // claude_api's shape_request sanitizes the body: the system_text rule's
+    // claudeapi's shape_request sanitizes the body: the system_text rule's
     // "PRELUDE" string is canonicalized to the block-array form.
     assert_eq!(up["system"][0]["text"], "PRELUDE", "system_text applied");
     assert_eq!(up["model"], "claude-test");
     assert_eq!(
         seen[0].headers.get("anthropic-beta").unwrap(),
         "context-1m",
-        "header rule forwarded (claude_api whitelists it)"
+        "header rule forwarded (claudeapi whitelists it)"
     );
 }
 

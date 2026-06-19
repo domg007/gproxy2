@@ -412,7 +412,7 @@ M7b 要把 UA 收进 `tls_fingerprint` JSON 的 `headers` 层(已生效的那层
   1. **UA 纳入指纹配置**:渠道硬编码 UA 降级为"无指纹配置时的兜底默认",`tls_fingerprint.headers.user-agent` 一旦存在即覆盖。
   2. **去掉硬编码 UA 里的 `gproxy` 字样**:`codex_cli_rs/0.118.0 (... x86_64) gproxy`、`KiroIDE-0.12.224-gproxy` 这类掺了
      `gproxy` 的 UA 对"伪装成真客户端"是反效果(真客户端不带 gproxy),改回纯净官方 UA。
-  3. **API-key 渠道(openai / claude_api / deepseek / …)给一个合理默认 UA**:现在它们经 `allow_headers` 默认拒绝 + 入站 UA 被全局黑名单剥掉
+  3. **API-key 渠道(openai / claudeapi / deepseek / …)给一个合理默认 UA**:现在它们经 `allow_headers` 默认拒绝 + 入站 UA 被全局黑名单剥掉
      → 完全不带 UA,裸用 wreq 默认 UA。应给一个中性默认(或随指纹配置),避免被识别为非常规客户端。
   4. **claudecode 的 cookie→code 引导流程记为 chrome 指纹**:cookie 换取走的是浏览器路径(`claude.ai` cookie),应伪装成
      **chrome**(TLS + UA 一整套),而非 `claude-cli/...`;chat 主路径仍用 `claude-cli` 客户端指纹。即同一渠道按"引导 vs 推理"用不同指纹。

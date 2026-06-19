@@ -9,7 +9,7 @@ mod tests;
 
 // API-key channels (functional)
 pub mod aistudio;
-pub mod claude_api;
+pub mod claudeapi;
 pub mod custom;
 pub mod deepseek;
 pub mod groq;

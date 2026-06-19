@@ -5,7 +5,7 @@ use http::{HeaderMap, Method};
 use serde_json::Value;
 use serde_json::json;
 
-use super::{aistudio, claude_api, codex, custom, openai};
+use super::{aistudio, claudeapi, codex, custom, openai};
 use crate::channel::{Channel, ChannelError, PrepareCtx};
 
 fn prep<'a>(
@@ -68,11 +68,11 @@ fn settings_base_url_overrides_default() {
 }
 
 #[test]
-fn claude_api_dual_header_no_bearer() {
+fn claudeapi_dual_header_no_bearer() {
     let settings = json!({});
     let secret = json!({ "api_key": "ak" });
     let h = HeaderMap::new();
-    let req = claude_api::ClaudeApiChannel
+    let req = claudeapi::ClaudeApiChannel
         .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/messages"))
         .unwrap()
         .request;

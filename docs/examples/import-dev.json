@@ -6,7 +6,7 @@
   "route_permissions": [{ "id": 1, "scope": "org", "scope_id": 1, "route_pattern": "*" }],
   "providers": [
     { "id": 1, "name": "openai-main", "channel": "openai", "label": null, "settings_json": { "base_url": "https://api.openai.com" }, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true },
-    { "id": 2, "name": "claude-main", "channel": "claude_api", "label": null, "settings_json": {}, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true }
+    { "id": 2, "name": "claude-main", "channel": "claudeapi", "label": null, "settings_json": {}, "credential_strategy": "round_robin", "proxy_url": null, "tls_fingerprint": null, "enabled": true }
   ],
   "credentials": [
     { "id": 1, "provider_id": 1, "label": "k1", "secret_json": { "api_key": "sk-REPLACE" }, "enabled": true },

@@ -52,7 +52,7 @@ async fn sealed_secrets_serve_traffic() {
     assert_eq!(outcome.status, StatusCode::OK);
 
     // (c) upstream received the REAL bearer key — open() recovered the
-    // original secret, not envelope garbage (claude_api auths via x-api-key)
+    // original secret, not envelope garbage (claudeapi auths via x-api-key)
     let seen = fake.seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].headers.get("x-api-key").unwrap(), "up-key");

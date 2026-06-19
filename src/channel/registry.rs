@@ -71,7 +71,7 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
         Arc::new(bulletins::nvidia::NvidiaChannel),
         Arc::new(bulletins::vercel::VercelChannel),
         Arc::new(bulletins::custom::CustomChannel),
-        Arc::new(bulletins::claude_api::ClaudeApiChannel),
+        Arc::new(bulletins::claudeapi::ClaudeApiChannel),
         Arc::new(bulletins::aistudio::AiStudioChannel),
         Arc::new(bulletins::vertexexpress::VertexExpressChannel),
         // ── OAuth / envelope ──
