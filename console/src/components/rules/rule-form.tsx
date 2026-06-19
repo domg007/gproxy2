@@ -2,16 +2,14 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { upsertRule, RULE_KINDS, type Rule } from "@/api/rules";
+import { upsertRule, type Rule } from "@/api/rules";
 import { ApiError } from "@/api/http";
 import { JsonField, parseJsonText } from "@/components/form/json-field";
 import { RuleConfigFields } from "./rule-config-fields";
+import { RuleKindPicker } from "./rule-kind-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 interface Props {
@@ -48,10 +46,13 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
   const [configValue, setConfigValue] = useState<unknown>(rule?.config_json ?? {});
   const [configValid, setConfigValid] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, unknown>>({ [rule?.kind ?? "system_text"]: rule?.config_json ?? {} });
 
   const handleKindChange = (k: string) => {
+    setDrafts((d) => ({ ...d, [kind]: configValue })); // stash current
     setKind(k);
-    setConfigValue({});
+    setConfigValue(drafts[k] ?? {});                    // restore or empty
+    setConfigValid(true);
   };
 
   const mutation = useMutation({
@@ -96,15 +97,8 @@ export function RuleForm({ ruleSetId, rule, onSaved }: Props) {
       onSubmit={(e) => { e.preventDefault(); setFormError(null); mutation.mutate(); }}
     >
       <div className="grid gap-1">
-        <Label htmlFor="rule-kind">{t("rule.kind")}</Label>
-        <Select value={kind} onValueChange={handleKindChange}>
-          <SelectTrigger id="rule-kind"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {RULE_KINDS.map((k) => (
-              <SelectItem key={k} value={k}>{t(`kind.${k}`)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Label>{t("rule.kind")}</Label>
+        <RuleKindPicker value={kind} onChange={handleKindChange} />
       </div>
       <div className="grid gap-1">
         <Label htmlFor="rule-sort">{t("rule.sortOrder")}</Label>
