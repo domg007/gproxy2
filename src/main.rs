@@ -24,8 +24,10 @@ struct Cli {
     #[arg(long, env = "GPROXY_PORT", default_value_t = 8787)]
     port: u16,
 
-    /// Persistence backend: `file` (local disk) or `db` (SeaORM).
-    #[arg(long, env = "GPROXY_PERSISTENCE", default_value = "file")]
+    /// Persistence backend: `file` (local disk) or `db` (SeaORM). Defaults to
+    /// `db` — a single SQLite file at `<data_dir>/gproxy.db` (the v1 path), so a
+    /// v2 binary dropped in place adopts and migrates an existing v1 database.
+    #[arg(long, env = "GPROXY_PERSISTENCE", default_value = "db")]
     persistence: PersistenceKind,
 
     /// Data directory used by the file persistence backend.
@@ -123,6 +125,21 @@ enum Command {
         #[arg(long = "out")]
         output: PathBuf,
     },
+    /// MIGRATE-V1 (remove in 2.1): import a legacy v1 SQLite database into a v2
+    /// db backend, then exit. For explicit/offline migrations; the serve path
+    /// auto-migrates a v1 db found at the configured location.
+    #[cfg(feature = "migrate-v1")]
+    MigrateV1 {
+        /// Path to the v1 `gproxy.db` to read (read-only).
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Target v2 db DSN. Defaults to the server's configured db.
+        #[arg(long = "to")]
+        to: Option<String>,
+        /// Read and report counts without writing anything.
+        #[arg(long = "dry-run", default_value_t = false)]
+        dry_run: bool,
+    },
     /// Self-update (§19): check the configured release channel for a new build,
     /// and optionally download + verify + swap the binary. Native-only.
     Update {
@@ -177,10 +194,42 @@ async fn main() -> anyhow::Result<()> {
         .await;
     }
 
+    // MIGRATE-V1 (remove in 2.1): explicit migration subcommand — self-contained
+    // and dispatched before the shared persistence is built (it manages its own
+    // source/target db connections).
+    #[cfg(feature = "migrate-v1")]
+    if let Some(Command::MigrateV1 { from, to, dry_run }) = &cli.command {
+        let master_key = std::env::var("GPROXY_MASTER_KEY").ok();
+        let cipher = gproxy::crypto::cipher_from_master_key(master_key.as_deref())?;
+        let to_dsn = match to {
+            Some(d) => d.clone(),
+            None => match PersistenceConfig::from_parts(
+                cli.persistence,
+                cli.data_dir.clone(),
+                cli.dsn.clone(),
+            )? {
+                PersistenceConfig::Db { dsn } => dsn,
+                PersistenceConfig::File { .. } => anyhow::bail!(
+                    "migrate-v1 needs a db target: pass --to <dsn> or use --persistence db"
+                ),
+            },
+        };
+        let channels = gproxy::channel::registry::ChannelRegistry::with_builtin();
+        let report =
+            gproxy::app::migrate_v1::run_cli(from, &to_dsn, *dry_run, cipher.as_ref(), &channels)
+                .await?;
+        tracing::info!(?report, dry_run = *dry_run, "migrate-v1 finished");
+        return Ok(());
+    }
+
     let cache_cfg = CacheConfig::from_url(cli.redis_url);
     // Clone data_dir BEFORE from_parts moves it, so update_data_dir can also
     // refer to the same directory (self-update stages under <data_dir>/.update).
     let update_data_dir = cli.data_dir.clone();
+    // Ensure the data dir exists before building persistence: the file backend
+    // creates it on open, but the db backend's SQLite file needs its parent dir
+    // to already exist (and the migration writes its temp/backup files here too).
+    std::fs::create_dir_all(&cli.data_dir)?;
     let persistence_cfg = PersistenceConfig::from_parts(cli.persistence, cli.data_dir, cli.dsn)?;
     let upstream_cfg = UpstreamConfig::from_proxy_url(cli.upstream_proxy_url);
 
@@ -205,7 +254,31 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = config.bind_addr()?;
 
-    // Persistence is built first — the import subcommand and first-boot hook
+    // Envelope cipher (§14.1): GPROXY_MASTER_KEY is env-only (§8-E — never a
+    // CLI flag). Malformed key = hard boot error; absent key = plaintext mode.
+    // Built before persistence because the v1→v2 migration hook needs it.
+    let master_key = std::env::var("GPROXY_MASTER_KEY").ok();
+    if master_key.is_none() {
+        tracing::warn!("GPROXY_MASTER_KEY not set; secrets stored and read as plaintext");
+    }
+    let cipher = gproxy::crypto::cipher_from_master_key(master_key.as_deref())?;
+
+    // MIGRATE-V1 (remove in 2.1): on the serve path, if the configured SQLite db
+    // is a legacy v1 database, migrate it to v2 in place (backing the v1 file up)
+    // BEFORE the v2 backend opens it. No-op on a fresh install or an existing v2.
+    #[cfg(feature = "migrate-v1")]
+    if cli.command.is_none()
+        && let PersistenceConfig::Db { dsn } = &config.persistence
+    {
+        let channels = gproxy::channel::registry::ChannelRegistry::with_builtin();
+        if let Some(report) =
+            gproxy::app::migrate_v1::maybe_migrate_on_boot(dsn, cipher.as_ref(), &channels).await?
+        {
+            tracing::info!(?report, "v1 → v2 migration complete");
+        }
+    }
+
+    // Persistence is built next — the import subcommand and first-boot hook
     // both need it before the (optional) cache backend is started.
     let persistence: Arc<dyn PersistenceBackend> = match &config.persistence {
         #[cfg(feature = "persist-file")]
@@ -227,14 +300,6 @@ async fn main() -> anyhow::Result<()> {
     };
     persistence.health().await?;
     tracing::info!("persistence backend: {} healthy", persistence.kind());
-
-    // Envelope cipher (§14.1): GPROXY_MASTER_KEY is env-only (§8-E — never a
-    // CLI flag). Malformed key = hard boot error; absent key = plaintext mode.
-    let master_key = std::env::var("GPROXY_MASTER_KEY").ok();
-    if master_key.is_none() {
-        tracing::warn!("GPROXY_MASTER_KEY not set; secrets stored and read as plaintext");
-    }
-    let cipher = gproxy::crypto::cipher_from_master_key(master_key.as_deref())?;
 
     // Config subcommands: import / export, then exit — no server started.
     match cli.command {
@@ -259,6 +324,10 @@ async fn main() -> anyhow::Result<()> {
         None => {}
         // Handled by the early dispatch above (before persistence is built).
         Some(Command::Update { .. }) => unreachable!("update is dispatched before persistence"),
+        #[cfg(feature = "migrate-v1")]
+        Some(Command::MigrateV1 { .. }) => {
+            unreachable!("migrate-v1 is dispatched before persistence")
+        }
     }
 
     // First-boot hook: if GPROXY_IMPORT_FILE is set and the store is empty,

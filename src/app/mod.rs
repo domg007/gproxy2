@@ -4,6 +4,9 @@ pub mod bootstrap;
 pub mod export;
 pub mod import;
 pub mod invalidation;
+// MIGRATE-V1 (remove in 2.1): one-shot legacy v1→v2 data migration.
+#[cfg(feature = "migrate-v1")]
+pub mod migrate_v1;
 pub mod models_index;
 pub mod retention;
 pub mod snapshot;

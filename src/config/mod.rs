@@ -75,8 +75,19 @@ impl PersistenceConfig {
         match kind {
             PersistenceKind::File => Ok(Self::File { data_dir }),
             PersistenceKind::Db => Ok(Self::Db {
-                dsn: dsn
-                    .ok_or_else(|| anyhow::anyhow!("db persistence requires --dsn / GPROXY_DSN"))?,
+                dsn: match dsn {
+                    Some(d) => d,
+                    // No DSN given → default to a SQLite file named `gproxy.db`
+                    // inside the data dir. Same name/path v1 used, so a v2 binary
+                    // dropped in place keeps writing to `<data_dir>/gproxy.db`
+                    // (the legacy file is migrated in-place first; see
+                    // `app::migrate_v1`). `mode=rwc` creates it if absent.
+                    None => {
+                        let path = std::path::absolute(data_dir.join("gproxy.db"))
+                            .map_err(|e| anyhow::anyhow!("resolve default db path: {e}"))?;
+                        format!("sqlite://{}?mode=rwc", path.display())
+                    }
+                },
             }),
         }
     }
@@ -230,10 +241,19 @@ mod tests {
     }
 
     #[test]
-    fn persistence_db_without_dsn_is_err() {
-        let err = PersistenceConfig::from_parts(PersistenceKind::Db, PathBuf::from("./data"), None)
-            .unwrap_err();
-        assert!(err.to_string().contains("GPROXY_DSN"));
+    fn persistence_db_without_dsn_defaults_to_data_dir_sqlite() {
+        // db backend with no DSN now derives `<data_dir>/gproxy.db` (the v1 path)
+        // instead of erroring — the drop-in default (see `app::migrate_v1`).
+        let cfg = PersistenceConfig::from_parts(PersistenceKind::Db, PathBuf::from("./data"), None)
+            .unwrap();
+        match cfg {
+            PersistenceConfig::Db { dsn } => {
+                assert!(dsn.starts_with("sqlite://"), "got {dsn}");
+                assert!(dsn.contains("gproxy.db"), "got {dsn}");
+                assert!(dsn.contains("mode=rwc"), "got {dsn}");
+            }
+            other => panic!("expected Db, got {other:?}"),
+        }
     }
 
     #[test]
