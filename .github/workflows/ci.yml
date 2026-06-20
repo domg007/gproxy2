@@ -2,8 +2,7 @@ name: CI
 
 on:
   push:
-    # v2 is a DEBUG branch (drop it once v2 becomes the default branch).
-    branches: [main, v2]
+    branches: [main]
   pull_request:
 
 # Cancel superseded runs on the same ref.

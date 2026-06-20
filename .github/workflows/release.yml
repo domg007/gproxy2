@@ -2,14 +2,8 @@ name: release
 
 # Builds the v2 distribution: native binaries, edge (wasm) bundles, and Docker
 # images. Side effects (attach to GitHub Release, push to GHCR) only happen on a
-# published Release — branch pushes / dispatch just build-and-validate.
-#
-# NOTE: `push: [v2]` is a DEBUG trigger so the pipeline can be proven green on
-# the v2 branch before it lands on main. Remove it once v2 becomes the default
-# branch.
+# published Release — workflow_dispatch just builds-and-validates.
 on:
-  push:
-    branches: [v2]
   workflow_dispatch:
   release:
     types: [published]
