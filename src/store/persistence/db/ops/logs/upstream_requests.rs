@@ -23,6 +23,7 @@ fn to_record(m: upstream_request::Model) -> anyhow::Result<UpstreamRequest> {
             .map(|s| serde_json::from_str(&s))
             .transpose()?,
         body: m.body,
+        response_body: m.response_body,
         created_at: m.created_at,
         updated_at: m.updated_at,
     })
@@ -50,6 +51,7 @@ pub async fn append(
         latency_ms: Set(input.latency_ms),
         headers_json: Set(headers),
         body: Set(input.body),
+        response_body: Set(input.response_body),
         created_at: Set(now),
         updated_at: Set(now),
     }

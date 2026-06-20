@@ -10,7 +10,7 @@ use crate::store::persistence::libsql::util::{
 use crate::store::persistence::records::{UpstreamRequest, UpstreamRequestInput};
 
 const COLS: &str = "id, request_id, at, provider_id, credential_id, url, method, status, \
-     latency_ms, headers_json, body, created_at, updated_at";
+     latency_ms, headers_json, body, created_at, updated_at, response_body";
 
 fn decode(row: &Row) -> anyhow::Result<UpstreamRequest> {
     Ok(UpstreamRequest {
@@ -27,6 +27,7 @@ fn decode(row: &Row) -> anyhow::Result<UpstreamRequest> {
         body: col_opt_str(row, 10)?,
         created_at: col_i64(row, 11)?,
         updated_at: col_i64(row, 12)?,
+        response_body: col_opt_str(row, 13)?,
     })
 }
 
@@ -45,8 +46,8 @@ pub async fn append(
         .execute(
             "INSERT INTO upstream_requests \
              (request_id, at, provider_id, credential_id, url, method, status, latency_ms, \
-              headers_json, body, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              headers_json, body, response_body, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             &[
                 arg_text(&input.request_id),
                 arg_integer(input.at),
@@ -58,6 +59,7 @@ pub async fn append(
                 arg_integer(input.latency_ms),
                 arg_opt_text(headers.as_deref()),
                 arg_opt_text(input.body.as_deref()),
+                arg_opt_text(input.response_body.as_deref()),
                 arg_integer(now),
                 arg_integer(now),
             ],

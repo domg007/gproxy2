@@ -89,6 +89,16 @@ pub const MIGRATIONS: &[Migration] = &[
         description: "instance_settings.retention_days: usage/log purge window (§8-D)",
         sql: &["ALTER TABLE instance_settings ADD COLUMN retention_days INTEGER"],
     },
+    Migration {
+        version: 4,
+        description: "downstream_requests.response_body: captured downstream response body (§8-D)",
+        sql: &["ALTER TABLE downstream_requests ADD COLUMN response_body TEXT"],
+    },
+    Migration {
+        version: 5,
+        description: "upstream_requests.response_body: captured upstream response body (§8-D)",
+        sql: &["ALTER TABLE upstream_requests ADD COLUMN response_body TEXT"],
+    },
 ];
 
 /// Migrations with `version > current`, in ascending order — the work a runner

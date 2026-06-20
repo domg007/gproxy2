@@ -46,6 +46,7 @@ pub(crate) async fn append(
         latency_ms: input.latency_ms,
         headers_json: input.headers_json,
         body: input.body,
+        response_body: input.response_body,
         created_at: now,
         updated_at: now,
     };

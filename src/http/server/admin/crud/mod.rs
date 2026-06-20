@@ -973,6 +973,7 @@ mod tests {
                 latency_ms: 42,
                 headers_json: None,
                 body: None,
+                response_body: None,
             })
             .await
             .unwrap();

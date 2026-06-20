@@ -123,6 +123,7 @@ pub async fn record_failure(
         latency_ms: rec.latency_ms,
         headers_json: None,
         body: Some(rec.error.to_owned()),
+        response_body: None,
     })
     .await
 }

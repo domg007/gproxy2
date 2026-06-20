@@ -17,6 +17,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub headers_json: Option<String>,
     pub body: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub response_body: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

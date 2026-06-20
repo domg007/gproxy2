@@ -8,7 +8,7 @@ use crate::store::persistence::libsql::util::{
 use crate::store::persistence::records::{DownstreamRequest, DownstreamRequestInput};
 
 const COLS: &str = "id, request_id, at, method, path, query, status, headers_json, body, \
-     created_at, updated_at";
+     created_at, updated_at, response_body";
 
 fn decode(row: &Row) -> anyhow::Result<DownstreamRequest> {
     Ok(DownstreamRequest {
@@ -23,6 +23,7 @@ fn decode(row: &Row) -> anyhow::Result<DownstreamRequest> {
         body: col_opt_str(row, 8)?,
         created_at: col_i64(row, 9)?,
         updated_at: col_i64(row, 10)?,
+        response_body: col_opt_str(row, 11)?,
     })
 }
 
@@ -40,8 +41,8 @@ pub async fn append(
     let qr = client
         .execute(
             "INSERT INTO downstream_requests \
-             (request_id, at, method, path, query, status, headers_json, body, created_at, \
-              updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (request_id, at, method, path, query, status, headers_json, body, response_body, \
+              created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             &[
                 arg_text(&input.request_id),
                 arg_integer(input.at),
@@ -51,6 +52,7 @@ pub async fn append(
                 arg_integer(input.status),
                 arg_opt_text(headers.as_deref()),
                 arg_opt_text(input.body.as_deref()),
+                arg_opt_text(input.response_body.as_deref()),
                 arg_integer(now),
                 arg_integer(now),
             ],

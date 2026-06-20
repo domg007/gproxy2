@@ -13,8 +13,8 @@ use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::store::persistence::records::{DownstreamRequestInput, UpstreamRequestInput};
 use crate::util::time::unix_now;
 
-/// Body capture cap — one multi-MB payload must not balloon a log row.
-const MAX_BODY: usize = 64 * 1024;
+/// Body capture cap — bodies larger than this are truncated in the log row.
+const MAX_BODY: usize = 32 * 1024 * 1024;
 
 /// Headers whose values are secrets (§14.3): always stripped from captured
 /// logs unless redaction is explicitly disabled.
@@ -91,6 +91,7 @@ pub async fn log_downstream(state: &AppState, cap: DownstreamCapture, status: St
         status: i64::from(status.as_u16()),
         headers_json: cap.headers_json,
         body: cap.body,
+        response_body: None,
     };
     persist(state, Row::Downstream(input)).await;
 }
@@ -133,6 +134,7 @@ pub async fn log_upstream(
         body: ls
             .enable_upstream_log_body
             .then(|| body_string(w.sent_body, redact)),
+        response_body: None,
     };
     persist(state, Row::Upstream(input)).await;
 }

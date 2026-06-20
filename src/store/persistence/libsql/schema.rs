@@ -247,6 +247,7 @@ const TABLES: &[&str] = &[
         status INTEGER NOT NULL, \
         headers_json TEXT, \
         body TEXT, \
+        response_body TEXT, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS upstream_requests (\
@@ -261,6 +262,7 @@ const TABLES: &[&str] = &[
         latency_ms INTEGER NOT NULL, \
         headers_json TEXT, \
         body TEXT, \
+        response_body TEXT, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS audit_logs (\
