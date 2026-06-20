@@ -6,8 +6,9 @@ mod shape;
 use bytes::Bytes;
 
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
+use crate::channel::shaping::{self, claude_cache_control, claude_magic_cache};
 use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
-use crate::protocol::{Operation, Provider};
+use crate::protocol::{ContentGenerationKind, Operation, OperationKind, Provider};
 
 const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
     default_base_url: Some("https://openrouter.ai/api"),
@@ -16,6 +17,15 @@ const DEFAULTS: ApiKeyDefaults = ApiKeyDefaults {
 };
 
 pub struct OpenRouterChannel;
+
+/// Whether `op` targets the Claude-messages content path — the only passthrough
+/// route that carries a Claude-format body to shape.
+fn is_claude_messages(op: crate::protocol::OperationKey) -> bool {
+    matches!(
+        op.kind,
+        OperationKind::ContentGeneration(ContentGenerationKind::ClaudeMessages)
+    )
+}
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -85,6 +95,18 @@ impl Channel for OpenRouterChannel {
         let (mut req, key) = common::build_request(ctx, &DEFAULTS)?;
         auth::apply(&mut req, &key)?;
         Ok(PreparedRequest::new(req))
+    }
+
+    /// Opt-in magic-string cache triggers on a Claude-format passthrough body
+    /// (provider `enable_magic_cache`). No-op when disabled or non-Claude.
+    fn shape_request(&self, body: Bytes, _headers: &mut http::HeaderMap, ctx: &ShapeCtx) -> Bytes {
+        if !ctx.enable_magic_cache || !is_claude_messages(ctx.op) {
+            return body;
+        }
+        shaping::with_json_body(body, |v| {
+            claude_magic_cache::apply_magic_string_cache_control_triggers(v);
+            claude_cache_control::sanitize_claude_body(v);
+        })
     }
 
     /// On `ListModels`, fill the OpenAI model-list shape OpenRouter omits

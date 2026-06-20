@@ -142,6 +142,7 @@ async fn fetch_models_with(
                     op,
                     stream: false,
                     status,
+                    enable_magic_cache: false,
                 },
             );
             return Ok(parse_models(family, &body));

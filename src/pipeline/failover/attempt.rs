@@ -79,6 +79,12 @@ pub(super) async fn attempt(
         op: plan.shape_op(ctx),
         stream: ctx.stream,
         status: StatusCode::OK,
+        enable_magic_cache: cand
+            .provider
+            .settings_json
+            .get("enable_magic_cache")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     };
     let mut req_headers = parts.headers.take().unwrap_or_else(|| ctx.headers.clone());
     parts.body = channel.shape_request(parts.body, &mut req_headers, &shape);
@@ -261,6 +267,7 @@ pub(super) fn materialize(
                 op: plan.shape_op(ctx),
                 stream: ctx.stream,
                 status,
+                enable_magic_cache: false,
             };
             // shape_response runs on ALL statuses (error bodies included).
             let b = channel.shape_response(b, &shape);

@@ -7,6 +7,7 @@
  *   circuit_breaker   — all channels (both sub-fields must be filled or both omitted)
  *   location          — vertex only
  *   profile_arn       — kiro only
+ *   enable_magic_cache — claudecode / claudeapi / vercel / openrouter (magic-string prompt cache triggers)
  *
  * Unknown keys (e.g. tokenizer_map) are preserved via the `base` prop.
  */
@@ -14,7 +15,11 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { DEFAULT_BASE_URL } from "@/lib/channel-meta";
+
+// Channels whose backend honors the magic-string cache triggers on Claude-format bodies.
+const MAGIC_CACHE_CHANNELS = new Set(["claudecode", "claudeapi", "vercel", "openrouter"]);
 
 export interface SettingsState {
   baseUrl: string;
@@ -22,6 +27,7 @@ export interface SettingsState {
   cooldownSecs: string;
   location: string;
   profileArn: string;
+  enableMagicCache: boolean;
 }
 
 export function initSettingsState(settingsJson: unknown): SettingsState {
@@ -37,6 +43,7 @@ export function initSettingsState(settingsJson: unknown): SettingsState {
       typeof cb.cooldown_secs === "number" ? String(cb.cooldown_secs) : "",
     location: typeof s.location === "string" ? s.location : "",
     profileArn: typeof s.profile_arn === "string" ? s.profile_arn : "",
+    enableMagicCache: s.enable_magic_cache === true,
   };
 }
 
@@ -82,6 +89,15 @@ export function assembleSettings(
       result.profile_arn = state.profileArn.trim();
     } else {
       delete result.profile_arn;
+    }
+  }
+
+  // enable_magic_cache (Claude-capable channels)
+  if (MAGIC_CACHE_CHANNELS.has(channel)) {
+    if (state.enableMagicCache) {
+      result.enable_magic_cache = true;
+    } else {
+      delete result.enable_magic_cache;
     }
   }
 
@@ -177,6 +193,21 @@ export function SettingsFields({ channel, state, onChange }: SettingsFieldsProps
             onChange={(e) => onChange({ profileArn: e.target.value })}
             placeholder="arn:aws:…"
           />
+        </div>
+      )}
+
+      {/* Claude-capable channels: magic-string prompt cache triggers */}
+      {MAGIC_CACHE_CHANNELS.has(channel) && (
+        <div className="grid gap-1">
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="sf-magic-cache">{t("fields.enableMagicCache")}</Label>
+            <Switch
+              id="sf-magic-cache"
+              checked={state.enableMagicCache}
+              onCheckedChange={(v) => onChange({ enableMagicCache: v })}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{t("form.enableMagicCacheHint")}</p>
         </div>
       )}
     </div>

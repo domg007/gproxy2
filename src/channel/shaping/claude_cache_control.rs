@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-fn canonicalize_claude_body(body: &mut Value) {
+pub(super) fn canonicalize_claude_body(body: &mut Value) {
     let Some(root) = body.as_object_mut() else {
         return;
     };

@@ -89,6 +89,9 @@ pub struct ShapeCtx {
     pub stream: bool,
     /// Upstream status (response shaping only; `OK` for request shaping).
     pub status: StatusCode,
+    /// Provider `enable_magic_cache` setting — request shaping only; gates the
+    /// opt-in magic-string cache triggers on Claude-format bodies.
+    pub enable_magic_cache: bool,
 }
 
 /// Pure upstream access adapter (§6.3). Implementors provide `id`,

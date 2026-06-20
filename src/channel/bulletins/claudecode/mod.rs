@@ -19,7 +19,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
-use crate::channel::shaping::{self, claude_cache_control, claude_sampling};
+use crate::channel::shaping::{self, claude_cache_control, claude_magic_cache, claude_sampling};
 use crate::channel::{
     AuthCodeStart, Channel, ChannelError, ChannelLogin, PrepareCtx, PreparedRequest, ShapeCtx,
 };
@@ -162,8 +162,9 @@ impl Channel for ClaudeCodeChannel {
                 .get("account_uuid")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            // Opt-in magic-string cache triggers (provider `enable_magic_cache`) before cch.
             Bytes::from(cch::apply(
-                &ctx.body,
+                &claude_magic_cache::apply_if_enabled(ctx.body, ctx.provider_settings),
                 &device_id,
                 account_uuid,
                 &session_id,
@@ -453,6 +454,7 @@ mod tests {
             ),
             stream: false,
             status: http::StatusCode::OK,
+            enable_magic_cache: false,
         }
     }
 
@@ -488,6 +490,7 @@ mod tests {
             op: OperationKey::provider(Operation::ListModels, super::Provider::Claude),
             stream: false,
             status: http::StatusCode::OK,
+            enable_magic_cache: false,
         };
         let out = ClaudeCodeChannel.shape_request(body.clone(), &mut headers, &ctx);
         assert_eq!(out, body);

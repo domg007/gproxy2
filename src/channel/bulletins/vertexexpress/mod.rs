@@ -171,6 +171,7 @@ mod tests {
             ),
             stream: false,
             status: http::StatusCode::OK,
+            enable_magic_cache: false,
         };
         let out = VertexExpressChannel.shape_response(body.clone(), &content_ctx);
         let v: Value = serde_json::from_slice(&out).unwrap();
@@ -184,6 +185,7 @@ mod tests {
             op: OperationKey::provider(Operation::CountTokens, P::Gemini),
             stream: false,
             status: http::StatusCode::OK,
+            enable_magic_cache: false,
         };
         assert_eq!(
             VertexExpressChannel.shape_response(body.clone(), &count_ctx),

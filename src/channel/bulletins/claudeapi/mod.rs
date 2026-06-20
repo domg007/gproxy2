@@ -7,7 +7,7 @@ use bytes::Bytes;
 use http::HeaderMap;
 
 use crate::channel::bulletins::common::{self, ApiKeyDefaults};
-use crate::channel::shaping::{self, claude_cache_control, claude_sampling};
+use crate::channel::shaping::{self, claude_cache_control, claude_magic_cache, claude_sampling};
 use crate::channel::{Channel, ChannelError, PrepareCtx, PreparedRequest, ShapeCtx};
 use crate::protocol::{ContentGenerationKind, OperationKind, Provider};
 
@@ -103,6 +103,9 @@ impl Channel for ClaudeApiChannel {
             return body;
         }
         let body = shaping::with_json_body(body, |v| {
+            if ctx.enable_magic_cache {
+                claude_magic_cache::apply_magic_string_cache_control_triggers(v);
+            }
             claude_cache_control::sanitize_claude_body(v);
             claude_sampling::strip_sampling_params(v);
         });
@@ -127,6 +130,7 @@ mod tests {
             ),
             stream: false,
             status: StatusCode::OK,
+            enable_magic_cache: false,
         }
     }
 
@@ -168,6 +172,7 @@ mod tests {
             ),
             stream: false,
             status: StatusCode::OK,
+            enable_magic_cache: false,
         };
         let out = ClaudeApiChannel.shape_request(body.clone(), &mut headers, &ctx);
         assert_eq!(out, body);
