@@ -11,7 +11,7 @@ use crate::billing::pending;
 use crate::pipeline::context::{Candidate, RequestCtx, RoutingMode};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::local_ops::{self, ModelEntry};
-use crate::pipeline::outcome::ExecOutcome;
+use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::{
     auth, authz, balance, capture, classify, failover, ingress, preprocess, route,
 };
@@ -36,11 +36,22 @@ pub async fn execute(state: &AppState, ctx: RequestCtx) -> Result<ExecOutcome, P
     let downstream = capture::downstream_precapture(state, &ctx);
     let result = run(state, ctx).instrument(span).await;
     if let Some(cap) = downstream {
-        let status = match &result {
-            Ok(o) => o.status,
-            Err(e) => e.status(),
+        // §8-D response body (fold-in for non-streaming; streamed bodies are
+        // backfilled by `settle` since they aren't materialized here).
+        let want_body = state.cp().log_settings.enable_downstream_log_body;
+        let (status, resp_body): (http::StatusCode, Option<bytes::Bytes>) = match &result {
+            Ok(o) => {
+                let b = match &o.body {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    ResponseBody::Stream(_) => None,
+                    ResponseBody::Full(b) if want_body => Some(b.clone()),
+                    ResponseBody::Full(_) => None,
+                };
+                (o.status, b)
+            }
+            Err(e) => (e.status(), want_body.then(|| bytes::Bytes::from(e.error_body_json()))),
         };
-        capture::log_downstream(state, cap, status).await;
+        capture::log_downstream(state, cap, status, resp_body.as_deref()).await;
     }
     result
 }

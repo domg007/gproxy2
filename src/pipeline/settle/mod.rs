@@ -308,6 +308,9 @@ async fn settle_stream(ctx: SettleCtx, buf: RelayBuffer, ended: Ended) {
         Ended::Interrupted => ladder(&ctx, &frames::produced_text(ctx.inbound, &frames)).await,
     };
     record(&ctx, usage, source, ended).await;
+    // §8-D: backfill the captured downstream response body (the row was
+    // appended at execute() return; this UPDATE lands after it). Gated inside.
+    crate::pipeline::capture::record_downstream_response(&ctx.state, &ctx.request_id, &bytes).await;
 }
 
 // ── recording ────────────────────────────────────────────────────────────────

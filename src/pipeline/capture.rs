@@ -80,8 +80,21 @@ pub fn downstream_precapture(state: &AppState, ctx: &RequestCtx) -> Option<Downs
     })
 }
 
-/// Append the captured downstream request with its final `status`.
-pub async fn log_downstream(state: &AppState, cap: DownstreamCapture, status: StatusCode) {
+/// Append the captured downstream request with its final `status`. For
+/// non-streaming responses the body is folded into the same INSERT via
+/// `response_body` (streaming responses pass `None` and backfill later via
+/// [`record_downstream_response`]). Gated by the downstream log-body toggle.
+pub async fn log_downstream(
+    state: &AppState,
+    cap: DownstreamCapture,
+    status: StatusCode,
+    response_body: Option<&[u8]>,
+) {
+    let resp = response_body.map(|b| {
+        let ls = state.cp().log_settings.clone();
+        let redact = warn_unless_redacted(&ls);
+        body_string(b, redact)
+    });
     let input = DownstreamRequestInput {
         request_id: cap.request_id,
         at: cap.at,
@@ -91,7 +104,7 @@ pub async fn log_downstream(state: &AppState, cap: DownstreamCapture, status: St
         status: i64::from(status.as_u16()),
         headers_json: cap.headers_json,
         body: cap.body,
-        response_body: None,
+        response_body: resp,
     };
     persist(state, Row::Downstream(input)).await;
 }
@@ -311,5 +324,15 @@ mod tests {
         assert!(out.contains("\"model\":\"m\""), "{out}");
 
         assert_eq!(redact_query("alt=1&key=sk-9", true), "alt=1&key=[REDACTED]");
+    }
+
+    #[test]
+    fn body_string_truncates_oversized() {
+        // Response bodies reuse body_string; a payload well past MAX_BODY must
+        // be capped with the truncation marker (not silently kept whole).
+        let big = vec![b'a'; MAX_BODY + 4096];
+        let out = body_string(&big, false);
+        assert!(out.len() < big.len(), "oversized body should be truncated");
+        assert!(out.contains("[truncated 4096 bytes]"), "missing marker");
     }
 }
