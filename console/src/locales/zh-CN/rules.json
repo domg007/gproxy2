@@ -46,6 +46,7 @@
     "replacement": "替换内容",
     "target": "目标",
     "index": "索引",
+    "indexHint": ">0:正数第 N 条;<0:倒数第 N 条;0 无效",
     "ttl": "TTL（秒）",
     "name": "请求头名称",
     "mode": "模式",
@@ -111,7 +112,8 @@
     "configTargetRequired": "目标不能为空",
     "configHeaderNameRequired": "请求头名称不能为空",
     "configInvalid": "配置 JSON 无效",
-    "filterJsonInvalid": "操作键过滤必须为有效 JSON"
+    "filterJsonInvalid": "操作键过滤必须为有效 JSON",
+    "cacheIndexZero": "索引不能为 0(无意义)"
   },
   "protocolKind": {
     "open_ai_responses": "OpenAI Responses",
@@ -165,10 +167,7 @@
     "invalid": "无效的 JSON"
   },
   "sanitizeTemplate": {
-    "button": "从模板添加",
-    "title": "脱敏模板",
-    "caption": "插入预设的模式 → 替换规则包。",
-    "added": "已添加 {{count}} 条脱敏规则"
+    "fillFrom": "从模板填充"
   },
   "createAndAttach": "新建规则集",
   "attachExisting": "附加已有规则集",

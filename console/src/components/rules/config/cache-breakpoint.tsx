@@ -45,6 +45,7 @@ export function CacheBreakpointFields({ value, onChange }: Props) {
           }}
           placeholder="optional"
         />
+        <p className="text-xs text-muted-foreground">{t("config.indexHint")}</p>
       </div>
       <div className="grid gap-1">
         <Label htmlFor="cfg-cb-ttl">{t("config.ttl")}</Label>

@@ -46,6 +46,7 @@
     "replacement": "替換內容",
     "target": "目標",
     "index": "索引",
+    "indexHint": ">0:正數第 N 條;<0:倒數第 N 條;0 無效",
     "ttl": "TTL（秒）",
     "name": "標頭名稱",
     "mode": "模式",
@@ -111,7 +112,8 @@
     "configTargetRequired": "目標不能為空",
     "configHeaderNameRequired": "標頭名稱不能為空",
     "configInvalid": "設定 JSON 無效",
-    "filterJsonInvalid": "操作鍵過濾必須為有效 JSON"
+    "filterJsonInvalid": "操作鍵過濾必須為有效 JSON",
+    "cacheIndexZero": "索引不能為 0(無意義)"
   },
   "protocolKind": {
     "open_ai_responses": "OpenAI Responses",
@@ -165,10 +167,7 @@
     "invalid": "無效的 JSON"
   },
   "sanitizeTemplate": {
-    "button": "從範本新增",
-    "title": "清洗範本",
-    "caption": "插入預設的模式 → 替換規則包。",
-    "added": "已新增 {{count}} 條清洗規則"
+    "fillFrom": "從範本填入"
   },
   "createAndAttach": "新建規則集",
   "attachExisting": "附加已有規則集",

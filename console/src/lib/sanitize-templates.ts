@@ -1,29 +1,19 @@
-import type { RuleInput } from "@/api/rules";
-
 export interface SanitizeTemplate {
   id: string;
-  rules: { pattern: string; replacement: string }[];
+  pattern: string;
+  replacement: string;
 }
 
-// Word-boundary client-identity scrubs (ported from v1 sanitize presets).
+// Word-boundary client-identity scrubs. Each is a single sanitize rule the user
+// fills into the sanitize editor (then can tweak before saving).
 export const SANITIZE_TEMPLATES: SanitizeTemplate[] = [
-  { id: "aider", rules: [{ pattern: "\\bAider\\b", replacement: "The assistant" }] },
-  { id: "cline", rules: [{ pattern: "\\bCline\\b", replacement: "Assistant" }] },
-  { id: "continue", rules: [{ pattern: "\\bContinue\\b", replacement: "Assistant" }] },
-  { id: "cursor", rules: [{ pattern: "\\bCursor\\b", replacement: "Assistant" }] },
+  { id: "aider", pattern: "\\bAider\\b", replacement: "The assistant" },
+  { id: "cline", pattern: "\\bCline\\b", replacement: "Assistant" },
+  { id: "continue", pattern: "\\bContinue\\b", replacement: "Assistant" },
+  { id: "cursor", pattern: "\\bCursor\\b", replacement: "Assistant" },
   // OpenCode: its <env> block writes "git repo" (abbreviated) where the official
   // Claude Code client writes "git repository" — the upstream's client-identity
   // check flags the abbreviation as a third-party app. Confirmed against the live
   // upstream 2026-06-20 (raw "git repo" → 400; "git repository" → 200).
-  { id: "opencode", rules: [{ pattern: "\\bgit repo\\b", replacement: "git repository" }] },
+  { id: "opencode", pattern: "\\bgit repo\\b", replacement: "git repository" },
 ];
-
-export function templateToRuleInputs(tpl: SanitizeTemplate, ruleSetId: number, baseSortOrder: number): RuleInput[] {
-  return tpl.rules.map((r, i) => ({
-    rule_set_id: ruleSetId,
-    kind: "sanitize",
-    config_json: { pattern: r.pattern, replacement: r.replacement },
-    sort_order: baseSortOrder + i,
-    enabled: true,
-  }));
-}

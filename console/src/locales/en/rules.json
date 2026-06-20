@@ -46,6 +46,7 @@
     "replacement": "Replacement",
     "target": "Target",
     "index": "Index",
+    "indexHint": ">0: Nth from start; <0: Nth from end; 0 is invalid",
     "ttl": "TTL (seconds)",
     "name": "Header Name",
     "mode": "Mode",
@@ -111,7 +112,8 @@
     "configTargetRequired": "Target is required",
     "configHeaderNameRequired": "Header name is required",
     "configInvalid": "Configuration has invalid JSON",
-    "filterJsonInvalid": "Filter operation keys must be valid JSON"
+    "filterJsonInvalid": "Filter operation keys must be valid JSON",
+    "cacheIndexZero": "Index cannot be 0"
   },
   "protocolKind": {
     "open_ai_responses": "OpenAI Responses",
@@ -165,10 +167,7 @@
     "invalid": "Invalid JSON"
   },
   "sanitizeTemplate": {
-    "button": "Add from template",
-    "title": "Sanitize templates",
-    "caption": "Insert a preset bundle of pattern → replacement rules.",
-    "added": "Added {{count}} sanitize rules"
+    "fillFrom": "Fill from template"
   },
   "createAndAttach": "New rule set",
   "attachExisting": "Attach existing",

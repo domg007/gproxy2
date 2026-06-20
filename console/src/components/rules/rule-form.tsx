@@ -27,6 +27,7 @@ function validateConfig(kind: string, cfg: unknown, t: (k: string) => string): s
   if (kind === "rewrite" && !c.action) return t("validation.configActionRequired");
   if (kind === "sanitize" && !c.pattern) return t("validation.configPatternRequired");
   if (kind === "cache_breakpoint" && !c.target) return t("validation.configTargetRequired");
+  if (kind === "cache_breakpoint" && c.index === 0) return t("validation.cacheIndexZero");
   if (kind === "header" && !c.name) return t("validation.configHeaderNameRequired");
   return null;
 }
