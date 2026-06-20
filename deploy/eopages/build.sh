@@ -26,11 +26,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 OPT_WASM="$OUT/gproxy.optimized.wasm"
 if command -v wasm-opt >/dev/null 2>&1; then
-  # `-all` enables every wasm feature so wasm-opt accepts the bulk-memory /
-  # sign-ext ops rustc emits (otherwise it fatally rejects memory.fill/copy).
-  # It only permits those features; -Oz never introduces new ones, so the
-  # output stays compatible with the V8-isolate edge runtimes.
-  wasm-opt -Oz -all --strip-debug --strip-producers "$WASM" -o "$OPT_WASM"
+  wasm-opt -Oz --strip-debug --strip-producers "$WASM" -o "$OPT_WASM"
   BINDGEN_WASM="$OPT_WASM"
 else
   echo "wasm-opt not found; using Cargo release wasm without post-link optimization" >&2

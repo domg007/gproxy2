@@ -64,13 +64,88 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
+            os: linux
             artifact: gproxy-linux-x86_64
+            ext: ""
             run_check: true
+            upx: true
+            docker_bin: true
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            os: linux
+            artifact: gproxy-linux-aarch64
+            ext: ""
+            run_check: true
+            upx: true
+            docker_bin: true
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
+            os: linux
             cross: true
             artifact: gproxy-linux-x86_64-musl
+            ext: ""
             run_check: true
+            upx: true
+            docker_bin: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            os: linux
+            cross: true
+            artifact: gproxy-linux-aarch64-musl
+            ext: ""
+            run_check: false
+            upx: true
+            docker_bin: true
+          - target: x86_64-linux-android
+            runner: ubuntu-latest
+            os: android
+            android_abi: x86_64
+            artifact: gproxy-android-x86_64
+            ext: ""
+            run_check: false
+            upx: true
+            docker_bin: false
+          - target: aarch64-linux-android
+            runner: ubuntu-latest
+            os: android
+            android_abi: arm64-v8a
+            artifact: gproxy-android-aarch64
+            ext: ""
+            run_check: false
+            upx: true
+            docker_bin: false
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            os: windows
+            artifact: gproxy-windows-x86_64
+            ext: ".exe"
+            run_check: true
+            upx: true
+            docker_bin: false
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            os: windows
+            artifact: gproxy-windows-aarch64
+            ext: ".exe"
+            run_check: false
+            upx: false
+            docker_bin: false
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            os: macos
+            artifact: gproxy-macos-x86_64
+            ext: ""
+            run_check: false
+            upx: false
+            docker_bin: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            os: macos
+            artifact: gproxy-macos-aarch64
+            ext: ""
+            run_check: true
+            upx: false
+            docker_bin: false
     steps:
       - uses: actions/checkout@v4
 
@@ -91,49 +166,104 @@ jobs:
         if: ${{ matrix.cross }}
         run: cargo install cross --locked
 
-      - name: Build
+      - name: Set up Android NDK toolchain
+        if: ${{ matrix.os == 'android' }}
+        uses: android-actions/setup-android@v4
+      - name: Install cargo-ndk
+        if: ${{ matrix.os == 'android' }}
+        run: |
+          sdkmanager "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --locked
+
+      - name: Build (unix)
+        if: ${{ matrix.os != 'windows' }}
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --bin gproxy --target ${{ matrix.target }}
+          elif [ "${{ matrix.os }}" = "android" ]; then
+            cargo ndk -t ${{ matrix.android_abi }} build --release --bin gproxy
           else
             cargo build --release --bin gproxy --target ${{ matrix.target }}
           fi
 
-      - name: Smoke check (--help) before UPX
-        if: ${{ matrix.run_check }}
+      - name: Build (windows)
+        if: ${{ matrix.os == 'windows' }}
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --bin gproxy --target ${{ matrix.target }}
+
+      - name: Smoke check (--help) before UPX — unix
+        if: ${{ matrix.run_check && matrix.os != 'windows' }}
         run: ./target/${{ matrix.target }}/release/gproxy --help
 
-      - name: Install UPX + zip
+      - name: Smoke check (--help) before UPX — windows
+        if: ${{ matrix.run_check && matrix.os == 'windows' }}
+        shell: pwsh
+        run: |
+          & "target/${{ matrix.target }}/release/gproxy${{ matrix.ext }}" --help
+
+      - name: Install UPX + zip (linux)
+        if: ${{ matrix.upx && matrix.os != 'windows' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends upx-ucl zip
+      - name: Install UPX (windows)
+        if: ${{ matrix.upx && matrix.os == 'windows' }}
+        shell: pwsh
+        run: choco install upx -y
 
       - name: Compress binary
-        run: upx --best --lzma target/${{ matrix.target }}/release/gproxy
+        if: ${{ matrix.upx }}
+        run: upx --best --lzma target/${{ matrix.target }}/release/gproxy${{ matrix.ext }}
 
-      - name: Smoke check (--help) after UPX
-        if: ${{ matrix.run_check }}
+      - name: Smoke check (--help) after UPX — unix
+        if: ${{ matrix.run_check && matrix.upx && matrix.os != 'windows' }}
         run: ./target/${{ matrix.target }}/release/gproxy --help
+      - name: Smoke check (--help) after UPX — windows
+        if: ${{ matrix.run_check && matrix.upx && matrix.os == 'windows' }}
+        shell: pwsh
+        run: |
+          & "target/${{ matrix.target }}/release/gproxy${{ matrix.ext }}" --help
+
+      - name: Codesign (macos)
+        if: ${{ matrix.os == 'macos' }}
+        run: codesign --force --sign - target/${{ matrix.target }}/release/gproxy
 
       # Linux binary for the docker-build job (consumed by its Dockerfile COPY).
       - name: Stage docker binary
+        if: ${{ matrix.docker_bin }}
         run: |
           mkdir -p docker-binary
           cp target/${{ matrix.target }}/release/gproxy docker-binary/gproxy
       - name: Upload docker binary
+        if: ${{ matrix.docker_bin }}
         uses: actions/upload-artifact@v4
         with:
           name: docker-bin-${{ matrix.target }}
           path: docker-binary/gproxy
           retention-days: 1
 
-      - name: Package zip + sha256
+      - name: Package zip + sha256 (unix)
+        if: ${{ matrix.os != 'windows' }}
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/gproxy dist/gproxy
           cp README.md dist/
           (cd dist && zip -9 ../${{ matrix.artifact }}.zip gproxy README.md)
           shasum -a 256 ${{ matrix.artifact }}.zip > ${{ matrix.artifact }}.zip.sha256
+
+      - name: Package zip + sha256 (windows)
+        if: ${{ matrix.os == 'windows' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/gproxy.exe" dist/gproxy.exe
+          Copy-Item README.md dist/
+          Compress-Archive -Path dist/gproxy.exe,dist/README.md -DestinationPath ${{ matrix.artifact }}.zip -Force
+          $h = (Get-FileHash ${{ matrix.artifact }}.zip -Algorithm SHA256).Hash.ToLower()
+          "$h  ${{ matrix.artifact }}.zip" | Out-File -Encoding ascii ${{ matrix.artifact }}.zip.sha256
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
@@ -165,7 +295,13 @@ jobs:
           key: wasm-edge
 
       # wasm-bindgen-cli MUST match the wasm-bindgen crate version in Cargo.lock.
-      - name: Install wasm-bindgen-cli + binaryen
+      # NOTE: wasm-opt (binaryen) is deliberately NOT installed. eopages/build.sh
+      # runs wasm-opt *before* wasm-bindgen, and a modern wasm-opt -Oz rewrites
+      # the bindgen descriptors enough to crash wasm-bindgen's interpreter. The
+      # script falls back to the un-optimized wasm (the canonical cargo ->
+      # wasm-bindgen flow). For a size-constrained EdgeOne Pages deploy,
+      # regenerate locally with a matching wasm-opt.
+      - name: Install wasm-bindgen-cli
         run: |
           set -euo pipefail
           VER=0.2.123
@@ -173,13 +309,6 @@ jobs:
           tar -xzf wb.tar.gz
           sudo mv "wasm-bindgen-${VER}-x86_64-unknown-linux-musl"/wasm-bindgen* /usr/local/bin/
           wasm-bindgen --version
-          # Recent binaryen so wasm-opt auto-detects the wasm features rustc emits
-          # (Ubuntu's apt binaryen is too old and fatally rejects bulk-memory etc).
-          BTAG=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/WebAssembly/binaryen/releases/latest | jq -r .tag_name)
-          curl -fsSL "https://github.com/WebAssembly/binaryen/releases/download/${BTAG}/binaryen-${BTAG}-x86_64-linux.tar.gz" -o bn.tar.gz
-          tar -xzf bn.tar.gz
-          echo "$PWD/binaryen-${BTAG}/bin" >> "$GITHUB_PATH"
-          "$PWD/binaryen-${BTAG}/bin/wasm-opt" --version
           sudo apt-get update && sudo apt-get install -y --no-install-recommends zip
 
       - name: Build edge wasm
@@ -230,10 +359,22 @@ jobs:
             target: x86_64-unknown-linux-gnu
             suffix: ""
             runtime_base: gcr.io/distroless/cc-debian13
+          - variant: gnu
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: ""
+            runtime_base: gcr.io/distroless/cc-debian13
           - variant: musl
             arch: amd64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            suffix: "-musl"
+            runtime_base: gcr.io/distroless/static-debian13
+          - variant: musl
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
             suffix: "-musl"
             runtime_base: gcr.io/distroless/static-debian13
     steps:
@@ -282,3 +423,38 @@ jobs:
             RUNTIME_BASE=${{ matrix.runtime_base }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Combine the per-arch images into multi-arch manifest lists. Release-only
+  # (needs the images actually pushed to GHCR).
+  docker-manifest:
+    name: Docker manifest
+    if: ${{ github.event_name == 'release' }}
+    needs: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/gproxy
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+      - name: Create manifest lists (gnu + musl)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            docker buildx imagetools create -t "$tag" \
+              "${tag}-amd64" "${tag}-arm64"
+            docker buildx imagetools create -t "${tag}-musl" \
+              "${tag}-amd64-musl" "${tag}-arm64-musl"
+          done <<< "${{ steps.meta.outputs.tags }}"
