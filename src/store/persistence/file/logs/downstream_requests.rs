@@ -63,6 +63,28 @@ pub(crate) async fn list(root: &Path, request_id: &str) -> anyhow::Result<Vec<Do
         .collect())
 }
 
+/// Backfill `response_body` (and `updated_at`) on rows matching `request_id`.
+/// No-op when no row matches. Caller holds the backend write lock.
+pub(crate) async fn update_response_body(
+    root: &Path,
+    request_id: &str,
+    response_body: Option<String>,
+) -> anyhow::Result<()> {
+    let file = path(root);
+    let mut t = table::load::<DownstreamRequest>(&file).await?;
+    let now = now_secs();
+    let mut changed = false;
+    for r in t.rows.iter_mut().filter(|r| r.request_id == request_id) {
+        r.response_body = response_body.clone();
+        r.updated_at = now;
+        changed = true;
+    }
+    if changed {
+        table::store(&file, &t).await?;
+    }
+    Ok(())
+}
+
 /// Recent rows across all requests, `id` DESC, keyset cursor `before_id`.
 pub(crate) async fn list_recent(
     root: &Path,

@@ -89,3 +89,25 @@ pub async fn list_recent(
         .map(to_record)
         .collect()
 }
+
+/// Backfill `response_body` (and `updated_at`) on rows matching `request_id`.
+/// No-op when no row matches. Used by streaming responses that settle after the
+/// row was appended.
+pub async fn update_response_body(
+    conn: &DatabaseConnection,
+    request_id: &str,
+    response_body: Option<String>,
+) -> anyhow::Result<()> {
+    let now = crate::store::persistence::db::ops::now_secs();
+    if let Some(m) = downstream_request::Entity::find()
+        .filter(downstream_request::Column::RequestId.eq(request_id))
+        .one(conn)
+        .await?
+    {
+        let mut am: downstream_request::ActiveModel = m.into();
+        am.response_body = Set(response_body);
+        am.updated_at = Set(now);
+        am.update(conn).await?;
+    }
+    Ok(())
+}

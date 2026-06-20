@@ -404,6 +404,14 @@ impl PersistenceBackend for LibsqlPersistence {
     ) -> anyhow::Result<Vec<DownstreamRequest>> {
         logs::downstream_requests::list_recent(&self.client, limit, before_id).await
     }
+    async fn update_downstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        logs::downstream_requests::update_response_body(&self.client, request_id, response_body)
+            .await
+    }
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,
@@ -415,6 +423,13 @@ impl PersistenceBackend for LibsqlPersistence {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
         logs::upstream_requests::list(&self.client, request_id).await
+    }
+    async fn update_upstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        logs::upstream_requests::update_response_body(&self.client, request_id, response_body).await
     }
 
     async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {

@@ -431,6 +431,15 @@ pub trait PersistenceBackend: Send + Sync {
         before_id: Option<i64>,
     ) -> anyhow::Result<Vec<DownstreamRequest>>;
 
+    /// Backfill the captured client-facing response body onto an existing
+    /// `downstream_requests` row (streaming responses settle after the row is
+    /// appended). No-op when no row matches `request_id`.
+    async fn update_downstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()>;
+
     /// Append a raw upstream (proxy → provider) request log entry.
     async fn append_upstream_request(
         &self,
@@ -442,6 +451,14 @@ pub trait PersistenceBackend: Send + Sync {
         &self,
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>>;
+
+    /// Backfill the captured upstream (provider) response body onto an existing
+    /// `upstream_requests` row. No-op when no row matches `request_id`.
+    async fn update_upstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()>;
 
     /// Purge append-only usage/request-log rows older than `cutoff_ts`
     /// (`created_at < cutoff_ts`; §8-D retention). Covers the high-volume raw

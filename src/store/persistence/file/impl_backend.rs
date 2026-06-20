@@ -477,6 +477,15 @@ impl PersistenceBackend for FilePersistence {
         downstream_requests::list_recent(&self.root, limit, before_id).await
     }
 
+    async fn update_downstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        let _guard = self.write.lock().await;
+        downstream_requests::update_response_body(&self.root, request_id, response_body).await
+    }
+
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,
@@ -490,6 +499,15 @@ impl PersistenceBackend for FilePersistence {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
         upstream_requests::list(&self.root, request_id).await
+    }
+
+    async fn update_upstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        let _guard = self.write.lock().await;
+        upstream_requests::update_response_body(&self.root, request_id, response_body).await
     }
 
     async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {

@@ -424,6 +424,15 @@ impl PersistenceBackend for DbPersistence {
         ops::logs::downstream_requests::list_recent(&self.conn, limit, before_id).await
     }
 
+    async fn update_downstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        ops::logs::downstream_requests::update_response_body(&self.conn, request_id, response_body)
+            .await
+    }
+
     async fn append_upstream_request(
         &self,
         input: UpstreamRequestInput,
@@ -436,6 +445,15 @@ impl PersistenceBackend for DbPersistence {
         request_id: &str,
     ) -> anyhow::Result<Vec<UpstreamRequest>> {
         ops::logs::upstream_requests::list(&self.conn, request_id).await
+    }
+
+    async fn update_upstream_response(
+        &self,
+        request_id: &str,
+        response_body: Option<String>,
+    ) -> anyhow::Result<()> {
+        ops::logs::upstream_requests::update_response_body(&self.conn, request_id, response_body)
+            .await
     }
 
     async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {

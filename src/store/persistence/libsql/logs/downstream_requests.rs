@@ -3,7 +3,7 @@
 use crate::store::libsql::{LibsqlClient, arg_integer, arg_text};
 use crate::store::persistence::libsql::row::{Row, col_i64, col_opt_json, col_opt_str, col_str};
 use crate::store::persistence::libsql::util::{
-    arg_opt_text, last_rowid, now_secs, query, query_one,
+    arg_opt_text, exec, last_rowid, now_secs, query, query_one,
 };
 use crate::store::persistence::records::{DownstreamRequest, DownstreamRequestInput};
 
@@ -85,6 +85,27 @@ pub async fn list(
     .iter()
     .map(decode)
     .collect()
+}
+
+/// Backfill `response_body` (and `updated_at`) on rows matching `request_id`.
+/// No-op when no row matches.
+pub async fn update_response_body(
+    client: &LibsqlClient,
+    request_id: &str,
+    response_body: Option<String>,
+) -> anyhow::Result<()> {
+    let now = now_secs();
+    exec(
+        client,
+        "UPDATE downstream_requests SET response_body = ?, updated_at = ? WHERE request_id = ?",
+        &[
+            arg_opt_text(response_body.as_deref()),
+            arg_integer(now),
+            arg_text(request_id),
+        ],
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Recent rows across all requests, `id` DESC, keyset cursor `before_id`.
