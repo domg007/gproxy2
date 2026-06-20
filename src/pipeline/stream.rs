@@ -164,14 +164,22 @@ pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
 /// by `RelayBuffer`'s ~4MB cap). Native-only.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct RawCaptureGuard {
-    inner: Option<(crate::app::AppState, String, crate::pipeline::settle::RelayBuffer)>,
+    inner: Option<(
+        crate::app::AppState,
+        String,
+        crate::pipeline::settle::RelayBuffer,
+    )>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl RawCaptureGuard {
     pub fn new(state: crate::app::AppState, request_id: String) -> Self {
         Self {
-            inner: Some((state, request_id, crate::pipeline::settle::RelayBuffer::new())),
+            inner: Some((
+                state,
+                request_id,
+                crate::pipeline::settle::RelayBuffer::new(),
+            )),
         }
     }
 

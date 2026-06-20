@@ -49,7 +49,10 @@ pub async fn execute(state: &AppState, ctx: RequestCtx) -> Result<ExecOutcome, P
                 };
                 (o.status, b)
             }
-            Err(e) => (e.status(), want_body.then(|| bytes::Bytes::from(e.error_body_json()))),
+            Err(e) => (
+                e.status(),
+                want_body.then(|| bytes::Bytes::from(e.error_body_json())),
+            ),
         };
         capture::log_downstream(state, cap, status, resp_body.as_deref()).await;
     }

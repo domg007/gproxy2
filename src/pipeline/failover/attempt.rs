@@ -325,7 +325,9 @@ pub(super) fn materialize(
             };
             let body = match transform_step::stream_transformer(plan) {
                 None => ResponseBody::Stream(st),
-                Some(t) => ResponseBody::Stream(crate::pipeline::stream::transform_byte_stream(st, t)),
+                Some(t) => {
+                    ResponseBody::Stream(crate::pipeline::stream::transform_byte_stream(st, t))
+                }
             };
             Ok(Materialized {
                 body,

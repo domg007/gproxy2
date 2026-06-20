@@ -214,9 +214,7 @@ enum RespRow {
 async fn persist_response(state: &AppState, row: RespRow) {
     async fn write(db: &dyn crate::store::persistence::PersistenceBackend, row: RespRow) {
         let result = match row {
-            RespRow::Downstream(rid, body) => {
-                db.update_downstream_response(&rid, Some(body)).await
-            }
+            RespRow::Downstream(rid, body) => db.update_downstream_response(&rid, Some(body)).await,
             RespRow::Upstream(rid, body) => db.update_upstream_response(&rid, Some(body)).await,
         };
         if let Err(e) = result {
