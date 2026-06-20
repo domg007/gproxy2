@@ -192,7 +192,7 @@ impl RawCaptureGuard {
     /// Spawn the gated backfill of the buffered upstream response body.
     fn flush(&mut self) {
         if let Some((state, rid, buf)) = self.inner.take() {
-            let bytes = buf.concat();
+            let bytes = buf.concat_for_log();
             tokio::spawn(async move {
                 crate::pipeline::capture::record_upstream_response(&state, &rid, &bytes).await;
             });

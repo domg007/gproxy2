@@ -230,6 +230,25 @@ impl RelayBuffer {
         }
         out
     }
+
+    /// Like [`concat`](Self::concat) but, when earliest chunks were dropped
+    /// (the stream exceeded `BUFFER_CAP`), prepends a visible truncation marker
+    /// so §8-D body logs don't silently look complete. Usage extraction keeps
+    /// using `concat` (it must not inject text into the frame stream).
+    pub(crate) fn concat_for_log(&self) -> Vec<u8> {
+        let dropped = self.total.saturating_sub(self.stored as u64);
+        let body = self.concat();
+        if dropped == 0 {
+            return body;
+        }
+        let mut out = format!(
+            "…[truncated: {dropped} earliest bytes dropped — streamed response exceeded the {} MiB capture buffer]\n",
+            BUFFER_CAP >> 20
+        )
+        .into_bytes();
+        out.extend_from_slice(&body);
+        out
+    }
 }
 
 /// Exactly-once settle guard for a relayed stream: explicit [`finish`]
@@ -311,7 +330,13 @@ async fn settle_stream(ctx: SettleCtx, buf: RelayBuffer, ended: Ended) {
     record(&ctx, usage, source, ended).await;
     // §8-D: backfill the captured downstream response body (the row was
     // appended at execute() return; this UPDATE lands after it). Gated inside.
-    crate::pipeline::capture::record_downstream_response(&ctx.state, &ctx.request_id, &bytes).await;
+    // `concat_for_log` surfaces head-drop truncation on >4MB streams.
+    crate::pipeline::capture::record_downstream_response(
+        &ctx.state,
+        &ctx.request_id,
+        &buf.concat_for_log(),
+    )
+    .await;
 }
 
 // ── recording ────────────────────────────────────────────────────────────────

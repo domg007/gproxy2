@@ -268,11 +268,15 @@ pub async fn run_failover(
                     }
                 })
             };
-            let Materialized { body, upstream_raw } =
-                materialize(&channel, source, &plan, ctx, status, up_cap)?;
+            // The attempt reached the provider and is being relayed; log its
+            // upstream row EVEN IF response materialization fails afterwards
+            // (a 2xx whose cross-protocol transform errors must still leave an
+            // upstream trace). Borrow `upstream_raw` from the Ok arm; `?` below
+            // propagates a materialize error only after the row is written.
+            let mat = materialize(&channel, source, &plan, ctx, status, up_cap);
             // §8-D upstream capture: the attempt actually returned to the
             // client (success or relayed permanent 4xx). Failed-over attempts
-            // were audited above; gating happens inside `capture`. `upstream_raw`
+            // were audited above; gating happens inside `capture`. `resp_body`
             // is the non-streaming provider response (streams backfill via guard).
             capture::log_upstream(
                 state,
@@ -285,10 +289,11 @@ pub async fn run_failover(
                     method: &method,
                     sent_headers: sent_headers.as_ref(),
                     sent_body: &sent_body,
-                    resp_body: upstream_raw.as_ref(),
+                    resp_body: mat.as_ref().ok().and_then(|m| m.upstream_raw.as_ref()),
                 },
             )
             .await;
+            let Materialized { body, .. } = mat?;
             let settle_ctx = status
                 .is_success()
                 .then(|| {

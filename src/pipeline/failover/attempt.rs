@@ -293,8 +293,17 @@ pub(super) fn materialize(
             };
             // shape_response runs on ALL statuses (error bodies included).
             let b = channel.shape_response(b, &shape);
-            // §8-D: the post-decode provider body IS the upstream response.
-            let upstream_raw = upstream.as_ref().map(|_| b.clone());
+            // §8-D: capture the post-decode provider response. For the buffered
+            // aggregate path (codex/kiro non-stream) the real decode happens in
+            // `materialize_buffered` → decode here too so the log matches the
+            // streaming arm + the "post-decode" contract, not raw binary frames.
+            let upstream_raw = upstream.as_ref().map(|_| {
+                if status.is_success() && plan.is_aggregate_stream() && !ctx.stream {
+                    Bytes::from(decode_buffered_stream(channel, &b))
+                } else {
+                    b.clone()
+                }
+            });
             let body = materialize_buffered(channel, plan, ctx, status, b)?;
             Ok(Materialized { body, upstream_raw })
         }
@@ -382,17 +391,25 @@ fn aggregate_buffered_stream(
     let Some(kind) = kind else {
         return body.clone();
     };
-    let sse: Vec<u8> = match channel.stream_decoder() {
+    let sse = decode_buffered_stream(channel, body);
+    Bytes::from(crate::transform::stream_adapter::aggregate_buffered(
+        kind, &sse,
+    ))
+}
+
+/// Run the channel's stream decoder over a whole buffered body (kiro Smithy
+/// binary event-stream → canonical SSE; codex/none → bytes unchanged). This is
+/// the "post channel-decode" provider response form — what §8-D upstream
+/// capture must log (NOT the raw binary frames), matching the streaming arm.
+fn decode_buffered_stream(channel: &Arc<dyn Channel>, body: &Bytes) -> Vec<u8> {
+    match channel.stream_decoder() {
         Some(mut dec) => {
             let mut out = dec.push(body);
             out.extend(dec.finish());
             out
         }
         None => body.to_vec(),
-    };
-    Bytes::from(crate::transform::stream_adapter::aggregate_buffered(
-        kind, &sse,
-    ))
+    }
 }
 
 /// One upstream send → uniform `(status, headers, BodySource)`. Streaming on
