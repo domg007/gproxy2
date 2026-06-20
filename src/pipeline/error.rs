@@ -82,14 +82,28 @@ impl PipelineError {
     /// [`IntoResponse`] and the edge fetch entry, so both surfaces redact
     /// identically.
     pub fn error_json(&self) -> String {
+        if matches!(
+            self,
+            PipelineError::Channel(_)
+                | PipelineError::Transport(_)
+                | PipelineError::AllAttemptsFailed
+                | PipelineError::TransformResponse(_)
+        ) {
+            tracing::warn!(error = %self, "upstream request failed");
+        }
+        self.error_body_json()
+    }
+
+    /// The client-facing JSON error body WITHOUT logging side effects. Byte-for-
+    /// byte identical to what [`error_json`](Self::error_json) emits; used by
+    /// `execute` to capture the downstream response body without firing the
+    /// `tracing::warn` a second time (the real render site already logs it).
+    pub fn error_body_json(&self) -> String {
         let message = match self {
             PipelineError::Channel(_)
             | PipelineError::Transport(_)
             | PipelineError::AllAttemptsFailed
-            | PipelineError::TransformResponse(_) => {
-                tracing::warn!(error = %self, "upstream request failed");
-                "upstream request failed".to_string()
-            }
+            | PipelineError::TransformResponse(_) => "upstream request failed".to_string(),
             other => other.to_string(),
         };
         json!({ "error": { "message": message, "type": "gproxy_error" } }).to_string()
