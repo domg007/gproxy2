@@ -119,6 +119,9 @@ pub struct UpstreamWire<'a> {
     /// upstream-log toggle was on.
     pub sent_headers: Option<&'a HeaderMap>,
     pub sent_body: &'a Bytes,
+    /// Non-streaming upstream (provider) response body, post channel-decode /
+    /// pre transform; `None` for streams (the spliced guard backfills those).
+    pub resp_body: Option<&'a Bytes>,
 }
 
 /// Append the final (returned-to-client) upstream attempt's wire facts if
@@ -147,7 +150,10 @@ pub async fn log_upstream(
         body: ls
             .enable_upstream_log_body
             .then(|| body_string(w.sent_body, redact)),
-        response_body: None,
+        response_body: w
+            .resp_body
+            .filter(|_| ls.enable_upstream_log_body)
+            .map(|b| body_string(b, redact)),
     };
     persist(state, Row::Upstream(input)).await;
 }

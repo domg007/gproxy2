@@ -252,15 +252,37 @@ pub(super) fn refresh_failed(
     );
 }
 
+/// Output of [`materialize`]: the client-facing body plus, for non-streaming
+/// responses, the captured upstream (provider) response body (§8-D). Streaming
+/// upstream capture is handled inline by the spliced `capture_raw_stream` guard,
+/// so `upstream_raw` is `None` for streams.
+pub(super) struct Materialized {
+    pub body: ResponseBody,
+    pub upstream_raw: Option<Bytes>,
+}
+
+/// What [`materialize`] needs to capture a streaming upstream response body.
+/// `Some` only when upstream response-body logging is enabled. (On wasm there is
+/// no streaming arm, so the fields are constructed for the gating check only.)
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(super) struct UpstreamRespCapture {
+    pub state: AppState,
+    pub request_id: String,
+}
+
 /// Materialize an attempt's body. Response-direction transform applies only to
-/// 2xx bodies — error payloads stay provider-native (M2 fidelity note).
+/// 2xx bodies — error payloads stay provider-native (M2 fidelity note). When
+/// `upstream` is `Some`, the post-decode provider response is captured for
+/// §8-D logging (buffered: returned via `upstream_raw`; streaming: backfilled by
+/// the spliced guard).
 pub(super) fn materialize(
     channel: &Arc<dyn Channel>,
     source: BodySource,
     plan: &TransformPlan,
     ctx: &RequestCtx,
     status: StatusCode,
-) -> Result<ResponseBody, PipelineError> {
+    upstream: Option<UpstreamRespCapture>,
+) -> Result<Materialized, PipelineError> {
     match source {
         BodySource::Buffered(b) => {
             let shape = ShapeCtx {
@@ -271,51 +293,77 @@ pub(super) fn materialize(
             };
             // shape_response runs on ALL statuses (error bodies included).
             let b = channel.shape_response(b, &shape);
-            // Non-stream client over a force-streamed upstream (codex/kiro):
-            // collapse the buffered event-stream into one object, then convert
-            // the target wire back to the inbound wire.
-            if status.is_success() && plan.is_aggregate_stream() && !ctx.stream {
-                let agg = aggregate_buffered_stream(channel, plan.target_kind(), &b);
-                return Ok(ResponseBody::Full(transform_step::aggregate_response_body(
-                    plan, agg,
-                )?));
-            }
-            if !status.is_success() || !plan.is_transform() {
-                return Ok(ResponseBody::Full(b));
-            }
-            if ctx.stream {
-                // buffered streaming (wasm): convert the whole SSE body
-                let t = transform_step::stream_transformer(plan).expect("transform plan");
-                Ok(ResponseBody::Full(Bytes::from(
-                    crate::transform::stream_adapter::convert_buffered(t, &b),
-                )))
-            } else {
-                Ok(ResponseBody::Full(transform_step::response_body(plan, b)?))
-            }
+            // §8-D: the post-decode provider body IS the upstream response.
+            let upstream_raw = upstream.as_ref().map(|_| b.clone());
+            let body = materialize_buffered(channel, plan, ctx, status, b)?;
+            Ok(Materialized { body, upstream_raw })
         }
         #[cfg(not(target_arch = "wasm32"))]
         BodySource::Streaming(st) => {
             if !status.is_success() {
-                return Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::into_byte_stream(st),
-                ));
+                // Streamed error: undecoded passthrough, no upstream capture.
+                return Ok(Materialized {
+                    body: ResponseBody::Stream(crate::pipeline::stream::into_byte_stream(st)),
+                    upstream_raw: None,
+                });
             }
             // Order: raw upstream → channel decoder (envelope/binary → canonical
-            // provider SSE) → M2 transform (provider → inbound, or identity on
-            // passthrough) → client. The channel decoder runs FIRST; its output
-            // is the SAME `ByteStream`/`RespStream` typedef, so it feeds either
-            // the transform wrapper or the passthrough identity unchanged.
+            // provider SSE) → [§8-D raw capture tee] → M2 transform (provider →
+            // inbound, or identity on passthrough) → client.
             let st = match channel.stream_decoder() {
                 Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
                 None => crate::pipeline::stream::into_byte_stream(st),
             };
-            match transform_step::stream_transformer(plan) {
-                None => Ok(ResponseBody::Stream(st)),
-                Some(t) => Ok(ResponseBody::Stream(
-                    crate::pipeline::stream::transform_byte_stream(st, t),
-                )),
-            }
+            // Tee the post-decode (provider-native) bytes for upstream logging
+            // BEFORE any cross-protocol transform.
+            let st = match upstream {
+                Some(cap) => crate::pipeline::stream::capture_raw_stream(
+                    st,
+                    crate::pipeline::stream::RawCaptureGuard::new(cap.state, cap.request_id),
+                ),
+                None => st,
+            };
+            let body = match transform_step::stream_transformer(plan) {
+                None => ResponseBody::Stream(st),
+                Some(t) => ResponseBody::Stream(crate::pipeline::stream::transform_byte_stream(st, t)),
+            };
+            Ok(Materialized {
+                body,
+                upstream_raw: None,
+            })
         }
+    }
+}
+
+/// The buffered-body conversion ladder, split out so [`materialize`] stays
+/// focused on capture + stream wiring.
+fn materialize_buffered(
+    channel: &Arc<dyn Channel>,
+    plan: &TransformPlan,
+    ctx: &RequestCtx,
+    status: StatusCode,
+    b: Bytes,
+) -> Result<ResponseBody, PipelineError> {
+    // Non-stream client over a force-streamed upstream (codex/kiro): collapse
+    // the buffered event-stream into one object, then convert the target wire
+    // back to the inbound wire.
+    if status.is_success() && plan.is_aggregate_stream() && !ctx.stream {
+        let agg = aggregate_buffered_stream(channel, plan.target_kind(), &b);
+        return Ok(ResponseBody::Full(transform_step::aggregate_response_body(
+            plan, agg,
+        )?));
+    }
+    if !status.is_success() || !plan.is_transform() {
+        return Ok(ResponseBody::Full(b));
+    }
+    if ctx.stream {
+        // buffered streaming (wasm): convert the whole SSE body
+        let t = transform_step::stream_transformer(plan).expect("transform plan");
+        Ok(ResponseBody::Full(Bytes::from(
+            crate::transform::stream_adapter::convert_buffered(t, &b),
+        )))
+    } else {
+        Ok(ResponseBody::Full(transform_step::response_body(plan, b)?))
     }
 }
 

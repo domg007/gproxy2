@@ -188,9 +188,10 @@ const TAIL_KEEP: usize = 64 << 10;
 
 /// Bounded chunk buffer: beyond ~4MB the oldest chunks are dropped, but the
 /// most recent ~64KB tail (where final usage frames live) and the running
-/// relayed-byte total are always kept.
+/// relayed-byte total are always kept. Shared with `pipeline::stream` for
+/// upstream raw-response capture (§8-D).
 #[cfg(not(target_arch = "wasm32"))]
-struct RelayBuffer {
+pub(crate) struct RelayBuffer {
     chunks: std::collections::VecDeque<Bytes>,
     stored: usize,
     total: u64,
@@ -198,7 +199,7 @@ struct RelayBuffer {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl RelayBuffer {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             chunks: std::collections::VecDeque::new(),
             stored: 0,
@@ -206,7 +207,7 @@ impl RelayBuffer {
         }
     }
 
-    fn push(&mut self, chunk: Bytes) {
+    pub(crate) fn push(&mut self, chunk: Bytes) {
         self.total += chunk.len() as u64;
         self.stored += chunk.len();
         self.chunks.push_back(chunk);
@@ -222,7 +223,7 @@ impl RelayBuffer {
         }
     }
 
-    fn concat(&self) -> Vec<u8> {
+    pub(crate) fn concat(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.stored);
         for c in &self.chunks {
             out.extend_from_slice(c);

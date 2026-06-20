@@ -12,7 +12,9 @@
 mod attempt;
 
 pub use attempt::BodySource;
-use attempt::{AttemptOutcome, attempt, materialize, refresh_failed};
+use attempt::{
+    AttemptOutcome, Materialized, UpstreamRespCapture, attempt, materialize, refresh_failed,
+};
 
 use std::time::Duration;
 
@@ -253,9 +255,25 @@ pub async fn run_failover(
                 sent_headers,
             } = outcome;
             let latency_ms = send_ms.map(|ms| ms as i64).unwrap_or(0);
+            // §8-D upstream response capture is gated here; the guard/return
+            // value carries it. `materialize` runs BEFORE `log_upstream` so the
+            // non-streaming upstream body can be folded into the same INSERT,
+            // and BEFORE `settle::capture` (which moves `sent_body`).
+            let up_cap = {
+                let ls = state.cp().log_settings.clone();
+                (ls.enable_upstream_log && ls.enable_upstream_log_body).then(|| {
+                    UpstreamRespCapture {
+                        state: state.clone(),
+                        request_id: ctx.request_id.clone(),
+                    }
+                })
+            };
+            let Materialized { body, upstream_raw } =
+                materialize(&channel, source, &plan, ctx, status, up_cap)?;
             // §8-D upstream capture: the attempt actually returned to the
             // client (success or relayed permanent 4xx). Failed-over attempts
-            // were audited above; gating happens inside `capture`.
+            // were audited above; gating happens inside `capture`. `upstream_raw`
+            // is the non-streaming provider response (streams backfill via guard).
             capture::log_upstream(
                 state,
                 ctx,
@@ -267,6 +285,7 @@ pub async fn run_failover(
                     method: &method,
                     sent_headers: sent_headers.as_ref(),
                     sent_body: &sent_body,
+                    resp_body: upstream_raw.as_ref(),
                 },
             )
             .await;
@@ -276,7 +295,6 @@ pub async fn run_failover(
                     settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body, latency_ms)
                 })
                 .flatten();
-            let body = materialize(&channel, source, &plan, ctx, status)?;
             if plan.is_transform() {
                 // converted bytes no longer match the upstream framing
                 headers.remove(http::header::CONTENT_LENGTH);

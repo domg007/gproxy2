@@ -159,6 +159,87 @@ pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
     ))
 }
 
+/// Buffers post-decode upstream response bytes for a streaming response and, on
+/// EOF or client drop, backfills `upstream_requests.response_body` (§8-D, bounded
+/// by `RelayBuffer`'s ~4MB cap). Native-only.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct RawCaptureGuard {
+    inner: Option<(crate::app::AppState, String, crate::pipeline::settle::RelayBuffer)>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl RawCaptureGuard {
+    pub fn new(state: crate::app::AppState, request_id: String) -> Self {
+        Self {
+            inner: Some((state, request_id, crate::pipeline::settle::RelayBuffer::new())),
+        }
+    }
+
+    fn push(&mut self, chunk: &bytes::Bytes) {
+        if let Some((_, _, buf)) = self.inner.as_mut() {
+            buf.push(chunk.clone());
+        }
+    }
+
+    /// Spawn the gated backfill of the buffered upstream response body.
+    fn flush(&mut self) {
+        if let Some((state, rid, buf)) = self.inner.take() {
+            let bytes = buf.concat();
+            tokio::spawn(async move {
+                crate::pipeline::capture::record_upstream_response(&state, &rid, &bytes).await;
+            });
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for RawCaptureGuard {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
+/// Tee post-decode upstream chunks into `guard` while passing them through
+/// unchanged. Spliced AFTER the channel decoder and BEFORE any protocol
+/// transform, so it sees the provider's response in its native wire shape.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn capture_raw_stream(s: ByteStream, guard: RawCaptureGuard) -> ByteStream {
+    use futures_util::StreamExt;
+
+    struct State {
+        inner: Option<ByteStream>,
+        guard: Option<RawCaptureGuard>,
+    }
+
+    Box::pin(futures_util::stream::unfold(
+        State {
+            inner: Some(s),
+            guard: Some(guard),
+        },
+        |mut st| async move {
+            let inner = st.inner.as_mut()?;
+            match inner.next().await {
+                Some(Ok(chunk)) => {
+                    if let Some(g) = st.guard.as_mut() {
+                        g.push(&chunk);
+                    }
+                    Some((Ok(chunk), st))
+                }
+                Some(Err(e)) => {
+                    st.inner = None;
+                    drop(st.guard.take()); // Drop::flush backfills the partial body
+                    Some((Err(e), st))
+                }
+                None => {
+                    st.inner = None;
+                    drop(st.guard.take()); // normal EOF: flush
+                    None
+                }
+            }
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
