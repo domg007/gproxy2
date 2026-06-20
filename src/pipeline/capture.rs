@@ -163,6 +163,56 @@ async fn persist(state: &AppState, row: Row) {
     write(state.persistence.as_ref(), row).await;
 }
 
+/// Backfill the captured DOWNSTREAM response body for a streaming response (the
+/// row was appended before the stream settled). Gated by the downstream
+/// log-body toggle; redacted + capped by [`body_string`]. Fire-and-forget.
+pub async fn record_downstream_response(state: &AppState, request_id: &str, body: &[u8]) {
+    let ls = state.cp().log_settings.clone();
+    if !(ls.enable_downstream_log && ls.enable_downstream_log_body) {
+        return;
+    }
+    let redact = warn_unless_redacted(&ls);
+    let s = body_string(body, redact);
+    persist_response(state, RespRow::Downstream(request_id.to_owned(), s)).await;
+}
+
+/// Backfill the captured UPSTREAM response body for a streaming response.
+pub async fn record_upstream_response(state: &AppState, request_id: &str, body: &[u8]) {
+    let ls = state.cp().log_settings.clone();
+    if !(ls.enable_upstream_log && ls.enable_upstream_log_body) {
+        return;
+    }
+    let redact = warn_unless_redacted(&ls);
+    let s = body_string(body, redact);
+    persist_response(state, RespRow::Upstream(request_id.to_owned(), s)).await;
+}
+
+enum RespRow {
+    Downstream(String, String),
+    Upstream(String, String),
+}
+
+async fn persist_response(state: &AppState, row: RespRow) {
+    async fn write(db: &dyn crate::store::persistence::PersistenceBackend, row: RespRow) {
+        let result = match row {
+            RespRow::Downstream(rid, body) => {
+                db.update_downstream_response(&rid, Some(body)).await
+            }
+            RespRow::Upstream(rid, body) => db.update_upstream_response(&rid, Some(body)).await,
+        };
+        if let Err(e) = result {
+            tracing::warn!(error = %e, "response-capture log write failed");
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let persistence = std::sync::Arc::clone(&state.persistence);
+        tokio::spawn(async move { write(persistence.as_ref(), row).await });
+    }
+    #[cfg(target_arch = "wasm32")]
+    write(state.persistence.as_ref(), row).await;
+}
+
 /// §14.3: redaction is forced ON unless `disable_log_redaction` — and then
 /// every captured entry prints a loud warning. Returns "redact?".
 fn warn_unless_redacted(ls: &LogSettings) -> bool {
