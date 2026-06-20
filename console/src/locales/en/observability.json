@@ -59,6 +59,7 @@
     "notCaptured": "Logs not captured — request or response logging may not be enabled.",
     "headers": "Headers",
     "body": "Body",
+    "responseBody": "Response body",
     "attempt": "Attempt {{n}}"
   },
   "audit": {

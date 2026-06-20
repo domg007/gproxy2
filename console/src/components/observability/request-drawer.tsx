@@ -114,6 +114,9 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
                   {req.body != null && (
                     <JsonCollapsible label={t("logs.body")} data={req.body} />
                   )}
+                  {req.response_body != null && (
+                    <JsonCollapsible label={t("logs.responseBody")} data={req.response_body} />
+                  )}
                 </div>
               ))}
             </section>
@@ -142,6 +145,9 @@ export function RequestDrawer({ open, onOpenChange, requestId }: RequestDrawerPr
                     <JsonCollapsible label={t("logs.headers")} data={req.headers_json} />
                     {req.body != null && (
                       <JsonCollapsible label={t("logs.body")} data={req.body} />
+                    )}
+                    {req.response_body != null && (
+                      <JsonCollapsible label={t("logs.responseBody")} data={req.response_body} />
                     )}
                   </div>
                 ))}

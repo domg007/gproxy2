@@ -52,6 +52,7 @@ export interface DownstreamRequest {
   status: number;
   headers_json: unknown;
   body: string | null;
+  response_body: string | null;
 }
 
 export interface UpstreamRequest {
@@ -66,6 +67,7 @@ export interface UpstreamRequest {
   latency_ms: number;
   headers_json: unknown;
   body: string | null;
+  response_body: string | null;
 }
 
 export interface AuditLog {
