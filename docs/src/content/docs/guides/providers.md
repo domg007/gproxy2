@@ -52,8 +52,10 @@ DevTools → Network, click any `chatgpt.com` request, and copy its full `Cookie
 request header. In the console, add a `chatgpt` provider with **Cookie login** and
 paste that cookie string. gproxy exchanges it at `/api/auth/session` to mint the
 access token and warms the Cloudflare / sentinel anti-bot state into the sealed
-secret (refreshed automatically). The cookie expires like a normal browser
-session — re-paste a fresh one when it lapses.
+secret. gproxy then auto-refreshes the access token from the stored cookie as it
+nears expiry (the JWT lasts ~10 days; the session cookie far longer), so the
+credential lives as long as the browser session — re-paste only when the session
+cookie itself lapses.
 
 **Session mode.** A per-provider setting (`provider_settings.mode`), surfaced in
 the provider form as a three-way selector, controls where conversations land:
