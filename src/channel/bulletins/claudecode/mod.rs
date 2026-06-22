@@ -331,10 +331,14 @@ mod tests {
         );
         assert_eq!(req.headers().get("x-app").unwrap(), "cli");
         assert_eq!(req.headers().get("x-stainless-lang").unwrap(), "js");
+        assert_eq!(
+            req.headers().get("x-stainless-package-version").unwrap(),
+            "0.94.0"
+        );
         assert_eq!(req.headers().get("x-stainless-runtime").unwrap(), "node");
         assert_eq!(
             req.headers().get("user-agent").unwrap(),
-            "claude-cli/2.1.162 (external, cli)"
+            "claude-code/2.1.178"
         );
         assert!(req.headers().get("x-claude-code-session-id").is_some());
     }
@@ -413,7 +417,7 @@ mod tests {
             .expect("claudecode supports authcode");
         let url = &cc.authorize_url;
         assert!(
-            url.starts_with("https://claude.ai/oauth/authorize?"),
+            url.starts_with("https://platform.claude.com/oauth/authorize?"),
             "{url}"
         );
         assert!(

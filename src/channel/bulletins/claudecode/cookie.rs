@@ -2,7 +2,7 @@
 //! `sessionKey` cookie. Ported from v1 `utils/claudecode_cookie.rs`, adapted to
 //! the [`UpstreamClient`] transport (no `wreq`, no metadata tracking).
 //!
-//! Flow: cookie → `/api/bootstrap` org discovery → `/v1/oauth/{org}/authorize`
+//! Flow: `sessionKey` cookie → `/api/bootstrap` org discovery → `/v1/oauth/{org}/authorize`
 //! (PKCE) → `/v1/oauth/token` exchange. The client_id / scope / redirect_uri
 //! MUST match the main channel's authcode flow — Anthropic validates the triple
 //! at the authorize step. The minted secret is
@@ -16,7 +16,7 @@ use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Request, Response};
 use serde_json::Value;
 
-use super::auth::{DEFAULT_REDIRECT_URI, OAUTH_CLIENT_ID, OAUTH_SCOPE};
+use super::auth::{DEFAULT_REDIRECT_URI, OAUTH_CLIENT_ID, OAUTH_SCOPE, TOKEN_URL};
 use crate::channel::ChannelError;
 use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
@@ -25,7 +25,7 @@ const CLAUDE_AI_BASE: &str = "https://claude.ai";
 const API_BASE: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
+const USER_AGENT: &str = "claude-code/2.1.178";
 
 /// claude.ai is Cloudflare-fronted and intermittently answers with a managed
 /// "Just a moment…" challenge instead of the real response. The challenge is
@@ -50,20 +50,18 @@ pub(super) async fn exchange(
     client: &Arc<dyn UpstreamClient>,
     cookie: &str,
 ) -> Result<Value, ChannelError> {
-    let cookie = cookie.trim();
-    if cookie.is_empty() {
-        return Err(ChannelError::InvalidCredential("empty cookie".into()));
-    }
+    let session_key = normalize_session_key(cookie)
+        .ok_or_else(|| ChannelError::InvalidCredential("missing sessionKey".into()))?;
 
-    let org_uuid = discover_org(client, cookie).await?;
+    let org_uuid = discover_org(client, &session_key).await?;
     let (verifier, challenge) = oauth::pkce();
     let state = crate::util::rand::uuid_v4();
-    let code = authorize(client, cookie, &org_uuid, &state, &challenge).await?;
+    let code = authorize(client, &session_key, &org_uuid, &state, &challenge).await?;
     let secret = token_exchange(client, &verifier, &state, &code).await?;
 
     let mut secret = secret;
     if let Some(obj) = secret.as_object_mut() {
-        obj.insert("cookie".into(), Value::String(cookie.to_string()));
+        obj.insert("cookie".into(), Value::String(session_key));
         obj.insert("account_uuid".into(), Value::String(org_uuid));
     }
     super::auth::enrich_from_profile(client, &mut secret).await;
@@ -107,13 +105,45 @@ fn overlay(old: &Value, minted: &Value) -> Value {
     out
 }
 
+/// Accept the Console's `sessionKey=...`, a full Cookie header, or the bare
+/// `sk-ant-sid...` value, and return the bare session key. Older stored secrets
+/// may also carry `sessionKey=...`; refresh passes through here too.
+fn normalize_session_key(input: &str) -> Option<String> {
+    let mut text = input.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Some((name, rest)) = text.split_once(':') {
+        if name.trim().eq_ignore_ascii_case("cookie") {
+            text = rest.trim();
+        }
+    }
+    for part in text.split(';') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("sessionKey=") {
+            let value = value.trim();
+            if value.starts_with("sk-ant-sid") {
+                return Some(value.to_owned());
+            }
+        }
+    }
+    if text.starts_with("sk-ant-sid") && !text.contains('=') && !text.contains(';') {
+        return Some(text.to_owned());
+    }
+    None
+}
+
+fn session_cookie_header(session_key: &str) -> String {
+    format!("sessionKey={session_key}")
+}
+
 /// Step 1: GET `/api/bootstrap`, pick the first subscription-capable org uuid.
 async fn discover_org(
     client: &Arc<dyn UpstreamClient>,
-    cookie: &str,
+    session_key: &str,
 ) -> Result<String, ChannelError> {
     let body = send_ok(client, "bootstrap", || {
-        cookie_get(format!("{CLAUDE_AI_BASE}/api/bootstrap"), cookie)
+        cookie_get(format!("{CLAUDE_AI_BASE}/api/bootstrap"), session_key)
     })
     .await?;
     // claude.ai may prepend a usage object before the bootstrap payload; scan
@@ -143,7 +173,7 @@ async fn discover_org(
 /// returned `redirect_uri`.
 async fn authorize(
     client: &Arc<dyn UpstreamClient>,
-    cookie: &str,
+    session_key: &str,
     org_uuid: &str,
     state: &str,
     challenge: &str,
@@ -165,7 +195,7 @@ async fn authorize(
         Request::post(url.as_str())
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
-            .header("cookie", format!("sessionKey={cookie}"))
+            .header("cookie", session_cookie_header(session_key))
             .header("origin", CLAUDE_AI_BASE)
             .header("anthropic-version", API_VERSION)
             .header("anthropic-beta", OAUTH_BETA)
@@ -204,10 +234,8 @@ async fn token_exchange(
         ("anthropic-version", API_VERSION),
         ("anthropic-beta", OAUTH_BETA),
         ("user-agent", USER_AGENT),
-        ("origin", CLAUDE_AI_BASE),
     ];
-    let resp =
-        oauth::token_post(client, &format!("{API_BASE}/v1/oauth/token"), &form, &extra).await?;
+    let resp = oauth::token_post(client, TOKEN_URL, &form, &extra).await?;
     let access_token = resp
         .access_token
         .filter(|s| !s.is_empty())
@@ -249,12 +277,12 @@ fn parse_bootstrap(body: &[u8]) -> Result<Value, ChannelError> {
     first.ok_or_else(|| ChannelError::Build("bootstrap: empty response".into()))
 }
 
-fn cookie_get(url: String, cookie: &str) -> Result<Request<Bytes>, ChannelError> {
+fn cookie_get(url: String, session_key: &str) -> Result<Request<Bytes>, ChannelError> {
     Request::get(url)
         .header(ACCEPT, "application/json")
         .header("accept-language", "en-US,en;q=0.9")
         .header("cache-control", "no-cache")
-        .header("cookie", format!("sessionKey={cookie}"))
+        .header("cookie", session_cookie_header(session_key))
         .header("origin", CLAUDE_AI_BASE)
         .header("referer", format!("{CLAUDE_AI_BASE}/new"))
         .body(Bytes::new())

@@ -2,10 +2,11 @@
 //! in `system[0]` of every `/v1/messages` body. Reproduced so the impersonated
 //! request passes Anthropic's body-integrity check. See `docs/claudecode-cch.md`.
 //!
-//! Algorithm (confirmed against real `claude-cli` 2.1.162 wire bodies):
+//! Algorithm (confirmed against real Claude Code 2.1.178 bundle behavior):
 //! 1. Inject `metadata.user_id` = the JSON-string `{device_id, account_uuid,
 //!    session_id}` the CLI sends.
-//! 2. Prepend a `system[0]` text block holding the billing header with a
+//! 2. Prepend a `system[0]` text block holding the billing header with a dynamic
+//!    `cc_version` suffix derived from the first user text and a
 //!    `cch=00000;` placeholder.
 //! 3. `cch = xxh64(final_body_bytes_with_cch_00000, seed=0x4d659218e32a3268)
 //!    & 0xfffff`, formatted as 5 lowercase hex, byte-replacing the placeholder.
@@ -15,11 +16,13 @@
 //! the server re-hashes the received body and matches).
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
-/// `cc_version` = CLI version + build suffix (`2.1.162` → suffix `553`), mirroring
-/// the real client. Keep in lockstep with the channel User-Agent version.
-const CC_VERSION: &str = "2.1.162.553";
-/// xxh64 seed mined from the 2.1.162 bundle.
+/// Keep in lockstep with the channel User-Agent version.
+const CLI_VERSION: &str = "2.1.178";
+/// Salt used by Claude Code 2.1.178 to derive the three-hex `cc_version` suffix.
+const CC_VERSION_SUFFIX_SALT: &str = "59cf53e54c78";
+/// xxh64 seed mined from the Claude Code bundle.
 const CCH_SEED: u64 = 0x4d65_9218_e32a_3268;
 const PLACEHOLDER: &[u8] = b"cch=00000;";
 
@@ -56,9 +59,10 @@ pub(super) fn apply(
     }
 
     // 2. Prepend the billing-header block to `system` (placeholder cch).
+    let cc_version = cc_version(body);
     let billing = json!({
         "type": "text",
-        "text": format!("x-anthropic-billing-header: cc_version={CC_VERSION}; cc_entrypoint={entrypoint}; cch=00000;"),
+        "text": format!("x-anthropic-billing-header: cc_version={cc_version}; cc_entrypoint={entrypoint}; cch=00000;"),
     });
     match obj.get_mut("system") {
         // Replace an existing billing-header block in place (idempotent — a
@@ -88,6 +92,60 @@ pub(super) fn apply(
         bytes[pos + 4..pos + 9].copy_from_slice(hex.as_bytes());
     }
     bytes
+}
+
+fn cc_version(body: &[u8]) -> String {
+    format!("{CLI_VERSION}.{}", cc_version_suffix(body))
+}
+
+fn cc_version_suffix(body: &[u8]) -> String {
+    let text = first_user_text(body);
+    let chars: Vec<char> = text.chars().collect();
+    let picked: String = [4usize, 7, 20]
+        .into_iter()
+        .map(|idx| chars.get(idx).copied().unwrap_or('0'))
+        .collect();
+    let mut hasher = Sha256::new();
+    hasher.update(CC_VERSION_SUFFIX_SALT.as_bytes());
+    hasher.update(picked.as_bytes());
+    hasher.update(CLI_VERSION.as_bytes());
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(3);
+    for byte in digest.iter().take(2) {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out.truncate(3);
+    out
+}
+
+fn first_user_text(body: &[u8]) -> String {
+    let Ok(v) = serde_json::from_slice::<Value>(body) else {
+        return String::new();
+    };
+    let Some(messages) = v.get("messages").and_then(Value::as_array) else {
+        return String::new();
+    };
+    for msg in messages {
+        if msg.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        let Some(content) = msg.get("content") else {
+            continue;
+        };
+        if let Some(text) = content.as_str() {
+            return text.to_owned();
+        }
+        if let Some(blocks) = content.as_array() {
+            for block in blocks {
+                if block.get("type").and_then(Value::as_str) == Some("text") {
+                    if let Some(text) = block.get("text").and_then(Value::as_str) {
+                        return text.to_owned();
+                    }
+                }
+            }
+        }
+    }
+    String::new()
 }
 
 /// Whether a `system` block already carries the billing header — so we replace
@@ -157,15 +215,15 @@ mod tests {
     use super::*;
 
     /// Known-good vector computed from the real algorithm (python `xxhash`):
-    /// this exact body → `cch=b3b78`.
+    /// this exact body → `cch=3f334`.
     #[test]
     fn cch_matches_known_vector() {
         // No metadata/system mutation noise: feed a body whose serialized form is
         // already the canonical test body, then assert the rewritten cch.
-        let body = br#"{"model":"claude-sonnet-4","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.162.553; cc_entrypoint=cli; cch=00000;"}],"messages":[]}"#;
+        let body = br#"{"model":"claude-sonnet-4","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.178.575; cc_entrypoint=cli; cch=00000;"}],"messages":[]}"#;
         let pos = find(body, PLACEHOLDER).unwrap();
         let cch = xxhash_rust::xxh64::xxh64(body, CCH_SEED) & 0xf_ffff;
-        assert_eq!(format!("{cch:05x}"), "b3b78");
+        assert_eq!(format!("{cch:05x}"), "3f334");
         // sanity: placeholder digits are where we think they are.
         assert_eq!(&body[pos..pos + PLACEHOLDER.len()], PLACEHOLDER);
     }
@@ -188,7 +246,7 @@ mod tests {
         assert_eq!(ids["session_id"], "sess-uuid");
         // system[0] carries the billing header with a 5-hex (non-zero) cch.
         let txt = v["system"][0]["text"].as_str().unwrap();
-        assert!(txt.contains("cc_version=2.1.162.553"));
+        assert!(txt.contains("cc_version=2.1.178.575"));
         assert!(txt.contains("cc_entrypoint=cli"));
         let cch = txt.split("cch=").nth(1).unwrap().trim_end_matches(';');
         assert_eq!(cch.len(), 5);
@@ -238,7 +296,7 @@ mod tests {
         let txt = sys.iter().find(|b| is_billing_block(b)).unwrap()["text"]
             .as_str()
             .unwrap();
-        assert!(txt.contains("cc_version=2.1.162.553"));
+        assert!(txt.contains("cc_version=2.1.178.575"));
         assert!(!txt.contains("cch=00000"));
         assert!(!txt.contains("cch=fffff"));
     }

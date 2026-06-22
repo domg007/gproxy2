@@ -1,6 +1,6 @@
 //! Claude Code auth — Anthropic OAuth2 `refresh_token` grant + the
 //! claude-cli / `@anthropic-ai/sdk` impersonation header set. Base
-//! `https://api.anthropic.com`; token endpoint `/v1/oauth/token`. A
+//! `https://api.anthropic.com`; token endpoint `https://platform.claude.com/v1/oauth/token`. A
 //! session-cookie bootstrap (claude.ai → token exchange) is a documented
 //! follow-up (see [`refresh`]).
 //!
@@ -23,13 +23,13 @@ use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
 
 pub(super) const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-pub(super) const TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
+pub(super) const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 pub(super) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 
 /// Authorization endpoint for the interactive authcode+PKCE login (§14.5).
-/// claude.ai hosts the consent page (mined from v1 `claudecode.rs`:
-/// `CLAUDECODE_CLAUDE_AI_BASE_URL` + `/oauth/authorize`).
-pub(super) const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
+/// platform.claude.com hosts the Claude Code OAuth consent page (matching the
+/// bundled Claude Code client constants).
+pub(super) const AUTHORIZE_URL: &str = "https://platform.claude.com/oauth/authorize";
 /// Default redirect_uri the Claude Code login uses when the caller passes none
 /// (mined from v1 `CLAUDECODE_REDIRECT_URI`).
 pub(super) const DEFAULT_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
@@ -39,19 +39,19 @@ pub(super) const OAUTH_SCOPE: &str =
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub(super) const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
-pub(super) const USER_AGENT: &str = "claude-cli/2.1.162 (external, cli)";
+pub(super) const USER_AGENT: &str = "claude-code/2.1.178";
 
 /// Refresh slightly before expiry to avoid racing a 401 mid-flight.
 const EXPIRY_SKEW_MS: i64 = 60_000;
 
 /// Anthropic JS SDK (Stainless-generated) default header values, mirroring real
-/// `claude-cli` 2.1.162 / `@anthropic-ai/sdk` 0.81.0 traffic. Injected verbatim;
+/// Claude Code 2.1.178 / `@anthropic-ai/sdk` 0.94.0 traffic. Injected verbatim;
 /// per-credential overrides are an M7a fingerprint-pool concern.
 const STAINLESS: &[(&str, &str)] = &[
     ("x-stainless-retry-count", "0"),
     ("x-stainless-timeout", "600"),
     ("x-stainless-lang", "js"),
-    ("x-stainless-package-version", "0.81.0"),
+    ("x-stainless-package-version", "0.94.0"),
     ("x-stainless-os", "Linux"),
     ("x-stainless-arch", "x64"),
     ("x-stainless-runtime", "node"),
