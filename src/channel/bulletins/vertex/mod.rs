@@ -363,7 +363,7 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
             headers: &headers,
             body: Bytes::from_static(b"{}"),
         };
-        let req = VertexChannel.prepare(ctx).unwrap().request;
+        let req = VertexChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(
             req.uri().to_string(),
             "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/proj-123/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent"
@@ -397,7 +397,7 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
             headers: &headers,
             body: Bytes::new(),
         };
-        let req = VertexChannel.prepare(ctx).unwrap().request;
+        let req = VertexChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(
             req.uri().to_string(),
             "https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/google/models"
@@ -454,6 +454,7 @@ yR/PS6gbNUvYTwD+RYNaQFOsbyQkoNy1azBQm6X1m3J2+c+wnrYp\n\
             status: http::StatusCode::OK,
             enable_magic_cache: false,
         };
-        assert_eq!(VertexChannel.shape_response(body.clone(), &list_ctx), body);
+        let out2 = VertexChannel.shape_response(body.clone(), &list_ctx);
+        assert_eq!(out2, body);
     }
 }

@@ -315,7 +315,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(b"{\"model\":\"claude-sonnet-4\"}"),
         };
-        let req = ClaudeCodeChannel.prepare(ctx).unwrap().request;
+        let req = ClaudeCodeChannel.prepare(ctx).unwrap().into_http();
 
         assert_eq!(
             req.uri().to_string(),
@@ -358,7 +358,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(b"{\"messages\":[]}"),
         };
-        let req = ClaudeCodeChannel.prepare(ctx).unwrap().request;
+        let req = ClaudeCodeChannel.prepare(ctx).unwrap().into_http();
         // oauth marker first, client betas after, client's own oauth not duped.
         assert_eq!(
             req.headers().get("anthropic-beta").unwrap(),
@@ -389,7 +389,7 @@ mod tests {
                     body: body.clone(),
                 })
                 .unwrap()
-                .request;
+                .into_http();
             serde_json::from_slice::<Value>(req.body()).unwrap()
         };
         // count_tokens: untouched — no metadata.

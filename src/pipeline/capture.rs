@@ -11,7 +11,7 @@ use crate::app::AppState;
 use crate::app::snapshot::LogSettings;
 use crate::pipeline::context::{Candidate, RequestCtx};
 use crate::store::persistence::records::{DownstreamRequestInput, UpstreamRequestInput};
-use crate::util::time::unix_now;
+use crate::util::time::{unix_now, unix_now_ms};
 
 /// Body capture cap — bodies larger than this are truncated in the log row.
 const MAX_BODY: usize = 32 * 1024 * 1024;
@@ -132,16 +132,36 @@ pub async fn log_upstream(
     cand: &Candidate,
     w: UpstreamWire<'_>,
 ) {
+    log_upstream_raw(
+        state,
+        &ctx.request_id,
+        cand.provider.id,
+        cand.credential.id,
+        w,
+    )
+    .await;
+}
+
+/// Like [`log_upstream`] but decoupled from `RequestCtx`/`Candidate` (takes the
+/// raw identity fields). Used by [`CapturingClient`] to log EACH call a
+/// multi-step `Custom` exchange (chatgpt image gen) makes.
+pub async fn log_upstream_raw(
+    state: &AppState,
+    request_id: &str,
+    provider_id: i64,
+    credential_id: i64,
+    w: UpstreamWire<'_>,
+) {
     let ls = state.cp().log_settings.clone();
     if !ls.enable_upstream_log {
         return;
     }
     let redact = warn_unless_redacted(&ls);
     let input = UpstreamRequestInput {
-        request_id: ctx.request_id.clone(),
+        request_id: request_id.to_owned(),
         at: unix_now(),
-        provider_id: Some(cand.provider.id),
-        credential_id: Some(cand.credential.id),
+        provider_id: Some(provider_id),
+        credential_id: Some(credential_id),
         url: w.url.to_owned(),
         method: w.method.to_string(),
         status: i64::from(w.status.as_u16()),
@@ -156,6 +176,88 @@ pub async fn log_upstream(
             .map(|b| body_string(b, redact)),
     };
     persist(state, Row::Upstream(input)).await;
+}
+
+/// A transparent [`UpstreamClient`](crate::http::client::UpstreamClient)
+/// decorator that logs EACH `send` (request + response) as a §8-D upstream row.
+/// The pipeline wraps its resolved client in this and hands it to a `Custom`
+/// multi-step exchange ([`crate::channel::PreparedRequest::Custom`], chatgpt
+/// image gen) so every conversation / poll / download call is captured —
+/// identical gating to the single-send path (`enable_upstream_log`).
+pub struct CapturingClient {
+    inner: std::sync::Arc<dyn crate::http::client::UpstreamClient>,
+    state: AppState,
+    request_id: String,
+    provider_id: i64,
+    credential_id: i64,
+}
+
+impl CapturingClient {
+    pub fn new(
+        inner: std::sync::Arc<dyn crate::http::client::UpstreamClient>,
+        state: AppState,
+        request_id: String,
+        provider_id: i64,
+        credential_id: i64,
+    ) -> Self {
+        Self {
+            inner,
+            state,
+            request_id,
+            provider_id,
+            credential_id,
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl crate::http::client::UpstreamClient for CapturingClient {
+    async fn send(
+        &self,
+        req: http::Request<Bytes>,
+    ) -> Result<http::Response<Bytes>, crate::http::client::ClientError> {
+        // No capture work when the toggle is off — straight passthrough.
+        if !self.state.cp().log_settings.enable_upstream_log {
+            return self.inner.send(req).await;
+        }
+        let url = req.uri().to_string();
+        let method = req.method().clone();
+        let sent_headers = req.headers().clone();
+        let sent_body = req.body().clone();
+        let start_ms = unix_now_ms();
+        let resp = self.inner.send(req).await?;
+        let latency_ms = unix_now_ms().saturating_sub(start_ms) as i64;
+        let resp_body = resp.body().clone();
+        log_upstream_raw(
+            &self.state,
+            &self.request_id,
+            self.provider_id,
+            self.credential_id,
+            UpstreamWire {
+                status: resp.status(),
+                latency_ms,
+                url: &url,
+                method: &method,
+                sent_headers: Some(&sent_headers),
+                sent_body: &sent_body,
+                resp_body: Some(&resp_body),
+            },
+        )
+        .await;
+        Ok(resp)
+    }
+
+    /// Forward conduit-WS opening to the inner client (the chatgpt thinking-model
+    /// handoff path). The WS itself isn't an HTTP send, so it's not per-frame
+    /// logged; the preceding `celsius/ws/user` GET rides `send` and IS captured.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn open_conduit(
+        &self,
+        url: &str,
+    ) -> Result<Box<dyn crate::http::client::ConduitSocket>, crate::http::client::ClientError> {
+        self.inner.open_conduit(url).await
+    }
 }
 
 enum Row {

@@ -253,6 +253,7 @@ pub async fn run_failover(
                 sent_url,
                 method,
                 sent_headers,
+                multi_step,
             } = outcome;
             let latency_ms = send_ms.map(|ms| ms as i64).unwrap_or(0);
             // §8-D upstream response capture is gated here; the guard/return
@@ -278,21 +279,26 @@ pub async fn run_failover(
             // client (success or relayed permanent 4xx). Failed-over attempts
             // were audited above; gating happens inside `capture`. `resp_body`
             // is the non-streaming provider response (streams backfill via guard).
-            capture::log_upstream(
-                state,
-                ctx,
-                cand,
-                capture::UpstreamWire {
-                    status,
-                    latency_ms,
-                    url: &sent_url,
-                    method: &method,
-                    sent_headers: sent_headers.as_ref(),
-                    sent_body: &sent_body,
-                    resp_body: mat.as_ref().ok().and_then(|m| m.upstream_raw.as_ref()),
-                },
-            )
-            .await;
+            // A `multi_step` (Custom) exchange already logged each of its calls
+            // inline via the `CapturingClient`, so there is no single aggregate
+            // row to write here — skip it (its `sent_url` is empty anyway).
+            if !multi_step {
+                capture::log_upstream(
+                    state,
+                    ctx,
+                    cand,
+                    capture::UpstreamWire {
+                        status,
+                        latency_ms,
+                        url: &sent_url,
+                        method: &method,
+                        sent_headers: sent_headers.as_ref(),
+                        sent_body: &sent_body,
+                        resp_body: mat.as_ref().ok().and_then(|m| m.upstream_raw.as_ref()),
+                    },
+                )
+                .await;
+            }
             let Materialized { body, .. } = mat?;
             let settle_ctx = status
                 .is_success()

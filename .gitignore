@@ -70,8 +70,9 @@ samples/
 probe-out/
 
 # ── Local/generated planning archives ──
-/dev-docs/plans/
-/dev-docs/superpowers/
+/dev-docs
 
 # ── Astro/Starlight docs build metadata ──
 /docs/.astro/
+
+docs/superpowers

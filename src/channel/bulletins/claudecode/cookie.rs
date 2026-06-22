@@ -72,37 +72,26 @@ pub(super) async fn exchange(
 }
 
 /// Re-mint a secret from the stored `cookie` (§14.5 M7b): the cookie-only
-/// refresh path for a credential that carries no `refresh_token`. Builds its own
-/// Chrome-emulating client — claude.ai is Cloudflare-fronted and rejects
-/// non-browser TLS, same as the login endpoint — and overlays the freshly minted
-/// token/cookie/account fields onto the existing secret so operator fields the
-/// bootstrap never sets (device_id / user_email …) survive the refresh.
-///
-/// Browser TLS is native-only; non-`upstream-wreq` builds cannot satisfy
-/// Cloudflare and report [`ChannelError::Unsupported`] rather than fail opaquely.
-pub(super) async fn refresh(secret: &Value) -> Result<Value, ChannelError> {
+/// refresh path for a credential that carries no `refresh_token`. Uses the
+/// pipeline's resolved `client` — it already carries this credential's
+/// `(proxy, Chrome-emulation)` profile (the channel's `default_emulation` when no
+/// DB fingerprint override), so it clears Cloudflare-fronted `claude.ai` AND
+/// egresses through the configured proxy (no self-built client, which would
+/// bypass the proxy). Overlays the freshly minted token/cookie/account fields
+/// onto the existing secret so operator fields the bootstrap never sets
+/// (device_id / user_email …) survive the refresh.
+pub(super) async fn refresh(
+    client: &Arc<dyn UpstreamClient>,
+    secret: &Value,
+) -> Result<Value, ChannelError> {
     let cookie = secret
         .get("cookie")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ChannelError::InvalidCredential("missing cookie".into()))?;
-    #[cfg(feature = "upstream-wreq")]
-    {
-        let client: Arc<dyn UpstreamClient> = Arc::new(
-            crate::http::client::WreqClient::browser()
-                .map_err(|e| ChannelError::Build(format!("cookie client init: {e}")))?,
-        );
-        let minted = exchange(&client, cookie).await?;
-        Ok(overlay(secret, &minted))
-    }
-    #[cfg(not(feature = "upstream-wreq"))]
-    {
-        let _ = cookie;
-        Err(ChannelError::Unsupported(
-            "cookie refresh requires the browser-TLS (upstream-wreq) build",
-        ))
-    }
+    let minted = exchange(client, cookie).await?;
+    Ok(overlay(secret, &minted))
 }
 
 /// Overlay the freshly minted bootstrap secret onto the existing one: minted

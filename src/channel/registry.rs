@@ -64,24 +64,43 @@ impl ChannelRegistry {
 fn builtin_channels() -> Vec<Arc<dyn Channel>> {
     vec![
         // ── API-key ──
+        #[cfg(feature = "channel-openai")]
         Arc::new(bulletins::openai::OpenAiChannel),
+        #[cfg(feature = "channel-openrouter")]
         Arc::new(bulletins::openrouter::OpenRouterChannel),
+        #[cfg(feature = "channel-deepseek")]
         Arc::new(bulletins::deepseek::DeepSeekChannel),
+        #[cfg(feature = "channel-groq")]
         Arc::new(bulletins::groq::GroqChannel),
+        #[cfg(feature = "channel-nvidia")]
         Arc::new(bulletins::nvidia::NvidiaChannel),
+        #[cfg(feature = "channel-vercel")]
         Arc::new(bulletins::vercel::VercelChannel),
+        #[cfg(feature = "channel-custom")]
         Arc::new(bulletins::custom::CustomChannel),
+        #[cfg(feature = "channel-claudeapi")]
         Arc::new(bulletins::claudeapi::ClaudeApiChannel),
+        #[cfg(feature = "channel-aistudio")]
         Arc::new(bulletins::aistudio::AiStudioChannel),
+        #[cfg(feature = "channel-vertexexpress")]
         Arc::new(bulletins::vertexexpress::VertexExpressChannel),
         // ── OAuth / envelope ──
+        #[cfg(feature = "channel-vertex")]
         Arc::new(bulletins::vertex::VertexChannel),
+        #[cfg(feature = "channel-geminicli")]
         Arc::new(bulletins::geminicli::GeminiCliChannel),
+        #[cfg(feature = "channel-antigravity")]
         Arc::new(bulletins::antigravity::AntigravityChannel),
+        #[cfg(feature = "channel-claudecode")]
         Arc::new(bulletins::claudecode::ClaudeCodeChannel),
+        #[cfg(feature = "channel-codex")]
         Arc::new(bulletins::codex::CodexChannel),
+        #[cfg(feature = "channel-kiro")]
         Arc::new(bulletins::kiro::KiroChannel),
+        #[cfg(feature = "channel-copilotcli")]
         Arc::new(bulletins::copilotcli::CopilotCliChannel),
+        #[cfg(feature = "channel-chatgpt")]
+        Arc::new(bulletins::chatgpt::ChatGptChannel),
     ]
 }
 
@@ -89,24 +108,32 @@ fn builtin_channels() -> Vec<Arc<dyn Channel>> {
 /// with their `Channel::id`. Only authcode-capable channels appear here.
 fn builtin_logins() -> Vec<(&'static str, Arc<dyn ChannelLogin>)> {
     vec![
+        #[cfg(feature = "channel-codex")]
         ("codex", Arc::new(bulletins::codex::CodexChannel)),
+        #[cfg(feature = "channel-claudecode")]
         (
             "claudecode",
             Arc::new(bulletins::claudecode::ClaudeCodeChannel),
         ),
+        #[cfg(feature = "channel-geminicli")]
         (
             "geminicli",
             Arc::new(bulletins::geminicli::GeminiCliChannel),
         ),
+        #[cfg(feature = "channel-antigravity")]
         (
             "antigravity",
             Arc::new(bulletins::antigravity::AntigravityChannel),
         ),
+        #[cfg(feature = "channel-kiro")]
         ("kiro", Arc::new(bulletins::kiro::KiroChannel)),
+        #[cfg(feature = "channel-copilotcli")]
         (
             "copilotcli",
             Arc::new(bulletins::copilotcli::CopilotCliChannel),
         ),
+        #[cfg(feature = "channel-chatgpt")]
+        ("chatgpt", Arc::new(bulletins::chatgpt::ChatGptChannel)),
     ]
 }
 
@@ -134,6 +161,7 @@ mod emulation_tests {
             "antigravity",
             "kiro",
             "copilotcli",
+            "chatgpt",
         ];
         let mut found = Vec::new();
         for ch in builtin_channels() {

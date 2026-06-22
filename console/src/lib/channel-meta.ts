@@ -11,6 +11,7 @@ export const DEFAULT_BASE_URL: Record<string, string> = {
   nvidia: "https://integrate.api.nvidia.com",
   vercel: "https://ai-gateway.vercel.sh",
   openrouter: "https://openrouter.ai/api",
+  chatgpt: "https://chatgpt.com",
 };
 export type LoginMode = "authcode" | "device" | "cookie";
 
@@ -95,6 +96,16 @@ export const CHANNELS: ChannelMeta[] = [
     loginModes: ["device"],
     usage: true,
     secretTemplate: { github_token: "" },
+  },
+  {
+    // ChatGPT consumer web backend (native-only `channel-chatgpt` feature).
+    // Operator pastes a chatgpt.com session cookie; cookie_exchange mints the
+    // access_token + warms the sentinel / __cf_bm anti-bot state into the secret.
+    id: "chatgpt",
+    family: "oauth_tokens",
+    loginModes: ["cookie"],
+    usage: false,
+    secretTemplate: { access_token: "", cookie: "" },
   },
 ];
 

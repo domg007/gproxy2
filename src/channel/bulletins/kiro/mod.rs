@@ -534,7 +534,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(br#"{"input":"hello kiro"}"#),
         };
-        let req = KiroChannel.prepare(ctx).unwrap().request;
+        let req = KiroChannel.prepare(ctx).unwrap().into_http();
 
         // Captured Kiro CLI chat: Smithy POST to the runtime host root with the
         // operation in `x-amz-target` (no path), AWS-JSON 1.0, no agent-mode.

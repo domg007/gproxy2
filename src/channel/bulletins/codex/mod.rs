@@ -295,7 +295,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(body),
         };
-        let req = CodexChannel.prepare(ctx).unwrap().request;
+        let req = CodexChannel.prepare(ctx).unwrap().into_http();
         serde_json::from_slice(req.body()).unwrap()
     }
 
@@ -344,7 +344,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(br#"{"model":"gpt-5.4","input":"hi"}"#),
         };
-        let req = CodexChannel.prepare(ctx).unwrap().request;
+        let req = CodexChannel.prepare(ctx).unwrap().into_http();
 
         assert_eq!(
             req.uri().to_string(),
@@ -379,7 +379,7 @@ mod tests {
             headers: &headers,
             body: Bytes::new(),
         };
-        let req = CodexChannel.prepare(ctx).unwrap().request;
+        let req = CodexChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(
             req.uri().to_string(),
             format!(
@@ -415,7 +415,7 @@ mod tests {
             headers: &headers,
             body: Bytes::from_static(br#"{"input":"hi"}"#),
         };
-        let req = CodexChannel.prepare(ctx).unwrap().request;
+        let req = CodexChannel.prepare(ctx).unwrap().into_http();
         // A codex-aware client's protocol headers pass through verbatim — GPROXY
         // does NOT regenerate them (so they stay consistent with turn-metadata).
         assert_eq!(req.headers().get("session-id").unwrap(), id);

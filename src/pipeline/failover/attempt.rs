@@ -48,6 +48,12 @@ pub(super) struct AttemptOutcome {
     /// Upstream request headers actually sent — captured only when the
     /// upstream-log toggle is on (§8-D), `None` otherwise.
     pub(super) sent_headers: Option<HeaderMap>,
+    /// This attempt was a `Custom` multi-step exchange (chatgpt image gen): its
+    /// per-call §8-D logging is done inline by the [`CapturingClient`], so the
+    /// caller skips the single aggregate `log_upstream` row.
+    ///
+    /// [`CapturingClient`]: crate::pipeline::capture::CapturingClient
+    pub(super) multi_step: bool,
 }
 
 /// Run ONE upstream attempt for `cand` with `secret`: build the request parts,
@@ -108,20 +114,36 @@ pub(super) async fn attempt(
         }
     };
 
-    // §17: capture what the wire actually carries — the sent body feeds
-    // the count ladder; the URL feeds failed-attempt audit rows. Both are
-    // cheap (refcounted Bytes / one small String). Captured before client
-    // resolution so a config-failure audit row carries the real URL/method.
-    let sent_body = prepared.request.body().clone();
-    let sent_url = prepared.request.uri().to_string();
+    // §17: capture what the wire actually carries — the sent body feeds the
+    // count ladder; the URL feeds failed-attempt audit rows. A `Direct` request
+    // carries this + is sent once. A `Custom` multi-step exchange (chatgpt image
+    // gen) has NO single request — its `CapturingClient` logs each call — so the
+    // audit fields are minimal and it carries the closure instead.
     let method = parts.method.clone();
-    // §8-D upstream capture: clone the prepared headers only when the toggle
-    // is on (redaction happens at write time in `capture`).
-    let sent_headers = state
-        .cp()
-        .log_settings
-        .enable_upstream_log
-        .then(|| prepared.request.headers().clone());
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut custom_stream_send = None;
+    let (direct_req, custom_send, sent_body, sent_url, sent_headers) = match prepared {
+        crate::channel::PreparedRequest::Direct(req) => {
+            let sent_body = req.body().clone();
+            let sent_url = req.uri().to_string();
+            // §8-D upstream capture: clone the prepared headers only when the
+            // toggle is on (redaction happens at write time in `capture`).
+            let sent_headers = state
+                .cp()
+                .log_settings
+                .enable_upstream_log
+                .then(|| req.headers().clone());
+            (Some(req), None, sent_body, sent_url, sent_headers)
+        }
+        crate::channel::PreparedRequest::Custom(send) => {
+            (None, Some(send), Bytes::new(), String::new(), None)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::channel::PreparedRequest::CustomStream(send) => {
+            custom_stream_send = Some(send);
+            (None, None, Bytes::new(), String::new(), None)
+        }
+    };
 
     // §7.4 effective (proxy, fingerprint) per attempt → pooled client; an
     // unusable target config (malformed proxy URL, fingerprint yielding no
@@ -176,26 +198,66 @@ pub(super) async fn attempt(
     #[cfg(not(target_arch = "wasm32"))]
     let send_started = std::time::Instant::now();
 
-    let (status, headers, source) =
-        match send_once(client.as_ref(), prepared.into_http(), ctx.stream).await {
-            Ok(t) => t,
-            Err(e) => {
-                health_hooks::record_failure(state, cand);
-                settle::audit_failure(
-                    state,
-                    &ctx.request_id,
-                    cand,
-                    settle::FailedAttempt {
-                        url: &sent_url,
-                        method: method.as_str(),
-                        status: 0,
-                        latency_ms: 0,
-                        error: &e.to_string(),
-                    },
-                );
-                return Err(PipelineError::Transport(e.to_string()));
-            }
-        };
+    let multi_step = custom_send.is_some();
+    #[cfg(not(target_arch = "wasm32"))]
+    let multi_step = multi_step || custom_stream_send.is_some();
+    let make_capturing = || -> Arc<dyn UpstreamClient> {
+        Arc::new(crate::pipeline::capture::CapturingClient::new(
+            Arc::clone(&client),
+            state.clone(),
+            ctx.request_id.clone(),
+            cand.provider.id,
+            cand.credential.id,
+        ))
+    };
+    let send_result: Result<(StatusCode, HeaderMap, BodySource), String> = 'send: {
+        // Streaming custom exchange (chatgpt conduit): the body streams to the
+        // client as the turn unfolds (vital for multi-minute deep research).
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(send) = custom_stream_send {
+            break 'send send(make_capturing())
+                .await
+                .map(|(status, headers, st)| (status, headers, BodySource::Streaming(st)))
+                .map_err(|e| e.to_string());
+        }
+        // Buffered custom multi-step exchange (chatgpt image gen): wrap the
+        // resolved client so EVERY call it makes is captured (§8-D), then run it.
+        if let Some(send) = custom_send {
+            break 'send send(make_capturing())
+                .await
+                .map(|resp| {
+                    let (p, b) = resp.into_parts();
+                    (p.status, p.headers, BodySource::Buffered(b))
+                })
+                .map_err(|e| e.to_string());
+        }
+        send_once(
+            client.as_ref(),
+            direct_req.expect("a Direct prepared request"),
+            ctx.stream,
+        )
+        .await
+        .map_err(|e| e.to_string())
+    };
+    let (status, headers, source) = match send_result {
+        Ok(t) => t,
+        Err(e) => {
+            health_hooks::record_failure(state, cand);
+            settle::audit_failure(
+                state,
+                &ctx.request_id,
+                cand,
+                settle::FailedAttempt {
+                    url: &sent_url,
+                    method: method.as_str(),
+                    status: 0,
+                    latency_ms: 0,
+                    error: &e,
+                },
+            );
+            return Err(PipelineError::Transport(e));
+        }
+    };
 
     // Send latency feeds the member EWMA (native only; wasm has no
     // monotonic clock worth trusting here).
@@ -220,6 +282,7 @@ pub(super) async fn attempt(
         sent_body,
         method,
         sent_headers,
+        multi_step,
     })
 }
 

@@ -41,7 +41,7 @@ fn openai_bearer_and_default_base_url() {
             "/v1/chat/completions",
         ))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(
         req.uri().to_string(),
         "https://api.openai.com/v1/chat/completions"
@@ -63,7 +63,7 @@ fn settings_base_url_overrides_default() {
             "/v1/chat/completions",
         ))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(req.uri().host(), Some("127.0.0.1"));
 }
 
@@ -75,7 +75,7 @@ fn claudeapi_dual_header_no_bearer() {
     let req = claudeapi::ClaudeApiChannel
         .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/messages"))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(req.headers().get("x-api-key").unwrap(), "ak");
     assert_eq!(
         req.headers().get("anthropic-version").unwrap(),
@@ -98,7 +98,7 @@ fn aistudio_key_in_query() {
             "/v1beta/models/gemini:generateContent",
         ))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(req.uri().query(), Some("key=gk"));
     assert!(req.headers().get("authorization").is_none());
 }
@@ -112,7 +112,7 @@ fn custom_protocol_driven_auth() {
     let claude = custom::CustomChannel
         .prepare(prep(&settings, &secret, &h, Method::POST, "/v1/messages"))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(claude.headers().get("x-api-key").unwrap(), "k");
 
     let oai = custom::CustomChannel
@@ -124,7 +124,7 @@ fn custom_protocol_driven_auth() {
             "/v1/chat/completions",
         ))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(oai.headers().get("authorization").unwrap(), "Bearer k");
 
     let gemini = custom::CustomChannel
@@ -136,7 +136,7 @@ fn custom_protocol_driven_auth() {
             "/v1beta/models/g:generateContent",
         ))
         .unwrap()
-        .request;
+        .into_http();
     assert_eq!(gemini.headers().get("x-goog-api-key").unwrap(), "k");
 }
 

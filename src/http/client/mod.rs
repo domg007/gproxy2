@@ -23,6 +23,20 @@ pub enum ClientError {
 pub type RespStream =
     std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<Bytes, ClientError>> + Send>>;
 
+/// An open conduit WebSocket (NATIVE only): text-frame send + receive. Kept
+/// minimal and object-safe so [`UpstreamClient::open_conduit`] can hand one back
+/// across the `dyn` boundary. Used by the chatgpt channel to consume the
+/// `stream_handoff` conduit (`wss://ws.chatgpt.com/…`) for thinking-model turns.
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait::async_trait]
+pub trait ConduitSocket: Send {
+    /// Send one text frame.
+    async fn send_text(&mut self, text: String) -> Result<(), ClientError>;
+    /// Receive the next text frame; `None` when the socket closes. Non-text
+    /// frames (ping/pong/binary) are skipped by the implementation.
+    async fn recv_text(&mut self) -> Option<Result<String, ClientError>>;
+}
+
 /// Client-agnostic upstream HTTP transport. Native impl = wreq (supports TLS
 /// emulation); edge impl = host `fetch`. The `?Send` on the wasm async_trait
 /// controls the FUTURE; `Send + Sync` here constrains the implementing TYPE so
@@ -47,6 +61,17 @@ pub trait UpstreamClient: Send + Sync {
         let (parts, body) = resp.into_parts();
         let once = futures_util::stream::once(async move { Ok::<Bytes, ClientError>(body) });
         Ok((parts.status, parts.headers, once.boxed()))
+    }
+
+    /// Open a conduit WebSocket to `url` (NATIVE only). The default returns a
+    /// config error — only `WreqClient` supports it. The url already carries its
+    /// own auth (`?verify=…`), so no extra headers are needed; the call rides
+    /// this client's proxy + TLS emulation.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn open_conduit(&self, _url: &str) -> Result<Box<dyn ConduitSocket>, ClientError> {
+        Err(ClientError::Config(
+            "conduit websocket not supported by this client".into(),
+        ))
     }
 }
 

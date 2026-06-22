@@ -161,7 +161,7 @@ mod tests {
                 body: Bytes::from_static(b"{}"),
             })
             .unwrap()
-            .request
+            .into_http()
     }
 
     #[test]

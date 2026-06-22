@@ -329,7 +329,7 @@ mod tests {
             "/v1beta/models/gemini-2.5-pro:generateContent",
             br#"{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}"#,
         );
-        let req = GeminiCliChannel.prepare(ctx).unwrap().request;
+        let req = GeminiCliChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(
             req.uri().to_string(),
             "https://cloudcode-pa.googleapis.com/v1internal:generateContent"
@@ -359,7 +359,7 @@ mod tests {
             "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
             br#"{"contents":[]}"#,
         );
-        let req = GeminiCliChannel.prepare(ctx).unwrap().request;
+        let req = GeminiCliChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(
             req.uri().to_string(),
             "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
@@ -384,7 +384,7 @@ mod tests {
             headers: &headers,
             body: Bytes::new(),
         };
-        let req = GeminiCliChannel.prepare(ctx).unwrap().request;
+        let req = GeminiCliChannel.prepare(ctx).unwrap().into_http();
         assert_eq!(req.method(), Method::POST);
         assert_eq!(
             req.uri().to_string(),

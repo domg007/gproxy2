@@ -187,9 +187,7 @@ mod tests {
             status: http::StatusCode::OK,
             enable_magic_cache: false,
         };
-        assert_eq!(
-            VertexExpressChannel.shape_response(body.clone(), &count_ctx),
-            body
-        );
+        let out2 = VertexExpressChannel.shape_response(body.clone(), &count_ctx);
+        assert_eq!(out2, body);
     }
 }
