@@ -2,15 +2,14 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
 import { upsertProviderModel, type ProviderModel } from "@/api/provider-models";
 import { ApiError } from "@/api/http";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { VariantPresetPicker } from "@/components/providers/variant-preset-picker";
-import { syncModelVariants, parseVariantSuffixes } from "@/lib/variant-sync";
+import { VariantEditor, type VariantRow } from "@/components/providers/variant-editor";
+import { syncModelVariants, parseVariantNames } from "@/lib/variant-sync";
 import type { SuffixAction } from "@/components/providers/suffix-presets";
 
 const PRICE_KEYS = ["input", "output", "cache_read", "cache_creation", "image"] as const;
@@ -48,21 +47,20 @@ function imageIsTiered(pricing: unknown): boolean {
   return v !== null && typeof v === "object";
 }
 
-function readVariants(variants: unknown): { suffixes: string; exposeBase: boolean } {
-  if (Array.isArray(variants)) return { suffixes: variants.join("\n"), exposeBase: true };
-  if (variants && typeof variants === "object") {
-    const o = variants as { suffixes?: unknown; expose_base?: unknown };
-    const arr = Array.isArray(o.suffixes) ? o.suffixes.map(String) : [];
-    return { suffixes: arr.join("\n"), exposeBase: o.expose_base !== false };
+function readVariantRows(variants: unknown): { rows: VariantRow[]; exposeBase: boolean } {
+  const names = parseVariantNames(variants);
+  let exposeBase = true;
+  if (variants && typeof variants === "object" && !Array.isArray(variants)) {
+    exposeBase = (variants as { expose_base?: unknown }).expose_base !== false;
   }
-  return { suffixes: "", exposeBase: true };
+  return { rows: names.map((name) => ({ name, actions: [], touched: false })), exposeBase };
 }
 
-/** null when no suffixes; array form when exposeBase; object form when hiding base. */
-function buildVariants(suffixesText: string, exposeBase: boolean): unknown {
-  const suffixes = suffixesText.split("\n").map((s) => s.trim()).filter((s) => s !== "");
-  if (suffixes.length === 0) return null;
-  return exposeBase ? suffixes : { expose_base: false, suffixes };
+/** null when no names; bare array when exposeBase; object form when hiding base. */
+function buildVariantsJson(rows: VariantRow[], exposeBase: boolean): unknown {
+  const names = rows.map((r) => r.name.trim()).filter((n) => n !== "");
+  if (names.length === 0) return null;
+  return exposeBase ? names : { expose_base: false, variants: names };
 }
 
 export function ModelForm({ providerId, providerName, channel, model, onSaved }: { providerId: number; providerName: string; channel: string; model?: ProviderModel; onSaved: () => void }) {
@@ -77,21 +75,24 @@ export function ModelForm({ providerId, providerName, channel, model, onSaved }:
   const [prices, setPrices] = useState<Record<PriceKey, string>>(() =>
     Object.fromEntries(PRICE_KEYS.map((k) => [k, readPrice(model?.pricing_json, k)])) as Record<PriceKey, string>,
   );
-  const initVariants = readVariants(model?.variants_json);
-  const [suffixes, setSuffixes] = useState(initVariants.suffixes);
+  const initVariants = readVariantRows(model?.variants_json);
+  const [variantRows, setVariantRows] = useState<VariantRow[]>(initVariants.rows);
   const [exposeBase, setExposeBase] = useState(initVariants.exposeBase);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const [oldSuffixes] = useState(() => parseVariantSuffixes(model?.variants_json));
-  const [pendingPresetActions, setPendingPresetActions] = useState<Map<string, SuffixAction[]>>(new Map());
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [oldNames] = useState(() => parseVariantNames(model?.variants_json));
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (!modelId.trim()) throw new ApiError(0, "bad_request", t("form.required"));
       const pricing = buildPricing(prices, model?.pricing_json);
-      const variants = buildVariants(suffixes, exposeBase);
-      const newSuffixes = suffixes.split("\n").map((s) => s.trim()).filter((s) => s !== "");
+      const variants = buildVariantsJson(variantRows, exposeBase);
+      const newNames = variantRows.map((r) => r.name.trim()).filter((n) => n !== "");
+      const presetActions = new Map<string, SuffixAction[]>();
+      for (const r of variantRows) {
+        const n = r.name.trim();
+        if (r.touched && n !== "") presetActions.set(n, r.actions);
+      }
       const saved = await upsertProviderModel(providerId, {
         id: model?.id ?? null,
         provider_id: providerId,
@@ -104,10 +105,9 @@ export function ModelForm({ providerId, providerName, channel, model, onSaved }:
       await syncModelVariants({
         providerId,
         providerName,
-        modelId: saved.model_id,
-        oldSuffixes,
-        newSuffixes,
-        presetActions: pendingPresetActions,
+        oldNames,
+        newNames,
+        presetActions,
       });
       return saved;
     },
@@ -155,40 +155,14 @@ export function ModelForm({ providerId, providerName, channel, model, onSaved }:
         <p className="text-xs text-muted-foreground">{t("models.pricingHint")}</p>
       </fieldset>
 
-      <fieldset className="grid gap-2 rounded-md border p-3">
-        <legend className="px-1 text-sm font-medium">{t("models.variants")}</legend>
-        <textarea
-          aria-label={t("models.variantsHint")}
-          className="min-h-20 rounded-md border bg-transparent p-2 font-mono text-xs"
-          value={suffixes} spellCheck={false}
-          onChange={(e) => setSuffixes(e.target.value)} placeholder={"-thinking\n-32k"}
-        />
-        {pickerOpen ? (
-          <VariantPresetPicker
-            modelId={modelId.trim()}
-            channel={channel}
-            onCancel={() => setPickerOpen(false)}
-            onConfirm={(suffix, actions) => {
-              setSuffixes((prev) => {
-                const lines = prev.split("\n").map((s) => s.trim()).filter((s) => s !== "");
-                return lines.includes(suffix) ? prev : [...lines, suffix].join("\n");
-              });
-              setPendingPresetActions((prev) => new Map(prev).set(suffix, actions));
-              setPickerOpen(false);
-            }}
-          />
-        ) : (
-          <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => setPickerOpen(true)}>
-            <Plus className="size-4" />
-            {t("models.addPresetVariant")}
-          </Button>
-        )}
-        <label className="flex items-center gap-2 text-sm">
-          <Switch checked={exposeBase} onCheckedChange={setExposeBase} />
-          {t("models.exposeBase")}
-        </label>
-        <p className="text-xs text-muted-foreground">{t("models.variantsHint")}</p>
-      </fieldset>
+      <VariantEditor
+        rows={variantRows}
+        exposeBase={exposeBase}
+        modelId={modelId}
+        channel={channel}
+        onChange={setVariantRows}
+        onExposeBaseChange={setExposeBase}
+      />
 
       <div className="flex items-center justify-between">
         <Label htmlFor="md-enabled">{t("models.enabled")}</Label>

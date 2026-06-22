@@ -18,7 +18,7 @@ export function VariantPresetPicker({
 }: {
   modelId: string;
   channel: string;
-  onConfirm: (suffix: string, actions: SuffixAction[]) => void;
+  onConfirm: (actions: SuffixAction[], suggestedSuffix: string) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation("providers");
@@ -75,7 +75,7 @@ export function VariantPresetPicker({
       ))}
 
       <div className="rounded border bg-background p-2 text-xs">
-        <div className="text-muted-foreground">{t("models.variantPicker.preview")}</div>
+        <div className="text-muted-foreground">{t("models.variantPicker.suggestedName")}</div>
         <div className="font-mono">{suffix ? `${modelId}${suffix}` : (modelId || "—")}</div>
         {actions.length > 0 && (
           <div className="mt-2 grid gap-1">
@@ -93,8 +93,8 @@ export function VariantPresetPicker({
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           {t("models.variantPicker.cancel")}
         </Button>
-        <Button type="button" size="sm" disabled={!suffix} onClick={() => onConfirm(suffix, actions)}>
-          {t("models.variantPicker.add")}
+        <Button type="button" size="sm" disabled={actions.length === 0} onClick={() => onConfirm(actions, suffix)}>
+          {t("models.variantPicker.apply")}
         </Button>
       </div>
     </div>

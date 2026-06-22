@@ -1,8 +1,9 @@
-//! Compiled `provider_models` expansion (§8-B): manual model rows plus suffix
-//! variants. `variants_json` is either a plain suffix array `["-thinking"]`
-//! (base stays exposed) or `{expose_base: bool, suffixes: [..]}` (hide the base
-//! when `expose_base=false`). Unparsable config warns and degrades to "no
-//! variants" — bad rows must never take the snapshot down.
+//! Compiled `provider_models` expansion (§8-B): manual model rows plus named
+//! variants. `variants_json` is a bare name array `["gpt-image-2"]` (base stays
+//! exposed) or `{expose_base: bool, variants: ["gpt-image-2"]}` (hide the base
+//! when `expose_base=false`). Variant names are ABSOLUTE model ids, independent
+//! of the base id. Unparsable config warns and degrades to "no variants" — bad
+//! rows must never take the snapshot down.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,7 +34,7 @@ pub struct CompiledModels {
 pub fn compile(rows: &[Arc<ProviderModel>]) -> CompiledModels {
     let mut out = CompiledModels::default();
     for row in rows.iter().filter(|r| r.enabled) {
-        let (expose_base, suffixes) = parse_variants(row);
+        let (expose_base, names) = parse_variants(row);
         if expose_base {
             out.exposed.push(ExposedModel {
                 full_id: row.model_id.clone(),
@@ -41,11 +42,15 @@ pub fn compile(rows: &[Arc<ProviderModel>]) -> CompiledModels {
                 display_name: row.display_name.clone(),
             });
         }
-        for suffix in suffixes {
-            let full = format!("{}{}", row.model_id, suffix);
-            out.variant_base.insert(full.clone(), row.model_id.clone());
+        for name in names {
+            // Absolute name; skip empties and a name colliding with the base
+            // (avoids a self-loop in variant_base / a duplicate exposed entry).
+            if name.is_empty() || name == row.model_id {
+                continue;
+            }
+            out.variant_base.insert(name.clone(), row.model_id.clone());
             out.exposed.push(ExposedModel {
-                full_id: full,
+                full_id: name,
                 base_id: row.model_id.clone(),
                 display_name: row.display_name.clone(),
             });
@@ -54,15 +59,16 @@ pub fn compile(rows: &[Arc<ProviderModel>]) -> CompiledModels {
     out
 }
 
-/// `(expose_base, suffixes)` from `variants_json`. Both wire forms; anything
+/// `(expose_base, names)` from `variants_json`. Bare array → names (base stays
+/// exposed). Object → `expose_base` (default true) + `variants` array. Anything
 /// else warns and is treated as "no variants".
 fn parse_variants(row: &ProviderModel) -> (bool, Vec<String>) {
     let Some(v) = &row.variants_json else {
         return (true, Vec::new());
     };
     match v {
-        Value::Array(items) => match suffix_list(items) {
-            Some(suffixes) => (true, suffixes),
+        Value::Array(items) => match name_list(items) {
+            Some(names) => (true, names),
             None => warn_unparsable(row),
         },
         Value::Object(obj) => {
@@ -71,9 +77,9 @@ fn parse_variants(row: &ProviderModel) -> (bool, Vec<String>) {
                 Some(Value::Bool(b)) => *b,
                 Some(_) => return warn_unparsable(row),
             };
-            match obj.get("suffixes").and_then(Value::as_array) {
-                Some(items) => match suffix_list(items) {
-                    Some(suffixes) => (expose_base, suffixes),
+            match obj.get("variants").and_then(Value::as_array) {
+                Some(items) => match name_list(items) {
+                    Some(names) => (expose_base, names),
                     None => warn_unparsable(row),
                 },
                 None => warn_unparsable(row),
@@ -83,7 +89,7 @@ fn parse_variants(row: &ProviderModel) -> (bool, Vec<String>) {
     }
 }
 
-fn suffix_list(items: &[Value]) -> Option<Vec<String>> {
+fn name_list(items: &[Value]) -> Option<Vec<String>> {
     items
         .iter()
         .map(|i| i.as_str().map(str::to_owned))
@@ -120,13 +126,13 @@ mod tests {
     }
 
     #[test]
-    fn variants_compile_simple_and_object_forms() {
+    fn named_variants_compile_bare_and_object_forms() {
         let rows = vec![
-            row(1, "deepseek-v4", Some(json!(["-thinking"]))),
+            row(1, "gpt-5.5", Some(json!(["gpt-image-2"]))),
             row(
                 2,
                 "qwen-max",
-                Some(json!({ "expose_base": false, "suffixes": ["-32k", "-128k"] })),
+                Some(json!({ "expose_base": false, "variants": ["qwen-fast", "qwen-max"] })),
             ),
             row(3, "plain", None),
             row(4, "broken", Some(json!("nope"))), // unparsable → no variants
@@ -137,31 +143,28 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "deepseek-v4",
-                "deepseek-v4-thinking",
-                "qwen-max-32k", // base hidden
-                "qwen-max-128k",
+                "gpt-5.5",
+                "gpt-image-2",
+                "qwen-fast", // base hidden; "qwen-max" == base → skipped
                 "plain",
                 "broken",
             ]
         );
-        // variant entries map to base; base entries are absent from the index
-        assert_eq!(
-            c.variant_base.get("deepseek-v4-thinking").unwrap(),
-            "deepseek-v4"
-        );
-        assert_eq!(c.variant_base.get("qwen-max-32k").unwrap(), "qwen-max");
-        assert!(!c.variant_base.contains_key("deepseek-v4"));
-        assert_eq!(c.variant_base.len(), 3);
+        // variant entries map to base; base / self-named entries are absent
+        assert_eq!(c.variant_base.get("gpt-image-2").unwrap(), "gpt-5.5");
+        assert_eq!(c.variant_base.get("qwen-fast").unwrap(), "qwen-max");
+        assert!(!c.variant_base.contains_key("gpt-5.5"));
+        assert!(!c.variant_base.contains_key("qwen-max")); // self-name skipped
+        assert_eq!(c.variant_base.len(), 2);
         // exposed entries carry the upstream base id
         assert!(c.exposed.iter().all(|m| !m.base_id.is_empty()));
         assert_eq!(
             c.exposed
                 .iter()
-                .find(|m| m.full_id == "qwen-max-128k")
+                .find(|m| m.full_id == "gpt-image-2")
                 .unwrap()
                 .base_id,
-            "qwen-max"
+            "gpt-5.5"
         );
     }
 }

@@ -6,12 +6,12 @@ import {
   findProviderDefaultRuleSet,
 } from "./provider-rule-set";
 
-/** Suffix list from a model's `variants_json` (array form or {suffixes} object form). */
-export function parseVariantSuffixes(variants: unknown): string[] {
+/** Full variant names from a model's `variants_json` (bare array or {variants} object). */
+export function parseVariantNames(variants: unknown): string[] {
   if (Array.isArray(variants)) return variants.map(String);
   if (variants && typeof variants === "object") {
-    const o = variants as { suffixes?: unknown };
-    if (Array.isArray(o.suffixes)) return o.suffixes.map(String);
+    const o = variants as { variants?: unknown };
+    if (Array.isArray(o.variants)) return o.variants.map(String);
   }
   return [];
 }
@@ -31,38 +31,34 @@ export interface VariantRulePlan {
 }
 
 interface PlanArgs {
-  modelId: string;
-  oldSuffixes: string[];
-  newSuffixes: string[];
+  oldNames: string[];
+  newNames: string[];
   presetActions: Map<string, SuffixAction[]>;
   existingRules: Rule[];
 }
 
 /** Pure: decide which dedicated-set rules to delete and create for variant changes.
- *  - Removed suffixes (old∖new): delete their rules (matched by filter_model_pattern).
- *  - Preset-added suffixes: delete any existing rules for that full id (idempotent
- *    overwrite), then create one rewrite rule per action. */
+ *  Rules are keyed by the variant's full name (filter_model_pattern == name).
+ *  - Removed names (old∖new): delete their rules.
+ *  - Names whose behavior was (re)set this session: delete then recreate (idempotent
+ *    overwrite), one rewrite rule per action. */
 export function planVariantRuleChanges(a: PlanArgs): VariantRulePlan {
-  const fullId = (suffix: string) => `${a.modelId}${suffix}`;
-  const newSet = new Set(a.newSuffixes);
-  const removed = a.oldSuffixes.filter((s) => !newSet.has(s));
+  const newSet = new Set(a.newNames);
+  const removed = a.oldNames.filter((n) => !newSet.has(n));
 
-  const rekeyed = new Set<string>([
-    ...removed.map(fullId),
-    ...[...a.presetActions.keys()].map(fullId),
-  ]);
+  const rekeyed = new Set<string>([...removed, ...a.presetActions.keys()]);
   const toDelete = a.existingRules
     .filter((r) => r.filter_model_pattern != null && rekeyed.has(r.filter_model_pattern))
     .map((r) => r.id);
 
   const toCreate: RuleDraft[] = [];
-  for (const [suffix, actions] of a.presetActions) {
-    if (!newSet.has(suffix)) continue; // only for suffixes that actually remain
+  for (const [name, actions] of a.presetActions) {
+    if (!newSet.has(name)) continue; // only for names that actually remain
     actions.forEach((act, i) => {
       toCreate.push({
         kind: "rewrite",
         config_json: { path: act.path, action: "set", value_json: act.value },
-        filter_model_pattern: fullId(suffix),
+        filter_model_pattern: name,
         filter_operation_keys: null,
         sort_order: i,
         enabled: true,
@@ -75,22 +71,21 @@ export function planVariantRuleChanges(a: PlanArgs): VariantRulePlan {
 interface SyncArgs {
   providerId: number;
   providerName: string;
-  modelId: string;
-  oldSuffixes: string[];
-  newSuffixes: string[];
+  oldNames: string[];
+  newNames: string[];
   presetActions: Map<string, SuffixAction[]>;
 }
 
 /** Apply variant rule changes against the provider's dedicated rule set.
  *  No-op when there is nothing to add or remove (never creates an empty set).
  *
- *  Known limitation (single-user deploy): renaming a model_id or deleting a model
- *  leaves its variant rules orphaned here — rules are keyed by `${modelId}${suffix}`
- *  and are not re-keyed/cleaned on rename/delete. Harmless: orphan literal patterns
- *  match no live (suffix-stripped) request. */
+ *  Known limitation (single-user deploy): renaming/deleting a variant leaves its
+ *  rule orphaned here — rules are keyed by the full variant name and are not
+ *  re-keyed/cleaned on rename. Harmless: an orphan literal pattern matches no
+ *  live request. */
 export async function syncModelVariants(a: SyncArgs): Promise<void> {
-  const newSet = new Set(a.newSuffixes);
-  const removed = a.oldSuffixes.filter((s) => !newSet.has(s));
+  const newSet = new Set(a.newNames);
+  const removed = a.oldNames.filter((n) => !newSet.has(n));
   if (a.presetActions.size === 0 && removed.length === 0) return;
 
   const rsId = a.presetActions.size > 0
