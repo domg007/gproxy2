@@ -138,7 +138,7 @@ v2 bundle 使用 `schema_version: 1`，其余字段是持久化 input record 数
     }
   ],
   "aliases": [
-    { "id": 1, "alias": "default-chat", "route_id": 1 }
+    { "id": 1, "provider": "*", "alias": "default-chat", "target": "main", "sort_order": 0, "enabled": true }
   ]
 }
 ```

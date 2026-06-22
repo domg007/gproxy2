@@ -9,9 +9,9 @@ provider credential is selected.
 
 ```text
 request model
-  -> alias_to_route
-  -> route
-  -> route_member
+  -> global alias
+  -> route or provider/model
+  -> provider alias
   -> provider + upstream_model_id
   -> provider credential
 ```
@@ -47,16 +47,16 @@ more members:
 | --- | --- |
 | `routes` | `name`, `strategy`, `enabled`, optional `settings_json`. |
 | `route_members` | `provider_id`, `upstream_model_id`, `tier`, `weight`, `enabled`. |
-| `aliases` | `alias` -> `route_id`. |
+| `aliases` | `provider`, regex `alias`, replacement `target`, `sort_order`, `enabled`. |
 
 Members are pre-sorted by `tier` ascending and `weight` descending in the
 snapshot. The balance layer then applies the route strategy and provider
 credential strategy.
 
-Aliases are many-to-one. If `chat-default` points to route `main-chat`, a
-request with `"model": "chat-default"` resolves to `main-chat` before balance.
-Permissions are checked against the exposed route or provider name, not hidden
-credential material.
+Aliases are ordered full-match regex replacements. `provider="*"` applies
+before route/provider resolution; provider-scoped aliases apply after the
+provider is known. Permissions are checked against the exposed route or provider
+name, not hidden credential material.
 
 ## Model Listing
 

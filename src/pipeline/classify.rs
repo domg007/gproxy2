@@ -85,7 +85,7 @@ fn credential_provider(headers: &HeaderMap) -> Prov {
 /// never GetModel).
 fn get_model(path: &str, headers: &HeaderMap) -> Option<OperationKey> {
     if let Some(rest) = path.strip_prefix("/v1/models/") {
-        if !rest.is_empty() && !rest.contains('/') {
+        if !rest.is_empty() {
             return Some(OperationKey::provider(
                 Operation::GetModel,
                 credential_provider(headers),
@@ -151,7 +151,7 @@ pub(crate) fn peek_model(body: &Bytes) -> Option<String> {
 /// Only matches a `/models/{id}` segment — non-model paths return `None`.
 pub(crate) fn path_model_id(path: &str) -> Option<String> {
     let (_, rest) = path.rsplit_once("/models/")?;
-    if rest.is_empty() || rest.contains('/') {
+    if rest.is_empty() {
         return None;
     }
     let id = rest.split(':').next().unwrap_or(rest);

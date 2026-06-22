@@ -97,7 +97,7 @@ const REFRESH_BUNDLE: &str = r#"{
   "provider_models": [],
   "routes": [{ "id": 1, "name": "to-refresh", "strategy": "failover", "enabled": true, "description": null }],
   "route_members": [{ "id": 1, "route_id": 1, "provider_id": 1, "upstream_model_id": "refresh-model", "weight": 100, "tier": 0, "enabled": true }],
-  "aliases": [{ "id": 1, "route_id": 1, "alias": "refresh-model" }],
+  "aliases": [{ "id": 1, "provider": "*", "alias": "refresh-model", "target": "to-refresh", "sort_order": 0, "enabled": true }],
   "routing_rules": [],
   "rule_sets": [],
   "rules": [],

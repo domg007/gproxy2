@@ -5,7 +5,7 @@
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Schema, Statement};
 
 use crate::store::persistence::migrations::{
-    CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, latest_version, pending,
+    CREATE_MIGRATIONS_TABLE, MigrationDialect, SELECT_MAX_VERSION, latest_version, pending,
 };
 
 use super::entities::authz::{quota, rate_limit, route_permission};
@@ -59,8 +59,6 @@ pub(super) async fn create_all(conn: &DatabaseConnection) -> anyhow::Result<()> 
     // §6.3 tokenizer vocabs
     create_table(conn, &schema, tokenizer_vocab::Entity).await?;
 
-    create_composite_unique_indexes(conn).await?;
-
     Ok(())
 }
 
@@ -113,7 +111,9 @@ async fn create_rollup_unique_index(conn: &DatabaseConnection) -> anyhow::Result
 /// handling: MySQL has no `IF NOT EXISTS` for indexes, so a duplicate-name
 /// error (1061) means the index already exists. Columns are all NOT NULL, so no
 /// COALESCE folding is needed.
-async fn create_composite_unique_indexes(conn: &DatabaseConnection) -> anyhow::Result<()> {
+pub(super) async fn create_composite_unique_indexes(
+    conn: &DatabaseConnection,
+) -> anyhow::Result<()> {
     let mysql = matches!(conn.get_database_backend(), sea_orm::DatabaseBackend::MySql);
     let defs = [
         ("uq_teams_org_name", "teams", "org_id, name"),
@@ -122,6 +122,7 @@ async fn create_composite_unique_indexes(conn: &DatabaseConnection) -> anyhow::R
             "routing_rules",
             "provider_id, operation, kind",
         ),
+        ("uq_aliases_provider_alias", "aliases", "provider, alias"),
         ("uq_quotas_scope", "quotas", "scope, scope_id"),
     ];
     for (name, table, cols) in defs {
@@ -151,6 +152,12 @@ async fn create_composite_unique_indexes(conn: &DatabaseConnection) -> anyhow::R
 /// in place (see the `migrations` module docs).
 pub(super) async fn run_migrations(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let backend = conn.get_database_backend();
+    let dialect = match backend {
+        sea_orm::DatabaseBackend::Sqlite => MigrationDialect::Sqlite,
+        sea_orm::DatabaseBackend::Postgres => MigrationDialect::Postgres,
+        sea_orm::DatabaseBackend::MySql => MigrationDialect::MySql,
+        _ => anyhow::bail!("unsupported database backend for migrations"),
+    };
 
     // Writes go through `execute_unprepared` (raw SQL, dialect-portable). The
     // version read uses `query_one_raw`, which takes a `Statement` by value.
@@ -173,7 +180,7 @@ pub(super) async fn run_migrations(conn: &DatabaseConnection) -> anyhow::Result<
     };
 
     for m in pending(current) {
-        for sql in m.sql {
+        for sql in m.sql_for(dialect) {
             conn.execute_unprepared(sql).await?;
         }
         record_version(conn, m.version).await?;

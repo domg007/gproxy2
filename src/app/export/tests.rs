@@ -43,7 +43,7 @@ const BUNDLE: &str = r#"{
   "route_members": [
     { "id": 1, "route_id": 1, "provider_id": 1, "upstream_model_id": "gpt-4.1", "weight": 100, "tier": 0, "enabled": true }
   ],
-  "aliases": [{ "id": 1, "alias": "gpt", "route_id": 1 }],
+  "aliases": [{ "id": 1, "provider": "*", "alias": "gpt", "target": "main", "sort_order": 0, "enabled": true }],
   "rule_sets": [{ "id": 1, "name": "rs", "enabled": true, "description": null }],
   "rules": [
     { "id": 1, "rule_set_id": 1, "kind": "system_text", "config_json": { "text": "PRELUDE" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 0, "enabled": true }

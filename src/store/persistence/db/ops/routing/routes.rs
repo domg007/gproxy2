@@ -112,9 +112,8 @@ pub async fn upsert(conn: &DatabaseConnection, input: RouteInput) -> anyhow::Res
 }
 
 pub async fn delete(conn: &DatabaseConnection, id: i64) -> anyhow::Result<bool> {
-    // cascade: members and aliases of this route.
+    // cascade: members of this route.
     super::route_members::delete_by_route(conn, id).await?;
-    super::aliases::delete_by_route(conn, id).await?;
 
     let res = route::Entity::delete_by_id(id).exec(conn).await?;
     Ok(res.rows_affected > 0)

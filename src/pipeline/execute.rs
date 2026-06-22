@@ -103,27 +103,55 @@ async fn run(state: &AppState, mut ctx: RequestCtx) -> Result<ExecOutcome, Pipel
     // the estimate-aware quota gate runs once, below, at the common point.
     let (candidates, est_micros) = match &ctx.mode {
         RoutingMode::Aggregated => {
-            let route_name = preprocess::preprocess(&cp, &ctx)?;
-            span.record("route", route_name.as_str());
-            let resolved = route::route(&cp, &route_name)?;
-            let identity = ctx.identity.as_ref().expect("auth ran first");
-            authz::authorize(&cp, state.cache.as_ref(), identity, &route_name, unix_now()).await?;
-            // best-effort estimate priced at the FIRST enabled member's model
-            let est = resolved
-                .members
-                .first()
-                .map(|m| estimate(&cp, &ctx, m.provider_id, &m.upstream_model_id))
-                .unwrap_or(0);
-            let cands = balance::candidates(
-                &cp,
-                resolved,
-                state.health.as_ref(),
-                state.cache.as_ref(),
-                Some(identity.user_key.id),
-            )
-            .await?;
-            ctx.route_name = Some(route_name);
-            (cands, est)
+            let model = preprocess::preprocess(&cp, &ctx)?;
+            if cp.routes_by_name.contains_key(&model) {
+                span.record("route", model.as_str());
+                let resolved = route::route(&cp, &model)?;
+                let identity = ctx.identity.as_ref().expect("auth ran first");
+                authz::authorize(&cp, state.cache.as_ref(), identity, &model, unix_now()).await?;
+                // best-effort estimate priced at the FIRST enabled member's model
+                let est = resolved
+                    .members
+                    .first()
+                    .map(|m| estimate(&cp, &ctx, m.provider_id, &m.upstream_model_id))
+                    .unwrap_or(0);
+                let cands = balance::candidates(
+                    &cp,
+                    resolved,
+                    state.health.as_ref(),
+                    state.cache.as_ref(),
+                    Some(identity.user_key.id),
+                )
+                .await?;
+                ctx.route_name = Some(model);
+                (cands, est)
+            } else if let Some((provider_name, upstream_model_id)) =
+                preprocess::split_provider_model(&model)
+            {
+                let provider = cp
+                    .providers_by_name
+                    .get(provider_name)
+                    .filter(|p| p.enabled)
+                    .ok_or_else(|| PipelineError::UnknownProvider(provider_name.to_owned()))?;
+                span.record("provider", provider.name.as_str());
+                let identity = ctx.identity.as_ref().expect("auth ran first");
+                authz::authorize(
+                    &cp,
+                    state.cache.as_ref(),
+                    identity,
+                    &provider.name,
+                    unix_now(),
+                )
+                .await?;
+                let cands = provider_candidates(&cp, provider, upstream_model_id)?;
+                let est = cands
+                    .first()
+                    .map(|c| estimate(&cp, &ctx, provider.id, &c.upstream_model_id))
+                    .unwrap_or(0);
+                (cands, est)
+            } else {
+                return Err(PipelineError::UnknownRoute(model));
+            }
         }
         RoutingMode::Scoped { provider } => {
             let provider = cp
@@ -256,6 +284,15 @@ fn scoped_candidates(
     let requested = classify::peek_model(&ctx.body)
         .or_else(|| classify::path_model_id(&ctx.path))
         .unwrap_or_default();
+    provider_candidates(cp, provider, &requested)
+}
+
+fn provider_candidates(
+    cp: &crate::app::snapshot::ControlPlaneSnapshot,
+    provider: &Arc<crate::store::persistence::records::Provider>,
+    requested: &str,
+) -> Result<Vec<Candidate>, PipelineError> {
+    let requested = preprocess::apply_provider_alias(cp, &provider.name, requested);
     let model = cp
         .variant_base_by_provider
         .get(&provider.id)
@@ -283,10 +320,10 @@ fn scoped_candidates(
         .collect())
 }
 
-/// Serve aggregated ListModels/GetModel from the snapshot: alias names + route
-/// names ARE the model list, filtered to what the caller's permission union
-/// allows. Non-permitted GetModel 404s identically to missing (no existence
-/// leak).
+/// Serve aggregated ListModels/GetModel from the snapshot: public route names,
+/// alias patterns, and provider/model entries filtered to what the caller's
+/// permission union allows. Non-permitted GetModel 404s identically to missing
+/// (no existence leak).
 fn aggregated_models(
     cp: &crate::app::snapshot::ControlPlaneSnapshot,
     ctx: &RequestCtx,
@@ -294,22 +331,46 @@ fn aggregated_models(
     let op = ctx.op.expect("classified");
     let family = op.provider_family();
     let identity = ctx.identity.as_ref().expect("auth ran first");
-    let known = |id: &str| cp.alias_to_route.contains_key(id) || cp.routes_by_name.contains_key(id);
 
     let body = match op.operation {
         Operation::ListModels => {
-            let mut ids: Vec<&String> = cp
-                .alias_to_route
-                .keys()
-                .chain(cp.routes_by_name.keys())
-                .filter(|id| authz::permitted(cp, identity, id))
-                .collect();
+            let mut ids: Vec<String> = Vec::new();
+            ids.extend(
+                cp.routes_by_name
+                    .keys()
+                    .filter(|id| authz::permitted(cp, identity, id))
+                    .cloned(),
+            );
+            if let Some(global_aliases) = cp.aliases_by_provider.get("*") {
+                ids.extend(global_aliases.iter().filter_map(|alias| {
+                    target_permitted(cp, identity, &alias.target).then(|| alias.alias.clone())
+                }));
+            }
+            for provider in cp.providers_by_name.values().filter(|p| p.enabled) {
+                if !authz::permitted(cp, identity, &provider.name) {
+                    continue;
+                }
+                if let Some(models) = cp.exposed_models_by_provider.get(&provider.id) {
+                    ids.extend(
+                        models
+                            .iter()
+                            .map(|m| format!("{}/{}", provider.name, m.full_id)),
+                    );
+                }
+                if let Some(aliases) = cp.aliases_by_provider.get(&provider.name) {
+                    ids.extend(
+                        aliases
+                            .iter()
+                            .map(|alias| format!("{}/{}", provider.name, alias.alias)),
+                    );
+                }
+            }
             ids.sort();
             ids.dedup();
             let entries: Vec<ModelEntry> = ids
                 .into_iter()
                 .map(|id| ModelEntry {
-                    id: id.clone(),
+                    id,
                     display_name: None,
                 })
                 .collect();
@@ -317,7 +378,7 @@ fn aggregated_models(
         }
         _ => {
             let id = classify::path_model_id(&ctx.path).ok_or(PipelineError::UnsupportedPath)?;
-            if !known(&id) || !authz::permitted(cp, identity, &id) {
+            if !resolved_target_permitted(cp, identity, &id) {
                 return Err(PipelineError::UnknownRoute(id));
             }
             local_ops::render_model(
@@ -331,4 +392,28 @@ fn aggregated_models(
     };
 
     Ok(local_ops::json_outcome(http::StatusCode::OK, body))
+}
+
+fn target_permitted(
+    cp: &crate::app::snapshot::ControlPlaneSnapshot,
+    identity: &crate::app::snapshot::KeyIdentity,
+    target: &str,
+) -> bool {
+    if cp.routes_by_name.contains_key(target) {
+        return authz::permitted(cp, identity, target);
+    }
+
+    preprocess::split_provider_model(target)
+        .and_then(|(provider_name, _)| cp.providers_by_name.get(provider_name))
+        .filter(|provider| provider.enabled)
+        .is_some_and(|provider| authz::permitted(cp, identity, &provider.name))
+}
+
+fn resolved_target_permitted(
+    cp: &crate::app::snapshot::ControlPlaneSnapshot,
+    identity: &crate::app::snapshot::KeyIdentity,
+    model: &str,
+) -> bool {
+    let target = preprocess::apply_global_alias(cp, model);
+    target_permitted(cp, identity, &target)
 }

@@ -170,8 +170,11 @@ pub(super) fn route_member_to_input(r: RouteMember) -> RouteMemberInput {
 pub(super) fn alias_to_input(r: Alias) -> AliasInput {
     AliasInput {
         id: Some(r.id),
+        provider: r.provider,
         alias: r.alias,
-        route_id: r.route_id,
+        target: Some(r.target),
+        sort_order: r.sort_order,
+        enabled: r.enabled,
     }
 }
 

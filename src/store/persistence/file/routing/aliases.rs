@@ -19,20 +19,27 @@ pub(crate) async fn get_by_name(root: &Path, alias: &str) -> anyhow::Result<Opti
         .await?
         .rows
         .into_iter()
-        .find(|a| a.alias == alias))
+        .find(|a| a.provider == "*" && a.alias == alias))
 }
 
 pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Alias> {
     let file = path(root);
     let mut t = table::load::<Alias>(&file).await?;
     let now = now_secs();
+    let target = input
+        .target
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("alias target is required"))?;
 
-    if let Some(existing) = t.rows.iter().find(|a| a.alias == input.alias)
+    if let Some(existing) = t
+        .rows
+        .iter()
+        .find(|a| a.provider == input.provider && a.alias == input.alias)
         && Some(existing.id) != input.id
     {
         return Err(crate::store::persistence::ConflictError::new(format!(
-            "alias already exists: {}",
-            input.alias
+            "alias already exists: {}/{}",
+            input.provider, input.alias
         ))
         .into());
     }
@@ -40,8 +47,11 @@ pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
     let stored = match input.id {
         Some(id) => {
             if let Some(row) = t.rows.iter_mut().find(|a| a.id == id) {
+                row.provider = input.provider;
                 row.alias = input.alias;
-                row.route_id = input.route_id;
+                row.target = target;
+                row.sort_order = input.sort_order;
+                row.enabled = input.enabled;
                 row.updated_at = now;
                 row.clone()
             } else {
@@ -50,8 +60,11 @@ pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
                 }
                 let alias = Alias {
                     id,
+                    provider: input.provider,
                     alias: input.alias,
-                    route_id: input.route_id,
+                    target,
+                    sort_order: input.sort_order,
+                    enabled: input.enabled,
                     created_at: now,
                     updated_at: now,
                 };
@@ -64,8 +77,11 @@ pub(crate) async fn upsert(root: &Path, input: AliasInput) -> anyhow::Result<Ali
             t.next_id += 1;
             let alias = Alias {
                 id,
+                provider: input.provider,
                 alias: input.alias,
-                route_id: input.route_id,
+                target,
+                sort_order: input.sort_order,
+                enabled: input.enabled,
                 created_at: now,
                 updated_at: now,
             };
@@ -88,15 +104,4 @@ pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
         table::store(&file, &t).await?;
     }
     Ok(removed)
-}
-
-pub(crate) async fn delete_by_route(root: &Path, route_id: i64) -> anyhow::Result<()> {
-    let file = path(root);
-    let mut t = table::load::<Alias>(&file).await?;
-    let before = t.rows.len();
-    t.rows.retain(|a| a.route_id != route_id);
-    if t.rows.len() != before {
-        table::store(&file, &t).await?;
-    }
-    Ok(())
 }

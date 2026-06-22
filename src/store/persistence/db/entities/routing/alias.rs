@@ -7,9 +7,12 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    #[sea_orm(unique)]
+    pub provider: String,
     pub alias: String,
-    pub route_id: i64,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub target: Option<String>,
+    pub sort_order: i64,
+    pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }

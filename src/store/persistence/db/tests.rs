@@ -41,6 +41,81 @@ async fn connect_stamps_latest_and_leaves_nothing_pending() {
 }
 
 #[tokio::test]
+async fn migrates_old_alias_table_to_scoped_aliases() {
+    use sea_orm::{ConnectionTrait, Database, Statement};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("old.db");
+    let dsn = format!("sqlite://{}?mode=rwc", path.display());
+    let conn = Database::connect(&dsn).await.expect("seed connect");
+    conn.execute_unprepared(
+        "CREATE TABLE aliases (\
+            id INTEGER PRIMARY KEY, \
+            alias TEXT NOT NULL UNIQUE, \
+            route_id INTEGER NOT NULL, \
+            created_at INTEGER NOT NULL, \
+            updated_at INTEGER NOT NULL)",
+    )
+    .await
+    .expect("old aliases table");
+    conn.execute_unprepared(
+        "INSERT INTO aliases (id, alias, route_id, created_at, updated_at) \
+         VALUES (1, 'old-alias', 9, 10, 11)",
+    )
+    .await
+    .expect("old alias row");
+    conn.execute_unprepared(crate::store::persistence::migrations::CREATE_MIGRATIONS_TABLE)
+        .await
+        .expect("schema_migrations");
+    conn.execute_unprepared("INSERT INTO schema_migrations (version, applied_at) VALUES (5, 0)")
+        .await
+        .expect("version 5");
+    conn.close().await.expect("close seed");
+
+    let db = DbPersistence::connect(&dsn).await.expect("migrate");
+    let aliases = db.list_aliases().await.expect("aliases");
+    assert_eq!(aliases.len(), 1);
+    assert_eq!(aliases[0].provider, "*");
+    assert_eq!(aliases[0].alias, "old-alias");
+    assert_eq!(aliases[0].target, "old-alias");
+
+    let backend = db.conn.get_database_backend();
+    let cols = db
+        .conn
+        .query_all_raw(Statement::from_string(
+            backend,
+            "PRAGMA table_info(aliases)".to_owned(),
+        ))
+        .await
+        .expect("table_info")
+        .into_iter()
+        .map(|row| row.try_get::<String>("", "name").expect("column name"))
+        .collect::<Vec<_>>();
+    assert!(!cols.iter().any(|col| col == "route_id"));
+
+    db.upsert_alias(AliasInput {
+        id: None,
+        provider: "p1".to_owned(),
+        alias: "same".to_owned(),
+        target: Some("m1".to_owned()),
+        sort_order: 0,
+        enabled: true,
+    })
+    .await
+    .expect("p1 alias");
+    db.upsert_alias(AliasInput {
+        id: None,
+        provider: "p2".to_owned(),
+        alias: "same".to_owned(),
+        target: Some("m2".to_owned()),
+        sort_order: 0,
+        enabled: true,
+    })
+    .await
+    .expect("p2 alias");
+}
+
+#[tokio::test]
 async fn provider_round_trip() {
     let db = mem().await;
     let created = db
@@ -177,15 +252,18 @@ async fn cascade_deletes() {
     .unwrap();
     db.upsert_alias(AliasInput {
         id: None,
+        provider: "*".to_owned(),
         alias: "a".to_owned(),
-        route_id: r.id,
+        target: Some("r".to_owned()),
+        sort_order: 0,
+        enabled: true,
     })
     .await
     .unwrap();
 
     db.delete_route(r.id).await.unwrap();
     assert!(db.list_route_members(r.id).await.unwrap().is_empty());
-    assert!(db.get_alias_by_name("a").await.unwrap().is_none());
+    assert!(db.get_alias_by_name("a").await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -309,7 +387,7 @@ const IMPORT_BUNDLE: &str = r#"{
   "route_members": [
     { "id": 1, "route_id": 1, "provider_id": 1, "upstream_model_id": "gpt-4.1", "weight": 100, "tier": 0, "enabled": true }
   ],
-  "aliases": [{ "id": 1, "alias": "gpt", "route_id": 1 }],
+  "aliases": [{ "id": 1, "provider": "*", "alias": "gpt", "target": "main", "sort_order": 0, "enabled": true }],
   "rule_sets": [{ "id": 1, "name": "rs", "enabled": true, "description": null }],
   "rules": [
     { "id": 1, "rule_set_id": 1, "kind": "system_text", "config_json": { "text": "PRELUDE" }, "filter_model_pattern": null, "filter_operation_keys": null, "sort_order": 0, "enabled": true }

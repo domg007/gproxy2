@@ -96,9 +96,8 @@ pub(crate) async fn upsert(root: &Path, input: RouteInput) -> anyhow::Result<Rou
 }
 
 pub(crate) async fn delete(root: &Path, id: i64) -> anyhow::Result<bool> {
-    // cascade: members and aliases of this route.
+    // cascade: members of this route.
     super::route_members::delete_by_route(root, id).await?;
-    super::aliases::delete_by_route(root, id).await?;
 
     let file = path(root);
     let mut t = table::load::<Route>(&file).await?;

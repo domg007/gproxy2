@@ -124,9 +124,8 @@ pub async fn upsert(client: &LibsqlClient, input: RouteInput) -> anyhow::Result<
 }
 
 pub async fn delete(client: &LibsqlClient, id: i64) -> anyhow::Result<bool> {
-    // cascade: members and aliases of this route.
+    // cascade: members of this route.
     super::route_members::delete_by_route(client, id).await?;
-    super::aliases::delete_by_route(client, id).await?;
     let n = exec(
         client,
         "DELETE FROM routes WHERE id = ?",

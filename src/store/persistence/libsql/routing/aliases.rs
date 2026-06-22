@@ -1,21 +1,24 @@
 //! Alias ops for the libSQL edge backend.
 
 use crate::store::libsql::{LibsqlClient, arg_integer, arg_text};
-use crate::store::persistence::libsql::row::{Row, col_i64, col_str};
+use crate::store::persistence::libsql::row::{Row, col_bool, col_i64, col_opt_str, col_str};
 use crate::store::persistence::libsql::util::{
-    arg_opt_i64, exec, last_rowid, now_secs, query, query_one,
+    arg_bool, arg_opt_i64, arg_opt_text, exec, last_rowid, now_secs, query, query_one,
 };
 use crate::store::persistence::records::{Alias, AliasInput};
 
-const COLS: &str = "id, alias, route_id, created_at, updated_at";
+const COLS: &str = "id, provider, alias, target, sort_order, enabled, created_at, updated_at";
 
 fn decode(row: &Row) -> anyhow::Result<Alias> {
     Ok(Alias {
         id: col_i64(row, 0)?,
-        alias: col_str(row, 1)?,
-        route_id: col_i64(row, 2)?,
-        created_at: col_i64(row, 3)?,
-        updated_at: col_i64(row, 4)?,
+        provider: col_str(row, 1)?,
+        alias: col_str(row, 2)?,
+        target: col_opt_str(row, 3)?.unwrap_or_default(),
+        sort_order: col_i64(row, 4)?,
+        enabled: col_bool(row, 5)?,
+        created_at: col_i64(row, 6)?,
+        updated_at: col_i64(row, 7)?,
     })
 }
 
@@ -42,7 +45,7 @@ pub async fn list(client: &LibsqlClient) -> anyhow::Result<Vec<Alias>> {
 pub async fn get_by_name(client: &LibsqlClient, value: &str) -> anyhow::Result<Option<Alias>> {
     query_one(
         client,
-        &format!("SELECT {COLS} FROM aliases WHERE alias = ?"),
+        &format!("SELECT {COLS} FROM aliases WHERE provider = '*' AND alias = ?"),
         &[arg_text(value)],
     )
     .await?
@@ -53,15 +56,24 @@ pub async fn get_by_name(client: &LibsqlClient, value: &str) -> anyhow::Result<O
 
 pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<Alias> {
     let now = now_secs();
+    let provider = input.provider;
+    let target = input
+        .target
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("alias target is required"))?;
 
     let id = match input.id {
         Some(id) if get(client, id).await?.is_some() => {
             client
                 .execute(
-                    "UPDATE aliases SET alias=?, route_id=?, updated_at=? WHERE id=?",
+                    "UPDATE aliases SET provider=?, alias=?, target=?, sort_order=?, enabled=?, \
+                     updated_at=? WHERE id=?",
                     &[
+                        arg_text(&provider),
                         arg_text(&input.alias),
-                        arg_integer(input.route_id),
+                        arg_opt_text(Some(target.as_str())),
+                        arg_integer(input.sort_order),
+                        arg_bool(input.enabled),
                         arg_integer(now),
                         arg_integer(id),
                     ],
@@ -69,7 +81,7 @@ pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<
                 .await
                 .map_err(|e| {
                     crate::store::persistence::libsql::conflict_if_unique(e, || {
-                        format!("alias already exists: {}", input.alias)
+                        format!("alias already exists: {provider}/{}", input.alias)
                     })
                 })?;
             id
@@ -77,12 +89,16 @@ pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<
         maybe_id => {
             let qr = client
                 .execute(
-                    "INSERT INTO aliases (id, alias, route_id, created_at, updated_at) \
-                     VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO aliases \
+                     (id, provider, alias, target, sort_order, enabled, created_at, updated_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     &[
                         arg_opt_i64(maybe_id),
+                        arg_text(&provider),
                         arg_text(&input.alias),
-                        arg_integer(input.route_id),
+                        arg_opt_text(Some(target.as_str())),
+                        arg_integer(input.sort_order),
+                        arg_bool(input.enabled),
                         arg_integer(now),
                         arg_integer(now),
                     ],
@@ -90,7 +106,7 @@ pub async fn upsert(client: &LibsqlClient, input: AliasInput) -> anyhow::Result<
                 .await
                 .map_err(|e| {
                     crate::store::persistence::libsql::conflict_if_unique(e, || {
-                        format!("alias already exists: {}", input.alias)
+                        format!("alias already exists: {provider}/{}", input.alias)
                     })
                 })?;
             match maybe_id {
@@ -113,14 +129,4 @@ pub async fn delete(client: &LibsqlClient, id: i64) -> anyhow::Result<bool> {
     )
     .await?;
     Ok(n > 0)
-}
-
-pub async fn delete_by_route(client: &LibsqlClient, route_id: i64) -> anyhow::Result<()> {
-    exec(
-        client,
-        "DELETE FROM aliases WHERE route_id = ?",
-        &[arg_integer(route_id)],
-    )
-    .await?;
-    Ok(())
 }

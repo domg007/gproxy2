@@ -143,7 +143,7 @@ pin explicit ids.
     }
   ],
   "aliases": [
-    { "id": 1, "alias": "default-chat", "route_id": 1 }
+    { "id": 1, "provider": "*", "alias": "default-chat", "target": "main", "sort_order": 0, "enabled": true }
   ]
 }
 ```

@@ -118,8 +118,8 @@ const BUNDLE: &str = r#"{
     { "id": 2, "route_id": 2, "provider_id": 2, "upstream_model_id": "claude-test", "weight": 100, "tier": 0, "enabled": true }
   ],
   "aliases": [
-    { "id": 1, "route_id": 1, "alias": "claude-test" },
-    { "id": 2, "route_id": 2, "alias": "claude-direct" }
+    { "id": 1, "provider": "*", "alias": "claude-test", "target": "to-openai", "sort_order": 0, "enabled": true },
+    { "id": 2, "provider": "*", "alias": "claude-direct", "target": "to-claude", "sort_order": 1, "enabled": true }
   ],
   "routing_rules": [
     { "id": 1, "provider_id": 1, "operation": "list_models", "kind": "open_ai", "implementation": "local", "dest_operation": null, "dest_kind": null, "sort_order": 0, "enabled": true }
@@ -245,6 +245,84 @@ async fn build_state(
 
 fn claude_ctx(model: &str, stream: bool) -> RequestCtx {
     claude_ctx_as("sk-test", model, stream)
+}
+
+#[tokio::test]
+async fn aggregated_bare_provider_model_is_not_inferred() {
+    let fake = Arc::new(FakeUpstream::new(Bytes::from("{}"), vec![]));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let err = match crate::pipeline::execute(&state, claude_ctx("gpt-test", false)).await {
+        Ok(_) => panic!("bare provider model should not resolve in aggregated mode"),
+        Err(err) => err,
+    };
+    assert!(
+        matches!(err, crate::pipeline::error::PipelineError::UnknownRoute(model) if model == "gpt-test")
+    );
+    assert!(fake.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn aggregated_provider_model_direct_addressing_works() {
+    let chat_response = json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",
+        "choices": [{ "index": 0, "message": { "role": "assistant", "content": "hello" }, "finish_reason": "stop" }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let outcome = crate::pipeline::execute(&state, claude_ctx("oai/gpt-test", false))
+        .await
+        .expect("pipeline ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+
+    let seen = fake.seen.lock().unwrap();
+    assert!(
+        seen[0].uri.contains("/v1/chat/completions"),
+        "uri: {}",
+        seen[0].uri
+    );
+    let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
+    assert_eq!(up["model"], "gpt-test");
+}
+
+#[tokio::test]
+async fn aggregated_global_alias_then_provider_alias() {
+    let bundle = bundle_with(
+        "aliases",
+        json!([
+            { "id": 1, "provider": "*", "alias": "codex/(.+)", "target": "oai/$1", "sort_order": 0, "enabled": true },
+            { "id": 2, "provider": "oai", "alias": "latest", "target": "gpt-test", "sort_order": 0, "enabled": true }
+        ]),
+    );
+    let chat_response = json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",
+        "choices": [{ "index": 0, "message": { "role": "assistant", "content": "hello" }, "finish_reason": "stop" }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &bundle).await;
+
+    let outcome = crate::pipeline::execute(&state, claude_ctx("codex/latest", false))
+        .await
+        .expect("pipeline ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+
+    let seen = fake.seen.lock().unwrap();
+    assert!(
+        seen[0].uri.contains("/v1/chat/completions"),
+        "uri: {}",
+        seen[0].uri
+    );
+    let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
+    assert_eq!(up["model"], "gpt-test");
 }
 
 fn claude_ctx_as(api_key: &str, model: &str, stream: bool) -> RequestCtx {

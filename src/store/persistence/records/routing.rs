@@ -59,12 +59,29 @@ pub struct RouteMemberInput {
     pub enabled: bool,
 }
 
-/// An alias (name → route, many-to-one; §3.1).
+fn default_alias_provider() -> String {
+    "*".to_owned()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// A model alias rule. `provider == "*"` is global; any other value scopes the
+/// rule to the resolved provider. `alias` is a full-match regex pattern and
+/// `target` is a regex replacement string.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Alias {
     pub id: i64,
+    #[serde(default = "default_alias_provider")]
+    pub provider: String,
     pub alias: String,
-    pub route_id: i64,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -73,6 +90,13 @@ pub struct Alias {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AliasInput {
     pub id: Option<i64>,
+    #[serde(default = "default_alias_provider")]
+    pub provider: String,
     pub alias: String,
-    pub route_id: i64,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }

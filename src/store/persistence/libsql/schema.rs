@@ -6,7 +6,7 @@
 use crate::store::libsql::LibsqlClient;
 use crate::store::persistence::libsql::row::col_i64;
 use crate::store::persistence::migrations::{
-    CREATE_MIGRATIONS_TABLE, SELECT_MAX_VERSION, latest_version, pending,
+    CREATE_MIGRATIONS_TABLE, MigrationDialect, SELECT_MAX_VERSION, latest_version, pending,
 };
 
 /// All `CREATE TABLE IF NOT EXISTS` statements, mirroring `db/schema.rs`.
@@ -81,10 +81,14 @@ const TABLES: &[&str] = &[
         updated_at INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS aliases (\
         id INTEGER PRIMARY KEY, \
-        alias TEXT NOT NULL UNIQUE, \
-        route_id INTEGER NOT NULL, \
+        provider TEXT NOT NULL, \
+        alias TEXT NOT NULL, \
+        target TEXT NOT NULL, \
+        sort_order INTEGER NOT NULL, \
+        enabled INTEGER NOT NULL, \
         created_at INTEGER NOT NULL, \
-        updated_at INTEGER NOT NULL)",
+        updated_at INTEGER NOT NULL, \
+        UNIQUE(provider, alias))",
     // ── transform / rules ──
     "CREATE TABLE IF NOT EXISTS routing_rules (\
         id INTEGER PRIMARY KEY, \
@@ -344,7 +348,7 @@ async fn run_migrations(client: &LibsqlClient) -> anyhow::Result<()> {
     };
 
     for m in pending(current) {
-        for sql in m.sql {
+        for sql in m.sql_for(MigrationDialect::Sqlite) {
             exec((*sql).to_string()).await?;
         }
         record_version(client, m.version).await?;

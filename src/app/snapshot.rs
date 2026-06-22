@@ -8,12 +8,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use regex::Regex;
+
 use crate::app::models_index::{self, ExposedModel};
 use crate::process::CompiledRule;
 use crate::store::persistence::PersistenceBackend;
 use crate::store::persistence::records::{
-    Credential, Org, Provider, ProviderModel, Quota, RateLimit, Route, RouteMember, Scope, Team,
-    User, UserKey,
+    Alias, Credential, Org, Provider, ProviderModel, Quota, RateLimit, Route, RouteMember, Scope,
+    Team, User, UserKey,
 };
 use crate::transform::routing::CompiledRoutingRule;
 
@@ -22,8 +24,8 @@ pub struct ControlPlaneSnapshot {
     pub providers_by_name: HashMap<String, Arc<Provider>>,
     pub providers_by_id: HashMap<i64, Arc<Provider>>,
     pub routes_by_name: HashMap<String, Arc<ResolvedRoute>>,
-    /// alias name → canonical route name (many-to-one).
-    pub alias_to_route: HashMap<String, String>,
+    /// Alias scope (`*` or provider name) → compiled model alias rules.
+    pub aliases_by_provider: HashMap<String, Arc<Vec<CompiledAlias>>>,
     /// api-key digest → identity (auth without a DB hit). ENABLED keys + users.
     pub keys_by_digest: HashMap<String, Arc<KeyIdentity>>,
     /// provider id → ENABLED credential pool.
@@ -107,7 +109,7 @@ impl ControlPlaneSnapshot {
             providers_by_name: HashMap::new(),
             providers_by_id: HashMap::new(),
             routes_by_name: HashMap::new(),
-            alias_to_route: HashMap::new(),
+            aliases_by_provider: HashMap::new(),
             keys_by_digest: HashMap::new(),
             credentials_by_provider: HashMap::new(),
             models_by_provider: HashMap::new(),
@@ -195,25 +197,34 @@ impl ControlPlaneSnapshot {
         }
 
         // routes (enabled only — a disabled route must vanish from routing AND
-        // from the model list) + members (sorted) + a route-id → name map for
-        // aliases, so aliases of a disabled route drop out with it.
-        let mut route_name_by_id: HashMap<i64, String> = HashMap::new();
+        // from the model list) + members (sorted).
         for route in db.list_routes().await?.into_iter().filter(|r| r.enabled) {
             let mut members = db.list_route_members(route.id).await?;
             members.retain(|m| m.enabled);
             members.sort_by(|a, b| a.tier.cmp(&b.tier).then(b.weight.cmp(&a.weight)));
-            route_name_by_id.insert(route.id, route.name.clone());
             let name = route.name.clone();
             snap.routes_by_name
                 .insert(name, Arc::new(ResolvedRoute { route, members }));
         }
 
-        // aliases → route name
-        for alias in db.list_aliases().await? {
-            if let Some(name) = route_name_by_id.get(&alias.route_id) {
-                snap.alias_to_route.insert(alias.alias, name.clone());
+        // model aliases, grouped by global/provider scope and compiled once.
+        let mut aliases_by_provider: HashMap<String, Vec<CompiledAlias>> = HashMap::new();
+        for alias in db.list_aliases().await?.into_iter().filter(|a| a.enabled) {
+            match CompiledAlias::try_from(alias) {
+                Some(rule) => aliases_by_provider
+                    .entry(rule.provider.clone())
+                    .or_default()
+                    .push(rule),
+                None => tracing::warn!("alias regex failed to compile; skipped"),
             }
         }
+        for rules in aliases_by_provider.values_mut() {
+            rules.sort_by_key(|r| (r.sort_order, r.id));
+        }
+        snap.aliases_by_provider = aliases_by_provider
+            .into_iter()
+            .map(|(provider, rules)| (provider, Arc::new(rules)))
+            .collect();
 
         // users (enabled) + their keys (enabled), indexed by digest;
         // collect ids for the authz scope universe below.
@@ -249,6 +260,40 @@ impl ControlPlaneSnapshot {
         }
 
         Ok(snap)
+    }
+}
+
+/// Snapshot-compiled model alias rule. `regex` is anchored as a full match.
+pub struct CompiledAlias {
+    pub id: i64,
+    pub provider: String,
+    pub alias: String,
+    pub target: String,
+    pub sort_order: i64,
+    regex: Regex,
+}
+
+impl CompiledAlias {
+    fn try_from(alias: Alias) -> Option<Self> {
+        if alias.target.trim().is_empty() {
+            return None;
+        }
+        let pattern = format!("^(?:{})$", alias.alias);
+        let regex = Regex::new(&pattern).ok()?;
+        Some(Self {
+            id: alias.id,
+            provider: alias.provider,
+            alias: alias.alias,
+            target: alias.target,
+            sort_order: alias.sort_order,
+            regex,
+        })
+    }
+
+    pub fn apply(&self, model: &str) -> Option<String> {
+        self.regex
+            .is_match(model)
+            .then(|| self.regex.replace(model, self.target.as_str()).into_owned())
     }
 }
 
