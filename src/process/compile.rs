@@ -52,18 +52,13 @@ pub enum HeaderMode {
     Merge,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransformPhase {
+    #[default]
     Request,
     Response,
     Both,
-}
-
-impl Default for TransformPhase {
-    fn default() -> Self {
-        Self::Request
-    }
 }
 
 impl TransformPhase {

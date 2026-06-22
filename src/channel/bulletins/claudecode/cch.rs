@@ -139,10 +139,10 @@ fn first_user_text(body: &[u8]) -> String {
         }
         if let Some(blocks) = content.as_array() {
             for block in blocks {
-                if block.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(text) = block.get("text").and_then(Value::as_str) {
-                        return text.to_owned();
-                    }
+                if block.get("type").and_then(Value::as_str) == Some("text")
+                    && let Some(text) = block.get("text").and_then(Value::as_str)
+                {
+                    return text.to_owned();
                 }
             }
         }

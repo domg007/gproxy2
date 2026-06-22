@@ -333,6 +333,11 @@ pub(super) struct UpstreamRespCapture {
     pub request_id: String,
 }
 
+pub(super) struct ResponseRuleCtx<'a> {
+    pub rules: &'a [crate::process::CompiledRule],
+    pub model: &'a str,
+}
+
 /// Materialize an attempt's body. Response-direction transform applies only to
 /// 2xx bodies — error payloads stay provider-native (M2 fidelity note). When
 /// `upstream` is `Some`, the post-decode provider response is captured for
@@ -344,8 +349,7 @@ pub(super) fn materialize(
     plan: &TransformPlan,
     ctx: &RequestCtx,
     status: StatusCode,
-    rules: Option<&[crate::process::CompiledRule]>,
-    model: &str,
+    response_rules: Option<ResponseRuleCtx<'_>>,
     upstream: Option<UpstreamRespCapture>,
 ) -> Result<Materialized, PipelineError> {
     match source {
@@ -362,10 +366,14 @@ pub(super) fn materialize(
                 crate::protocol::OperationKind::ContentGeneration(k) => Some(k),
                 crate::protocol::OperationKind::Provider(_) => None,
             };
-            let b = match (status.is_success(), rules) {
-                (true, Some(rules)) => {
-                    crate::process::apply_response(rules, shape.op, kind, model, b)
-                }
+            let b = match (status.is_success(), response_rules.as_ref()) {
+                (true, Some(response_rules)) => crate::process::apply_response(
+                    response_rules.rules,
+                    shape.op,
+                    kind,
+                    response_rules.model,
+                    b,
+                ),
                 _ => b,
             };
             // §8-D: capture the post-decode provider response. For the buffered
@@ -403,8 +411,13 @@ pub(super) fn materialize(
                 crate::protocol::OperationKind::ContentGeneration(k) => Some(k),
                 crate::protocol::OperationKind::Provider(_) => None,
             };
-            let st = match rules.and_then(|rules| {
-                crate::process::response_stream_decoder(rules, shape_op, kind, model)
+            let st = match response_rules.as_ref().and_then(|response_rules| {
+                crate::process::response_stream_decoder(
+                    response_rules.rules,
+                    shape_op,
+                    kind,
+                    response_rules.model,
+                )
             }) {
                 Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
                 None => st,

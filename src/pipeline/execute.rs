@@ -342,9 +342,12 @@ fn aggregated_models(
                     .cloned(),
             );
             if let Some(global_aliases) = cp.aliases_by_provider.get("*") {
-                ids.extend(global_aliases.iter().filter_map(|alias| {
-                    target_permitted(cp, identity, &alias.target).then(|| alias.alias.clone())
-                }));
+                ids.extend(
+                    global_aliases
+                        .iter()
+                        .filter(|alias| target_permitted(cp, identity, &alias.target))
+                        .map(|alias| alias.alias.clone()),
+                );
             }
             for provider in cp.providers_by_name.values().filter(|p| p.enabled) {
                 if !authz::permitted(cp, identity, &provider.name) {

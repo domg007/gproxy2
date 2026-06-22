@@ -13,7 +13,8 @@ mod attempt;
 
 pub use attempt::BodySource;
 use attempt::{
-    AttemptOutcome, Materialized, UpstreamRespCapture, attempt, materialize, refresh_failed,
+    AttemptOutcome, Materialized, ResponseRuleCtx, UpstreamRespCapture, attempt, materialize,
+    refresh_failed,
 };
 
 use std::time::Duration;
@@ -277,16 +278,11 @@ pub async fn run_failover(
             let rule_filter_model = crate::pipeline::classify::peek_model(&ctx.body)
                 .or_else(|| crate::pipeline::classify::path_model_id(&ctx.path))
                 .unwrap_or_else(|| cand.upstream_model_id.clone());
-            let mat = materialize(
-                &channel,
-                source,
-                &plan,
-                ctx,
-                status,
-                rules.as_deref().map(Vec::as_slice),
-                &rule_filter_model,
-                up_cap,
-            );
+            let response_rules = rules.as_deref().map(|rules| ResponseRuleCtx {
+                rules: rules.as_slice(),
+                model: rule_filter_model.as_str(),
+            });
+            let mat = materialize(&channel, source, &plan, ctx, status, response_rules, up_cap);
             // §8-D upstream capture: the attempt actually returned to the
             // client (success or relayed permanent 4xx). Failed-over attempts
             // were audited above; gating happens inside `capture`. `resp_body`

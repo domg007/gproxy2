@@ -112,10 +112,10 @@ fn normalize_session_key(input: &str) -> Option<String> {
     if text.is_empty() {
         return None;
     }
-    if let Some((name, rest)) = text.split_once(':') {
-        if name.trim().eq_ignore_ascii_case("cookie") {
-            text = rest.trim();
-        }
+    if let Some((name, rest)) = text.split_once(':')
+        && name.trim().eq_ignore_ascii_case("cookie")
+    {
+        text = rest.trim();
     }
     for part in text.split(';') {
         let part = part.trim();
