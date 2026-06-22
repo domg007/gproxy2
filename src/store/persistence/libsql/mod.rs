@@ -8,6 +8,7 @@
 //! (see the ignored integration test).
 
 mod authz;
+mod batch;
 mod identity;
 mod logs;
 mod metrics;
@@ -430,6 +431,19 @@ impl PersistenceBackend for LibsqlPersistence {
         response_body: Option<String>,
     ) -> anyhow::Result<()> {
         logs::upstream_requests::update_response_body(&self.client, request_id, response_body).await
+    }
+
+    async fn delete_usage(&self, id: i64) -> anyhow::Result<bool> {
+        batch::delete_usage(&self.client, id).await
+    }
+
+    async fn set_enabled(
+        &self,
+        entity: crate::store::persistence::batch::AdminEntity,
+        id: i64,
+        enabled: bool,
+    ) -> anyhow::Result<bool> {
+        batch::set_enabled(&self.client, entity, id, enabled).await
     }
 
     async fn purge_before(&self, cutoff_ts: i64) -> anyhow::Result<u64> {

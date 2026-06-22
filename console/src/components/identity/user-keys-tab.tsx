@@ -7,6 +7,7 @@ import {
   userKeysQuery, createUserKey, deleteUserKey, type UserView, type UserKeyView,
 } from "@/api/identity";
 import { ApiError } from "@/api/http";
+import { BatchToolbar } from "@/components/batch-toolbar";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
@@ -18,12 +19,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { useBatch } from "@/hooks/use-batch";
 
 export function UserKeysTab({ user }: { user: UserView }) {
   const { t } = useTranslation("identity");
   const { t: tc } = useTranslation("common");
   const queryClient = useQueryClient();
   const { data: keys, isPending } = useQuery(userKeysQuery(user.id));
+  const rows = keys ?? [];
+  const batch = useBatch("user-keys", ["users", user.id, "keys"]);
+  const ids = rows.map((k) => k.id);
 
   const [generateOpen, setGenerateOpen] = useState(false);
   const [label, setLabel] = useState("");
@@ -83,7 +88,7 @@ export function UserKeysTab({ user }: { user: UserView }) {
     }
   };
 
-  const actions = (k: UserKeyView) => (
+  const actionsColumn = (k: UserKeyView) => (
     <div className="flex items-center justify-end">
       <Button
         variant="ghost"
@@ -113,17 +118,24 @@ export function UserKeysTab({ user }: { user: UserView }) {
       header: t("keys.enabled"),
       cell: (k) => <Badge variant={k.enabled ? "secondary" : "outline"}>{k.enabled ? "on" : "off"}</Badge>,
     },
-    { key: "actions", header: "", cell: actions, className: "w-16 text-right" },
+    ...(batch.mode ? [] : [{ key: "actions", header: "", cell: actionsColumn, className: "w-16 text-right" } as DataColumn<UserKeyView>]),
   ];
 
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">{t("keys.rotateHint")}</p>
-        <Button onClick={() => { setLabel(""); setGenerateOpen(true); }}>
-          <Plus className="size-4" aria-hidden />
-          {t("keys.add")}
-        </Button>
+        <div className="flex items-center gap-2">
+          {!batch.mode && (
+            <Button onClick={() => { setLabel(""); setGenerateOpen(true); }}>
+              <Plus className="size-4" aria-hidden />
+              {t("keys.add")}
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => batch.mode ? batch.exit() : batch.setMode(true)}>
+            {batch.mode ? tc("batch.cancel") : tc("batch.select")}
+          </Button>
+        </div>
       </div>
 
       {isPending ? (
@@ -133,9 +145,16 @@ export function UserKeysTab({ user }: { user: UserView }) {
       ) : (
         <DataTable
           columns={columns}
-          rows={keys ?? []}
+          rows={rows}
           rowKey={(k) => k.id}
           empty={t("keys.empty")}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(k) => (
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
@@ -143,9 +162,19 @@ export function UserKeysTab({ user }: { user: UserView }) {
                 <Badge variant={k.enabled ? "secondary" : "outline"}>{k.enabled ? "on" : "off"}</Badge>
               </div>
               <span className="font-mono text-xs text-muted-foreground">{k.key_prefix}</span>
-              {actions(k)}
+              {!batch.mode && actionsColumn(k)}
             </div>
           )}
+        />
+      )}
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
         />
       )}
 

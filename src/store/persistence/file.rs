@@ -8,6 +8,7 @@ mod impl_backend;
 mod table;
 
 mod authz;
+pub(crate) mod batch;
 mod identity;
 mod logs;
 mod metrics;

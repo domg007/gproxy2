@@ -6,6 +6,7 @@
 //! hashing + hash redaction). All routes mount behind `require_admin`.
 
 mod authz;
+mod batch;
 mod credentials;
 mod entities;
 mod nested;
@@ -74,6 +75,7 @@ pub fn routes() -> Router<AppState> {
             "/admin/rule-sets/{id}",
             get(entities::rule_sets::get).delete(entities::rule_sets::delete),
         )
+        .route("/admin/batch/{entity}", post(batch::batch))
         .route(
             "/admin/instance-settings",
             get(entities::instance_settings::list).post(entities::instance_settings::upsert),
@@ -1140,5 +1142,94 @@ mod tests {
             "transform_to",
             "reset restored the default"
         );
+    }
+
+    #[tokio::test]
+    async fn batch_disable_and_delete_orgs() {
+        insecure_cookies();
+        let (state, _dir, admin_id) = seeded_state().await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let persistence = state.persistence.clone();
+        let mk = |n: &str| {
+            persistence.upsert_org(crate::store::persistence::records::OrgInput {
+                id: None,
+                name: n.into(),
+                enabled: true,
+                description: None,
+            })
+        };
+        let a = mk("ba").await.unwrap();
+        let b = mk("bb").await.unwrap();
+        let app = crate::http::server::router(state);
+
+        // 批量禁用 → affected 2,两 org enabled=false。
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/batch/orgs")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"op":"disable","ids":[{},{}]}}"#,
+                        a.id, b.id
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let out: serde_json::Value =
+            serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        assert_eq!(out["affected"], 2);
+        assert!(!persistence.get_org(a.id).await.unwrap().unwrap().enabled);
+
+        // usage 不支持 enable/disable → 400。
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/batch/usage")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"op":"disable","ids":[1]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // 批量删除 → affected 2,列表空。
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/admin/batch/orgs")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"op":"delete","ids":[{},{}]}}"#,
+                        a.id, b.id
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let out: serde_json::Value =
+            serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        assert_eq!(out["affected"], 2);
+        let remaining = persistence.list_orgs().await.unwrap();
+        assert!(!remaining.iter().any(|o| o.id == a.id || o.id == b.id));
+
+        // 空 ids → 400。
+        let resp = app
+            .oneshot(
+                Request::post("/admin/batch/orgs")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"op":"delete","ids":[]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }

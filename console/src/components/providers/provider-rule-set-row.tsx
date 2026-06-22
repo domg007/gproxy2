@@ -90,12 +90,14 @@ export function ProviderRuleSetCard({
   onEdit,
   onAttach,
   onDetach,
+  batchMode = false,
 }: {
   a: ProviderRuleSet;
   rsName: Map<number, string>;
   onEdit: (id: number) => void;
   onAttach: (a: ProviderRuleSet) => void;
   onDetach: (a: ProviderRuleSet) => void;
+  batchMode?: boolean;
 }) {
   return (
     <div className="grid gap-2">
@@ -105,7 +107,9 @@ export function ProviderRuleSetCard({
       </div>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">#{a.sort_order}</span>
-        <RowActions a={a} onEdit={onEdit} onAttach={onAttach} onDetach={onDetach} />
+        {!batchMode && (
+          <RowActions a={a} onEdit={onEdit} onAttach={onAttach} onDetach={onDetach} />
+        )}
       </div>
     </div>
   );

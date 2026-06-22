@@ -12,6 +12,7 @@ pub mod file;
 #[cfg(all(target_arch = "wasm32", feature = "persist-libsql"))]
 pub mod libsql;
 
+pub mod batch;
 pub mod metrics;
 #[cfg(any(
     all(not(target_arch = "wasm32"), feature = "persist-db"),
@@ -459,6 +460,20 @@ pub trait PersistenceBackend: Send + Sync {
         request_id: &str,
         response_body: Option<String>,
     ) -> anyhow::Result<()>;
+
+    /// Delete a usage row by id; returns whether a row was removed. Usage is
+    /// otherwise append-only — this exists only for the admin batch-delete path.
+    async fn delete_usage(&self, id: i64) -> anyhow::Result<bool>;
+
+    /// Set just `enabled` (+ bump `updated_at`) on one row of `entity` by id;
+    /// returns whether a row was updated. Surgical: never touches other fields,
+    /// so it cannot disturb secrets/passwords or trigger upsert side effects.
+    async fn set_enabled(
+        &self,
+        entity: batch::AdminEntity,
+        id: i64,
+        enabled: bool,
+    ) -> anyhow::Result<bool>;
 
     /// Purge append-only usage/request-log rows older than `cutoff_ts`
     /// (`created_at < cutoff_ts`; §8-D retention). Covers the high-volume raw

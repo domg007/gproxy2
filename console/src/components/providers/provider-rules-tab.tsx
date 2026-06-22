@@ -12,6 +12,7 @@ import {
   type ProviderRuleSet,
 } from "@/api/rules";
 import { ApiError } from "@/api/http";
+import { BatchToolbar } from "@/components/batch-toolbar";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
@@ -20,6 +21,7 @@ import { RulePipeline } from "@/components/rules/rule-pipeline";
 import { RuleSetDrawer } from "@/components/rules/rule-set-drawer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBatch } from "@/hooks/use-batch";
 import {
   buildProviderRuleSetColumns,
   ProviderRuleSetCard,
@@ -27,9 +29,12 @@ import {
 
 export function ProviderRulesTab({ providerId }: { providerId: number }) {
   const { t } = useTranslation("rules");
+  const { t: tc } = useTranslation("common");
   const qc = useQueryClient();
   const { data: attachments = [], isPending } = useQuery(providerRuleSetsQuery(providerId));
   const { data: allRuleSets = [] } = useQuery(ruleSetsQuery);
+  const batch = useBatch("provider-rule-sets", ["providers", providerId, "rule-sets"]);
+  const ids = attachments.map((a) => a.id);
 
   const [attachOpen, setAttachOpen] = useState(false);
   const [editAttach, setEditAttach] = useState<ProviderRuleSet | undefined>(undefined);
@@ -71,13 +76,15 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
     },
   });
 
-  const columns = buildProviderRuleSetColumns(
-    t,
-    rsName,
-    (id) => setDrawerSetId(id),
-    (a) => { setEditAttach(a); setAttachOpen(true); },
-    (a) => setDelAttach(a),
-  );
+  const columns = batch.mode
+    ? buildProviderRuleSetColumns(t, rsName, () => {}, () => {}, () => {}).filter((c) => c.key !== "actions")
+    : buildProviderRuleSetColumns(
+        t,
+        rsName,
+        (id) => setDrawerSetId(id),
+        (a) => { setEditAttach(a); setAttachOpen(true); },
+        (a) => setDelAttach(a),
+      );
 
   return (
     <div className="grid gap-4">
@@ -86,21 +93,28 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium">{t("providerRuleSet.ruleSet")}</h3>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { setEditAttach(undefined); setAttachOpen(true); }}
-          >
-            <Plus className="size-4" />
-            {t("attachExisting")}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => createAndAttach.mutate()}
-            disabled={createAndAttach.isPending}
-          >
-            <Plus className="size-4" />
-            {t("createAndAttach")}
+          {!batch.mode && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setEditAttach(undefined); setAttachOpen(true); }}
+              >
+                <Plus className="size-4" />
+                {t("attachExisting")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => createAndAttach.mutate()}
+                disabled={createAndAttach.isPending}
+              >
+                <Plus className="size-4" />
+                {t("createAndAttach")}
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" onClick={() => batch.mode ? batch.exit() : batch.setMode(true)}>
+            {batch.mode ? tc("batch.cancel") : tc("batch.select")}
           </Button>
         </div>
       </div>
@@ -113,7 +127,14 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
           rows={attachments}
           rowKey={(a) => a.id}
           empty={t("providerRuleSet.empty")}
-          onRowClick={(a) => setDrawerSetId(a.rule_set_id)}
+          onRowClick={batch.mode ? undefined : (a) => setDrawerSetId(a.rule_set_id)}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(a) => (
             <ProviderRuleSetCard
               a={a}
@@ -121,6 +142,7 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
               onEdit={(id) => setDrawerSetId(id)}
               onAttach={(a) => { setEditAttach(a); setAttachOpen(true); }}
               onDetach={(a) => setDelAttach(a)}
+              batchMode={batch.mode}
             />
           )}
         />
@@ -140,6 +162,17 @@ export function ProviderRulesTab({ providerId }: { providerId: number }) {
           onSaved={() => { setAttachOpen(false); invalidate(); }}
         />
       </EntityDialog>
+
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
+        />
+      )}
 
       <RuleSetDrawer
         ruleSetId={drawerSetId}

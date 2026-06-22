@@ -382,6 +382,19 @@ impl PersistenceBackend for DbPersistence {
         ops::usage::usages::query(&self.conn, q).await
     }
 
+    async fn delete_usage(&self, id: i64) -> anyhow::Result<bool> {
+        ops::batch::delete_usage(&self.conn, id).await
+    }
+
+    async fn set_enabled(
+        &self,
+        entity: crate::store::persistence::batch::AdminEntity,
+        id: i64,
+        enabled: bool,
+    ) -> anyhow::Result<bool> {
+        ops::batch::set_enabled(&self.conn, entity, id, enabled).await
+    }
+
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
         ops::usage::usage_rollups::add(&self.conn, input).await
     }

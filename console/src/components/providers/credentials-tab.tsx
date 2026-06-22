@@ -7,6 +7,7 @@ import { credentialsQuery, deleteCredential, type CredentialView } from "@/api/c
 import type { Provider } from "@/api/providers";
 import { ApiError } from "@/api/http";
 import { channelMeta } from "@/lib/channel-meta";
+import { BatchToolbar } from "@/components/batch-toolbar";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
 import { DataTable, type DataColumn } from "@/components/data-table";
 import { EntityDialog } from "@/components/entity-dialog";
@@ -18,6 +19,7 @@ import { UsageCard } from "@/components/providers/usage-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBatch } from "@/hooks/use-batch";
 
 function credName(c: CredentialView, fallback: string): string {
   return c.label ?? fallback;
@@ -25,9 +27,13 @@ function credName(c: CredentialView, fallback: string): string {
 
 export function CredentialsTab({ provider }: { provider: Provider }) {
   const { t } = useTranslation("providers");
+  const { t: tc } = useTranslation("common");
   const queryClient = useQueryClient();
   const { data: creds, isPending } = useQuery(credentialsQuery(provider.id));
   const meta = channelMeta(provider.channel);
+  const rows = creds ?? [];
+  const batch = useBatch("credentials", ["providers", provider.id, "credentials"]);
+  const ids = rows.map((c) => c.id);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CredentialView | undefined>(undefined);
@@ -87,25 +93,32 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
       <Badge variant={c.enabled ? "secondary" : "outline"}>{c.enabled ? "on" : "off"}</Badge>
     ) },
     { key: "health", header: t("health.title"), cell: (c) => <HealthBadge credentialId={c.id} /> },
-    { key: "actions", header: "", cell: actions, className: "w-24 text-right" },
+    ...(batch.mode ? [] : [{ key: "actions", header: "", cell: actions, className: "w-24 text-right" } as DataColumn<CredentialView>]),
   ];
 
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-end gap-2">
-        {(meta?.loginModes.length ?? 0) > 0 && (
-          <Button variant="outline" onClick={() => setWizardOpen(true)}>
-            {t("creds.oauth")}
-          </Button>
+        {!batch.mode && (
+          <>
+            {(meta?.loginModes.length ?? 0) > 0 && (
+              <Button variant="outline" onClick={() => setWizardOpen(true)}>
+                {t("creds.oauth")}
+              </Button>
+            )}
+            {meta?.family === "api_key" && (
+              <Button variant="outline" onClick={() => setBulkOpen(true)}>
+                {t("creds.bulk.button")}
+              </Button>
+            )}
+            <Button onClick={openCreate}>
+              <Plus className="size-4" aria-hidden />
+              {t("creds.manual")}
+            </Button>
+          </>
         )}
-        {meta?.family === "api_key" && (
-          <Button variant="outline" onClick={() => setBulkOpen(true)}>
-            {t("creds.bulk.button")}
-          </Button>
-        )}
-        <Button onClick={openCreate}>
-          <Plus className="size-4" aria-hidden />
-          {t("creds.manual")}
+        <Button variant="outline" onClick={() => batch.mode ? batch.exit() : batch.setMode(true)}>
+          {batch.mode ? tc("batch.cancel") : tc("batch.select")}
         </Button>
       </div>
 
@@ -114,9 +127,16 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
       ) : (
         <DataTable
           columns={columns}
-          rows={creds ?? []}
+          rows={rows}
           rowKey={(c) => c.id}
           empty={t("creds.empty")}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(c) => (
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
@@ -132,9 +152,19 @@ export function CredentialsTab({ provider }: { provider: Provider }) {
                 </Badge>
                 <HealthBadge credentialId={c.id} />
               </div>
-              {actions(c)}
+              {!batch.mode && actions(c)}
             </div>
           )}
+        />
+      )}
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
         />
       )}
 

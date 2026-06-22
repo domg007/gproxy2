@@ -9,6 +9,7 @@
 //! is an M10/admin-API concern. SQLite self-heals (next auto id is max+1).
 
 pub mod authz;
+pub mod batch;
 pub mod identity;
 pub mod logs;
 pub mod metrics;

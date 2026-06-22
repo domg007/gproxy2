@@ -10,6 +10,8 @@ import { OrgForm } from "@/components/identity/org-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBatch } from "@/hooks/use-batch";
+import { BatchToolbar } from "@/components/batch-toolbar";
 
 export const Route = createFileRoute("/_app/orgs/")({
   loader: ({ context }) => context.queryClient.ensureQueryData(orgsQuery),
@@ -25,6 +27,10 @@ function OrgsPage() {
   const navigate = useNavigate();
   const { data: orgs, isPending } = useQuery(orgsQuery);
   const [createOpen, setCreateOpen] = useState(false);
+
+  const rows = orgs ?? [];
+  const batch = useBatch("orgs", ["orgs"]);
+  const ids = rows.map((org) => org.id);
 
   const columns: DataColumn<Org>[] = [
     {
@@ -50,10 +56,15 @@ function OrgsPage() {
     <div className="grid gap-4 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t("orgs.title")}</h1>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" aria-hidden />
-          <span className="hidden sm:inline">{t("orgs.new")}</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => batch.setMode(!batch.mode)}>
+            {batch.mode ? t("batch.cancel", { ns: "common" }) : t("batch.select", { ns: "common" })}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{t("orgs.new")}</span>
+          </Button>
+        </div>
       </div>
 
       {isPending ? (
@@ -63,10 +74,17 @@ function OrgsPage() {
       ) : (
         <DataTable
           columns={columns}
-          rows={orgs ?? []}
+          rows={rows}
           rowKey={(org) => org.id}
           empty={t("orgs.empty")}
-          onRowClick={(org) => void navigate({ to: "/orgs/$orgId", params: { orgId: String(org.id) } })}
+          onRowClick={batch.mode ? undefined : (org) => void navigate({ to: "/orgs/$orgId", params: { orgId: String(org.id) } })}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(org) => (
             <div className="grid gap-1">
               <div className="flex items-center justify-between">
@@ -78,6 +96,17 @@ function OrgsPage() {
               )}
             </div>
           )}
+        />
+      )}
+
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
         />
       )}
 

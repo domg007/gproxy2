@@ -433,6 +433,21 @@ impl PersistenceBackend for FilePersistence {
         usages::query(&self.root, q).await
     }
 
+    async fn delete_usage(&self, id: i64) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        super::batch::delete_usage(&self.root, id).await
+    }
+
+    async fn set_enabled(
+        &self,
+        entity: crate::store::persistence::batch::AdminEntity,
+        id: i64,
+        enabled: bool,
+    ) -> anyhow::Result<bool> {
+        let _guard = self.write.lock().await;
+        super::batch::set_enabled(&self.root, entity, id, enabled).await
+    }
+
     async fn add_usage_rollup(&self, input: UsageRollupInput) -> anyhow::Result<UsageRollup> {
         let _guard = self.write.lock().await;
         usage_rollups::add(&self.root, input).await

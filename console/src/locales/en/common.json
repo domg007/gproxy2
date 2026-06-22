@@ -64,5 +64,17 @@
   "json": {
     "invalid": "Invalid JSON",
     "format": "Format"
+  },
+  "batch": {
+    "select": "Batch",
+    "selected": "{{count}} selected",
+    "enable": "Enable",
+    "disable": "Disable",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete selected",
+    "deleteConfirm": "Delete {{count}} selected item(s)? This cannot be undone.",
+    "done": "{{count}} item(s) processed",
+    "partial": "{{ok}} succeeded, {{fail}} failed"
   }
 }

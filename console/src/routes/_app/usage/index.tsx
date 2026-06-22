@@ -9,10 +9,12 @@ import { UsageFilters } from "@/components/observability/usage-filters";
 import { RequestDrawer } from "@/components/observability/request-drawer";
 import { AuditTab } from "@/components/observability/audit-tab";
 import { LogsTab } from "@/components/observability/logs-tab";
+import { BatchToolbar } from "@/components/batch-toolbar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBatch } from "@/hooks/use-batch";
 
 type ExplorerFilter = Omit<UsageFilter, "before_id" | "limit">;
 
@@ -35,6 +37,7 @@ function fmtAt(unixSecs: number): string {
 
 function UsagePage() {
   const { t } = useTranslation("observability");
+  const { t: tc } = useTranslation("common");
 
   const [filter, setFilter] = useState<ExplorerFilter>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -51,6 +54,10 @@ function UsagePage() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isPending } =
     useInfiniteQuery(usageInfiniteQuery(filter));
   const rows = data?.pages.flat() ?? [];
+  const ids = rows.map((r) => r.id);
+
+  // Batch: usage is read-only — delete only.
+  const batch = useBatch("usage", ["usage", "infinite", filter]);
 
   function openRid(rid: string) {
     setSelectedRid(rid);
@@ -139,7 +146,12 @@ function UsagePage() {
         </TabsList>
 
         <TabsContent value="usage" className="mt-4 space-y-4">
-          <UsageFilters value={filter} onChange={setFilter} />
+          <div className="flex items-center justify-between gap-2">
+            <UsageFilters value={filter} onChange={setFilter} />
+            <Button variant="outline" size="sm" onClick={() => batch.mode ? batch.exit() : batch.setMode(true)}>
+              {batch.mode ? tc("batch.cancel") : tc("batch.select")}
+            </Button>
+          </div>
 
           {isPending ? (
             <div className="space-y-2" aria-busy="true">
@@ -153,7 +165,14 @@ function UsagePage() {
               rows={rows}
               rowKey={(r) => r.id}
               empty={t("usage.empty")}
-              onRowClick={(r) => openRid(r.request_id)}
+              onRowClick={batch.mode ? undefined : (r) => openRid(r.request_id)}
+              selection={batch.mode ? {
+                selectedIds: batch.selected,
+                onToggle: batch.toggle,
+                onToggleAll: () => batch.toggleAllFor(ids),
+                allSelected: batch.allSelectedFor(ids),
+                indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+              } : undefined}
               renderCard={(r) => (
                 <div className="grid gap-1">
                   <div className="flex items-center justify-between gap-2">
@@ -186,6 +205,16 @@ function UsagePage() {
                 {isFetchingNextPage ? "…" : t("usage.loadMore")}
               </Button>
             </div>
+          )}
+
+          {batch.mode && (
+            <BatchToolbar
+              count={batch.selected.size}
+              enableDisable={false}
+              onDelete={batch.runDelete}
+              onCancel={batch.exit}
+              pending={batch.pending}
+            />
           )}
         </TabsContent>
 

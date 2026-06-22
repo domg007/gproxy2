@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { teamsQuery, deleteTeam, type Org, type Team } from "@/api/identity";
 import { ApiError } from "@/api/http";
+import { BatchToolbar } from "@/components/batch-toolbar";
 import { ScopeAccessEditor } from "@/components/identity/scope-access-editor";
 import { TeamForm } from "@/components/identity/team-form";
 import { ConfirmDangerous } from "@/components/confirm-dangerous";
@@ -13,12 +14,16 @@ import { EntityDialog } from "@/components/entity-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBatch } from "@/hooks/use-batch";
 
 export function TeamsTab({ org }: { org: Org }) {
   const { t } = useTranslation("identity");
   const { t: tc } = useTranslation("common");
   const queryClient = useQueryClient();
   const { data: teams, isPending } = useQuery(teamsQuery(org.id));
+  const rows = teams ?? [];
+  const batch = useBatch("teams", ["orgs", org.id, "teams"]);
+  const ids = rows.map((team) => team.id);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Team | undefined>(undefined);
@@ -41,7 +46,7 @@ export function TeamsTab({ org }: { org: Org }) {
   const openCreate = () => { setEditTarget(undefined); setFormOpen(true); };
   const openEdit = (team: Team) => { setEditTarget(team); setFormOpen(true); };
 
-  const actions = (team: Team) => (
+  const actionsColumn = (team: Team) => (
     <div className="flex items-center justify-end gap-1">
       <Button
         variant="ghost"
@@ -84,15 +89,20 @@ export function TeamsTab({ org }: { org: Org }) {
         <Badge variant={team.enabled ? "secondary" : "outline"}>{team.enabled ? "on" : "off"}</Badge>
       ),
     },
-    { key: "actions", header: "", cell: actions, className: "w-32 text-right" },
+    ...(batch.mode ? [] : [{ key: "actions", header: "", cell: actionsColumn, className: "w-32 text-right" } as DataColumn<Team>]),
   ];
 
   return (
     <div className="grid gap-3">
-      <div className="flex items-center justify-end">
-        <Button onClick={openCreate}>
-          <Plus className="size-4" aria-hidden />
-          {t("teams.add")}
+      <div className="flex items-center justify-end gap-2">
+        {!batch.mode && (
+          <Button onClick={openCreate}>
+            <Plus className="size-4" aria-hidden />
+            {t("teams.add")}
+          </Button>
+        )}
+        <Button variant="outline" onClick={() => batch.mode ? batch.exit() : batch.setMode(true)}>
+          {batch.mode ? tc("batch.cancel") : tc("batch.select")}
         </Button>
       </div>
 
@@ -103,18 +113,35 @@ export function TeamsTab({ org }: { org: Org }) {
       ) : (
         <DataTable
           columns={columns}
-          rows={teams ?? []}
+          rows={rows}
           rowKey={(team) => team.id}
           empty={t("teams.empty")}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(team) => (
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
                 <span className="font-medium">{team.name}</span>
                 <Badge variant={team.enabled ? "secondary" : "outline"}>{team.enabled ? "on" : "off"}</Badge>
               </div>
-              {actions(team)}
+              {!batch.mode && actionsColumn(team)}
             </div>
           )}
+        />
+      )}
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
         />
       )}
 

@@ -6,7 +6,7 @@ use crate::store::persistence::records::{Rule, RuleInput};
 
 use crate::store::persistence::file::table::{self, now_secs};
 
-fn path(root: &Path) -> PathBuf {
+pub(crate) fn path(root: &Path) -> PathBuf {
     root.join("rules.json")
 }
 

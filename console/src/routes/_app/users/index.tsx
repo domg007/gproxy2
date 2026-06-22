@@ -10,6 +10,8 @@ import { UserForm } from "@/components/identity/user-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBatch } from "@/hooks/use-batch";
+import { BatchToolbar } from "@/components/batch-toolbar";
 
 export const Route = createFileRoute("/_app/users/")({
   loader: ({ context }) => {
@@ -25,6 +27,10 @@ function UsersPage() {
   const { data: users, isPending } = useQuery(usersQuery);
   const { data: orgs } = useQuery(orgsQuery);
   const [createOpen, setCreateOpen] = useState(false);
+
+  const rows = users ?? [];
+  const batch = useBatch("users", ["users"]);
+  const ids = rows.map((u) => u.id);
 
   const orgMap = new Map((orgs ?? []).map((o) => [o.id, o.name]));
 
@@ -74,10 +80,15 @@ function UsersPage() {
     <div className="grid gap-4 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t("users.title")}</h1>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" aria-hidden />
-          <span className="hidden sm:inline">{t("users.new")}</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => batch.setMode(!batch.mode)}>
+            {batch.mode ? t("batch.cancel", { ns: "common" }) : t("batch.select", { ns: "common" })}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{t("users.new")}</span>
+          </Button>
+        </div>
       </div>
 
       {isPending ? (
@@ -87,10 +98,17 @@ function UsersPage() {
       ) : (
         <DataTable
           columns={columns}
-          rows={users ?? []}
+          rows={rows}
           rowKey={(u) => u.id}
           empty={t("users.empty")}
-          onRowClick={(u) => void navigate({ to: "/users/$userId", params: { userId: String(u.id) } })}
+          onRowClick={batch.mode ? undefined : (u) => void navigate({ to: "/users/$userId", params: { userId: String(u.id) } })}
+          selection={batch.mode ? {
+            selectedIds: batch.selected,
+            onToggle: batch.toggle,
+            onToggleAll: () => batch.toggleAllFor(ids),
+            allSelected: batch.allSelectedFor(ids),
+            indeterminate: batch.selected.size > 0 && !batch.allSelectedFor(ids),
+          } : undefined}
           renderCard={(u) => (
             <div className="grid gap-1">
               <div className="flex items-center justify-between gap-2">
@@ -105,6 +123,17 @@ function UsersPage() {
               </span>
             </div>
           )}
+        />
+      )}
+
+      {batch.mode && (
+        <BatchToolbar
+          count={batch.selected.size}
+          onEnable={batch.runEnable}
+          onDisable={batch.runDisable}
+          onDelete={batch.runDelete}
+          onCancel={batch.exit}
+          pending={batch.pending}
         />
       )}
 

@@ -13,6 +13,7 @@
 
 pub(crate) mod auth;
 pub(crate) mod authz;
+pub(crate) mod batch;
 pub mod crud;
 pub(crate) mod login_flows;
 pub(crate) mod nested;
@@ -201,6 +202,11 @@ async fn route(state: &AppState, parts: &Parts, body: &Bytes) -> Option<Result<R
         (&parts.method, segs.as_slice())
     {
         return Some(crud::reset_routing(state, parts, pid).await);
+    }
+
+    // Batch ops: POST /admin/batch/{entity}.
+    if let Some(r) = batch::dispatch(state, parts, body).await {
+        return Some(r);
     }
 
     // 1. Try standard CRUD entities (providers/routes/aliases/rule-sets/orgs).
