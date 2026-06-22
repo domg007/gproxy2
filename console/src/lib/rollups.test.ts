@@ -16,6 +16,8 @@ function makeRow(overrides: Partial<UsageRollup>): UsageRollup {
     requests: 1,
     input_tokens: 100,
     output_tokens: 50,
+    cache_write_tokens: 0,
+    cache_read_tokens: 0,
     cost: "0.001",
     ...overrides,
   };

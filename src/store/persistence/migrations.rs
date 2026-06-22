@@ -198,6 +198,14 @@ pub const MIGRATIONS: &[Migration] = &[
             ],
         },
     },
+    Migration {
+        version: 7,
+        description: "usage_rollups: cache_write/cache_read token columns (chart metrics)",
+        sql: MigrationSql::Shared(&[
+            "ALTER TABLE usage_rollups ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE usage_rollups ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+        ]),
+    },
 ];
 
 /// Migrations with `version > current`, in ascending order — the work a runner

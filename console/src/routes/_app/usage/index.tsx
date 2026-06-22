@@ -109,6 +109,15 @@ function UsagePage() {
       ),
     },
     {
+      key: "cache",
+      header: `${t("usage.columns.cacheWrite")} (5m/1h) / ${t("usage.columns.cacheRead")}`,
+      cell: (r) => (
+        <span className="tabular-nums text-xs">
+          {r.cache_creation_5m_tokens} / {r.cache_creation_1h_tokens} / {r.cache_read_tokens}
+        </span>
+      ),
+    },
+    {
       key: "cost",
       header: t("usage.columns.cost"),
       cell: (r) => (

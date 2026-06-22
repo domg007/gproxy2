@@ -12,7 +12,8 @@ use crate::store::persistence::libsql::util::{
 use crate::store::persistence::records::{UsageRollup, UsageRollupInput};
 
 const COLS: &str = "id, granularity, bucket_start, provider_id, org_id, team_id, user_id, \
-     route_name, model, requests, input_tokens, output_tokens, cost, created_at, updated_at";
+     route_name, model, requests, input_tokens, output_tokens, \
+     cache_write_tokens, cache_read_tokens, cost, created_at, updated_at";
 
 fn decode(row: &Row) -> anyhow::Result<UsageRollup> {
     Ok(UsageRollup {
@@ -28,9 +29,11 @@ fn decode(row: &Row) -> anyhow::Result<UsageRollup> {
         requests: col_i64(row, 9)?,
         input_tokens: col_i64(row, 10)?,
         output_tokens: col_i64(row, 11)?,
-        cost: col_decimal(row, 12)?,
-        created_at: col_i64(row, 13)?,
-        updated_at: col_i64(row, 14)?,
+        cache_write_tokens: col_i64(row, 12)?,
+        cache_read_tokens: col_i64(row, 13)?,
+        cost: col_decimal(row, 14)?,
+        created_at: col_i64(row, 15)?,
+        updated_at: col_i64(row, 16)?,
     })
 }
 
@@ -114,9 +117,10 @@ pub async fn add(client: &LibsqlClient, input: UsageRollupInput) -> anyhow::Resu
             .execute(
                 "INSERT INTO usage_rollups \
                  (granularity, bucket_start, provider_id, org_id, team_id, user_id, \
-                  route_name, model, requests, input_tokens, output_tokens, cost, \
+                  route_name, model, requests, input_tokens, output_tokens, \
+                  cache_write_tokens, cache_read_tokens, cost, \
                   created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 &[
                     arg_text(&input.granularity),
                     arg_integer(input.bucket_start),
@@ -129,6 +133,8 @@ pub async fn add(client: &LibsqlClient, input: UsageRollupInput) -> anyhow::Resu
                     arg_integer(input.requests),
                     arg_integer(input.input_tokens),
                     arg_integer(input.output_tokens),
+                    arg_integer(input.cache_write_tokens),
+                    arg_integer(input.cache_read_tokens),
                     arg_text(&input.cost.to_string()),
                     arg_integer(now),
                     arg_integer(now),
@@ -178,11 +184,15 @@ async fn accumulate(
             client,
             "UPDATE usage_rollups SET requests = requests + ?, \
              input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, \
+             cache_write_tokens = cache_write_tokens + ?, \
+             cache_read_tokens = cache_read_tokens + ?, \
              cost = ?, updated_at = ? WHERE id = ? AND cost = ?",
             &[
                 arg_integer(input.requests),
                 arg_integer(input.input_tokens),
                 arg_integer(input.output_tokens),
+                arg_integer(input.cache_write_tokens),
+                arg_integer(input.cache_read_tokens),
                 arg_text(&cost.to_string()),
                 arg_integer(now),
                 arg_integer(id),

@@ -32,6 +32,8 @@
       "route": "路由",
       "inputTokens": "輸入 tokens",
       "outputTokens": "輸出 tokens",
+      "cacheWrite": "快取寫入",
+      "cacheRead": "快取命中",
       "cost": "費用",
       "latency": "延遲",
       "source": "來源",
@@ -98,6 +100,8 @@
       "requests": "請求數",
       "input_tokens": "輸入 tokens",
       "output_tokens": "輸出 tokens",
+      "cache_write_tokens": "快取寫入",
+      "cache_read_tokens": "快取命中",
       "cost": "費用（$）"
     },
     "noData": "所選時間範圍內尚無資料。"

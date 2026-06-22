@@ -32,6 +32,8 @@ pub(crate) async fn add(root: &Path, input: UsageRollupInput) -> anyhow::Result<
             row.requests += input.requests;
             row.input_tokens += input.input_tokens;
             row.output_tokens += input.output_tokens;
+            row.cache_write_tokens += input.cache_write_tokens;
+            row.cache_read_tokens += input.cache_read_tokens;
             row.cost += input.cost;
             row.updated_at = now;
             row.clone()
@@ -52,6 +54,8 @@ pub(crate) async fn add(root: &Path, input: UsageRollupInput) -> anyhow::Result<
                 requests: input.requests,
                 input_tokens: input.input_tokens,
                 output_tokens: input.output_tokens,
+                cache_write_tokens: input.cache_write_tokens,
+                cache_read_tokens: input.cache_read_tokens,
                 cost: input.cost,
                 created_at: now,
                 updated_at: now,

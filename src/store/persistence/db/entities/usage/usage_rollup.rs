@@ -21,6 +21,8 @@ pub struct Model {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub cache_read_tokens: i64,
     #[sea_orm(column_type = "Text")]
     pub cost: String,
     pub created_at: i64,

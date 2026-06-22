@@ -32,6 +32,8 @@
       "route": "Route",
       "inputTokens": "Input tokens",
       "outputTokens": "Output tokens",
+      "cacheWrite": "Cache write",
+      "cacheRead": "Cache hit",
       "cost": "Cost",
       "latency": "Latency",
       "source": "Source",
@@ -98,6 +100,8 @@
       "requests": "Requests",
       "input_tokens": "Input tokens",
       "output_tokens": "Output tokens",
+      "cache_write_tokens": "Cache write",
+      "cache_read_tokens": "Cache hit",
       "cost": "Cost ($)"
     },
     "noData": "No data for the selected range."

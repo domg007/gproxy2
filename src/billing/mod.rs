@@ -100,6 +100,8 @@ pub async fn record_success(
             requests: 1,
             input_tokens: tok(rec.usage.input),
             output_tokens: tok(rec.usage.output),
+            cache_write_tokens: tok(rec.usage.cache_creation),
+            cache_read_tokens: tok(rec.usage.cache_read),
             cost: rec.cost,
         })
         .await?;

@@ -5,6 +5,8 @@ export interface ChartPoint {
   requests: number;
   input_tokens: number;
   output_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
   cost: number;
 }
 
@@ -25,6 +27,8 @@ export function aggregateRollups(rows: UsageRollup[]): ChartPoint[] {
       existing.requests += row.requests;
       existing.input_tokens += row.input_tokens;
       existing.output_tokens += row.output_tokens;
+      existing.cache_write_tokens += row.cache_write_tokens;
+      existing.cache_read_tokens += row.cache_read_tokens;
       existing.cost += costNum;
     } else {
       map.set(t, {
@@ -32,6 +36,8 @@ export function aggregateRollups(rows: UsageRollup[]): ChartPoint[] {
         requests: row.requests,
         input_tokens: row.input_tokens,
         output_tokens: row.output_tokens,
+        cache_write_tokens: row.cache_write_tokens,
+        cache_read_tokens: row.cache_read_tokens,
         cost: costNum,
       });
     }

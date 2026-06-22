@@ -25,6 +25,8 @@ fn to_record(m: usage_rollup::Model) -> anyhow::Result<UsageRollup> {
         requests: m.requests,
         input_tokens: m.input_tokens,
         output_tokens: m.output_tokens,
+        cache_write_tokens: m.cache_write_tokens,
+        cache_read_tokens: m.cache_read_tokens,
         cost: m.cost.parse::<rust_decimal::Decimal>()?,
         created_at: m.created_at,
         updated_at: m.updated_at,
@@ -92,6 +94,8 @@ pub async fn add(
                 requests: Set(input.requests),
                 input_tokens: Set(input.input_tokens),
                 output_tokens: Set(input.output_tokens),
+                cache_write_tokens: Set(input.cache_write_tokens),
+                cache_read_tokens: Set(input.cache_read_tokens),
                 cost: Set(input.cost.to_string()),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -119,6 +123,14 @@ pub async fn add(
             .col_expr(
                 usage_rollup::Column::OutputTokens,
                 Expr::col(usage_rollup::Column::OutputTokens).add(input.output_tokens),
+            )
+            .col_expr(
+                usage_rollup::Column::CacheWriteTokens,
+                Expr::col(usage_rollup::Column::CacheWriteTokens).add(input.cache_write_tokens),
+            )
+            .col_expr(
+                usage_rollup::Column::CacheReadTokens,
+                Expr::col(usage_rollup::Column::CacheReadTokens).add(input.cache_read_tokens),
             )
             .col_expr(usage_rollup::Column::Cost, Expr::value(cost.to_string()))
             .col_expr(usage_rollup::Column::UpdatedAt, Expr::value(now))

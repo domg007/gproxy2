@@ -230,6 +230,8 @@ const TABLES: &[&str] = &[
         requests INTEGER NOT NULL, \
         input_tokens INTEGER NOT NULL, \
         output_tokens INTEGER NOT NULL, \
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0, \
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0, \
         cost TEXT NOT NULL, \
         created_at INTEGER NOT NULL, \
         updated_at INTEGER NOT NULL)",

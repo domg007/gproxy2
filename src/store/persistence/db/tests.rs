@@ -493,6 +493,8 @@ async fn metrics_aggregate_sums_rollups_and_buckets_latency() {
         requests: 5,
         input_tokens: 1000,
         output_tokens: 400,
+        cache_write_tokens: 0,
+        cache_read_tokens: 0,
         cost: rust_decimal::Decimal::ZERO,
     })
     .await

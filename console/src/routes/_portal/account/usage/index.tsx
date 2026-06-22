@@ -101,6 +101,15 @@ function MyUsagePage() {
       ),
     },
     {
+      key: "cache",
+      header: `${tObs("usage.columns.cacheWrite")} (5m/1h) / ${tObs("usage.columns.cacheRead")}`,
+      cell: (r) => (
+        <span className="tabular-nums text-xs">
+          {r.cache_creation_5m_tokens} / {r.cache_creation_1h_tokens} / {r.cache_read_tokens}
+        </span>
+      ),
+    },
+    {
       key: "cost",
       header: tObs("usage.columns.cost"),
       cell: (r) => (

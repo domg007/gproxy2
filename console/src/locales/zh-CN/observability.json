@@ -32,6 +32,8 @@
       "route": "路由",
       "inputTokens": "输入 tokens",
       "outputTokens": "输出 tokens",
+      "cacheWrite": "缓存写入",
+      "cacheRead": "缓存命中",
       "cost": "费用",
       "latency": "延迟",
       "source": "来源",
@@ -98,6 +100,8 @@
       "requests": "请求数",
       "input_tokens": "输入 tokens",
       "output_tokens": "输出 tokens",
+      "cache_write_tokens": "缓存写入",
+      "cache_read_tokens": "缓存命中",
       "cost": "费用（$）"
     },
     "noData": "所选时间范围内暂无数据。"

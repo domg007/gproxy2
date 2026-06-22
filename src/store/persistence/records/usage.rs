@@ -95,6 +95,14 @@ pub struct UsageRollup {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    /// Summed cache-creation tokens (5m + 1h). The split is not preserved at
+    /// rollup granularity (NormalizedUsage carries only the total); `#[serde(default)]`
+    /// lets pre-existing file-backend rows load as 0.
+    #[serde(default)]
+    pub cache_write_tokens: i64,
+    /// Cache-read (hit) tokens.
+    #[serde(default)]
+    pub cache_read_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
     /// Unix seconds.
@@ -118,6 +126,8 @@ pub struct UsageRollupInput {
     pub requests: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub cache_read_tokens: i64,
     #[serde(with = "rust_decimal::serde::str")]
     pub cost: Decimal,
 }
