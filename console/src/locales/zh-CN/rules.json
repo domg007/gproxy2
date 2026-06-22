@@ -167,7 +167,10 @@
     "invalid": "无效的 JSON"
   },
   "transform": {
-    "rawHint": "JSON 配置：phase、locate.path 或 locate.match、actions，可选 limit。"
+    "rawHint": "JSON 配置：phase、locate.path/paths 或 locate.match、actions，可选 limit。"
+  },
+  "transformTemplate": {
+    "fillFrom": "从模板填充"
   },
   "createAndAttach": "新建规则集",
   "attachExisting": "附加已有规则集",

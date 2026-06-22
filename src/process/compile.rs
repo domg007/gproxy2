@@ -74,6 +74,7 @@ impl TransformPhase {
 #[derive(Debug, Clone)]
 pub enum TransformLocate {
     Path(String),
+    Paths(Vec<String>),
     Match(Regex),
 }
 
@@ -127,7 +128,11 @@ impl RuleConfig {
         match self {
             Self::SystemText { .. } | Self::CacheBreakpoint(_) | Self::Rewrite { .. } => true,
             Self::Transform(cfg) => {
-                cfg.phase.matches_request() && matches!(cfg.locate, TransformLocate::Path(_))
+                cfg.phase.matches_request()
+                    && matches!(
+                        cfg.locate,
+                        TransformLocate::Path(_) | TransformLocate::Paths(_)
+                    )
             }
             _ => false,
         }
@@ -149,7 +154,7 @@ impl RuleConfig {
             self,
             Self::Transform(TransformCfg {
                 phase,
-                locate: TransformLocate::Path(_),
+                locate: TransformLocate::Path(_) | TransformLocate::Paths(_),
                 ..
             }) if phase.matches_response()
         )
@@ -257,6 +262,8 @@ fn compile_row(row: &Rule) -> Option<CompiledRule> {
             struct RawLocate {
                 #[serde(default)]
                 path: Option<String>,
+                #[serde(default)]
+                paths: Option<Vec<String>>,
                 #[serde(default, rename = "match")]
                 match_: Option<String>,
             }
@@ -283,9 +290,10 @@ fn compile_row(row: &Rule) -> Option<CompiledRule> {
             }
 
             let raw: Raw = serde_json::from_value(row.config_json.clone()).ok()?;
-            let locate = match (raw.locate.path, raw.locate.match_) {
-                (Some(path), None) => TransformLocate::Path(path),
-                (None, Some(pattern)) => TransformLocate::Match(Regex::new(&pattern).ok()?),
+            let locate = match (raw.locate.path, raw.locate.paths, raw.locate.match_) {
+                (Some(path), None, None) => TransformLocate::Path(path),
+                (None, Some(paths), None) if !paths.is_empty() => TransformLocate::Paths(paths),
+                (None, None, Some(pattern)) => TransformLocate::Match(Regex::new(&pattern).ok()?),
                 _ => return None,
             };
             let mut actions = Vec::new();

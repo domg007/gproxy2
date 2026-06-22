@@ -87,19 +87,40 @@ fn descend<'a>(cur: &'a mut Value, seg: &str, create: bool) -> Option<&'a mut Va
 /// Apply a structural transform to every JSON value matched by a simple
 /// dot-path. Supports `*` over arrays/objects and numeric array indexes.
 pub fn transform_value(root: &mut Value, cfg: &TransformCfg) {
-    let TransformLocate::Path(path) = &cfg.locate else {
-        return;
+    let mut hits = 0usize;
+    let mut apply = |value: &mut Value| {
+        for action in &cfg.actions {
+            apply_transform_action(value, action);
+        }
     };
+    match &cfg.locate {
+        TransformLocate::Path(path) => {
+            visit_transform_path(root, path, cfg.limit, &mut hits, &mut apply);
+        }
+        TransformLocate::Paths(paths) => {
+            for path in paths {
+                if cfg.limit.is_some_and(|limit| hits >= limit) {
+                    break;
+                }
+                visit_transform_path(root, path, cfg.limit, &mut hits, &mut apply);
+            }
+        }
+        TransformLocate::Match(_) => {}
+    }
+}
+
+fn visit_transform_path(
+    root: &mut Value,
+    path: &str,
+    limit: Option<usize>,
+    hits: &mut usize,
+    f: &mut impl FnMut(&mut Value),
+) {
     let segs: Vec<&str> = path.split('.').filter(|seg| !seg.is_empty()).collect();
     if segs.is_empty() {
         return;
     }
-    let mut hits = 0usize;
-    visit_path(root, &segs, cfg.limit, &mut hits, &mut |value| {
-        for action in &cfg.actions {
-            apply_transform_action(value, action);
-        }
-    });
+    visit_path(root, &segs, limit, hits, f);
 }
 
 fn visit_path(

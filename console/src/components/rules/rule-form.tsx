@@ -37,8 +37,9 @@ function validateConfig(kind: string, cfg: unknown, t: (k: string) => string): s
 export function RuleForm({ ruleSetId, rule, modelOptions, onSaved }: Props) {
   const { t } = useTranslation("rules");
   const qc = useQueryClient();
+  const initialKind = rule?.kind ?? "transform";
 
-  const [kind, setKind] = useState(rule?.kind ?? "system_text");
+  const [kind, setKind] = useState(initialKind);
   const [sortOrder, setSortOrder] = useState(String(rule?.sort_order ?? 0));
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
   const [filterModelPattern, setFilterModelPattern] = useState(rule?.filter_model_pattern ?? "");
@@ -46,7 +47,7 @@ export function RuleForm({ ruleSetId, rule, modelOptions, onSaved }: Props) {
   const [configValue, setConfigValue] = useState<unknown>(rule?.config_json ?? {});
   const [configValid, setConfigValid] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, unknown>>({ [rule?.kind ?? "system_text"]: rule?.config_json ?? {} });
+  const [drafts, setDrafts] = useState<Record<string, unknown>>({ [initialKind]: rule?.config_json ?? {} });
 
   const handleKindChange = (k: string) => {
     setDrafts((d) => ({ ...d, [kind]: configValue })); // stash current

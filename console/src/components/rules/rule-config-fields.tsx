@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { ChevronsUpDown } from "lucide-react";
 import { JsonField, parseJsonText } from "@/components/form/json-field";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
+import { TRANSFORM_TEMPLATES, type TransformTemplate } from "@/lib/transform-templates";
 import { SystemTextFields } from "./config/system-text";
 import { RewriteFields } from "./config/rewrite";
 import { CacheBreakpointFields } from "./config/cache-breakpoint";
@@ -42,6 +44,14 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
     setOpen(next);
   };
 
+  const applyTransformTemplate = (tpl: TransformTemplate) => {
+    const text = JSON.stringify(tpl.config, null, 2);
+    setRawText(text);
+    setRawValid(true);
+    onValidChange?.(true);
+    onChange(tpl.config);
+  };
+
   const v = (value ?? {}) as Record<string, unknown>;
 
   return (
@@ -49,12 +59,29 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
       {kind === "system_text" && <SystemTextFields value={v} onChange={onChange} />}
       {kind === "rewrite" && <RewriteFields value={v} onChange={onChange} onValidChange={onValidChange} />}
       {kind === "transform" && (
-        <JsonField
-          value={rawText}
-          onChange={handleRawChange}
-          rows={10}
-          hint={t("transform.rawHint")}
-        />
+        <div className="grid gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{t("transformTemplate.fillFrom")}</span>
+            {TRANSFORM_TEMPLATES.map((tpl) => (
+              <Button
+                key={tpl.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => applyTransformTemplate(tpl)}
+              >
+                {tpl.id}
+              </Button>
+            ))}
+          </div>
+          <JsonField
+            value={rawText}
+            onChange={handleRawChange}
+            rows={10}
+            hint={t("transform.rawHint")}
+          />
+        </div>
       )}
       {kind === "cache_breakpoint" && <CacheBreakpointFields value={v} onChange={onChange} />}
       {kind === "header" && <HeaderFields value={v} onChange={onChange} />}

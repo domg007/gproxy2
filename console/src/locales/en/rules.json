@@ -167,7 +167,10 @@
     "invalid": "Invalid JSON"
   },
   "transform": {
-    "rawHint": "JSON config: phase, locate.path or locate.match, actions, optional limit."
+    "rawHint": "JSON config: phase, locate.path/paths or locate.match, actions, optional limit."
+  },
+  "transformTemplate": {
+    "fillFrom": "Fill from template"
   },
   "createAndAttach": "New rule set",
   "attachExisting": "Attach existing",
