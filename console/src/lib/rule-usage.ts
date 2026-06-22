@@ -3,7 +3,7 @@ import type { Rule, ProviderRuleSet } from "@/api/rules";
 // Backend executes rules in this fixed kind order (process/compile.rs RuleConfig::rank).
 // sort_order only breaks ties WITHIN a kind / orders sets — it never reorders across kinds.
 export const RULE_KIND_ORDER = [
-  "system_text", "cache_breakpoint", "rewrite", "sanitize", "header",
+  "system_text", "cache_breakpoint", "rewrite", "transform", "header",
 ] as const;
 
 export function kindRank(kind: string): number {

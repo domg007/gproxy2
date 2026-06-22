@@ -72,11 +72,11 @@ Use `merge` so existing client beta tokens are preserved.
 The process layer applies:
 
 ```text
-system_text -> cache_breakpoint -> rewrite -> sanitize -> header
+system_text -> cache_breakpoint -> rewrite -> transform -> header
 ```
 
 That means server-managed system text is inserted before cache breakpoints are
-placed. Later rewrite or sanitize rules can still change cached content, so be
+placed. Later rewrite or transform rules can still change cached content, so be
 careful when combining prompt rewriting with prompt caching.
 
 ## Design Direction

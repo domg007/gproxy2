@@ -5,7 +5,6 @@ import { JsonField, parseJsonText } from "@/components/form/json-field";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { SystemTextFields } from "./config/system-text";
 import { RewriteFields } from "./config/rewrite";
-import { SanitizeFields } from "./config/sanitize";
 import { CacheBreakpointFields } from "./config/cache-breakpoint";
 import { HeaderFields } from "./config/header";
 
@@ -49,19 +48,28 @@ export function RuleConfigFields({ kind, value, onChange, onValidChange }: Props
     <div className="grid gap-3">
       {kind === "system_text" && <SystemTextFields value={v} onChange={onChange} />}
       {kind === "rewrite" && <RewriteFields value={v} onChange={onChange} onValidChange={onValidChange} />}
-      {kind === "sanitize" && <SanitizeFields value={v} onChange={onChange} />}
+      {kind === "transform" && (
+        <JsonField
+          value={rawText}
+          onChange={handleRawChange}
+          rows={10}
+          hint={t("transform.rawHint")}
+        />
+      )}
       {kind === "cache_breakpoint" && <CacheBreakpointFields value={v} onChange={onChange} />}
       {kind === "header" && <HeaderFields value={v} onChange={onChange} />}
 
-      <Collapsible open={open} onOpenChange={handleOpenChange}>
-        <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ChevronsUpDown className="size-3" aria-hidden /> {t("advanced")}
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-2">
-          <JsonField value={rawText} onChange={handleRawChange} rows={8} />
-          {!rawValid && <p className="text-xs text-destructive">{t("rule.rawJsonError")}</p>}
-        </CollapsibleContent>
-      </Collapsible>
+      {kind !== "transform" && (
+        <Collapsible open={open} onOpenChange={handleOpenChange}>
+          <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <ChevronsUpDown className="size-3" aria-hidden /> {t("advanced")}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <JsonField value={rawText} onChange={handleRawChange} rows={8} />
+            {!rawValid && <p className="text-xs text-destructive">{t("rule.rawJsonError")}</p>}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }

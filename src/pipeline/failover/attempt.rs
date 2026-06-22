@@ -344,6 +344,8 @@ pub(super) fn materialize(
     plan: &TransformPlan,
     ctx: &RequestCtx,
     status: StatusCode,
+    rules: Option<&[crate::process::CompiledRule]>,
+    model: &str,
     upstream: Option<UpstreamRespCapture>,
 ) -> Result<Materialized, PipelineError> {
     match source {
@@ -356,6 +358,16 @@ pub(super) fn materialize(
             };
             // shape_response runs on ALL statuses (error bodies included).
             let b = channel.shape_response(b, &shape);
+            let kind = match shape.op.kind {
+                crate::protocol::OperationKind::ContentGeneration(k) => Some(k),
+                crate::protocol::OperationKind::Provider(_) => None,
+            };
+            let b = match (status.is_success(), rules) {
+                (true, Some(rules)) => {
+                    crate::process::apply_response(rules, shape.op, kind, model, b)
+                }
+                _ => b,
+            };
             // §8-D: capture the post-decode provider response. For the buffered
             // aggregate path (codex/kiro non-stream) the real decode happens in
             // `materialize_buffered` → decode here too so the log matches the
@@ -385,6 +397,17 @@ pub(super) fn materialize(
             let st = match channel.stream_decoder() {
                 Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
                 None => crate::pipeline::stream::into_byte_stream(st),
+            };
+            let shape_op = plan.shape_op(ctx);
+            let kind = match shape_op.kind {
+                crate::protocol::OperationKind::ContentGeneration(k) => Some(k),
+                crate::protocol::OperationKind::Provider(_) => None,
+            };
+            let st = match rules.and_then(|rules| {
+                crate::process::response_stream_decoder(rules, shape_op, kind, model)
+            }) {
+                Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
+                None => st,
             };
             // Tee the post-decode (provider-native) bytes for upstream logging
             // BEFORE any cross-protocol transform.

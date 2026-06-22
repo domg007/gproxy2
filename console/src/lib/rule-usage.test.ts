@@ -29,10 +29,10 @@ describe("sortRulesForPipeline", () => {
 describe("groupRulesByKind", () => {
   it("groups in execution order and drops empty kinds", () => {
     const groups = groupRulesByKind([
-      rule({ id: 1, kind: "sanitize" }),
+      rule({ id: 1, kind: "transform" }),
       rule({ id: 2, kind: "system_text" }),
     ]);
-    expect(groups.map((g) => g.kind)).toEqual(["system_text", "sanitize"]);
+    expect(groups.map((g) => g.kind)).toEqual(["system_text", "transform"]);
   });
 });
 

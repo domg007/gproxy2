@@ -1,13 +1,13 @@
 ---
 title: Message Rewrite
-description: Add or replace message text with v2 system_text, sanitize, and generic rewrite rule-set entries.
+description: Add or replace message text with v2 system_text, transform, and rewrite rule-set entries.
 ---
 
 v2 does not have a separate "message rewrite" table. Message-oriented rewriting
 is expressed through the provider rule-set system:
 
 - `system_text` inserts text into the provider-native system location.
-- `sanitize` replaces text patterns over the serialized body.
+- `transform` replaces text patterns over the serialized body or matched paths.
 - `rewrite` edits explicit JSON paths when you know the provider-native shape.
 
 These rules run after protocol transform. That matters: a request from an OpenAI
@@ -39,15 +39,16 @@ This is one of the few current rule kinds that knows protocol semantics. The v2
 design preference is to move this kind of provider-specific path choice into
 frontend/config presets once the generic transform engine exists.
 
-## `sanitize`
+## `transform`
 
-Use `sanitize` for regex replacement when the exact structural path is not the
+Use `transform` for regex replacement when the exact structural path is not the
 right model:
 
 ```json
 {
-  "pattern": "\\bAcme internal\\b",
-  "replacement": "the workspace"
+  "phase": "request",
+  "locate": { "match": "\\bAcme internal\\b" },
+  "actions": [{ "op": "replace_text", "with": "the workspace" }]
 }
 ```
 

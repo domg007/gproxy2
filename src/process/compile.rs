@@ -52,6 +52,49 @@ pub enum HeaderMode {
     Merge,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransformPhase {
+    Request,
+    Response,
+    Both,
+}
+
+impl Default for TransformPhase {
+    fn default() -> Self {
+        Self::Request
+    }
+}
+
+impl TransformPhase {
+    pub fn matches_request(self) -> bool {
+        matches!(self, Self::Request | Self::Both)
+    }
+
+    pub fn matches_response(self) -> bool {
+        matches!(self, Self::Response | Self::Both)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TransformLocate {
+    Path(String),
+    Match(Regex),
+}
+
+#[derive(Debug, Clone)]
+pub enum TransformAction {
+    ReplaceText { from: Option<String>, with: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformCfg {
+    pub phase: TransformPhase,
+    pub locate: TransformLocate,
+    pub actions: Vec<TransformAction>,
+    pub limit: Option<usize>,
+}
+
 /// One parsed rule body.
 #[derive(Debug, Clone)]
 pub enum RuleConfig {
@@ -65,10 +108,7 @@ pub enum RuleConfig {
         action: RewriteAction,
         value_json: Option<Value>,
     },
-    Sanitize {
-        regex: Regex,
-        replacement: String,
-    },
+    Transform(TransformCfg),
     Header {
         name: http::header::HeaderName,
         value: String,
@@ -83,14 +123,52 @@ impl RuleConfig {
             Self::SystemText { .. } => 0,
             Self::CacheBreakpoint(_) => 1,
             Self::Rewrite { .. } => 2,
-            Self::Sanitize { .. } => 3,
+            Self::Transform(_) => 3,
             Self::Header { .. } => 4,
         }
     }
 
-    /// Ranks 0–2 mutate the parsed JSON body.
-    pub fn mutates_value(&self) -> bool {
-        self.rank() <= 2
+    pub fn mutates_request_value(&self) -> bool {
+        match self {
+            Self::SystemText { .. } | Self::CacheBreakpoint(_) | Self::Rewrite { .. } => true,
+            Self::Transform(cfg) => {
+                cfg.phase.matches_request() && matches!(cfg.locate, TransformLocate::Path(_))
+            }
+            _ => false,
+        }
+    }
+
+    pub fn mutates_request_text(&self) -> bool {
+        matches!(
+            self,
+            Self::Transform(TransformCfg {
+                phase,
+                locate: TransformLocate::Match(_),
+                ..
+            }) if phase.matches_request()
+        )
+    }
+
+    pub fn mutates_response_value(&self) -> bool {
+        matches!(
+            self,
+            Self::Transform(TransformCfg {
+                phase,
+                locate: TransformLocate::Path(_),
+                ..
+            }) if phase.matches_response()
+        )
+    }
+
+    pub fn mutates_response_text(&self) -> bool {
+        matches!(
+            self,
+            Self::Transform(TransformCfg {
+                phase,
+                locate: TransformLocate::Match(_),
+                ..
+            }) if phase.matches_response()
+        )
     }
 }
 
@@ -179,17 +257,61 @@ fn compile_row(row: &Rule) -> Option<CompiledRule> {
                 value_json: raw.value_json,
             }
         }
-        "sanitize" => {
+        "transform" => {
+            #[derive(Deserialize)]
+            struct RawLocate {
+                #[serde(default)]
+                path: Option<String>,
+                #[serde(default, rename = "match")]
+                match_: Option<String>,
+            }
+
+            #[derive(Deserialize)]
+            struct RawAction {
+                op: String,
+                #[serde(default)]
+                from: Option<String>,
+                #[serde(default)]
+                with: Option<String>,
+                #[serde(default)]
+                to: Option<String>,
+            }
+
             #[derive(Deserialize)]
             struct Raw {
-                pattern: String,
-                replacement: String,
+                #[serde(default)]
+                phase: TransformPhase,
+                locate: RawLocate,
+                actions: Vec<RawAction>,
+                #[serde(default)]
+                limit: Option<usize>,
             }
+
             let raw: Raw = serde_json::from_value(row.config_json.clone()).ok()?;
-            RuleConfig::Sanitize {
-                regex: Regex::new(&raw.pattern).ok()?,
-                replacement: raw.replacement,
+            let locate = match (raw.locate.path, raw.locate.match_) {
+                (Some(path), None) => TransformLocate::Path(path),
+                (None, Some(pattern)) => TransformLocate::Match(Regex::new(&pattern).ok()?),
+                _ => return None,
+            };
+            let mut actions = Vec::new();
+            for action in raw.actions {
+                match action.op.as_str() {
+                    "replace_text" => actions.push(TransformAction::ReplaceText {
+                        from: action.from,
+                        with: action.with.or(action.to)?,
+                    }),
+                    _ => return None,
+                }
             }
+            if actions.is_empty() {
+                return None;
+            }
+            RuleConfig::Transform(TransformCfg {
+                phase: raw.phase,
+                locate,
+                actions,
+                limit: raw.limit,
+            })
         }
         "header" => {
             #[derive(Deserialize)]

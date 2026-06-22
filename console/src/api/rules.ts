@@ -17,7 +17,7 @@ export interface ProviderRuleSetInput { id?: number | null; provider_id: number;
 export const OPERATIONS = ["list_models","get_model","count_tokens","generate_content","stream_generate_content","create_image","edit_image","create_embedding","compact_content","create_conversation"] as const;
 export const KINDS = ["open_ai_responses","open_ai_chat_completions","claude_messages","gemini_generate_content","open_ai","claude","gemini"] as const;
 export const IMPLEMENTATIONS = ["passthrough","transform_to","local","unsupported"] as const;
-export const RULE_KINDS = ["system_text","rewrite","sanitize","cache_breakpoint","header"] as const;
+export const RULE_KINDS = ["system_text","rewrite","transform","cache_breakpoint","header"] as const;
 
 export const ruleSetsQuery = queryOptions({ queryKey: ["rule-sets"], queryFn: () => api<RuleSet[]>("/admin/rule-sets") });
 export const ruleSetQuery = (id: number) => queryOptions({ queryKey: ["rule-sets", id], queryFn: () => api<RuleSet>(`/admin/rule-sets/${id}`) });

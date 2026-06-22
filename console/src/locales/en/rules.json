@@ -32,7 +32,7 @@
   "kind": {
     "system_text": "System Text",
     "rewrite": "Rewrite",
-    "sanitize": "Sanitize",
+    "transform": "Transform",
     "cache_breakpoint": "Cache Breakpoint",
     "header": "Header"
   },
@@ -108,7 +108,7 @@
     "configTextRequired": "Text is required",
     "configPathRequired": "Path is required",
     "configActionRequired": "Action is required",
-    "configPatternRequired": "Pattern is required",
+    "configTransformRequired": "Transform requires locate and at least one action",
     "configTargetRequired": "Target is required",
     "configHeaderNameRequired": "Header name is required",
     "configInvalid": "Configuration has invalid JSON",
@@ -128,12 +128,12 @@
     "system_text": "Prepend or append text to the system prompt.",
     "cache_breakpoint": "Mark a Claude cache breakpoint (system / tools / last message).",
     "rewrite": "Set, delete, or merge a JSON field in the request body.",
-    "sanitize": "Regex find-and-replace over the serialized request body.",
+    "transform": "Apply generic path or regex replacements to request/response bodies.",
     "header": "Add or merge an outgoing HTTP header."
   },
   "pipeline": {
     "title": "Effective pipeline",
-    "caption": "What this provider actually runs, in execution order. Rules run by kind: system text → cache → rewrite → sanitize → header.",
+    "caption": "What this provider actually runs, in execution order. Rules run by kind: system text → cache → rewrite → transform → header.",
     "empty": "No rules apply to this provider yet.",
     "fromSet": "from {{name}}",
     "allRequests": "all requests"
@@ -166,14 +166,14 @@
     },
     "invalid": "Invalid JSON"
   },
-  "sanitizeTemplate": {
-    "fillFrom": "Fill from template"
+  "transform": {
+    "rawHint": "JSON config: phase, locate.path or locate.match, actions, optional limit."
   },
   "createAndAttach": "New rule set",
   "attachExisting": "Attach existing",
   "advanced": "Advanced (raw JSON)",
   "tabs2": { "rules": "Rules" },
-  "orderHint": "Rules run by kind (system text → cache → rewrite → sanitize → header). Sort order only orders rules of the same kind.",
+  "orderHint": "Rules run by kind (system text → cache → rewrite → transform → header). Sort order only orders rules of the same kind.",
   "routing": {
     "title": "Routing",
     "caption": "How this provider routes each operation × inbound protocol. Defaults were initialized from the channel at creation — edit a row, add a rule, or delete one. Reset defaults recomputes them from the channel.",

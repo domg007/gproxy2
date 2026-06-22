@@ -25,7 +25,9 @@ function validateConfig(kind: string, cfg: unknown, t: (k: string) => string): s
   if (kind === "system_text" && !c.text) return t("validation.configTextRequired");
   if (kind === "rewrite" && !c.path) return t("validation.configPathRequired");
   if (kind === "rewrite" && !c.action) return t("validation.configActionRequired");
-  if (kind === "sanitize" && !c.pattern) return t("validation.configPatternRequired");
+  if (kind === "transform" && (!c.locate || !Array.isArray(c.actions) || c.actions.length === 0)) {
+    return t("validation.configTransformRequired");
+  }
   if (kind === "cache_breakpoint" && !c.target) return t("validation.configTargetRequired");
   if (kind === "cache_breakpoint" && c.index === 0) return t("validation.cacheIndexZero");
   if (kind === "header" && !c.name) return t("validation.configHeaderNameRequired");
@@ -110,6 +112,7 @@ export function RuleForm({ ruleSetId, rule, modelOptions, onSaved }: Props) {
       <div className="grid gap-1">
         <Label>{t("rule.configJson")}</Label>
         <RuleConfigFields
+          key={kind}
           kind={kind}
           value={configValue}
           onChange={setConfigValue}

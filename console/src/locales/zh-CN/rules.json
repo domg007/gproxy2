@@ -32,7 +32,7 @@
   "kind": {
     "system_text": "系统文本",
     "rewrite": "改写",
-    "sanitize": "清洗",
+    "transform": "转换",
     "cache_breakpoint": "缓存断点",
     "header": "请求头"
   },
@@ -108,7 +108,7 @@
     "configTextRequired": "文本不能为空",
     "configPathRequired": "路径不能为空",
     "configActionRequired": "操作不能为空",
-    "configPatternRequired": "模式不能为空",
+    "configTransformRequired": "转换规则需要 locate 和至少一个 action",
     "configTargetRequired": "目标不能为空",
     "configHeaderNameRequired": "请求头名称不能为空",
     "configInvalid": "配置 JSON 无效",
@@ -128,12 +128,12 @@
     "system_text": "在系统提示前置或追加文本。",
     "cache_breakpoint": "标记 Claude 缓存断点（系统 / 工具 / 最后一条消息）。",
     "rewrite": "在请求体里设置/删除/合并一个 JSON 字段。",
-    "sanitize": "对序列化后的请求体做正则查找替换。",
+    "transform": "按路径或正则对请求/响应 body 做通用替换。",
     "header": "新增或合并一个出站 HTTP 头。"
   },
   "pipeline": {
     "title": "生效管线",
-    "caption": "该 provider 实际执行的规则，按执行顺序排列。规则按 kind 顺序运行：系统文本 → 缓存 → 改写 → 脱敏 → 头。",
+    "caption": "该 provider 实际执行的规则，按执行顺序排列。规则按 kind 顺序运行：系统文本 → 缓存 → 改写 → 转换 → 头。",
     "empty": "暂无规则适用于此 provider。",
     "fromSet": "来自 {{name}}",
     "allRequests": "所有请求"
@@ -166,14 +166,14 @@
     },
     "invalid": "无效的 JSON"
   },
-  "sanitizeTemplate": {
-    "fillFrom": "从模板填充"
+  "transform": {
+    "rawHint": "JSON 配置：phase、locate.path 或 locate.match、actions，可选 limit。"
   },
   "createAndAttach": "新建规则集",
   "attachExisting": "附加已有规则集",
   "advanced": "高级（原始 JSON）",
   "tabs2": { "rules": "规则" },
-  "orderHint": "规则按 kind 顺序执行（系统文本→缓存→改写→脱敏→头），sort_order 只排同 kind 的规则。",
+  "orderHint": "规则按 kind 顺序执行（系统文本→缓存→改写→转换→头），sort_order 只排同 kind 的规则。",
   "routing": {
     "title": "路由",
     "caption": "该 provider 对每个 操作 × 入站协议 的路由。默认值在创建时按渠道初始化——可编辑某行、新增规则或删除。「重置默认」按渠道重新计算。",

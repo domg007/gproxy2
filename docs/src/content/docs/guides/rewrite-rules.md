@@ -16,10 +16,9 @@ client request
   -> channel prepare / upstream send
 ```
 
-This page covers the current specialized rule kinds. The intended design
-direction is a single generic `locate + actions (+ limit)` engine with console
-presets for provider-specific tasks. Until that lands, v2 uses the rule kinds
-below.
+This page covers the implemented rule kinds. `transform` is the generic
+`locate + actions (+ limit)` engine; provider-specific behavior should live in
+config or console presets where possible.
 
 ## Rule Set Model
 
@@ -37,7 +36,7 @@ fixed kind order.
 
 Every rule row has:
 
-- `kind`: one of `system_text`, `cache_breakpoint`, `rewrite`, `sanitize`,
+- `kind`: one of `system_text`, `cache_breakpoint`, `rewrite`, `transform`,
   `header`.
 - `config_json`: kind-specific config.
 - `filter_model_pattern`: optional glob against the prefix-stripped upstream
@@ -71,20 +70,32 @@ Supported actions are:
 Paths are dot-separated. Object keys and numeric array indexes are supported,
 for example `messages.0.content`. This is intentionally simple and fail-soft.
 
-## `sanitize`
+## `transform`
 
-`sanitize` applies a Rust regex replacement over the serialized request body:
+`transform` applies generic text replacements over matched JSON paths or over
+the serialized body with Rust regex:
 
 ```json
 {
-  "pattern": "\\binternal-tool\\b",
-  "replacement": "tool"
+  "phase": "request",
+  "locate": { "match": "\\binternal-tool\\b" },
+  "actions": [{ "op": "replace_text", "with": "tool" }]
 }
 ```
 
-It is broad and byte-level after JSON serialization, so use precise patterns.
-For structured changes, prefer `rewrite`. In the future generic model,
-sanitization maps to `locate.match + replace_text`.
+For structural values, use `locate.path` with dot-separated segments, `*`
+wildcards, and an optional exact `from` guard:
+
+```json
+{
+  "phase": "response",
+  "locate": { "path": "content.*.name" },
+  "actions": [{ "op": "replace_text", "from": "tasklist", "with": "todowrite" }]
+}
+```
+
+`phase` is `request`, `response`, or `both`; it defaults to `request`. Regex
+matching is broad after JSON serialization, so keep patterns precise.
 
 ## `header`
 
@@ -106,7 +117,7 @@ is useful for list-valued headers such as `anthropic-beta`.
 Rules apply in this fixed order, regardless of attachment order:
 
 ```text
-system_text -> cache_breakpoint -> rewrite -> sanitize -> header
+system_text -> cache_breakpoint -> rewrite -> transform -> header
 ```
 
 Within each kind, set and rule sort order is preserved. A bad or non-applicable

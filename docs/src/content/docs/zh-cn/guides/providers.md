@@ -96,6 +96,6 @@ Routing rule 是 provider 级配置。每一行包含：
 
 ## Provider Rule Sets
 
-可复用 rule set 通过 `provider_rule_sets` 绑定到 provider。绑定后的规则在 snapshot 重建时按顺序展开并编译，然后在协议 transform 之后、channel prepare 之前执行。当前的 system text、cache breakpoint、字段 rewrite、sanitize、header 都在这里运行。
+可复用 rule set 通过 `provider_rule_sets` 绑定到 provider。绑定后的规则在 snapshot 重建时按顺序展开并编译，然后在协议 transform 之后、channel prepare 之前执行。当前的 system text、cache breakpoint、字段 rewrite、transform、header 都在这里运行。
 
 当前后端保持宽松：无效规则会 warn 并跳过；provider 专用策略优先放在 console/config preset 中，除非 runtime 确实需要新的 primitive。

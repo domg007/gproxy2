@@ -1,13 +1,12 @@
-//! Kind-agnostic rule applications: dot-path JSON rewrite, body sanitize,
+//! Kind-agnostic rule applications: dot-path JSON rewrite, generic transform,
 //! header injection. All fail-soft: a rule that cannot apply warns and skips.
 
 use bytes::Bytes;
 use http::HeaderMap;
 use http::header::{HeaderName, HeaderValue};
-use regex::Regex;
 use serde_json::Value;
 
-use super::compile::RewriteAction;
+use super::compile::{RewriteAction, TransformAction, TransformCfg, TransformLocate};
 
 /// Dot-path rewrite on the body value. Segments index objects by key and
 /// arrays by number (e.g. `messages.0.content`). `set` creates missing object
@@ -85,13 +84,103 @@ fn descend<'a>(cur: &'a mut Value, seg: &str, create: bool) -> Option<&'a mut Va
     }
 }
 
-/// Regex replace over the serialized body. Zero-copy when nothing matches.
-pub fn sanitize(body: Bytes, regex: &Regex, replacement: &str) -> Bytes {
-    let text = String::from_utf8_lossy(&body);
-    match regex.replace_all(&text, replacement) {
-        std::borrow::Cow::Borrowed(_) => body,
-        std::borrow::Cow::Owned(s) => Bytes::from(s),
+/// Apply a structural transform to every JSON value matched by a simple
+/// dot-path. Supports `*` over arrays/objects and numeric array indexes.
+pub fn transform_value(root: &mut Value, cfg: &TransformCfg) {
+    let TransformLocate::Path(path) = &cfg.locate else {
+        return;
+    };
+    let segs: Vec<&str> = path.split('.').filter(|seg| !seg.is_empty()).collect();
+    if segs.is_empty() {
+        return;
     }
+    let mut hits = 0usize;
+    visit_path(root, &segs, cfg.limit, &mut hits, &mut |value| {
+        for action in &cfg.actions {
+            apply_transform_action(value, action);
+        }
+    });
+}
+
+fn visit_path(
+    cur: &mut Value,
+    segs: &[&str],
+    limit: Option<usize>,
+    hits: &mut usize,
+    f: &mut impl FnMut(&mut Value),
+) {
+    if limit.is_some_and(|limit| *hits >= limit) {
+        return;
+    }
+    let Some((seg, rest)) = segs.split_first() else {
+        *hits += 1;
+        f(cur);
+        return;
+    };
+
+    match (cur, *seg) {
+        (Value::Array(arr), "*") => {
+            for item in arr {
+                visit_path(item, rest, limit, hits, f);
+            }
+        }
+        (Value::Object(map), "*") => {
+            for item in map.values_mut() {
+                visit_path(item, rest, limit, hits, f);
+            }
+        }
+        (Value::Array(arr), idx) => {
+            if let Ok(idx) = idx.parse::<usize>()
+                && let Some(item) = arr.get_mut(idx)
+            {
+                visit_path(item, rest, limit, hits, f);
+            }
+        }
+        (Value::Object(map), key) => {
+            if let Some(item) = map.get_mut(key) {
+                visit_path(item, rest, limit, hits, f);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_transform_action(value: &mut Value, action: &TransformAction) {
+    match action {
+        TransformAction::ReplaceText { from, with } => {
+            let Some(text) = value.as_str() else {
+                return;
+            };
+            if from.as_deref().is_none_or(|from| text == from) {
+                *value = Value::String(with.clone());
+            }
+        }
+    }
+}
+
+/// Apply a regex transform over the serialized body. Zero-copy when nothing
+/// matches.
+pub fn transform_text(body: Bytes, cfg: &TransformCfg) -> Bytes {
+    let TransformLocate::Match(regex) = &cfg.locate else {
+        return body;
+    };
+    let text = String::from_utf8_lossy(&body);
+    let mut out: Option<String> = None;
+    for action in &cfg.actions {
+        let TransformAction::ReplaceText { with, .. } = action;
+        let next = match (&out, cfg.limit) {
+            (Some(current), Some(limit)) => regex.replacen(current, limit, with.as_str()),
+            (Some(current), None) => regex.replace_all(current, with.as_str()),
+            (None, Some(limit)) => regex.replacen(&text, limit, with.as_str()),
+            (None, None) => regex.replace_all(&text, with.as_str()),
+        };
+        match next {
+            std::borrow::Cow::Borrowed(_) if out.is_none() => {}
+            std::borrow::Cow::Borrowed(_) => {}
+            std::borrow::Cow::Owned(s) => out = Some(s),
+        }
+    }
+    out.map(Bytes::from).unwrap_or(body)
 }
 
 /// Set or merge a request header. `override` replaces; `merge` comma-appends

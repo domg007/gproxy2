@@ -274,7 +274,19 @@ pub async fn run_failover(
             // (a 2xx whose cross-protocol transform errors must still leave an
             // upstream trace). Borrow `upstream_raw` from the Ok arm; `?` below
             // propagates a materialize error only after the row is written.
-            let mat = materialize(&channel, source, &plan, ctx, status, up_cap);
+            let rule_filter_model = crate::pipeline::classify::peek_model(&ctx.body)
+                .or_else(|| crate::pipeline::classify::path_model_id(&ctx.path))
+                .unwrap_or_else(|| cand.upstream_model_id.clone());
+            let mat = materialize(
+                &channel,
+                source,
+                &plan,
+                ctx,
+                status,
+                rules.as_deref().map(Vec::as_slice),
+                &rule_filter_model,
+                up_cap,
+            );
             // §8-D upstream capture: the attempt actually returned to the
             // client (success or relayed permanent 4xx). Failed-over attempts
             // were audited above; gating happens inside `capture`. `resp_body`

@@ -1,12 +1,12 @@
 ---
 title: Message Rewrite
-description: 用 v2 的 system_text、sanitize 和 generic rewrite 规则改写消息文本。
+description: 用 v2 的 system_text、transform 和 rewrite 规则改写消息文本。
 ---
 
 v2 没有独立的 "message rewrite" 表。面向消息文本的改写通过 provider rule-set 系统表达：
 
 - `system_text` 把文本插入 provider-native 的 system 位置；
-- `sanitize` 在序列化后的 body 上做文本 pattern replacement；
+- `transform` 在序列化后的 body 或匹配路径上做文本替换；
 - `rewrite` 在你知道 provider-native 结构时修改具体 JSON path。
 
 这些规则在协议 transform 之后运行。这一点很重要：OpenAI 客户端请求如果路由到 Claude，上游 body 会先转成 Claude Messages，然后 message rule 看到的是 Claude body shape。
@@ -33,14 +33,15 @@ v2 没有独立的 "message rewrite" 表。面向消息文本的改写通过 pro
 
 这是当前少数知道协议语义的 rule kind。v2 的设计偏好是：通用 transform engine 存在后，把这种 provider-specific path 选择移到 frontend/config preset 中。
 
-## `sanitize`
+## `transform`
 
-当结构路径不是合适模型时，用 `sanitize` 做 regex replacement：
+当结构路径不是合适模型时，用 `transform` 做 regex replacement：
 
 ```json
 {
-  "pattern": "\\bAcme internal\\b",
-  "replacement": "the workspace"
+  "phase": "request",
+  "locate": { "match": "\\bAcme internal\\b" },
+  "actions": [{ "op": "replace_text", "with": "the workspace" }]
 }
 ```
 
