@@ -62,9 +62,7 @@ export function UpdatePanel() {
 
             {check.isError && (
               <div role="alert" className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                {checkError?.status === 409
-                  ? t("check.notConfigured")
-                  : `${t("check.genericError")}: ${checkError?.message ?? ""}`}
+                {`${t("check.genericError")}: ${checkError?.message ?? ""}`}
               </div>
             )}
 

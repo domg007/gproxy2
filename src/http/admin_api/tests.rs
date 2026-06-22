@@ -56,7 +56,6 @@ async fn state_with(cors_origins: Vec<String>) -> (AppState, tempfile::TempDir) 
         max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
         max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
         trusted_proxies: Vec::new(),
-        update_repo: None,
         update_channel: "releases".to_string(),
         update_data_dir: dir.path().to_path_buf(),
         cors_origins,

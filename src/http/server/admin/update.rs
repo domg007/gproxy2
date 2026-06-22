@@ -11,30 +11,27 @@ use axum::extract::State;
 use crate::api::error::ApiError;
 use crate::app::AppState;
 use crate::app::update_status::UpdateStatus;
-use crate::selfupdate::{self, Channel, CheckReport, Restart, UpdateContext, UpdateError};
+use crate::selfupdate::{
+    self, Channel, CheckReport, DEFAULT_REPO, Restart, UpdateContext, UpdateError,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Build an `UpdateContext` from the runtime config, or fail with Conflict if
-/// `update_repo` is not configured.
-fn context(state: &AppState) -> Result<UpdateContext, ApiError> {
-    let repo = state.config.update_repo.clone().ok_or_else(|| {
-        ApiError::Conflict("self-update is not configured (set --update-repo)".to_string())
-    })?;
-
+/// Build an `UpdateContext` using the built-in update source.
+fn context(state: &AppState) -> UpdateContext {
     let channel = match state.config.update_channel.as_str() {
         "staging" => Channel::Staging,
         _ => Channel::Releases,
     };
 
-    Ok(UpdateContext {
-        repo,
+    UpdateContext {
+        repo: DEFAULT_REPO.to_string(),
         channel,
         data_dir: state.config.update_data_dir.clone(),
         client: Arc::clone(&state.upstream),
-    })
+    }
 }
 
 /// Map `UpdateError` to an `ApiError`. Exhaustive over every variant.
@@ -62,7 +59,7 @@ fn update_error(e: UpdateError) -> ApiError {
 /// `GET /admin/update/check` — fetch manifest and report availability.
 /// Pure read; does NOT mutate the status state machine.
 pub async fn check(State(state): State<AppState>) -> Result<Json<CheckReport>, ApiError> {
-    let ctx = context(&state)?;
+    let ctx = context(&state);
     selfupdate::check(&ctx)
         .await
         .map(Json)
@@ -97,7 +94,7 @@ pub async fn status(State(state): State<AppState>) -> Json<UpdateStatus> {
 /// and returns; the operator restarts the process at their own schedule.
 pub async fn apply(State(state): State<AppState>) -> Result<Json<UpdateStatus>, ApiError> {
     // Fail fast on bad config before touching the status machine (no lock held).
-    let ctx = context(&state)?;
+    let ctx = context(&state);
 
     // --- single-flight guard: atomic check-and-set under one lock ---
     // Check and the `Downloading` write happen in the SAME lock scope, so two

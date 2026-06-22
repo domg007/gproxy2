@@ -107,7 +107,6 @@ pub async fn init(
         max_attempts: crate::config::DEFAULT_MAX_ATTEMPTS,
         max_in_flight: crate::config::DEFAULT_MAX_IN_FLIGHT,
         trusted_proxies: Vec::new(),
-        update_repo: None,
         update_channel: "releases".to_string(),
         // Edge (wasm) never self-updates; PathBuf is required by the type but
         // the field is never read in an edge build.

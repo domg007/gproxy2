@@ -37,6 +37,10 @@ pub use manifest::{Artifact, Manifest};
 #[cfg(not(target_arch = "wasm32"))]
 pub use version::{UpdateDecision, current_target_triple};
 
+/// Built-in GitHub repository used by native self-update.
+#[cfg(not(target_arch = "wasm32"))]
+pub const DEFAULT_REPO: &str = "LeenHawk/gproxy";
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]

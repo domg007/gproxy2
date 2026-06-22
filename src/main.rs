@@ -82,11 +82,6 @@ struct Cli {
     )]
     cors_origins: Vec<String>,
 
-    /// §19 self-update: GitHub owner/repo for admin-triggered updates. Omit to
-    /// disable self-update (admin check/apply will return 409).
-    #[arg(long, env = "GPROXY_UPDATE_REPO")]
-    update_repo: Option<String>,
-
     /// §19.3 channel for admin-triggered self-update (`releases` or `staging`).
     ///
     /// Uses a DISTINCT env var (`GPROXY_UPDATE_CHANNEL_SERVE`) to avoid a clap
@@ -146,11 +141,6 @@ enum Command {
         #[command(subcommand)]
         action: UpdateAction,
 
-        /// GitHub `owner/repo` whose Releases host the signed manifest +
-        /// artifacts.
-        #[arg(long, env = "GPROXY_UPDATE_REPO")]
-        repo: String,
-
         /// Release channel: `releases` (semver) or `staging` (sha256).
         #[arg(long, env = "GPROXY_UPDATE_CHANNEL", default_value = "releases")]
         channel: gproxy::selfupdate::Channel,
@@ -178,14 +168,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Self-update (§19): self-contained — needs only an HTTP client + data_dir,
     // so it runs before persistence/cache/server are built, then exits.
-    if let Some(Command::Update {
-        action,
-        repo,
-        channel,
-    }) = &cli.command
-    {
+    if let Some(Command::Update { action, channel }) = &cli.command {
         return run_update(
-            repo.clone(),
             *channel,
             cli.data_dir.clone(),
             cli.upstream_proxy_url.clone(),
@@ -243,7 +227,6 @@ async fn main() -> anyhow::Result<()> {
         max_attempts: cli.max_attempts,
         max_in_flight: cli.max_in_flight,
         trusted_proxies: cli.trusted_proxies,
-        update_repo: cli.update_repo,
         update_channel: match cli.update_channel {
             gproxy::selfupdate::Channel::Releases => "releases".to_string(),
             gproxy::selfupdate::Channel::Staging => "staging".to_string(),
@@ -468,7 +451,6 @@ async fn main() -> anyhow::Result<()> {
 /// check or apply on the configured channel. Self-contained; never starts the
 /// server. `apply` may diverge (re-exec) or exit with the supervisor sentinel.
 async fn run_update(
-    repo: String,
     channel: gproxy::selfupdate::Channel,
     data_dir: PathBuf,
     proxy_url: Option<String>,
@@ -476,7 +458,7 @@ async fn run_update(
 ) -> anyhow::Result<()> {
     #[cfg(not(feature = "upstream-wreq"))]
     {
-        let _ = (repo, channel, data_dir, proxy_url, action);
+        let _ = (channel, data_dir, proxy_url, action);
         anyhow::bail!("self-update requires the `upstream-wreq` feature");
     }
     #[cfg(feature = "upstream-wreq")]
@@ -485,7 +467,7 @@ async fn run_update(
             gproxy::http::client::WreqClient::with_proxy_url(proxy_url.as_deref())?,
         );
         let ctx = gproxy::selfupdate::UpdateContext {
-            repo,
+            repo: gproxy::selfupdate::DEFAULT_REPO.to_string(),
             channel,
             data_dir,
             client,

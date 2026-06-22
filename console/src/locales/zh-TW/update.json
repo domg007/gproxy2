@@ -9,7 +9,6 @@
     "availableYes": "是",
     "availableNo": "已是最新",
     "notes": "發布說明",
-    "notConfigured": "自動更新未設定。請在伺服器設定中指定 update_repo 以啟用此功能。",
     "genericError": "檢查更新失敗"
   },
   "apply": {

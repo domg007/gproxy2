@@ -155,9 +155,6 @@ pub struct RuntimeConfig {
     /// loopback (always trusted). A connection from any other peer has its
     /// forwarding headers ignored — the peer IS the client.
     pub trusted_proxies: Vec<std::net::IpAddr>,
-    /// §19 self-update: GitHub `owner/repo` hosting the signed manifest +
-    /// release artifacts. `None` = self-update disabled (admin check/apply → 409).
-    pub update_repo: Option<String>,
     /// §19.3 release channel tracked by admin self-update.
     ///
     /// Stored as `String` ("releases" | "staging") rather than
@@ -227,7 +224,6 @@ mod tests {
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             max_in_flight: DEFAULT_MAX_IN_FLIGHT,
             trusted_proxies: Vec::new(),
-            update_repo: None,
             update_channel: "releases".to_string(),
             update_data_dir: PathBuf::from("./data"),
             cors_origins: Vec::new(),

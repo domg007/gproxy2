@@ -54,9 +54,11 @@ imported through a JSON bundle.
 
 ## Self-update
 
+The update repository is built into the binary and is not a runtime
+configuration option.
+
 | Variable | Default | Description |
 | --- | --- | --- |
-| `GPROXY_UPDATE_REPO` | Empty | GitHub `owner/repo` used by admin-triggered self-update and by the `gproxy update` subcommand. If unset on the serve path, admin update check/apply is disabled. |
 | `GPROXY_UPDATE_CHANNEL_SERVE` | `releases` | Serve-path self-update channel: `releases` or `staging`. |
 | `GPROXY_UPDATE_CHANNEL` | `releases` | Channel for the `gproxy update` subcommand. It intentionally differs from the serve-path env var to avoid a `clap` collision. |
 | `GPROXY_UPDATE_RESTART` | `supervisor` | Restart mode for `gproxy update apply`: `supervisor`, `re-exec`, or `none`. |
