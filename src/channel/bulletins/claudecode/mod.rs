@@ -16,7 +16,7 @@ mod usage;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::channel::http_util::{allow_headers, build_request, join_url};
 use crate::channel::shaping::{self, claude_cache_control, claude_magic_cache, claude_sampling};
@@ -234,7 +234,7 @@ impl ChannelLogin for ClaudeCodeChannel {
         Ok(Some(AuthCodeStart {
             authorize_url,
             redirect_uri,
-            extra: None,
+            extra: Some(json!({ "state": state })),
         }))
     }
 
@@ -244,9 +244,15 @@ impl ChannelLogin for ClaudeCodeChannel {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
-        _extra: Option<&Value>,
+        extra: Option<&Value>,
     ) -> Result<Value, ChannelError> {
-        auth::authcode_exchange(client, code, verifier, redirect_uri).await
+        let state = extra
+            .and_then(|v| v.get("state"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ChannelError::Build("claudecode login session missing state".into()))?;
+        auth::authcode_exchange(client, code, verifier, redirect_uri, state).await
     }
 
     async fn cookie_exchange(
@@ -417,7 +423,7 @@ mod tests {
             .expect("claudecode supports authcode");
         let url = &cc.authorize_url;
         assert!(
-            url.starts_with("https://platform.claude.com/oauth/authorize?"),
+            url.starts_with("https://claude.ai/oauth/authorize?"),
             "{url}"
         );
         assert!(
@@ -430,6 +436,10 @@ mod tests {
         assert!(url.contains("redirect_uri="), "{url}");
         assert!(url.contains("scope=user%3Aprofile"), "{url}");
         assert_eq!(cc.redirect_uri, super::auth::DEFAULT_REDIRECT_URI);
+        assert_eq!(
+            cc.extra.as_ref().and_then(|v| v["state"].as_str()),
+            Some("ST")
+        );
 
         let gc = crate::channel::bulletins::geminicli::GeminiCliChannel
             .authcode_start(&client, &json!({}), "", "ST", "CH")

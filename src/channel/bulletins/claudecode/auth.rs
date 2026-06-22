@@ -1,6 +1,6 @@
 //! Claude Code auth — Anthropic OAuth2 `refresh_token` grant + the
 //! claude-cli / `@anthropic-ai/sdk` impersonation header set. Base
-//! `https://api.anthropic.com`; token endpoint `https://platform.claude.com/v1/oauth/token`. A
+//! `https://api.anthropic.com`; token endpoint `/v1/oauth/token`. A
 //! session-cookie bootstrap (claude.ai → token exchange) is a documented
 //! follow-up (see [`refresh`]).
 //!
@@ -23,13 +23,14 @@ use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
 
 pub(super) const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-pub(super) const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
+pub(super) const TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 pub(super) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+pub(super) const CLAUDE_AI_BASE_URL: &str = "https://claude.ai";
 
 /// Authorization endpoint for the interactive authcode+PKCE login (§14.5).
-/// platform.claude.com hosts the Claude Code OAuth consent page (matching the
-/// bundled Claude Code client constants).
-pub(super) const AUTHORIZE_URL: &str = "https://platform.claude.com/oauth/authorize";
+/// claude.ai hosts the Claude Code OAuth consent page; the token exchange still
+/// posts to api.anthropic.com.
+pub(super) const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 /// Default redirect_uri the Claude Code login uses when the caller passes none
 /// (mined from v1 `CLAUDECODE_REDIRECT_URI`).
 pub(super) const DEFAULT_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
@@ -174,6 +175,7 @@ pub(super) async fn authcode_exchange(
     code: &str,
     verifier: &str,
     redirect_uri: &str,
+    state: &str,
 ) -> Result<Value, ChannelError> {
     let form = [
         ("grant_type", "authorization_code"),
@@ -181,13 +183,15 @@ pub(super) async fn authcode_exchange(
         ("code", code),
         ("redirect_uri", redirect_uri),
         ("code_verifier", verifier),
+        ("state", state),
     ];
     let extra_headers = [
         ("anthropic-version", ANTHROPIC_VERSION),
         ("anthropic-beta", ANTHROPIC_BETA),
+        ("origin", CLAUDE_AI_BASE_URL),
         ("user-agent", USER_AGENT),
     ];
-    let resp = oauth::token_post(client, TOKEN_URL, &form, &extra_headers).await?;
+    let resp = token_post(client, &form, &extra_headers).await?;
 
     let access_token = resp
         .access_token
@@ -334,7 +338,7 @@ pub(super) async fn refresh(
         ("anthropic-beta", ANTHROPIC_BETA),
         ("user-agent", USER_AGENT),
     ];
-    let resp = oauth::token_post(client, TOKEN_URL, &form, &extra_headers).await?;
+    let resp = token_post(client, &form, &extra_headers).await?;
 
     let new_access = resp
         .access_token
@@ -355,6 +359,46 @@ pub(super) async fn refresh(
     obj.insert("expires_at_ms".into(), Value::Number(expires_at_ms.into()));
     ensure_device_id(&mut out);
     Ok(out)
+}
+
+pub(super) async fn token_post(
+    client: &Arc<dyn UpstreamClient>,
+    form: &[(&str, &str)],
+    extra_headers: &[(&str, &str)],
+) -> Result<oauth::TokenResponse, ChannelError> {
+    let body = form
+        .iter()
+        .map(|(k, v)| format!("{}={}", oauth::percent_encode(k), oauth::percent_encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let mut builder = Request::post(TOKEN_URL)
+        .header(
+            http::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .header(http::header::ACCEPT, "application/json, text/plain, */*");
+    for (k, v) in extra_headers {
+        builder = builder.header(*k, *v);
+    }
+    let req = builder
+        .body(Bytes::from(body))
+        .map_err(|e| ChannelError::Build(format!("token request build: {e}")))?;
+
+    let resp = client
+        .send(req)
+        .await
+        .map_err(|e| ChannelError::Build(format!("token request failed: {e}")))?;
+    let (parts, body) = resp.into_parts();
+    if !parts.status.is_success() {
+        let snippet = String::from_utf8_lossy(&body);
+        let snippet: String = snippet.chars().take(256).collect();
+        return Err(ChannelError::Build(format!(
+            "token endpoint {}: {snippet}",
+            parts.status
+        )));
+    }
+    serde_json::from_slice(&body)
+        .map_err(|e| ChannelError::Build(format!("token response parse: {e}")))
 }
 
 /// Inject the OAuth bearer + claude-cli / Stainless impersonation headers onto

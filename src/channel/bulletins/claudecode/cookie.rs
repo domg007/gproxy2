@@ -16,12 +16,11 @@ use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Request, Response};
 use serde_json::Value;
 
-use super::auth::{DEFAULT_REDIRECT_URI, OAUTH_CLIENT_ID, OAUTH_SCOPE, TOKEN_URL};
+use super::auth::{CLAUDE_AI_BASE_URL, DEFAULT_REDIRECT_URI, OAUTH_CLIENT_ID, OAUTH_SCOPE};
 use crate::channel::ChannelError;
 use crate::channel::oauth;
 use crate::http::client::UpstreamClient;
 
-const CLAUDE_AI_BASE: &str = "https://claude.ai";
 const API_BASE: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
@@ -143,7 +142,7 @@ async fn discover_org(
     session_key: &str,
 ) -> Result<String, ChannelError> {
     let body = send_ok(client, "bootstrap", || {
-        cookie_get(format!("{CLAUDE_AI_BASE}/api/bootstrap"), session_key)
+        cookie_get(format!("{CLAUDE_AI_BASE_URL}/api/bootstrap"), session_key)
     })
     .await?;
     // claude.ai may prepend a usage object before the bootstrap payload; scan
@@ -196,7 +195,7 @@ async fn authorize(
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .header("cookie", session_cookie_header(session_key))
-            .header("origin", CLAUDE_AI_BASE)
+            .header("origin", CLAUDE_AI_BASE_URL)
             .header("anthropic-version", API_VERSION)
             .header("anthropic-beta", OAUTH_BETA)
             .header(http::header::USER_AGENT, USER_AGENT)
@@ -233,9 +232,10 @@ async fn token_exchange(
     let extra = [
         ("anthropic-version", API_VERSION),
         ("anthropic-beta", OAUTH_BETA),
+        ("origin", CLAUDE_AI_BASE_URL),
         ("user-agent", USER_AGENT),
     ];
-    let resp = oauth::token_post(client, TOKEN_URL, &form, &extra).await?;
+    let resp = super::auth::token_post(client, &form, &extra).await?;
     let access_token = resp
         .access_token
         .filter(|s| !s.is_empty())
@@ -283,8 +283,8 @@ fn cookie_get(url: String, session_key: &str) -> Result<Request<Bytes>, ChannelE
         .header("accept-language", "en-US,en;q=0.9")
         .header("cache-control", "no-cache")
         .header("cookie", session_cookie_header(session_key))
-        .header("origin", CLAUDE_AI_BASE)
-        .header("referer", format!("{CLAUDE_AI_BASE}/new"))
+        .header("origin", CLAUDE_AI_BASE_URL)
+        .header("referer", format!("{CLAUDE_AI_BASE_URL}/new"))
         .body(Bytes::new())
         .map_err(|e| ChannelError::Build(format!("cookie request build: {e}")))
 }
