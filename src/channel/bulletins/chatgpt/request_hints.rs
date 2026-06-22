@@ -114,7 +114,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "thinking_effort": "max"
         });
-        let out = build_conversation_body(&body, "gpt-5-thinking", true);
+        let out = build_conversation_body(&body, "gpt-5-thinking", true, None);
         assert_eq!(out["thinking_effort"], json!("max"));
     }
 
@@ -125,14 +125,14 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "extra_body": {"reasoning": {"effort": "high"}}
         });
-        let out = build_conversation_body(&body, "gpt-5-4", true);
+        let out = build_conversation_body(&body, "gpt-5-4", true, None);
         assert_eq!(out["thinking_effort"], json!("max"));
     }
 
     #[test]
     fn omits_thinking_effort_when_absent() {
         let body = json!({"messages": [{"role": "user", "content": "hi"}]});
-        let out = build_conversation_body(&body, "gpt-5-4", true);
+        let out = build_conversation_body(&body, "gpt-5-4", true, None);
         assert!(out.get("thinking_effort").is_none());
     }
 
@@ -142,7 +142,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "system_hints": ["picture_v2", "search"],
         });
-        let out = build_conversation_body(&body, "gpt-5-4", true);
+        let out = build_conversation_body(&body, "gpt-5-4", true, None);
         assert_eq!(out["system_hints"], json!(["picture_v2", "search"]));
     }
 
@@ -152,7 +152,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "extra_body": {"system_hints": ["canvas"]},
         });
-        let out = build_conversation_body(&body, "gpt-5-4", true);
+        let out = build_conversation_body(&body, "gpt-5-4", true, None);
         assert_eq!(out["system_hints"], json!(["canvas"]));
     }
 
@@ -169,7 +169,7 @@ mod tests {
                 "messages": [{"role": "user", "content": "hi"}],
                 "tools": [{"type": tool_type}],
             });
-            let out = build_conversation_body(&body, "gpt-5-4", true);
+            let out = build_conversation_body(&body, "gpt-5-4", true, None);
             assert_eq!(
                 out["system_hints"],
                 json!([expected]),
@@ -186,7 +186,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [{"type": "function", "function": {"name": "foo"}}],
         });
-        let out = build_conversation_body(&body, "gpt-5-4", true);
+        let out = build_conversation_body(&body, "gpt-5-4", true, None);
         let empty: Vec<String> = Vec::new();
         assert_eq!(out["system_hints"], json!(empty));
     }
@@ -199,7 +199,7 @@ mod tests {
             "model": "gpt-5@image",
             "messages": [{"role": "user", "content": "hi"}],
         });
-        let out = build_conversation_body(&body, "gpt-5@image", true);
+        let out = build_conversation_body(&body, "gpt-5@image", true, None);
         let empty: Vec<String> = Vec::new();
         assert_eq!(out["system_hints"], json!(empty));
     }

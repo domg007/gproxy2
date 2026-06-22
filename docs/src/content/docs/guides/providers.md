@@ -33,11 +33,40 @@ channel ids are:
 | `claudeapi` | Anthropic Claude Messages API. |
 | `aistudio`, `vertex`, `vertexexpress` | Gemini / Vertex upstreams. |
 | `codex`, `claudecode`, `geminicli`, `antigravity`, `kiro`, `copilotcli` | OAuth, device-code, cookie, or envelope-style agent channels. |
+| `chatgpt` | ChatGPT consumer web backend via a chatgpt.com session cookie. |
 
 Every channel declares a routing surface as `(Operation, OperationKind) ->
 RoutingDecision`. That is the source for the provider's default
 `routing_rules` rows. Request behavior is therefore described by operation
 capability, not by provider-family buckets.
+
+### ChatGPT channel (cookie session)
+
+The `chatgpt` channel proxies the **chatgpt.com consumer web backend** using a
+browser **session cookie** — no API key or OAuth. It supports normal chat,
+thinking / pro / deep-research (streamed chain-of-thought + report), web search,
+and image generation/edit.
+
+**Getting the credential.** Sign in to <https://chatgpt.com> in a browser, open
+DevTools → Network, click any `chatgpt.com` request, and copy its full `Cookie`
+request header. In the console, add a `chatgpt` provider with **Cookie login** and
+paste that cookie string. gproxy exchanges it at `/api/auth/session` to mint the
+access token and warms the Cloudflare / sentinel anti-bot state into the sealed
+secret (refreshed automatically). The cookie expires like a normal browser
+session — re-paste a fresh one when it lapses.
+
+**Session mode.** A per-provider setting (`provider_settings.mode`), surfaced in
+the provider form as a three-way selector, controls where conversations land:
+
+| Mode | Behavior |
+| --- | --- |
+| Normal | Persistent conversations in your normal chat history. |
+| Temporary (default) | Temporary chat — excluded from history and model training. |
+| Project | Conversations open inside a ChatGPT **project**, auto-created/found by name (default `gproxy`), so they stay grouped for easy review. Set the project name in the form. |
+
+Project and Temporary are mutually exclusive (a project conversation is always
+persistent). The legacy `temporary_chat: true\|false` boolean is still honored
+when `mode` is absent.
 
 ## Provider Fields
 

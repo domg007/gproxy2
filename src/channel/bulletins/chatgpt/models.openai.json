@@ -16,6 +16,7 @@
     { "id": "o3", "object": "model", "created": 0, "owned_by": "openai" },
     { "id": "gpt-image-1", "object": "model", "created": 0, "owned_by": "openai" },
     { "id": "gpt-image-1-mini", "object": "model", "created": 0, "owned_by": "openai" },
-    { "id": "gpt-image-1.5", "object": "model", "created": 0, "owned_by": "openai" }
+    { "id": "gpt-image-1.5", "object": "model", "created": 0, "owned_by": "openai" },
+    { "id": "gpt-image-2", "object": "model", "created": 0, "owned_by": "openai" }
   ]
 }

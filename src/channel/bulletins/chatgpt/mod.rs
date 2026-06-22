@@ -33,6 +33,7 @@ mod image_upload;
 mod images;
 mod models;
 mod pow;
+mod project;
 mod request_builder;
 mod request_hints;
 mod sentinel;
@@ -187,11 +188,42 @@ impl Channel for ChatGptChannel {
             return Ok(PreparedRequest::new(req));
         }
 
-        let temporary_chat = ctx
+        // Session mode: `normal` | `temporary` (default) | `project`. Back-compat:
+        // a missing `mode` falls back to the legacy `temporary_chat` bool
+        // (`true`→`temporary`, `false`→`normal`).
+        let mode = ctx
             .provider_settings
-            .get("temporary_chat")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+            .get("mode")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                match ctx
+                    .provider_settings
+                    .get("temporary_chat")
+                    .and_then(Value::as_bool)
+                {
+                    Some(false) => "normal".to_string(),
+                    _ => "temporary".to_string(),
+                }
+            });
+        let temporary_chat = mode == "temporary";
+        // `project` mode opens conversations inside a ChatGPT project (so they
+        // show up grouped in the user's project history). The `g-p-…` id is
+        // resolved (find-or-create) + cached; read the cache synchronously here.
+        // If not yet resolved, the async path below resolves it (this turn
+        // degrades to a normal persistent chat until then — never an error).
+        let project_name: Option<String> = (mode == "project").then(|| {
+            ctx.provider_settings
+                .get("project_name")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("gproxy")
+                .to_string()
+        });
+        let project_id: Option<String> = project_name
+            .as_deref()
+            .and_then(|n| project::cached(ctx.secret, base, n));
+        let needs_project_resolve = project_name.is_some() && project_id.is_none();
 
         let parsed: Value = serde_json::from_slice(&ctx.body)
             .map_err(|e| ChannelError::Build(format!("chatgpt request body parse: {e}")))?;
@@ -202,19 +234,33 @@ impl Channel for ChatGptChannel {
         // conduit WebSocket. Run them as a streaming Custom (POST → detect
         // handoff → conduit stream) so the chain-of-thought + report stream out
         // incrementally. Other models stream inline on the Direct path below.
-        if is_handoff_model(&resolved) || wants_deep_research(&parsed) {
+        if is_handoff_model(&resolved) || wants_deep_research(&parsed) || needs_project_resolve {
             let secret = ctx.secret.clone();
             let base = base.to_string();
             let inbound = ctx.body.clone();
             let model = resolved.clone();
             return Ok(PreparedRequest::custom_stream(Box::new(move |client| {
                 Box::pin(async move {
-                    chat_via_conduit(client, secret, base, model, inbound, temporary_chat).await
+                    chat_via_conduit(
+                        client,
+                        secret,
+                        base,
+                        model,
+                        inbound,
+                        temporary_chat,
+                        project_name,
+                    )
+                    .await
                 })
             })));
         }
 
-        let body_map = request_builder::build_conversation_body(&parsed, &resolved, temporary_chat);
+        let body_map = request_builder::build_conversation_body(
+            &parsed,
+            &resolved,
+            temporary_chat,
+            project_id.as_deref(),
+        );
         let body = serde_json::to_vec(&body_map)
             .map_err(|e| ChannelError::Build(format!("chatgpt request body serialize: {e}")))?;
 
@@ -366,6 +412,7 @@ async fn chat_via_conduit(
     model: String,
     inbound: Bytes,
     temporary_chat: bool,
+    project_name: Option<String>,
 ) -> Result<
     (
         http::StatusCode,
@@ -379,7 +426,19 @@ async fn chat_via_conduit(
 
     let parsed: Value = serde_json::from_slice(&inbound)
         .map_err(|e| ClientError::Transport(format!("chatgpt request body parse: {e}")))?;
-    let body_map = request_builder::build_conversation_body(&parsed, &model, temporary_chat);
+    // `project` mode: resolve (find-or-create) the `g-p-…` id, caching it so
+    // later turns read it synchronously in `prepare()`. A failure yields `None`
+    // → this turn is a normal persistent chat (no error).
+    let project_id = match &project_name {
+        Some(name) => project::resolve(&client, &secret, &base, name).await,
+        None => None,
+    };
+    let body_map = request_builder::build_conversation_body(
+        &parsed,
+        &model,
+        temporary_chat,
+        project_id.as_deref(),
+    );
     let body = serde_json::to_vec(&body_map)
         .map_err(|e| ClientError::Transport(format!("chatgpt request serialize: {e}")))?;
 

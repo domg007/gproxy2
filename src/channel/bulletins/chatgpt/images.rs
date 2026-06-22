@@ -189,7 +189,8 @@ async fn run_inner(
     //    `GET /backend-api/conversation/{cid}`, which 404s for temporary chats
     //    (they are never persisted). So we override temporary_chat → false here,
     //    even though plain chat defaults to temporary.
-    let mut body_map = super::request_builder::build_conversation_body(&openai_json, &model, false);
+    let mut body_map =
+        super::request_builder::build_conversation_body(&openai_json, &model, false, None);
     body_map.insert("system_hints".to_string(), json!(["picture_v2"]));
     if let Some(up) = upload.as_ref() {
         super::image_upload::attach_uploaded_image(&mut body_map, up);

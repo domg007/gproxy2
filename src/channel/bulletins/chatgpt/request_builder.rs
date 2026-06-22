@@ -13,10 +13,16 @@ use serde_json::{Value, json};
 
 /// Build the `/f/conversation` request body from an OpenAI request and a
 /// resolved upstream model slug.
+///
+/// `project_id` (a `g-p-…` gizmo id), when set, scopes the new conversation to
+/// that ChatGPT project via `conversation_mode: gizmo_interaction` so it shows up
+/// grouped in the user's project history. A project conversation is necessarily
+/// persistent, so passing a project forces `temporary_chat` off.
 pub fn build_conversation_body(
     openai_body: &Value,
     resolved_model: &str,
     temporary_chat: bool,
+    project_id: Option<&str>,
 ) -> serde_json::Map<String, Value> {
     let messages = extract_messages(openai_body);
     let mut stream_preview = messages_to_chatgpt(&messages);
@@ -60,9 +66,15 @@ pub fn build_conversation_body(
     body.insert("client_prepare_state".to_string(), json!("success"));
     body.insert("timezone_offset_min".to_string(), json!(-480));
     body.insert("timezone".to_string(), json!("Asia/Shanghai"));
+    // conversation_mode: `project` mode scopes the turn to a `gizmo_interaction`
+    // (this is what actually lands the conversation in the project — mined from a
+    // real in-project `/f/conversation` request); otherwise the default assistant.
     body.insert(
         "conversation_mode".to_string(),
-        json!({ "kind": "primary_assistant" }),
+        match project_id {
+            Some(pid) => json!({ "kind": "gizmo_interaction", "gizmo_id": pid }),
+            None => json!({ "kind": "primary_assistant" }),
+        },
     );
     body.insert("enable_message_followups".to_string(), json!(true));
     body.insert(
@@ -80,7 +92,9 @@ pub fn build_conversation_body(
     // so it keeps `supports_buffering: true` like the real client.
     body.insert("supports_buffering".to_string(), json!(is_deep_research));
     body.insert("supported_encodings".to_string(), json!(["v1"]));
-    if temporary_chat {
+    // A project conversation (scoped via `conversation_mode` above) is necessarily
+    // persistent, so only mark temporary when NOT in project mode.
+    if project_id.is_none() && temporary_chat {
         // "Temporary chat" — exclude this turn from the user's ChatGPT
         // history and from model training (matches the UI toggle).
         body.insert("history_and_training_disabled".to_string(), json!(true));
@@ -304,7 +318,7 @@ mod tests {
                 {"role": "user", "content": "hi"}
             ]
         });
-        let out = build_conversation_body(&body, &resolve_model("gpt-5"), true);
+        let out = build_conversation_body(&body, &resolve_model("gpt-5"), true, None);
         // `resolve_model` no longer rewrites friendly names — `gpt-5` passes
         // through verbatim. DB aliases + rewrite_rules handle remapping.
         assert_eq!(out["model"], json!("gpt-5"));
@@ -324,7 +338,7 @@ mod tests {
                 ]
             }]
         });
-        let out = build_conversation_body(&body, "gpt-5-3", true);
+        let out = build_conversation_body(&body, "gpt-5-3", true, None);
         let text = out["messages"][0]["content"]["parts"][0]
             .as_str()
             .unwrap()
@@ -343,7 +357,7 @@ mod tests {
                 {"role": "user", "content": "say bye"}
             ]
         });
-        let out = build_conversation_body(&body, "gpt-5-3", true);
+        let out = build_conversation_body(&body, "gpt-5-3", true, None);
         let text = out["messages"][0]["content"]["parts"][0]
             .as_str()
             .unwrap()
@@ -364,7 +378,7 @@ mod tests {
                 }
             ]
         });
-        let out = build_conversation_body(&body, "gpt-5-3", true);
+        let out = build_conversation_body(&body, "gpt-5-3", true, None);
         let text = out["messages"][0]["content"]["parts"][0]
             .as_str()
             .unwrap()
@@ -386,8 +400,29 @@ mod tests {
         // `supports_buffering` MUST be false so the backend streams the turn
         // inline on this response instead of emitting a `stream_handoff`.
         let body = json!({ "messages": [{"role": "user", "content": "hi"}] });
-        let out = build_conversation_body(&body, "gpt-5", true);
+        let out = build_conversation_body(&body, "gpt-5", true, None);
         assert_eq!(out["supports_buffering"], json!(false));
+    }
+
+    #[test]
+    fn project_mode_sets_gizmo_interaction_and_drops_temporary() {
+        // `project_id` scopes the conversation to a project via
+        // `conversation_mode: gizmo_interaction` and forces it persistent — even
+        // if `temporary_chat` is true, no `history_and_training_disabled`.
+        let body = json!({ "messages": [{"role": "user", "content": "hi"}] });
+        let out = build_conversation_body(&body, "gpt-5", true, Some("g-p-abc123"));
+        assert_eq!(
+            out["conversation_mode"],
+            json!({"kind": "gizmo_interaction", "gizmo_id": "g-p-abc123"})
+        );
+        assert!(out.get("history_and_training_disabled").is_none());
+        // No project + temporary → default assistant + the legacy temporary flag.
+        let out2 = build_conversation_body(&body, "gpt-5", true, None);
+        assert_eq!(
+            out2["conversation_mode"],
+            json!({"kind": "primary_assistant"})
+        );
+        assert_eq!(out2["history_and_training_disabled"], json!(true));
     }
 
     #[test]
@@ -400,7 +435,7 @@ mod tests {
             "tools": [{"type": "deep_research"}],
             "messages": [{"role": "user", "content": "research tokio history"}]
         });
-        let out = build_conversation_body(&body, "gpt-5-5-pro", true);
+        let out = build_conversation_body(&body, "gpt-5-5-pro", true, None);
         let meta = &out["messages"][0]["metadata"];
         assert_eq!(
             meta["system_hints"],

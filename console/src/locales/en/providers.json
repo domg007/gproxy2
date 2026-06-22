@@ -26,7 +26,12 @@
     "kind": "Kind",
     "rpm": "RPM limit",
     "tpm": "TPM limit",
-    "credLabel": "Label"
+    "credLabel": "Label",
+    "sessionMode": "Session mode",
+    "modeNormal": "Normal",
+    "modeTemporary": "Temporary",
+    "modeProject": "Project",
+    "projectName": "Project name"
   },
   "strategy": {
     "round_robin": "Round robin",
@@ -46,7 +51,8 @@
     "baseUrlHint": "Leave empty to use the channel's built-in default.",
     "enableMagicCacheHint": "Strip embedded magic trigger strings and stamp Claude cache_control (auto / 5m / 1h).",
     "saved": "Saved",
-    "channelLocked": "Channel is fixed after creation."
+    "channelLocked": "Channel is fixed after creation.",
+    "projectNameHint": "Conversations open inside this ChatGPT project (auto-created if missing), so they stay grouped in your history. Mutually exclusive with temporary."
   },
   "tls": {
     "custom": "Custom",

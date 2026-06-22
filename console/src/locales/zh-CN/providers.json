@@ -26,7 +26,12 @@
     "kind": "类型",
     "rpm": "RPM 上限",
     "tpm": "TPM 上限",
-    "credLabel": "显示名"
+    "credLabel": "显示名",
+    "sessionMode": "会话模式",
+    "modeNormal": "普通",
+    "modeTemporary": "临时聊天",
+    "modeProject": "进项目",
+    "projectName": "项目名"
   },
   "strategy": {
     "round_robin": "轮询",
@@ -46,7 +51,8 @@
     "baseUrlHint": "留空使用渠道内置默认值。",
     "enableMagicCacheHint": "识别并剥除 prompt 里嵌入的魔法触发串,按其 ttl(auto/5m/1h)打 Claude cache_control。",
     "saved": "已保存",
-    "channelLocked": "渠道在创建后不可更改。"
+    "channelLocked": "渠道在创建后不可更改。",
+    "projectNameHint": "会话开在该 ChatGPT 项目里(不存在则自动创建),方便在历史里分组查看。与临时聊天互斥。"
   },
   "tls": {
     "custom": "自定义",
