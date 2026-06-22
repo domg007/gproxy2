@@ -44,7 +44,7 @@ pub fn tls_presets() -> Vec<TlsPreset> {
             id: "claude".into(),
             label: "Claude CLI".into(),
             fingerprint: serde_json::json!({
-                "headers": { "user-agent": "claude-code/2.1.162" },
+                "headers": { "user-agent": "claude-cli/2.1.185 (external, sdk-cli)" },
                 "tls": {
                     "alpn_protocols": ["http/1.1"],
                     "grease_enabled": false,

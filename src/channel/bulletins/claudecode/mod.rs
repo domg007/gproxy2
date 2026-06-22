@@ -149,7 +149,10 @@ impl Channel for ClaudeCodeChannel {
         let session_id = cch::session_id(&device_id, &ctx.body, now_secs);
 
         // The model call (`POST /v1/messages`) carries the CLI billing header +
-        // `metadata.user_id`; the `cch` checksum is computed over the final body.
+        // `metadata.user_id`; the legacy `cch` checksum is computed over the
+        // final body. Claude Code 2.1.185 still emits a cch field, but the native
+        // rewrite no longer matches the 2.1.178 seed over the final wire body;
+        // keep the legacy signer until the new native path is fully recovered.
         // Match the path EXACTLY (not by prefix): the sibling
         // `POST /v1/messages/count_tokens` endpoint rejects `metadata`
         // ("metadata: Extra inputs are not permitted"), so it must NOT be
@@ -168,7 +171,7 @@ impl Channel for ClaudeCodeChannel {
                 &device_id,
                 account_uuid,
                 &session_id,
-                "cli",
+                "sdk-cli",
             ))
         } else {
             ctx.body
@@ -344,7 +347,11 @@ mod tests {
         assert_eq!(req.headers().get("x-stainless-runtime").unwrap(), "node");
         assert_eq!(
             req.headers().get("user-agent").unwrap(),
-            "claude-code/2.1.178"
+            "claude-cli/2.1.185 (external, sdk-cli)"
+        );
+        assert_eq!(
+            req.headers().get("x-stainless-runtime-version").unwrap(),
+            "v24.3.0"
         );
         assert!(req.headers().get("x-claude-code-session-id").is_some());
     }

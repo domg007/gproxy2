@@ -2,7 +2,9 @@
 //! in `system[0]` of every `/v1/messages` body. Reproduced so the impersonated
 //! request passes Anthropic's body-integrity check. See `docs/claudecode-cch.md`.
 //!
-//! Algorithm (confirmed against real Claude Code 2.1.178 bundle behavior):
+//! Header shape confirmed against real Claude Code 2.1.185 bundle/wire behavior;
+//! the checksum implementation is the legacy 2.1.178 native path and must be
+//! rechecked before claiming exact 2.1.185 parity:
 //! 1. Inject `metadata.user_id` = the JSON-string `{device_id, account_uuid,
 //!    session_id}` the CLI sends.
 //! 2. Prepend a `system[0]` text block holding the billing header with a dynamic
@@ -19,8 +21,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 /// Keep in lockstep with the channel User-Agent version.
-const CLI_VERSION: &str = "2.1.178";
-/// Salt used by Claude Code 2.1.178 to derive the three-hex `cc_version` suffix.
+const CLI_VERSION: &str = "2.1.185";
+/// Salt used by Claude Code to derive the three-hex `cc_version` suffix.
 const CC_VERSION_SUFFIX_SALT: &str = "59cf53e54c78";
 /// xxh64 seed mined from the Claude Code bundle.
 const CCH_SEED: u64 = 0x4d65_9218_e32a_3268;
@@ -214,16 +216,16 @@ fn conversation_key(body: &[u8]) -> (Vec<u8>, Vec<u8>) {
 mod tests {
     use super::*;
 
-    /// Known-good vector computed from the real algorithm (python `xxhash`):
-    /// this exact body → `cch=3f334`.
+    /// Self-consistency vector for the legacy signer (python `xxhash`):
+    /// this exact body → `cch=0c654`.
     #[test]
     fn cch_matches_known_vector() {
         // No metadata/system mutation noise: feed a body whose serialized form is
         // already the canonical test body, then assert the rewritten cch.
-        let body = br#"{"model":"claude-sonnet-4","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.178.575; cc_entrypoint=cli; cch=00000;"}],"messages":[]}"#;
+        let body = br#"{"model":"claude-sonnet-4","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.185.ecf; cc_entrypoint=sdk-cli; cch=00000;"}],"messages":[]}"#;
         let pos = find(body, PLACEHOLDER).unwrap();
         let cch = xxhash_rust::xxh64::xxh64(body, CCH_SEED) & 0xf_ffff;
-        assert_eq!(format!("{cch:05x}"), "3f334");
+        assert_eq!(format!("{cch:05x}"), "0c654");
         // sanity: placeholder digits are where we think they are.
         assert_eq!(&body[pos..pos + PLACEHOLDER.len()], PLACEHOLDER);
     }
@@ -235,7 +237,7 @@ mod tests {
             "devhash",
             "acct-1",
             "sess-uuid",
-            "cli",
+            "sdk-cli",
         );
         let v: Value = serde_json::from_slice(&out).unwrap();
         // metadata.user_id is the JSON-string of the three ids.
@@ -246,8 +248,8 @@ mod tests {
         assert_eq!(ids["session_id"], "sess-uuid");
         // system[0] carries the billing header with a 5-hex (non-zero) cch.
         let txt = v["system"][0]["text"].as_str().unwrap();
-        assert!(txt.contains("cc_version=2.1.178.575"));
-        assert!(txt.contains("cc_entrypoint=cli"));
+        assert!(txt.contains("cc_version=2.1.185.ecf"));
+        assert!(txt.contains("cc_entrypoint=sdk-cli"));
         let cch = txt.split("cch=").nth(1).unwrap().trim_end_matches(';');
         assert_eq!(cch.len(), 5);
         assert_ne!(cch, "00000");
@@ -285,7 +287,7 @@ mod tests {
     fn apply_replaces_existing_billing_block() {
         // Re-proxy case: the inbound body already carries a billing block.
         let body = br#"{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=old; cc_entrypoint=x; cch=fffff;"},{"type":"text","text":"real system"}],"messages":[]}"#;
-        let out = apply(body, "d", "a", "s", "cli");
+        let out = apply(body, "d", "a", "s", "sdk-cli");
         let v: Value = serde_json::from_slice(&out).unwrap();
         let sys = v["system"].as_array().unwrap();
         // Replaced in place, not duplicated → still exactly one billing block.
@@ -296,7 +298,7 @@ mod tests {
         let txt = sys.iter().find(|b| is_billing_block(b)).unwrap()["text"]
             .as_str()
             .unwrap();
-        assert!(txt.contains("cc_version=2.1.178.575"));
+        assert!(txt.contains("cc_version=2.1.185.ecf"));
         assert!(!txt.contains("cch=00000"));
         assert!(!txt.contains("cch=fffff"));
     }
