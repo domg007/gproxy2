@@ -188,6 +188,15 @@
     "variants": "变体",
     "variantsHint": "后缀把一个模型展开成多个(如 -thinking、-32k)。每行一个。",
     "exposeBase": "同时暴露 base 模型",
+    "addPresetVariant": "添加预设变体",
+    "variantPicker": {
+      "protocol": "协议",
+      "none": "无",
+      "preview": "预览",
+      "injects": "注入参数",
+      "add": "添加变体",
+      "cancel": "取消"
+    },
     "delete": "删除模型",
     "deleteConfirm": "删除模型「{{name}}」及其全部变体?",
     "imageTiered": "分档定价——经 API 编辑",

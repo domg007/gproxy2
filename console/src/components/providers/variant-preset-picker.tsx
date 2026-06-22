@@ -1,0 +1,102 @@
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  SUFFIX_PROTOCOL_LABELS, suffixGroupsForChannel, suffixProtocolForChannel,
+  type SuffixAction, type SuffixProtocol,
+} from "@/components/providers/suffix-presets";
+
+// Radix <SelectItem value=""> crashes at runtime — use a sentinel for "none".
+const NONE = "__none__";
+
+export function VariantPresetPicker({
+  modelId, channel, onConfirm, onCancel,
+}: {
+  modelId: string;
+  channel: string;
+  onConfirm: (suffix: string, actions: SuffixAction[]) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("providers");
+  const [protocol, setProtocol] = useState<SuffixProtocol>(() => suffixProtocolForChannel(channel));
+  // group key → selected entry index (as string), or NONE.
+  const [picks, setPicks] = useState<Record<string, string>>({});
+
+  const groups = suffixGroupsForChannel(protocol, channel);
+
+  const { suffix, actions } = useMemo(() => {
+    let s = "";
+    const a: SuffixAction[] = [];
+    for (const g of groups) {
+      const picked = picks[g.key];
+      if (!picked || picked === NONE) continue;
+      const entry = g.entries[Number(picked)];
+      if (!entry) continue;
+      s += entry.suffix;
+      a.push(...entry.actions);
+    }
+    return { suffix: s, actions: a };
+  }, [groups, picks]);
+
+  return (
+    <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
+      <div className="grid gap-1">
+        <Label>{t("models.variantPicker.protocol")}</Label>
+        <Select value={protocol} onValueChange={(v) => { setProtocol(v as SuffixProtocol); setPicks({}); }}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(Object.keys(SUFFIX_PROTOCOL_LABELS) as SuffixProtocol[]).map((p) => (
+              <SelectItem key={p} value={p}>{SUFFIX_PROTOCOL_LABELS[p]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {groups.map((g) => (
+        <div key={g.key} className="grid gap-1">
+          <Label>{g.label}</Label>
+          <Select
+            value={picks[g.key] ?? NONE}
+            onValueChange={(v) => setPicks((prev) => ({ ...prev, [g.key]: v }))}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>{t("models.variantPicker.none")}</SelectItem>
+              {g.entries.map((e, i) => (
+                <SelectItem key={e.suffix + i} value={String(i)}>{`${e.suffix} — ${e.label}`}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ))}
+
+      <div className="rounded border bg-background p-2 text-xs">
+        <div className="text-muted-foreground">{t("models.variantPicker.preview")}</div>
+        <div className="font-mono">{suffix ? `${modelId}${suffix}` : (modelId || "—")}</div>
+        {actions.length > 0 && (
+          <div className="mt-2 grid gap-1">
+            <div className="text-muted-foreground">{t("models.variantPicker.injects")}</div>
+            {actions.map((act, i) => (
+              <div key={i} className="font-mono">
+                <span className="text-foreground">{act.path}</span> = {JSON.stringify(act.value)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          {t("models.variantPicker.cancel")}
+        </Button>
+        <Button type="button" size="sm" disabled={!suffix} onClick={() => onConfirm(suffix, actions)}>
+          {t("models.variantPicker.add")}
+        </Button>
+      </div>
+    </div>
+  );
+}

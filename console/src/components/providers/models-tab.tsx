@@ -130,7 +130,7 @@ export function ModelsTab({ provider }: { provider: Provider }) {
         />
       )}
       <EntityDialog open={formOpen} onOpenChange={setFormOpen} title={editTarget ? t("models.edit") : t("models.add")} wide>
-        <ModelForm key={editTarget?.id ?? "new"} providerId={provider.id} model={editTarget} onSaved={() => setFormOpen(false)} />
+        <ModelForm key={editTarget?.id ?? "new"} providerId={provider.id} providerName={provider.name} channel={provider.channel} model={editTarget} onSaved={() => setFormOpen(false)} />
       </EntityDialog>
       <ModelPullDialog providerId={provider.id} existing={existingIds} open={pullOpen} onOpenChange={setPullOpen} />
       <ConfirmDangerous

@@ -2,12 +2,16 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 import { upsertProviderModel, type ProviderModel } from "@/api/provider-models";
 import { ApiError } from "@/api/http";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { VariantPresetPicker } from "@/components/providers/variant-preset-picker";
+import { syncModelVariants, parseVariantSuffixes } from "@/lib/variant-sync";
+import type { SuffixAction } from "@/components/providers/suffix-presets";
 
 const PRICE_KEYS = ["input", "output", "cache_read", "cache_creation", "image"] as const;
 type PriceKey = (typeof PRICE_KEYS)[number];
@@ -61,7 +65,7 @@ function buildVariants(suffixesText: string, exposeBase: boolean): unknown {
   return exposeBase ? suffixes : { expose_base: false, suffixes };
 }
 
-export function ModelForm({ providerId, model, onSaved }: { providerId: number; model?: ProviderModel; onSaved: () => void }) {
+export function ModelForm({ providerId, providerName, channel, model, onSaved }: { providerId: number; providerName: string; channel: string; model?: ProviderModel; onSaved: () => void }) {
   const { t } = useTranslation("providers");
   const queryClient = useQueryClient();
   const editing = model !== undefined;
@@ -78,25 +82,38 @@ export function ModelForm({ providerId, model, onSaved }: { providerId: number; 
   const [exposeBase, setExposeBase] = useState(initVariants.exposeBase);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [oldSuffixes] = useState(() => parseVariantSuffixes(model?.variants_json));
+  const [pendingPresetActions, setPendingPresetActions] = useState<Map<string, SuffixAction[]>>(new Map());
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!modelId.trim()) throw new ApiError(0, "bad_request", t("form.required"));
       const pricing = buildPricing(prices, model?.pricing_json);
       const variants = buildVariants(suffixes, exposeBase);
-      return upsertProviderModel(providerId, {
+      const newSuffixes = suffixes.split("\n").map((s) => s.trim()).filter((s) => s !== "");
+      const saved = await upsertProviderModel(providerId, {
         id: model?.id ?? null,
         provider_id: providerId,
         model_id: modelId.trim(),
         display_name: displayName.trim() === "" ? null : displayName.trim(),
-        // pricing_json is REQUIRED in the body (no serde default) — always send it,
-        // null when blank (harmless for billing). variants_json HAS serde default → omit.
         pricing_json: pricing,
         ...(variants !== null ? { variants_json: variants } : {}),
         enabled,
       });
+      await syncModelVariants({
+        providerId,
+        providerName,
+        modelId: saved.model_id,
+        oldSuffixes,
+        newSuffixes,
+        presetActions: pendingPresetActions,
+      });
+      return saved;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["providers", providerId, "models"] });
+      void queryClient.invalidateQueries({ queryKey: ["rule-sets"] });
       toast.success(t("form.saved"));
       onSaved();
     },
@@ -146,6 +163,26 @@ export function ModelForm({ providerId, model, onSaved }: { providerId: number; 
           value={suffixes} spellCheck={false}
           onChange={(e) => setSuffixes(e.target.value)} placeholder={"-thinking\n-32k"}
         />
+        {pickerOpen ? (
+          <VariantPresetPicker
+            modelId={modelId.trim()}
+            channel={channel}
+            onCancel={() => setPickerOpen(false)}
+            onConfirm={(suffix, actions) => {
+              setSuffixes((prev) => {
+                const lines = prev.split("\n").map((s) => s.trim()).filter((s) => s !== "");
+                return lines.includes(suffix) ? prev : [...lines, suffix].join("\n");
+              });
+              setPendingPresetActions((prev) => new Map(prev).set(suffix, actions));
+              setPickerOpen(false);
+            }}
+          />
+        ) : (
+          <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => setPickerOpen(true)}>
+            <Plus className="size-4" />
+            {t("models.addPresetVariant")}
+          </Button>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={exposeBase} onCheckedChange={setExposeBase} />
           {t("models.exposeBase")}

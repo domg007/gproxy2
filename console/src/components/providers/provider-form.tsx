@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { upsertProvider, type Provider } from "@/api/providers";
 import { ApiError } from "@/api/http";
 import { CHANNELS } from "@/lib/channel-meta";
+import { ensureProviderDefaultRuleSet } from "@/lib/provider-rule-set";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +73,11 @@ export function ProviderForm({ provider, onSaved }: ProviderFormProps) {
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ["providers"] });
       toast.success(t("form.saved"));
+      if (!editing) {
+        ensureProviderDefaultRuleSet(saved.id, saved.name).catch((e) =>
+          toast.error(e instanceof ApiError ? e.message : String(e)),
+        );
+      }
       onSaved(saved);
     },
     onError: (error) => {

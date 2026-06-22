@@ -188,6 +188,15 @@
     "variants": "Variants",
     "variantsHint": "Suffixes expand one model into many (e.g. -thinking, -32k). One per line.",
     "exposeBase": "Expose the base model too",
+    "addPresetVariant": "Add preset variant",
+    "variantPicker": {
+      "protocol": "Protocol",
+      "none": "None",
+      "preview": "Preview",
+      "injects": "Injects",
+      "add": "Add variant",
+      "cancel": "Cancel"
+    },
     "delete": "Delete model",
     "deleteConfirm": "Delete model \"{{name}}\" and all its variants?",
     "imageTiered": "Tiered — edit via API",

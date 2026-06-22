@@ -12,6 +12,7 @@ import { CredentialsTab } from "@/components/providers/credentials-tab";
 import { ModelsTab } from "@/components/providers/models-tab";
 import { RoutingRulesTab } from "@/components/providers/routing-rules-tab";
 import { ProviderRulesTab } from "@/components/providers/provider-rules-tab";
+import { deleteProviderDefaultRuleSet } from "@/lib/provider-rule-set";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,7 +37,14 @@ function ProviderDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const removal = useMutation({
-    mutationFn: () => deleteProvider(id),
+    mutationFn: async () => {
+      try {
+        await deleteProviderDefaultRuleSet(id);
+      } catch {
+        // best-effort cleanup; never block provider deletion on it
+      }
+      await deleteProvider(id);
+    },
     onSuccess: () => {
       setDeleteOpen(false); // close before navigation unmounts → no double-click window
       void queryClient.invalidateQueries({ queryKey: ["providers"] });
