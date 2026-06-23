@@ -217,7 +217,13 @@ mod tests {
             op(&c),
             (Operation::GetModel, OperationKind::Provider(Prov::OpenAi))
         );
-        assert!(classify(&Method::GET, "/v1/models/a/b", &HeaderMap::new(), &body).is_err());
+        // Multi-segment model ids (e.g. OpenRouter `vendor/model`) are valid
+        // GetModel — the slash rejection was dropped for scoped model aliases.
+        let c = classify(&Method::GET, "/v1/models/a/b", &HeaderMap::new(), &body).unwrap();
+        assert_eq!(
+            op(&c),
+            (Operation::GetModel, OperationKind::Provider(Prov::OpenAi))
+        );
     }
 
     #[test]

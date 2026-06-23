@@ -64,6 +64,24 @@ async fn migrates_old_alias_table_to_scoped_aliases() {
     )
     .await
     .expect("old alias row");
+    // A faithful pre-v7 DB also predates the cache-token columns (migration 7).
+    // Seed usage_rollups WITHOUT them so create_all's IF NOT EXISTS leaves it
+    // alone and migration 7's ADD COLUMN applies — as on a real v5→latest
+    // upgrade. Only the dimension columns the unique index needs are required.
+    conn.execute_unprepared(
+        "CREATE TABLE usage_rollups (\
+            id INTEGER PRIMARY KEY, \
+            granularity TEXT NOT NULL, \
+            bucket_start INTEGER NOT NULL, \
+            provider_id INTEGER, \
+            org_id INTEGER, \
+            team_id INTEGER, \
+            user_id INTEGER, \
+            route_name TEXT, \
+            model TEXT)",
+    )
+    .await
+    .expect("old usage_rollups table");
     conn.execute_unprepared(crate::store::persistence::migrations::CREATE_MIGRATIONS_TABLE)
         .await
         .expect("schema_migrations");
