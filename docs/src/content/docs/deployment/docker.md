@@ -48,6 +48,18 @@ The image sets:
 `file` persistence is local-disk JSON storage, suitable for a single container.
 Mount `/app/data` if you want data to survive container replacement.
 
+:::caution[Logging in over plain HTTP]
+The image serves plain HTTP. The session cookie is `Secure` by default, which
+browsers accept over `http://localhost` / `http://127.0.0.1` but **drop** on any
+other plain-HTTP origin (LAN IP, server IP, tunnel) — so the Console accepts your
+password, briefly renders, then bounces you back to the login page. When you reach
+it over plain HTTP from a non-`localhost` address, add `-e GPROXY_INSECURE_COOKIES=1`,
+or front the container with an HTTPS reverse proxy.
+
+Also note `GPROXY_ADMIN_PASSWORD` must be **at least 12 characters** — a shorter
+value makes the container exit on boot with `GPROXY_ADMIN_PASSWORD rejected`.
+:::
+
 ## Persistent Volume
 
 ```bash

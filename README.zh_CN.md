@@ -34,13 +34,19 @@ HTTP 接口,并补齐把它当共享服务运行所需的一切:
 
 完全自包含:内嵌控制台、文件式 SQLite、无需外部服务。
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/leenhawk/gproxy&ports=8787;http;/&name=gproxy&env[GPROXY_ADMIN_PASSWORD]=change-me)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/leenhawk/gproxy&ports=8787;http;/&name=gproxy&env[GPROXY_ADMIN_PASSWORD]=change-me-min12char)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeenHawk/gproxy)
 
 ```bash
-docker run -p 8787:8787 -e GPROXY_ADMIN_PASSWORD=change-me ghcr.io/leenhawk/gproxy
-# 然后打开 http://localhost:8787/console (admin / change-me)
+docker run -p 8787:8787 -e GPROXY_ADMIN_PASSWORD=change-me-min12char ghcr.io/leenhawk/gproxy
+# 然后打开 http://localhost:8787/console (admin / change-me-min12char)
 ```
+
+> **管理员密码至少 12 个字符** —— 过短容器启动即以 `GPROXY_ADMIN_PASSWORD rejected` 报错退出。
+>
+> **用非 `localhost` 地址(局域网 IP、服务器 IP、隧道)经明文 HTTP 访问控制台?** 会话 cookie
+> 默认带 `Secure`,浏览器会把它丢弃,于是即使密码正确,控制台登录后也会立刻弹回登录页。加上
+> `-e GPROXY_INSECURE_COOKIES=1`,或在前面挂 HTTPS 反代。`http://localhost:8787` 则直接可用。
 
 ### ☁️ Serverless 边缘(WebAssembly)
 

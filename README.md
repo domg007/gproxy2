@@ -38,13 +38,22 @@ shared service:
 
 Fully self-contained: embedded console, file-based SQLite, no external services.
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/leenhawk/gproxy&ports=8787;http;/&name=gproxy&env[GPROXY_ADMIN_PASSWORD]=change-me)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/leenhawk/gproxy&ports=8787;http;/&name=gproxy&env[GPROXY_ADMIN_PASSWORD]=change-me-min12char)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeenHawk/gproxy)
 
 ```bash
-docker run -p 8787:8787 -e GPROXY_ADMIN_PASSWORD=change-me ghcr.io/leenhawk/gproxy
-# then open http://localhost:8787/console  (admin / change-me)
+docker run -p 8787:8787 -e GPROXY_ADMIN_PASSWORD=change-me-min12char ghcr.io/leenhawk/gproxy
+# then open http://localhost:8787/console  (admin / change-me-min12char)
 ```
+
+> **The admin password must be at least 12 characters** — the container exits on
+> boot with `GPROXY_ADMIN_PASSWORD rejected` if it's shorter.
+>
+> **Reaching the console over plain HTTP from a non-`localhost` address** (LAN IP,
+> server IP, tunnel)? The session cookie is `Secure` by default, so the browser
+> drops it and the console bounces you straight back to the login page even with
+> the right password. Add `-e GPROXY_INSECURE_COOKIES=1`, or put it behind HTTPS.
+> Plain `http://localhost:8787` works as-is.
 
 ### ☁️ Serverless edge (WebAssembly)
 
