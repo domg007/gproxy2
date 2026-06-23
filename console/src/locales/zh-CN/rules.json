@@ -60,6 +60,7 @@
       "merge": "合并"
     },
     "targetOptions": {
+      "top_level": "顶层(全局)",
       "system": "系统",
       "tools": "工具",
       "last_message": "最后一条消息"

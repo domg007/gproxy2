@@ -60,6 +60,7 @@
       "merge": "Merge"
     },
     "targetOptions": {
+      "top_level": "Top Level (global)",
       "system": "System",
       "tools": "Tools",
       "last_message": "Last Message"

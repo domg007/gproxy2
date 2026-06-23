@@ -23,8 +23,8 @@ Cache 规则在协议 transform 之后运行。Gemini 或 OpenAI 客户端请求
 
 | 字段 | 含义 |
 | --- | --- |
-| `target` | `system`、`tools` 或 `last_message`。 |
-| `index` | Console 侧的有符号索引：`>0` 表示正数第 N 条，`<0` 表示倒数第 N 条，`0` 无效；省略时 runtime 使用最后一个 block。 |
+| `target` | `top_level`、`system`、`tools` 或 `last_message`。 |
+| `index` | Console 侧的有符号索引：`>0` 表示正数第 N 条，`<0` 表示倒数第 N 条，`0` 无效；省略时 runtime 使用最后一个 block。`top_level` 时忽略。 |
 | `ttl` | 可选 TTL 字符串，例如 `5m` 或 `1h`。 |
 | `position` | 兼容保留字段；当前未使用。 |
 
@@ -34,6 +34,7 @@ Cache 规则在协议 transform 之后运行。Gemini 或 OpenAI 客户端请求
 
 | Target | marker 插入位置 |
 | --- | --- |
+| `top_level` | 写在请求根对象上(`global`)，启用 Anthropic 的自动 prompt 缓存。忽略 `index`/`position`。 |
 | `system` | Claude `system` array 中的某项。字符串形式的 `system` 不能携带 block metadata，会跳过。 |
 | `tools` | 顶层 `tools` array 中的某项。 |
 | `last_message` | 最后一条 message 的 `content` array 中的某个 block。 |

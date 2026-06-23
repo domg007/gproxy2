@@ -27,26 +27,29 @@ export function CacheBreakpointFields({ value, onChange }: Props) {
         >
           <SelectTrigger id="cfg-cb-target"><SelectValue /></SelectTrigger>
           <SelectContent>
+            <SelectItem value="top_level">{t("config.targetOptions.top_level")}</SelectItem>
             <SelectItem value="system">{t("config.targetOptions.system")}</SelectItem>
             <SelectItem value="tools">{t("config.targetOptions.tools")}</SelectItem>
             <SelectItem value="last_message">{t("config.targetOptions.last_message")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
-      <div className="grid gap-1">
-        <Label htmlFor="cfg-cb-index">{t("config.index")}</Label>
-        <Input
-          id="cfg-cb-index"
-          type="number"
-          value={value.index ?? ""}
-          onChange={(e) => {
-            const n = e.target.value.trim();
-            onChange({ ...value, index: n === "" ? undefined : Number(n) });
-          }}
-          placeholder="optional"
-        />
-        <p className="text-xs text-muted-foreground">{t("config.indexHint")}</p>
-      </div>
+      {value.target !== "top_level" && (
+        <div className="grid gap-1">
+          <Label htmlFor="cfg-cb-index">{t("config.index")}</Label>
+          <Input
+            id="cfg-cb-index"
+            type="number"
+            value={value.index ?? ""}
+            onChange={(e) => {
+              const n = e.target.value.trim();
+              onChange({ ...value, index: n === "" ? undefined : Number(n) });
+            }}
+            placeholder="optional"
+          />
+          <p className="text-xs text-muted-foreground">{t("config.indexHint")}</p>
+        </div>
+      )}
       <div className="grid gap-1">
         <Label htmlFor="cfg-cb-ttl">{t("config.ttl")}</Label>
         <Select

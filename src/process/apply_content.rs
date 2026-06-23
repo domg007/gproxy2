@@ -96,6 +96,13 @@ pub fn cache_breakpoint(
     if let Some(ttl) = &cfg.ttl {
         control["ttl"] = json!(ttl);
     }
+    // Top-level (global) breakpoint: stamp `cache_control` on the request root,
+    // enabling Anthropic's automatic prompt caching. `index`/`position` are
+    // irrelevant here. (v1 parity: `CacheBreakpointTarget::TopLevel`.)
+    if matches!(cfg.target.as_str(), "top_level" | "global") {
+        obj.entry("cache_control").or_insert(control);
+        return;
+    }
     let blocks: Option<&mut Vec<Value>> = match cfg.target.as_str() {
         // string-form `system` cannot carry block markers — skips via None
         "system" => obj.get_mut("system").and_then(Value::as_array_mut),
@@ -111,12 +118,33 @@ pub fn cache_breakpoint(
     let Some(blocks) = blocks else {
         return warn_skip("cache_breakpoint", "target not found or not a block array");
     };
-    let idx = cfg
-        .index
-        .and_then(|i| usize::try_from(i).ok())
-        .unwrap_or(blocks.len().saturating_sub(1));
+    let Some(idx) = resolve_block_index(blocks.len(), cfg.index) else {
+        return warn_skip("cache_breakpoint", "index out of range or invalid");
+    };
     if let Some(Value::Object(block)) = blocks.get_mut(idx) {
         block.insert("cache_control".to_owned(), control);
+    }
+}
+
+/// Resolve a console-facing **signed, 1-based** `index` against a block array of
+/// length `len`: `>0` is the Nth block from the start, `<0` is the Nth from the
+/// end, `0` is invalid. Omitted (`None`) defaults to the last block. Returns
+/// `None` (skip) when the array is empty or the index is invalid/out of range.
+fn resolve_block_index(len: usize, index: Option<i64>) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    match index {
+        None => Some(len - 1),
+        Some(0) => None,
+        Some(i) if i > 0 => {
+            let nth = i as usize;
+            (nth <= len).then(|| nth - 1)
+        }
+        Some(i) => {
+            let from_end = i.unsigned_abs() as usize;
+            (from_end <= len).then(|| len - from_end)
+        }
     }
 }
 
@@ -205,5 +233,36 @@ mod tests {
                 .get("cache_control")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn cache_breakpoint_top_level() {
+        let mut v = json!({"system": "x", "messages": []});
+        let cfg = CacheBreakpointCfg {
+            target: "top_level".into(),
+            index: None,
+            ttl: Some("1h".into()),
+            position: None,
+        };
+        cache_breakpoint(&mut v, Some(K::ClaudeMessages), &cfg);
+        // Marker lands on the request root, not in a block array.
+        assert_eq!(v["cache_control"]["type"], "ephemeral");
+        assert_eq!(v["cache_control"]["ttl"], "1h");
+    }
+
+    #[test]
+    fn resolve_block_index_signed_semantics() {
+        // >0: 1-based from the start
+        assert_eq!(resolve_block_index(3, Some(1)), Some(0));
+        assert_eq!(resolve_block_index(3, Some(3)), Some(2));
+        assert_eq!(resolve_block_index(3, Some(4)), None);
+        // <0: 1-based from the end
+        assert_eq!(resolve_block_index(3, Some(-1)), Some(2));
+        assert_eq!(resolve_block_index(3, Some(-3)), Some(0));
+        assert_eq!(resolve_block_index(3, Some(-4)), None);
+        // 0 invalid; omitted → last; empty array → skip
+        assert_eq!(resolve_block_index(3, Some(0)), None);
+        assert_eq!(resolve_block_index(3, None), Some(2));
+        assert_eq!(resolve_block_index(0, Some(1)), None);
     }
 }

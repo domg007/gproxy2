@@ -28,8 +28,8 @@ Supported fields:
 
 | Field | Meaning |
 | --- | --- |
-| `target` | `system`, `tools`, or `last_message`. |
-| `index` | Console-facing signed index: `>0` means Nth from the start, `<0` means Nth from the end, and `0` is invalid. If omitted, the runtime uses the last block. |
+| `target` | `top_level`, `system`, `tools`, or `last_message`. |
+| `index` | Console-facing signed index: `>0` means Nth from the start, `<0` means Nth from the end, and `0` is invalid. If omitted, the runtime uses the last block. Ignored for `top_level`. |
 | `ttl` | Optional TTL string such as `5m` or `1h`. |
 | `position` | Reserved for compatibility; currently unused. |
 
@@ -40,6 +40,7 @@ Non-Claude targets warn and skip.
 
 | Target | Where the marker is inserted |
 | --- | --- |
+| `top_level` | On the request root (`global`), enabling Anthropic's automatic prompt caching. `index`/`position` are ignored. |
 | `system` | An item in a Claude `system` array. A string-form `system` cannot carry block metadata and is skipped. |
 | `tools` | An item in the top-level `tools` array. |
 | `last_message` | A content block in the last message's `content` array. |
