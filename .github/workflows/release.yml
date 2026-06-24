@@ -1,10 +1,14 @@
 name: release
 
 # Builds the v2 distribution: native binaries, edge (wasm) bundles, and Docker
-# images. Side effects (attach to GitHub Release, push to GHCR) only happen on a
-# published Release — workflow_dispatch just builds-and-validates.
+# images. A published Release ships binaries + a signed `releases` (semver)
+# manifest to its `vX.Y.Z` tag and pushes Docker/edge. Every other trigger
+# (push to `main`, manual dispatch) refreshes the rolling `staging` tag: the
+# self-updatable binaries + a signed `staging` (sha256) manifest, no Docker/edge.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   release:
     types: [published]
 
@@ -20,6 +24,11 @@ env:
   # Self-heal flaky crates.io downloads on CI runners (the Windows runner hit a
   # transient "connection was reset" pulling a crate). Default retry is 3.
   CARGO_NET_RETRY: "10"
+  # Effective publish target. A published Release ships to its own tag on the
+  # `releases` (semver) channel; push-to-main and manual dispatch both refresh
+  # the fixed `staging` tag on the sha256-keyed `staging` channel.
+  PUBLISH_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || 'staging' }}
+  PUBLISH_CHANNEL: ${{ github.event_name == 'release' && 'releases' || 'staging' }}
 
 jobs:
   build-console:
@@ -68,6 +77,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
+            self_updatable: true
             runner: ubuntu-latest
             os: linux
             artifact: gproxy-linux-x86_64
@@ -76,6 +86,7 @@ jobs:
             upx: true
             docker_bin: true
           - target: aarch64-unknown-linux-gnu
+            self_updatable: true
             runner: ubuntu-24.04-arm
             os: linux
             artifact: gproxy-linux-aarch64
@@ -120,6 +131,7 @@ jobs:
             upx: true
             docker_bin: false
           - target: x86_64-pc-windows-msvc
+            self_updatable: true
             runner: windows-latest
             os: windows
             artifact: gproxy-windows-x86_64
@@ -128,6 +140,7 @@ jobs:
             upx: true
             docker_bin: false
           - target: aarch64-pc-windows-msvc
+            self_updatable: true
             runner: windows-latest
             os: windows
             artifact: gproxy-windows-aarch64
@@ -136,6 +149,7 @@ jobs:
             upx: false
             docker_bin: false
           - target: x86_64-apple-darwin
+            self_updatable: true
             runner: macos-latest
             os: macos
             artifact: gproxy-macos-x86_64
@@ -144,6 +158,7 @@ jobs:
             upx: false
             docker_bin: false
           - target: aarch64-apple-darwin
+            self_updatable: true
             runner: macos-latest
             os: macos
             artifact: gproxy-macos-aarch64
@@ -154,8 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate update signing key present (release only)
-        if: ${{ github.event_name == 'release' }}
+      - name: Validate update signing key present
         run: |
           test -n "${GPROXY_UPDATE_PUBKEY}" || {
             echo "missing repo secret UPDATE_SIGNING_PUBLIC_KEY_B64 — refusing to ship a binary that cannot verify updates" >&2
@@ -287,10 +301,13 @@ jobs:
             ${{ matrix.artifact }}.zip.sha256
           retention-days: 1
 
-      - name: Attach to release
-        if: ${{ github.event_name == 'release' }}
+      - name: Publish binary to ${{ env.PUBLISH_TAG }}
+        # Releases publish every target; staging publishes only the self-updatable
+        # triples that the signed manifest references (step-level `matrix` is OK).
+        if: ${{ github.event_name == 'release' || matrix.self_updatable }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.PUBLISH_TAG }}
           files: |
             ${{ matrix.artifact }}.zip
             ${{ matrix.artifact }}.zip.sha256
@@ -316,7 +333,11 @@ jobs:
         env:
           UPDATE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
           UPDATE_SIGNING_PUBLIC_KEY_B64: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ env.PUBLISH_TAG }}
+          CHANNEL: ${{ env.PUBLISH_CHANNEL }}
+          # Releases derive `version` from the tag; staging is sha256-keyed, so its
+          # `version` is advisory — carry the commit sha for a human-readable id.
+          VERSION: ${{ github.event_name == 'release' && '' || github.sha }}
           REPO: ${{ github.repository }}
           NOTES_URL: ${{ github.event.release.html_url }}
           ASSETS_DIR: dl
@@ -329,14 +350,24 @@ jobs:
           path: manifest.json
           retention-days: 1
 
-      - name: Attach manifest to release
-        if: ${{ github.event_name == 'release' }}
+      # Roll the fixed `staging` tag forward to this commit so the prerelease
+      # tracks main. (Releases own their own immutable vX.Y.Z tag.) Tag pushes do
+      # not match this workflow's branch trigger, so this can't loop.
+      - name: Roll staging tag to this commit
+        if: ${{ github.event_name != 'release' }}
+        run: |
+          git tag -f staging "${GITHUB_SHA}"
+          git push -f origin "refs/tags/staging"
+
+      - name: Attach manifest to ${{ env.PUBLISH_TAG }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.PUBLISH_TAG }}
           files: manifest.json
 
   build-edge:
     name: Edge wasm bundles
+    if: ${{ github.event_name == 'release' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -450,6 +481,7 @@ jobs:
 
   docker-build:
     name: docker ${{ matrix.variant }}-${{ matrix.arch }}
+    if: ${{ github.event_name == 'release' }}
     needs: build-native
     runs-on: ${{ matrix.runner }}
     strategy:

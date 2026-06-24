@@ -14,7 +14,10 @@
 # Env:
 #   UPDATE_SIGNING_PRIVATE_KEY_B64   base64 of the ed25519 PEM private key (required)
 #   UPDATE_SIGNING_PUBLIC_KEY_B64    base64 of the 32-byte public key (required; sanity-checked)
-#   TAG                              release tag, e.g. v2.0.6 (required)
+#   TAG                              tag the assets live under, e.g. v2.0.6 or `staging` (required)
+#   CHANNEL                          `releases` (default) or `staging`
+#   VERSION                          override the manifest `version` (staging uses the commit sha;
+#                                    releases default to `${TAG#v}`)
 #   REPO                             owner/repo, e.g. LeenHawk/gproxy (required)
 #   NOTES_URL                        release notes URL (optional)
 #   ASSETS_DIR                       dir holding release-asset-<triple>/ subdirs (default: dl)
@@ -34,8 +37,17 @@ OUT="${OUT:-manifest.json}"
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 
-channel="releases"
-version="${TAG#v}"
+channel="${CHANNEL:-releases}"
+if [ "$channel" = "staging" ]; then
+  # staging updates are decided by artifact sha256 (see src/selfupdate/version.rs),
+  # so `version` is advisory only — carry the commit sha for a human-readable id.
+  version="${VERSION:-staging}"
+elif [ "$channel" = "releases" ]; then
+  version="${VERSION:-${TAG#v}}"
+else
+  echo "unknown CHANNEL '$channel' (expected 'releases' or 'staging')" >&2
+  exit 1
+fi
 
 # min_compatible_data_version = highest migration version (source of truth:
 # latest_version() over MIGRATIONS in migrations.rs).
