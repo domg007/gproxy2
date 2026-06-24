@@ -65,6 +65,7 @@ pub async fn download_artifact(
 
 /// Error from [`http_get`]: a 404 is distinguished so the manifest fetch can map
 /// it to [`UpdateError::ManifestNotFound`]; everything else is opaque.
+#[derive(Debug)]
 enum HttpGetError {
     NotFound,
     Other(String),
@@ -79,32 +80,86 @@ impl std::fmt::Display for HttpGetError {
     }
 }
 
-/// GET a URL via the upstream client. A 404 maps to [`HttpGetError::NotFound`];
-/// any other non-2xx (or transport error) maps to [`HttpGetError::Other`].
+/// Max redirect hops to follow (GitHub release downloads bounce
+/// `releases/latest/download/...` → `releases/download/<tag>/...` →
+/// `objects.githubusercontent.com/...`, ~2-3 hops).
+const MAX_REDIRECTS: usize = 6;
+
+/// GET a URL via the upstream client, **following redirects** (the shared proxy
+/// client does not follow them — and must not — so self-update follows them
+/// here). A 404 at the final hop maps to [`HttpGetError::NotFound`]; any other
+/// non-2xx (or transport error) maps to [`HttpGetError::Other`].
 async fn http_get(ctx: &UpdateContext, url: &str) -> Result<Bytes, HttpGetError> {
-    let req = http::Request::builder()
-        .method(http::Method::GET)
-        .uri(url)
-        .header(http::header::USER_AGENT, "gproxy-selfupdate")
-        .body(Bytes::new())
-        .map_err(|e| HttpGetError::Other(e.to_string()))?;
+    let mut current = url.to_string();
+    for _ in 0..=MAX_REDIRECTS {
+        let req = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(&current)
+            .header(http::header::USER_AGENT, "gproxy-selfupdate")
+            .body(Bytes::new())
+            .map_err(|e| HttpGetError::Other(e.to_string()))?;
 
-    let resp = ctx
-        .client
-        .send(req)
-        .await
-        .map_err(|e| HttpGetError::Other(format!("GET {url}: {e}")))?;
+        let resp = ctx
+            .client
+            .send(req)
+            .await
+            .map_err(|e| HttpGetError::Other(format!("GET {current}: {e}")))?;
 
-    let status = resp.status();
-    if status == http::StatusCode::NOT_FOUND {
-        return Err(HttpGetError::NotFound);
+        let status = resp.status();
+        if status.is_redirection() {
+            let location = resp
+                .headers()
+                .get(http::header::LOCATION)
+                .and_then(|v| v.to_str().ok());
+            match location {
+                Some(loc) => {
+                    current = resolve_redirect(&current, loc)?;
+                    continue;
+                }
+                None => {
+                    return Err(HttpGetError::Other(format!(
+                        "redirect {status} without Location header"
+                    )));
+                }
+            }
+        }
+        if status == http::StatusCode::NOT_FOUND {
+            return Err(HttpGetError::NotFound);
+        }
+        if !status.is_success() {
+            return Err(HttpGetError::Other(format!(
+                "GET {current} returned HTTP {status}"
+            )));
+        }
+        return Ok(resp.into_body());
     }
-    if !status.is_success() {
-        return Err(HttpGetError::Other(format!(
-            "GET {url} returned HTTP {status}"
-        )));
+    Err(HttpGetError::Other(format!(
+        "too many redirects (>{MAX_REDIRECTS}) fetching {url}"
+    )))
+}
+
+/// Resolve a `Location` value against the URL it came from. Absolute URLs are
+/// used as-is; absolute-path (`/...`) references are rebased onto the current
+/// scheme+authority (enough for GitHub's redirect chain).
+fn resolve_redirect(base: &str, location: &str) -> Result<String, HttpGetError> {
+    if location.starts_with("http://") || location.starts_with("https://") {
+        return Ok(location.to_string());
     }
-    Ok(resp.into_body())
+    let base_uri: http::Uri = base
+        .parse()
+        .map_err(|e| HttpGetError::Other(format!("bad base URL {base}: {e}")))?;
+    let scheme = base_uri.scheme_str().unwrap_or("https");
+    let authority = base_uri
+        .authority()
+        .map(|a| a.as_str())
+        .ok_or_else(|| HttpGetError::Other(format!("base URL has no host: {base}")))?;
+    if let Some(abs_path) = location.strip_prefix('/') {
+        Ok(format!("{scheme}://{authority}/{abs_path}"))
+    } else {
+        Err(HttpGetError::Other(format!(
+            "unsupported relative redirect `{location}` from {base}"
+        )))
+    }
 }
 
 /// Restrict the staging dir to the owner (chmod 700, §19.10). Unix-only; a
@@ -136,5 +191,29 @@ mod tests {
             manifest_url("acme/gproxy", Channel::Staging),
             "https://github.com/acme/gproxy/releases/download/staging/manifest.json"
         );
+    }
+
+    #[test]
+    fn resolve_redirect_handles_absolute_and_rooted() {
+        // Absolute Location (GitHub → objects.githubusercontent.com) is used as-is.
+        assert_eq!(
+            resolve_redirect(
+                "https://github.com/o/r/releases/latest/download/manifest.json",
+                "https://objects.githubusercontent.com/x/y?token=abc"
+            )
+            .unwrap(),
+            "https://objects.githubusercontent.com/x/y?token=abc"
+        );
+        // Absolute-path Location is rebased onto the current scheme+host.
+        assert_eq!(
+            resolve_redirect(
+                "https://github.com/o/r/releases/latest/download/manifest.json",
+                "/o/r/releases/download/v2.0.6/manifest.json"
+            )
+            .unwrap(),
+            "https://github.com/o/r/releases/download/v2.0.6/manifest.json"
+        );
+        // A non-rooted relative ref is rejected (never emitted by GitHub).
+        assert!(resolve_redirect("https://github.com/a/b", "somewhere").is_err());
     }
 }
