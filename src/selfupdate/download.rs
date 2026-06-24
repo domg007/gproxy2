@@ -28,10 +28,15 @@ fn manifest_url(repo: &str, channel: Channel) -> String {
     }
 }
 
-/// Fetch + parse the channel manifest.
+/// Fetch + parse the channel manifest. A 404 (no manifest published for the
+/// channel) is surfaced as the dedicated [`UpdateError::ManifestNotFound`] so
+/// callers can treat "no update info" as a benign state rather than a 500.
 pub async fn fetch_manifest(ctx: &UpdateContext) -> Result<Manifest, UpdateError> {
     let url = manifest_url(&ctx.repo, ctx.channel);
-    let body = http_get(ctx, &url).await.map_err(UpdateError::Manifest)?;
+    let body = http_get(ctx, &url).await.map_err(|e| match e {
+        HttpGetError::NotFound => UpdateError::ManifestNotFound,
+        HttpGetError::Other(m) => UpdateError::Manifest(m),
+    })?;
     let text =
         String::from_utf8(body.to_vec()).map_err(|e| UpdateError::Manifest(e.to_string()))?;
     Manifest::parse(&text).map_err(|e| UpdateError::Manifest(e.to_string()))
@@ -53,31 +58,51 @@ pub async fn download_artifact(
 
     let body = http_get(ctx, &artifact.url)
         .await
-        .map_err(UpdateError::Download)?;
+        .map_err(|e| UpdateError::Download(e.to_string()))?;
     std::fs::write(&staged, &body)?;
     Ok(staged)
 }
 
-/// GET a URL via the upstream client, following one layer of redirect-style
-/// errors is the caller's concern; here we just return the body or an error
-/// string. Non-2xx is an error.
-async fn http_get(ctx: &UpdateContext, url: &str) -> Result<Bytes, String> {
+/// Error from [`http_get`]: a 404 is distinguished so the manifest fetch can map
+/// it to [`UpdateError::ManifestNotFound`]; everything else is opaque.
+enum HttpGetError {
+    NotFound,
+    Other(String),
+}
+
+impl std::fmt::Display for HttpGetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HttpGetError::NotFound => write!(f, "not found (HTTP 404)"),
+            HttpGetError::Other(m) => write!(f, "{m}"),
+        }
+    }
+}
+
+/// GET a URL via the upstream client. A 404 maps to [`HttpGetError::NotFound`];
+/// any other non-2xx (or transport error) maps to [`HttpGetError::Other`].
+async fn http_get(ctx: &UpdateContext, url: &str) -> Result<Bytes, HttpGetError> {
     let req = http::Request::builder()
         .method(http::Method::GET)
         .uri(url)
         .header(http::header::USER_AGENT, "gproxy-selfupdate")
         .body(Bytes::new())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| HttpGetError::Other(e.to_string()))?;
 
     let resp = ctx
         .client
         .send(req)
         .await
-        .map_err(|e| format!("GET {url}: {e}"))?;
+        .map_err(|e| HttpGetError::Other(format!("GET {url}: {e}")))?;
 
     let status = resp.status();
+    if status == http::StatusCode::NOT_FOUND {
+        return Err(HttpGetError::NotFound);
+    }
     if !status.is_success() {
-        return Err(format!("GET {url} returned HTTP {status}"));
+        return Err(HttpGetError::Other(format!(
+            "GET {url} returned HTTP {status}"
+        )));
     }
     Ok(resp.into_body())
 }

@@ -40,13 +40,19 @@ fn update_error(e: UpdateError) -> ApiError {
     match e {
         // Availability / config problems → 400 Bad Request.
         UpdateError::NoArtifact(_) | UpdateError::Version(_) => ApiError::BadRequest(msg),
+        // No manifest published for the channel → 404 (only `apply` reaches here;
+        // `check` already treats this as a benign "no update available").
+        UpdateError::ManifestNotFound => ApiError::NotFound(msg),
         // Policy refusals (compat floor, downgrade guard) → 409 Conflict.
         UpdateError::Incompatible(_) | UpdateError::Downgrade(_) => ApiError::Conflict(msg),
+        // Verification failures during `apply` → 409 with a visible cause. These
+        // are not server bugs (a stale/predates-signing binary, a tampered
+        // artifact); the cause is update-domain and not secret, so surface it
+        // instead of collapsing to a generic "internal error".
+        UpdateError::Integrity(_) | UpdateError::Signature(_) => ApiError::Conflict(msg),
         // I/O and pipeline failures → 500 Internal.
         UpdateError::Manifest(_)
         | UpdateError::Download(_)
-        | UpdateError::Integrity(_)
-        | UpdateError::Signature(_)
         | UpdateError::Io(_)
         | UpdateError::Swap(_) => ApiError::Internal(msg),
     }

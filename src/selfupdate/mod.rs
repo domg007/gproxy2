@@ -24,6 +24,8 @@ mod applied;
 #[cfg(not(target_arch = "wasm32"))]
 mod download;
 #[cfg(not(target_arch = "wasm32"))]
+mod extract;
+#[cfg(not(target_arch = "wasm32"))]
 mod manifest;
 #[cfg(not(target_arch = "wasm32"))]
 mod swap;
@@ -107,6 +109,8 @@ pub enum Restart {
 pub enum UpdateError {
     #[error("manifest fetch/parse failed: {0}")]
     Manifest(String),
+    #[error("no update manifest published for this channel")]
+    ManifestNotFound,
     #[error("no artifact in manifest for target `{0}`")]
     NoArtifact(String),
     #[error("download failed: {0}")]
@@ -169,9 +173,29 @@ pub struct UpdateContext {
 
 /// Check the configured channel for an available update (§19.4). Pure decision
 /// logic lives in [`version`]; this only does the manifest fetch + dispatch.
+///
+/// A channel with **no published manifest** is reported as "no update available"
+/// (not an error): a missing manifest must never surface to the operator as a
+/// 500 (§19.10).
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn check(ctx: &UpdateContext) -> Result<CheckReport, UpdateError> {
-    let manifest = download::fetch_manifest(ctx).await?;
+    let manifest = match download::fetch_manifest(ctx).await {
+        Ok(m) => m,
+        Err(UpdateError::ManifestNotFound) => {
+            let current = current_identity(ctx)?;
+            tracing::info!(
+                channel = ctx.channel.as_str(),
+                "no update manifest published; reporting up-to-date"
+            );
+            return Ok(CheckReport {
+                latest: current.clone(),
+                current,
+                available: false,
+                notes_url: None,
+            });
+        }
+        Err(e) => return Err(e),
+    };
     let triple = current_target_triple();
     let artifact = manifest
         .artifact_for(&triple)
@@ -190,6 +214,20 @@ pub async fn check(ctx: &UpdateContext) -> Result<CheckReport, UpdateError> {
         latest: decision.latest,
         available: decision.available,
         notes_url: manifest.notes_url.clone(),
+    })
+}
+
+/// The current identity string for a channel (semver for `releases`, sha256
+/// short prefix for `staging`) — used to fill a [`CheckReport`] when there is no
+/// manifest to compare against.
+#[cfg(not(target_arch = "wasm32"))]
+fn current_identity(ctx: &UpdateContext) -> Result<String, UpdateError> {
+    Ok(match ctx.channel {
+        Channel::Releases => env!("CARGO_PKG_VERSION").to_string(),
+        Channel::Staging => {
+            let sha = swap::current_exe_sha256()?;
+            sha[..sha.len().min(12)].to_string()
+        }
     })
 }
 
@@ -251,18 +289,24 @@ pub async fn apply(ctx: &UpdateContext, restart: Restart) -> Result<String, Upda
         )));
     }
 
-    // 1. Download to a temp file on the same filesystem as the binary.
-    let staged = download::download_artifact(ctx, &artifact).await?;
+    // 1. Download the artifact (a release `.zip`) to a temp file on the same
+    //    filesystem as the binary.
+    let staged_zip = download::download_artifact(ctx, &artifact).await?;
 
-    // 2. Integrity: sha256 of the downloaded bytes must equal the manifest's.
-    verify::verify_sha256(&staged, &artifact.sha256)?;
+    // 2. Integrity: sha256 of the downloaded ZIP must equal the manifest's.
+    verify::verify_sha256(&staged_zip, &artifact.sha256)?;
 
     // 3. Signature: the embedded ed25519 public key must verify the manifest
     //    signature (§19.2 — the hard floor; staging is verified too).
     verify::verify_manifest_signature(&manifest)?;
 
-    // 4. Atomic swap, retaining `<exe>.prev` for rollback (§19.5 / §19.8).
-    swap::install(&staged)?;
+    // 4. Extract the `gproxy` executable from the verified zip. The zip's bytes
+    //    were sha256-checked and that sha is bound by the manifest signature, so
+    //    the extracted binary inherits that trust — no separate inner-hash needed.
+    let staged_bin = extract::extract_binary(&staged_zip)?;
+
+    // 5. Atomic swap, retaining `<exe>.prev` for rollback (§19.5 / §19.8).
+    swap::install(&staged_bin)?;
     // Record the applied sha so a later replay of this (now-superseded) build is
     // caught by the rollback guard above. Staging only; best-effort.
     if let Some(local) = &local_sha {
@@ -274,7 +318,7 @@ pub async fn apply(ctx: &UpdateContext, restart: Restart) -> Result<String, Upda
         "new binary staged and verified"
     );
 
-    // 5. Restart / hand off (§19.6).
+    // 6. Restart / hand off (§19.6).
     match restart {
         Restart::Supervisor => swap::exit_for_supervisor(),
         Restart::ReExec => swap::reexec(), // diverges on success

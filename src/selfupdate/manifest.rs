@@ -9,7 +9,7 @@
 //!   "min_compatible_data_version": 1,
 //!   "artifacts": [
 //!     { "target_triple": "x86_64-unknown-linux-gnu",
-//!       "url": "https://.../gproxy", "sha256": "<hex>", "size": 12345 }
+//!       "url": "https://.../gproxy-linux-x86_64.zip", "sha256": "<hex>", "size": 12345 }
 //!   ],
 //!   "signature": "<base64 ed25519 of the canonical signing payload>"
 //! }
@@ -22,9 +22,10 @@ use serde::Deserialize;
 pub struct Artifact {
     /// Rust target triple, e.g. `x86_64-unknown-linux-gnu`.
     pub target_triple: String,
-    /// Download URL for the executable.
+    /// Download URL for the release `.zip` (binary + README); the executable is
+    /// extracted from it after verification.
     pub url: String,
-    /// Lowercase hex sha256 of the executable.
+    /// Lowercase hex sha256 of the downloaded `.zip` artifact.
     pub sha256: String,
     /// Size in bytes (advisory; integrity is sha256).
     pub size: u64,

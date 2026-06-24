@@ -73,6 +73,10 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 semver = "1"
 ed25519-dalek = "2"
 self-replace = "1"
+# self-update: extract the `gproxy` executable from the downloaded release `.zip`
+# before the atomic swap. default-features off → only the deflate codec the
+# release packager uses (`zip -9` / Compress-Archive), no extra codecs.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # Console SPA embedding (§9; spec 2026-06-13-console-design.md B1). Native-only:
 # wasm/edge builds never embed the console (size-sensitive).
 rust-embed = { version = "8", features = ["include-exclude"] }

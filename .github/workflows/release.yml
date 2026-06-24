@@ -54,6 +54,12 @@ jobs:
     name: native ${{ matrix.target }}
     needs: build-console
     runs-on: ${{ matrix.runner }}
+    env:
+      # Compiled in by option_env!("GPROXY_UPDATE_PUBKEY") in
+      # src/selfupdate/verify.rs — lets `apply` verify the signed update
+      # manifest. Absent → a placeholder all-zero key that rejects every
+      # signature (the secure default).
+      GPROXY_UPDATE_PUBKEY: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
     defaults:
       run:
         shell: bash
@@ -147,6 +153,14 @@ jobs:
             docker_bin: false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate update signing key present (release only)
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          test -n "${GPROXY_UPDATE_PUBKEY}" || {
+            echo "missing repo secret UPDATE_SIGNING_PUBLIC_KEY_B64 — refusing to ship a binary that cannot verify updates" >&2
+            exit 1
+          }
 
       - name: Download console embed
         uses: actions/download-artifact@v4
@@ -280,6 +294,46 @@ jobs:
           files: |
             ${{ matrix.artifact }}.zip
             ${{ matrix.artifact }}.zip.sha256
+
+  manifest:
+    name: Sign + publish update manifest
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      # checkout is needed only to read the migration list for
+      # min_compatible_data_version (scripts/build-update-manifest.sh).
+      - uses: actions/checkout@v4
+
+      # Per-target `release-asset-<triple>/<name>.zip` + `.zip.sha256` from
+      # build-native. No merge: keep the per-triple dirs the script reads.
+      - name: Download release zip assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-asset-*
+          path: dl
+
+      - name: Build + sign manifest.json
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY_B64 }}
+          UPDATE_SIGNING_PUBLIC_KEY_B64: ${{ secrets.UPDATE_SIGNING_PUBLIC_KEY_B64 }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          REPO: ${{ github.repository }}
+          NOTES_URL: ${{ github.event.release.html_url }}
+          ASSETS_DIR: dl
+        run: bash scripts/build-update-manifest.sh
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifest
+          path: manifest.json
+          retention-days: 1
+
+      - name: Attach manifest to release
+        if: ${{ github.event_name == 'release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: manifest.json
 
   build-edge:
     name: Edge wasm bundles
