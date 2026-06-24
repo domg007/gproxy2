@@ -135,6 +135,40 @@ pub fn plan_for(
                 target,
             })
         }
+        // Force-stream image generation (codex): inbound `CreateImage`/`EditImage`
+        // routed to a streaming Responses target. Codex generates images via the
+        // Responses `image_generation` tool and only speaks event-streams, so —
+        // like the content force-stream above — stream the upstream and collapse
+        // the `image_generation_call` output item back into an images response for
+        // the non-stream client. Unlike content, the image pair resolves directly
+        // (no `GenerateContent` normalization): `resolve` accepts the streaming
+        // target because `StreamGenerateContent` is a content-generation op, and
+        // the same symmetric pair serves both directions.
+        RoutingDecision::TransformTo(target)
+            if matches!(
+                source.operation,
+                Operation::CreateImage | Operation::EditImage
+            ) && target.operation == Operation::StreamGenerateContent =>
+        {
+            let request_pair =
+                transform::resolve(source, target).map_err(PipelineError::TransformRequest)?;
+            let response_pair =
+                transform::resolve(target, source).map_err(PipelineError::TransformRequest)?;
+            if !dispatch::is_wired(request_pair) || !dispatch::is_wired(response_pair) {
+                return Err(PipelineError::TransformRequest(
+                    TransformError::InvalidInput {
+                        reason: "aggregate-stream image pair not wired for bytes dispatch"
+                            .to_owned(),
+                    },
+                ));
+            }
+            Ok(TransformPlan::AggregateStream {
+                request_pair: Some(request_pair),
+                response_pair: Some(response_pair),
+                source,
+                target,
+            })
+        }
         RoutingDecision::TransformTo(target) => {
             let request_pair =
                 transform::resolve(source, target).map_err(PipelineError::TransformRequest)?;

@@ -77,3 +77,83 @@ async fn non_stream_client_collapses_forced_stream() {
     assert_eq!(v["object"], "chat.completion", "collapsed object: {v}");
     assert_eq!(v["choices"][0]["message"]["content"], "hello");
 }
+
+/// `(create_image, open_ai) → (stream_generate_content, open_ai_responses)` is a
+/// codex-shaped force-stream: the images request is reshaped into a streaming
+/// Responses call carrying the `image_generation` tool, and the buffered
+/// Responses SSE is collapsed back into an images response — the
+/// `image_generation_call` base64 result becomes `data[0].b64_json`.
+///
+/// Regression: `plan_for` force-streamed only `generate_content`, so an image
+/// route fell into a plain non-stream buffered transform. Against codex that
+/// hangs (the backend generates the image asynchronously and never returns a
+/// complete non-stream body), surfacing as a ~60s gateway timeout / 502.
+#[tokio::test]
+async fn non_stream_image_request_collapses_forced_responses_stream() {
+    let rule = json!([
+        { "id": 1, "provider_id": 1, "operation": "create_image", "kind": "open_ai",
+          "implementation": "transform_to", "dest_operation": "stream_generate_content",
+          "dest_kind": "open_ai_responses", "sort_order": 0, "enabled": true }
+    ]);
+    let bundle = bundle_with("routing_rules", rule);
+
+    // The upstream "streams" a Responses event-stream whose final output item is
+    // the generated image; the fake returns it as a buffered body.
+    let sse = concat!(
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"created_at\":1,",
+        "\"object\":\"response\",\"output\":[],\"status\":\"in_progress\"}}\n\n",
+        "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":",
+        "{\"type\":\"image_generation_call\",\"id\":\"ig_1\",\"result\":\"AAAA\",\"status\":\"completed\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"created_at\":1,",
+        "\"object\":\"response\",\"output\":[],\"status\":\"completed\"}}\n\n",
+    );
+    let fake = Arc::new(FakeUpstream::new(Bytes::from(sse), vec![]));
+    let (state, _dir) = state_with_bundle(Arc::clone(&fake), &bundle).await;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", "Bearer sk-test".parse().unwrap());
+    headers.insert("content-type", "application/json".parse().unwrap());
+    let body = json!({ "model": "gpt-test", "prompt": "a red cube" });
+    let ctx = RequestCtx {
+        request_id: "img-agg".into(),
+        method: Method::POST,
+        path: "/v1/images/generations".into(),
+        query: None,
+        headers,
+        body: Bytes::from(serde_json::to_vec(&body).unwrap()),
+        mode: RoutingMode::Scoped {
+            provider: "oai".into(),
+        },
+        identity: None,
+        op: None,
+        stream: false,
+        route_name: None,
+        pending_micros: 0,
+    };
+
+    let outcome = crate::pipeline::execute(&state, ctx)
+        .await
+        .expect("pipeline ok");
+    assert_eq!(outcome.status, StatusCode::OK);
+
+    // Upstream was force-streamed to the Responses endpoint with the image tool.
+    let seen = fake.seen.lock().unwrap();
+    assert!(seen[0].uri.contains("/responses"), "uri: {}", seen[0].uri);
+    let up: Value = serde_json::from_slice(&seen[0].body).unwrap();
+    assert_eq!(up["stream"], true, "upstream forced to stream: {up}");
+    assert_eq!(
+        up["tools"][0]["type"], "image_generation",
+        "image tool injected: {up}"
+    );
+    drop(seen);
+
+    // The client got a collapsed images response, not raw SSE.
+    let ResponseBody::Full(b) = outcome.body else {
+        panic!("expected a buffered Full body, got a stream")
+    };
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(
+        v["data"][0]["b64_json"], "AAAA",
+        "collapsed image base64 surfaced: {v}"
+    );
+}
