@@ -8,10 +8,22 @@ use super::{
     ResponseContentPart, ResponseObject, ResponseOutputItem, ResponseReasoningSummaryPart,
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ResponseStreamEvent {
     Known(KnownResponseStreamEvent),
     Unknown(UnknownResponseStreamEvent),
+}
+
+impl Serialize for ResponseStreamEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Known(event) => event.serialize(serializer),
+            Self::Unknown(event) => event.serialize(serializer),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for ResponseStreamEvent {

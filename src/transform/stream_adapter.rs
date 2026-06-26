@@ -7,7 +7,7 @@
 //! aggregation (block indexes, tool-call identity, final usage) lives HERE
 //! (see transform/README.md).
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::common::sse::{SseDecoder, SseFrame};
 use super::{TransformContext, TransformPair, dispatch};
@@ -19,6 +19,7 @@ pub struct SseTransformer {
     pair: TransformPair,
     ctx: TransformContext,
     inbound: ContentGenerationKind,
+    responses: Option<ResponsesStreamState>,
     skipped: u64,
 }
 
@@ -29,6 +30,8 @@ impl SseTransformer {
             pair,
             ctx,
             inbound,
+            responses: (inbound == ContentGenerationKind::OpenAiResponses)
+                .then(ResponsesStreamState::default),
             skipped: 0,
         }
     }
@@ -47,6 +50,11 @@ impl SseTransformer {
         let mut out = Vec::new();
         if let Some(frame) = self.decoder.finish() {
             self.convert_into(frame, &mut out);
+        }
+        if let Some(responses) = self.responses.as_mut() {
+            for event in responses.finish() {
+                out.extend_from_slice(encode_frame(self.inbound, &event).as_bytes());
+            }
         }
         if self.inbound == ContentGenerationKind::OpenAiChatCompletions {
             out.extend_from_slice(b"data: [DONE]\n\n");
@@ -74,13 +82,326 @@ impl SseTransformer {
         };
         match dispatch::stream_event_value(self.pair, &self.ctx, event) {
             Ok(converted) => {
-                out.extend_from_slice(encode_frame(self.inbound, &converted).as_bytes())
+                let events = if let Some(responses) = self.responses.as_mut() {
+                    responses.push(converted)
+                } else {
+                    vec![converted]
+                };
+                for event in events {
+                    out.extend_from_slice(encode_frame(self.inbound, &event).as_bytes());
+                }
             }
             Err(_) => {
                 self.skipped += 1;
             }
         }
     }
+}
+
+#[derive(Default)]
+struct ResponsesStreamState {
+    message: ResponsesTextItemState,
+    reasoning: ResponsesTextItemState,
+    completed: bool,
+}
+
+#[derive(Default)]
+struct ResponsesTextItemState {
+    started: bool,
+    done: bool,
+    id: Option<String>,
+    output_index: Option<u32>,
+    content_index: Option<u32>,
+    text: String,
+}
+
+impl ResponsesStreamState {
+    fn push(&mut self, event: Value) -> Vec<Value> {
+        match event.get("type").and_then(Value::as_str) {
+            Some("response.output_text.delta") => {
+                let mut out = self.finish_reasoning();
+                out.extend(self.ensure_message(&event));
+                self.message.push_delta(&event);
+                out.push(event);
+                out
+            }
+            Some("response.reasoning_text.delta") => {
+                let mut out = self.ensure_reasoning(&event);
+                self.reasoning.push_delta(&event);
+                out.push(event);
+                out
+            }
+            Some("response.completed") => {
+                let mut out = self.finish_reasoning();
+                out.extend(self.finish_message());
+                self.completed = true;
+                out.push(event);
+                out
+            }
+            Some("response.output_item.added") => {
+                self.note_item_added(&event);
+                vec![event]
+            }
+            Some("response.output_item.done") => {
+                self.note_item_done(&event);
+                vec![event]
+            }
+            Some("response.output_text.done") => {
+                self.message.note_done_text(&event);
+                vec![event]
+            }
+            Some("response.reasoning_text.done") => {
+                self.reasoning.note_done_text(&event);
+                vec![event]
+            }
+            _ => vec![event],
+        }
+    }
+
+    fn finish(&mut self) -> Vec<Value> {
+        if self.completed {
+            return Vec::new();
+        }
+        let mut out = self.finish_reasoning();
+        out.extend(self.finish_message());
+        if !out.is_empty() {
+            out.push(json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_0",
+                    "object": "response",
+                    "created_at": 0,
+                    "completed_at": 0,
+                    "status": "completed",
+                    "output": [],
+                },
+            }));
+            self.completed = true;
+        }
+        out
+    }
+
+    fn ensure_message(&mut self, event: &Value) -> Vec<Value> {
+        self.message
+            .ensure(event, "msg_0", |state| message_item_added(state))
+    }
+
+    fn ensure_reasoning(&mut self, event: &Value) -> Vec<Value> {
+        self.reasoning
+            .ensure(event, "reasoning_0", |state| reasoning_item_added(state))
+    }
+
+    fn finish_message(&mut self) -> Vec<Value> {
+        self.message.finish(|state| {
+            vec![
+                json!({
+                    "type": "response.output_text.done",
+                    "output_index": state.output_index(),
+                    "item_id": state.id(),
+                    "content_index": state.content_index(),
+                    "text": state.text,
+                }),
+                json!({
+                    "type": "response.content_part.done",
+                    "output_index": state.output_index(),
+                    "item_id": state.id(),
+                    "content_index": state.content_index(),
+                    "part": { "type": "output_text", "text": state.text, "annotations": [] },
+                }),
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": state.output_index(),
+                    "item": message_item(state, "completed"),
+                }),
+            ]
+        })
+    }
+
+    fn finish_reasoning(&mut self) -> Vec<Value> {
+        self.reasoning.finish(|state| {
+            vec![
+                json!({
+                    "type": "response.reasoning_text.done",
+                    "output_index": state.output_index(),
+                    "item_id": state.id(),
+                    "content_index": state.content_index(),
+                    "text": state.text,
+                }),
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": state.output_index(),
+                    "item": reasoning_item(state, "completed"),
+                }),
+            ]
+        })
+    }
+
+    fn note_item_added(&mut self, event: &Value) {
+        let Some(item_type) = event
+            .get("item")
+            .and_then(|item| item.get("type"))
+            .and_then(Value::as_str)
+        else {
+            return;
+        };
+        match item_type {
+            "message" => self.message.note_added(event),
+            "reasoning" => self.reasoning.note_added(event),
+            _ => {}
+        }
+    }
+
+    fn note_item_done(&mut self, event: &Value) {
+        let Some(item_type) = event
+            .get("item")
+            .and_then(|item| item.get("type"))
+            .and_then(Value::as_str)
+        else {
+            return;
+        };
+        match item_type {
+            "message" => self.message.note_item_done(event),
+            "reasoning" => self.reasoning.note_item_done(event),
+            _ => {}
+        }
+    }
+}
+
+impl ResponsesTextItemState {
+    fn ensure(
+        &mut self,
+        event: &Value,
+        fallback_id: &'static str,
+        build: impl FnOnce(&Self) -> Value,
+    ) -> Vec<Value> {
+        self.note_delta_identity(event, fallback_id);
+        if self.started {
+            return Vec::new();
+        }
+        self.started = true;
+        vec![build(self)]
+    }
+
+    fn push_delta(&mut self, event: &Value) {
+        self.note_delta_identity(event, "item_0");
+        if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+            self.text.push_str(delta);
+        }
+    }
+
+    fn finish(&mut self, build: impl FnOnce(&Self) -> Vec<Value>) -> Vec<Value> {
+        if !self.started || self.done {
+            return Vec::new();
+        }
+        self.done = true;
+        build(self)
+    }
+
+    fn note_delta_identity(&mut self, event: &Value, fallback_id: &'static str) {
+        if self.id.is_none() {
+            self.id = event
+                .get("item_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| Some(fallback_id.to_owned()));
+        }
+        if self.output_index.is_none() {
+            self.output_index = event
+                .get("output_index")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .or(Some(0));
+        }
+        if self.content_index.is_none() {
+            self.content_index = event
+                .get("content_index")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .or(Some(0));
+        }
+    }
+
+    fn note_added(&mut self, event: &Value) {
+        self.started = true;
+        self.note_item_identity(event);
+    }
+
+    fn note_item_done(&mut self, event: &Value) {
+        self.done = true;
+        self.note_item_identity(event);
+    }
+
+    fn note_done_text(&mut self, event: &Value) {
+        self.done = true;
+        if let Some(text) = event.get("text").and_then(Value::as_str) {
+            self.text.clear();
+            self.text.push_str(text);
+        }
+    }
+
+    fn note_item_identity(&mut self, event: &Value) {
+        if self.id.is_none() {
+            self.id = event
+                .get("item")
+                .and_then(|item| item.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        if self.output_index.is_none() {
+            self.output_index = event
+                .get("output_index")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok());
+        }
+    }
+
+    fn id(&self) -> &str {
+        self.id.as_deref().unwrap_or("item_0")
+    }
+
+    fn output_index(&self) -> u32 {
+        self.output_index.unwrap_or(0)
+    }
+
+    fn content_index(&self) -> u32 {
+        self.content_index.unwrap_or(0)
+    }
+}
+
+fn message_item_added(state: &ResponsesTextItemState) -> Value {
+    json!({
+        "type": "response.output_item.added",
+        "output_index": state.output_index(),
+        "item": message_item(state, "in_progress"),
+    })
+}
+
+fn reasoning_item_added(state: &ResponsesTextItemState) -> Value {
+    json!({
+        "type": "response.output_item.added",
+        "output_index": state.output_index(),
+        "item": reasoning_item(state, "in_progress"),
+    })
+}
+
+fn message_item(state: &ResponsesTextItemState, status: &str) -> Value {
+    json!({
+        "id": state.id(),
+        "type": "message",
+        "status": status,
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": state.text, "annotations": [] }],
+    })
+}
+
+fn reasoning_item(state: &ResponsesTextItemState, status: &str) -> Value {
+    json!({
+        "id": state.id(),
+        "type": "reasoning",
+        "status": status,
+        "summary": [],
+        "content": [{ "type": "reasoning_text", "text": state.text }],
+    })
 }
 
 /// Encode one converted event in the inbound wire format. Claude and OpenAI
