@@ -3,6 +3,7 @@
 
 use axum::body::Body;
 use axum::extract::{Request, State};
+use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
@@ -46,9 +47,16 @@ async fn handle(state: AppState, req: Request, scoped: bool) -> Response {
 /// headers + the buffered or (native) streamed body, plus the request id for
 /// correlation.
 fn egress(outcome: ExecOutcome, request_id: &str) -> Response {
+    #[cfg(not(target_arch = "wasm32"))]
+    let is_stream = matches!(&outcome.body, ResponseBody::Stream(_));
+    #[cfg(target_arch = "wasm32")]
+    let is_stream = false;
     let mut builder = Response::builder().status(outcome.status);
     if let Some(h) = builder.headers_mut() {
         *h = sanitize_response_headers(&outcome.headers);
+        if outcome.status.is_success() && is_stream {
+            h.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+        }
         if let Ok(v) = HeaderValue::from_str(request_id) {
             h.insert(HeaderName::from_static("x-gproxy-request-id"), v);
         }

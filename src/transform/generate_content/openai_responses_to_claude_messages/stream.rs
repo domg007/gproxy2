@@ -55,12 +55,8 @@ fn known_event_to_claude(event: openai::KnownResponseStreamEvent) -> Vec<claude:
             content_index,
             part,
             ..
-        }
-        | openai::KnownResponseStreamEvent::ResponseContentPartDone {
-            content_index,
-            part,
-            ..
         } => vec![content_part_to_claude(content_index, part)],
+        openai::KnownResponseStreamEvent::ResponseContentPartDone { .. } => Vec::new(),
         openai::KnownResponseStreamEvent::ResponseOutputTextDelta {
             content_index,
             delta,
