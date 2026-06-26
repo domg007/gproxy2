@@ -14,7 +14,9 @@
 //!
 //! * **credentials**: the plaintext `secret_json` is SEALED (cipher) on write;
 //!   on update without a new secret the stored ciphertext is preserved; the
-//!   sealed value is never serialized (reads return `has_secret` instead).
+//!   sealed value is never serialized on normal reads (reads return `has_secret`
+//!   instead). The explicit `/secret` reveal route opens the stored secret for
+//!   the edit form.
 //!   Reads and writes are scoped to a `provider_id` path parameter.
 //!
 //! Security contract: this file MUST replicate the native handlers
@@ -318,6 +320,23 @@ pub(super) async fn dispatch_credentials(
                     }
                     _ => Err(ApiError::NotFound("not found".into())),
                 }
+            }
+            .await,
+        ),
+
+        // GET /admin/credentials/{id}/secret — explicit plaintext reveal for editing.
+        (&Method::GET, ["admin", "credentials", id, "secret"]) => Some(
+            async {
+                guard_admin(state, parts).await?;
+                let id = parse_i64(id)?;
+                let cred = state
+                    .persistence
+                    .get_credential(id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| ApiError::NotFound("not found".into()))?;
+                let plain = state.cipher.open(&cred.secret_json).map_err(internal)?;
+                Resp::json(200, &plain)
             }
             .await,
         ),

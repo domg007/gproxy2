@@ -59,7 +59,7 @@ export function SecretEditor({ channel, value, onChange, editing }: SecretEditor
         <Label htmlFor="c-secret">{label}</Label>
         <Input
           id="c-secret"
-          type="password"
+          type="text"
           autoComplete="off"
           value={value}
           onChange={(e) => onChange(e.target.value)}
