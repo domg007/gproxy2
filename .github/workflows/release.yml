@@ -380,7 +380,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release view staging --json assets \
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/staging" \
             --jq '.assets[] | select(.name | endswith(".zip.sha256.sig")) | .id' |
           while IFS= read -r id; do
             [ -n "$id" ] || continue
