@@ -3,8 +3,8 @@ name: release
 # Builds the v2 distribution: native binaries, edge (wasm) bundles, and Docker
 # images. A published Release ships binaries + a signed `releases` (semver)
 # manifest to its `vX.Y.Z` tag and pushes Docker/edge. Every other trigger
-# (push to `main`, manual dispatch) refreshes the rolling `staging` tag: the
-# self-updatable binaries + a signed `staging` (sha256) manifest, no Docker/edge.
+# (push to `main`, manual dispatch) refreshes the rolling `staging` tag: all
+# native binaries + a signed `staging` (sha256) manifest, no Docker/edge.
 on:
   workflow_dispatch:
   push:
@@ -77,7 +77,6 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            self_updatable: true
             runner: ubuntu-latest
             os: linux
             artifact: gproxy-linux-x86_64
@@ -86,7 +85,6 @@ jobs:
             upx: true
             docker_bin: true
           - target: aarch64-unknown-linux-gnu
-            self_updatable: true
             runner: ubuntu-24.04-arm
             os: linux
             artifact: gproxy-linux-aarch64
@@ -131,7 +129,6 @@ jobs:
             upx: true
             docker_bin: false
           - target: x86_64-pc-windows-msvc
-            self_updatable: true
             runner: windows-latest
             os: windows
             artifact: gproxy-windows-x86_64
@@ -140,7 +137,6 @@ jobs:
             upx: true
             docker_bin: false
           - target: aarch64-pc-windows-msvc
-            self_updatable: true
             runner: windows-latest
             os: windows
             artifact: gproxy-windows-aarch64
@@ -149,7 +145,6 @@ jobs:
             upx: false
             docker_bin: false
           - target: x86_64-apple-darwin
-            self_updatable: true
             runner: macos-latest
             os: macos
             artifact: gproxy-macos-x86_64
@@ -158,7 +153,6 @@ jobs:
             upx: false
             docker_bin: false
           - target: aarch64-apple-darwin
-            self_updatable: true
             runner: macos-latest
             os: macos
             artifact: gproxy-macos-aarch64
@@ -209,7 +203,21 @@ jobs:
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --bin gproxy --target ${{ matrix.target }}
           elif [ "${{ matrix.os }}" = "android" ]; then
-            export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=+crt-static"
+            android_rustflags="-C target-feature=+crt-static"
+            if [ "${{ matrix.target }}" = "x86_64-linux-android" ]; then
+              # Static x86_64 bionic pulls CPU-dispatch symbols from compiler-rt.
+              builtins="$(
+                find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" \
+                  -path '*/lib/clang/*/lib/linux/libclang_rt.builtins-x86_64-android.a' \
+                  -print -quit
+              )"
+              test -n "$builtins" || {
+                echo "missing NDK compiler-rt builtins for x86_64 Android static link" >&2
+                exit 1
+              }
+              android_rustflags="$android_rustflags -C link-arg=$builtins"
+            fi
+            export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$android_rustflags"
             cargo ndk -t ${{ matrix.android_abi }} build --release --bin gproxy
           else
             cargo build --release --bin gproxy --target ${{ matrix.target }}
@@ -303,9 +311,8 @@ jobs:
           retention-days: 1
 
       - name: Publish binary to ${{ env.PUBLISH_TAG }}
-        # Releases publish every target; staging publishes only the self-updatable
-        # triples that the signed manifest references (step-level `matrix` is OK).
-        if: ${{ github.event_name == 'release' || matrix.self_updatable }}
+        # The signed manifest references only the supported self-update triples,
+        # but the rolling staging release page should expose every native build.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.PUBLISH_TAG }}
@@ -356,9 +363,29 @@ jobs:
       # not match this workflow's branch trigger, so this can't loop.
       - name: Roll staging tag to this commit
         if: ${{ github.event_name != 'release' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git tag -f staging "${GITHUB_SHA}"
           git push -f origin "refs/tags/staging"
+          gh release edit staging \
+            --target "${GITHUB_SHA}" \
+            --title "gproxy staging" \
+            --prerelease \
+            --notes "Rolling staging build for main @ ${GITHUB_SHA}."
+
+      - name: Remove legacy staging signature assets
+        if: ${{ github.event_name != 'release' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view staging --json assets \
+            --jq '.assets[] | select(.name | endswith(".zip.sha256.sig")) | .id' |
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >/dev/null
+          done
 
       - name: Attach manifest to ${{ env.PUBLISH_TAG }}
         uses: softprops/action-gh-release@v2

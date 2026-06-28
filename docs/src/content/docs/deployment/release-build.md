@@ -50,8 +50,9 @@ cargo build --release --bin gproxy --target x86_64-unknown-linux-gnu
 
 The release workflow builds Linux glibc, Linux musl, macOS, Windows, and Android
 targets. Android targets are built with a static CRT
-(`-C target-feature=+crt-static`). It also smoke-checks selected binaries with
-`--help` before packaging.
+(`-C target-feature=+crt-static`); the x86_64 Android build also links the NDK
+compiler-rt builtins required by static bionic. It also smoke-checks selected
+binaries with `--help` before packaging.
 
 ## Runtime Configuration
 
