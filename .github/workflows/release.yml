@@ -209,6 +209,7 @@ jobs:
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --bin gproxy --target ${{ matrix.target }}
           elif [ "${{ matrix.os }}" = "android" ]; then
+            export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=+crt-static"
             cargo ndk -t ${{ matrix.android_abi }} build --release --bin gproxy
           else
             cargo build --release --bin gproxy --target ${{ matrix.target }}

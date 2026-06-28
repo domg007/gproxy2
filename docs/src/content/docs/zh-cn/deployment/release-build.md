@@ -48,7 +48,8 @@ cargo build --release --bin gproxy --target x86_64-unknown-linux-gnu
 ```
 
 release workflow 会构建 Linux glibc、Linux musl、macOS、Windows 和 Android
-目标，并对部分二进制执行 `--help` smoke check。
+目标。Android 目标会使用 static CRT（`-C target-feature=+crt-static`）构建，
+并对部分二进制执行 `--help` smoke check。
 
 ## 运行时配置
 

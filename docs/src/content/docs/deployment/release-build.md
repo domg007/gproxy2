@@ -49,7 +49,9 @@ cargo build --release --bin gproxy --target x86_64-unknown-linux-gnu
 ```
 
 The release workflow builds Linux glibc, Linux musl, macOS, Windows, and Android
-targets. It also smoke-checks selected binaries with `--help` before packaging.
+targets. Android targets are built with a static CRT
+(`-C target-feature=+crt-static`). It also smoke-checks selected binaries with
+`--help` before packaging.
 
 ## Runtime Configuration
 
