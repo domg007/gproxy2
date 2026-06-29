@@ -3,8 +3,9 @@ name: release
 # Builds the v2 distribution: native binaries, edge (wasm) bundles, and Docker
 # images. A published Release ships binaries + a signed `releases` (semver)
 # manifest to its `vX.Y.Z` tag and pushes Docker/edge. Every other trigger
-# (push to `main`, manual dispatch) refreshes the rolling `staging` tag: all
-# native binaries + a signed `staging` (sha256) manifest, no Docker/edge.
+# (push to `main`, manual dispatch) refreshes the rolling `staging` tag:
+# native binaries + a signed `staging` (sha256) manifest + Docker images. Edge
+# bundles remain release-only.
 on:
   workflow_dispatch:
   push:
@@ -509,7 +510,7 @@ jobs:
 
   docker-build:
     name: docker ${{ matrix.variant }}-${{ matrix.arch }}
-    if: ${{ github.event_name == 'release' }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     needs: build-native
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -557,7 +558,6 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: ${{ github.event_name == 'release' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -572,26 +572,28 @@ jobs:
           tags: |
             type=ref,event=tag,enable=${{ github.event_name == 'release' }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=staging,enable=${{ github.event_name != 'release' }}
+            type=sha,prefix=staging-,enable=${{ github.event_name != 'release' }}
           flavor: |
             suffix=-${{ matrix.arch }}${{ matrix.suffix }}
 
-      - name: Build image (push only on release)
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           platforms: linux/${{ matrix.arch }}
-          push: ${{ github.event_name == 'release' }}
+          push: true
           build-args: |
             RUNTIME_BASE=${{ matrix.runtime_base }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   # Combine the per-arch images into multi-arch manifest lists. Release-only
-  # (needs the images actually pushed to GHCR).
+  # and staging (needs the images actually pushed to GHCR).
   docker-manifest:
     name: Docker manifest
-    if: ${{ github.event_name == 'release' }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     needs: docker-build
     runs-on: ubuntu-latest
     steps:
@@ -608,8 +610,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/gproxy
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=staging,enable=${{ github.event_name != 'release' }}
+            type=sha,prefix=staging-,enable=${{ github.event_name != 'release' }}
       - name: Create manifest lists (gnu + musl)
         shell: bash
         run: |
