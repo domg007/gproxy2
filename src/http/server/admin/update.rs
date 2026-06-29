@@ -21,7 +21,12 @@ use crate::selfupdate::{
 
 /// Build an `UpdateContext` using the built-in update source.
 fn context(state: &AppState) -> UpdateContext {
-    let channel = match state.config.update_channel.as_str() {
+    let channel_name = state
+        .cp()
+        .update_channel
+        .clone()
+        .unwrap_or_else(|| state.config.update_channel.clone());
+    let channel = match channel_name.as_str() {
         "staging" => Channel::Staging,
         _ => Channel::Releases,
     };

@@ -60,6 +60,9 @@ pub struct ControlPlaneSnapshot {
     /// (per-credential / per-provider proxies still override it); hot-reloaded
     /// via §7.2 so changing it in the Console applies without a restart.
     pub proxy: Option<String>,
+    /// Console-editable self-update channel override. `None` falls back to the
+    /// server startup default.
+    pub update_channel: Option<String>,
     /// Bumped on each rebuild.
     pub version: u64,
 }
@@ -124,6 +127,7 @@ impl ControlPlaneSnapshot {
             quotas_by_scope: HashMap::new(),
             log_settings: LogSettings::default(),
             proxy: None,
+            update_channel: None,
             version,
         }
     }
@@ -257,6 +261,7 @@ impl ControlPlaneSnapshot {
                 disable_log_redaction: s.disable_log_redaction,
             };
             snap.proxy = s.proxy.clone().filter(|p| !p.trim().is_empty());
+            snap.update_channel = s.update_channel.clone().filter(|c| !c.trim().is_empty());
         }
 
         Ok(snap)

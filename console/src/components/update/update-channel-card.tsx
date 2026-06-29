@@ -27,6 +27,7 @@ export function UpdateChannelCard() {
       upsertInstanceSettings({ ...settingsToInput(s!), update_channel: next === "default" ? null : next }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["instance-settings"] });
+      void qc.resetQueries({ queryKey: ["update", "check"], exact: true });
       toast.success(t("channel.saved"));
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : String(e)),
