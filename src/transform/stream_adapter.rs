@@ -182,13 +182,12 @@ impl ResponsesStreamState {
     }
 
     fn ensure_message(&mut self, event: &Value) -> Vec<Value> {
-        self.message
-            .ensure(event, "msg_0", |state| message_item_added(state))
+        self.message.ensure(event, "msg_0", message_item_added)
     }
 
     fn ensure_reasoning(&mut self, event: &Value) -> Vec<Value> {
         self.reasoning
-            .ensure(event, "reasoning_0", |state| reasoning_item_added(state))
+            .ensure(event, "reasoning_0", reasoning_item_added)
     }
 
     fn finish_message(&mut self) -> Vec<Value> {
