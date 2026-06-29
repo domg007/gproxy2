@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { credentialStatusesQuery, type CredentialStatus } from "@/api/usage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { currentCredentialStatuses, unixNow } from "@/lib/credential-health";
 
 type HealthKind = "recovered" | "breaker" | "rate_limited" | "auth_dead";
 
@@ -51,10 +52,11 @@ export function HealthPanel() {
     );
   }
 
-  const rows = data ?? [];
+  const rawRows = data ?? [];
+  const rows = currentCredentialStatuses(rawRows, unixNow());
   const counts = countByKind(rows);
   const unhealthy = rows.filter((r) => r.health_kind !== "recovered");
-  const noEvents = rows.length === 0;
+  const noEvents = rawRows.length === 0;
   const allHealthy = unhealthy.length === 0;
 
   return (

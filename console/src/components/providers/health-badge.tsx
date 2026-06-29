@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { credentialStatusQuery, type CredentialStatus } from "@/api/credentials";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { latestCurrentCredentialStatus, unixNow } from "@/lib/credential-health";
 
 function fmtTime(unixSecs: number): string {
   return new Date(unixSecs * 1000).toLocaleString();
@@ -15,14 +16,10 @@ const KIND_STYLE: Record<string, string> = {
   rate_limited: "bg-amber-500/15 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200",
 };
 
-function latestStatus(rows: CredentialStatus[]): CredentialStatus | undefined {
-  return [...rows].sort((a, b) => b.updated_at - a.updated_at)[0];
-}
-
 export function HealthBadge({ credentialId }: { credentialId: number }) {
   const { t } = useTranslation("providers");
   const { data } = useQuery(credentialStatusQuery(credentialId));
-  const status = data ? latestStatus(data) : undefined;
+  const status = data ? latestCurrentCredentialStatus<CredentialStatus>(data, unixNow()) : undefined;
 
   if (!status) {
     return <Badge variant="outline" className="text-muted-foreground">{t("health.unknown")}</Badge>;
