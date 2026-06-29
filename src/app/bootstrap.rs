@@ -8,7 +8,7 @@
 
 use crate::crypto::password;
 use crate::store::persistence::PersistenceBackend;
-use crate::store::persistence::records::{OrgInput, UserInput};
+use crate::store::persistence::records::{OrgInput, RoutePermissionInput, Scope, UserInput};
 
 /// Ensure an admin exists. With `admin_password` set, force-upsert the named
 /// user every call (recovery); otherwise seed a random admin only when the
@@ -49,7 +49,8 @@ pub async fn ensure_admin(
                 is_admin: true,
             },
         };
-        db.upsert_user(input).await?;
+        let user = db.upsert_user(input).await?;
+        ensure_admin_route_permission(db, user.id).await?;
         tracing::warn!(
             admin_user,
             "admin credential override active (from env/CLI); REMOVE the env/flag after recovery"
@@ -63,17 +64,38 @@ pub async fn ensure_admin(
     }
 
     let pw = crate::util::rand::password();
-    db.upsert_user(UserInput {
+    let user = db
+        .upsert_user(UserInput {
+            id: None,
+            name: admin_user.to_string(),
+            org_id,
+            team_id: None,
+            password: Some(password::hash(&pw)?),
+            enabled: true,
+            is_admin: true,
+        })
+        .await?;
+    ensure_admin_route_permission(db, user.id).await?;
+    print_admin_banner(admin_user, &pw);
+    Ok(())
+}
+
+async fn ensure_admin_route_permission(
+    db: &dyn PersistenceBackend,
+    user_id: i64,
+) -> anyhow::Result<()> {
+    let permissions = db.list_route_permissions(Scope::User, user_id).await?;
+    if permissions.iter().any(|p| p.route_pattern == "*") {
+        return Ok(());
+    }
+
+    db.upsert_route_permission(RoutePermissionInput {
         id: None,
-        name: admin_user.to_string(),
-        org_id,
-        team_id: None,
-        password: Some(password::hash(&pw)?),
-        enabled: true,
-        is_admin: true,
+        scope: Scope::User,
+        scope_id: user_id,
+        route_pattern: "*".to_string(),
     })
     .await?;
-    print_admin_banner(admin_user, &pw);
     Ok(())
 }
 
