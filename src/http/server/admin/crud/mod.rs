@@ -593,6 +593,71 @@ mod tests {
         assert_eq!(reopen.open(&opened).unwrap()["api_key"], "sk-x");
     }
 
+    #[tokio::test]
+    async fn credential_api_key_create_dedupes_existing_secret() {
+        use base64::Engine as _;
+        insecure_cookies();
+        let cipher = crate::crypto::cipher_from_master_key(Some(
+            &base64::engine::general_purpose::STANDARD.encode([8u8; 32]),
+        ))
+        .unwrap();
+        let (state, _dir, admin_id) = seeded_state_with_cipher(cipher.clone()).await;
+        let cookie = admin_cookie(&state, admin_id).await;
+        let provider_id = seed_provider(&state).await;
+        let persistence = state.persistence.clone();
+        let app = crate::http::server::router(state);
+
+        let create = |label: &str| {
+            serde_json::json!({
+                "label": label,
+                "kind": "api_key",
+                "secret_json": { "api_key": "sk-dupe" },
+                "weight": 100,
+                "enabled": true,
+            })
+            .to_string()
+        };
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/admin/providers/{provider_id}/credentials"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(create("first")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let first: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let first_id = first["id"].as_i64().unwrap();
+
+        let resp = app
+            .oneshot(
+                Request::post(format!("/admin/providers/{provider_id}/credentials"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(create("second")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let second: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(second["id"].as_i64().unwrap(), first_id);
+
+        let stored = persistence.list_credentials(provider_id).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].name.as_deref(), Some("first"));
+        assert_eq!(
+            cipher.open(&stored[0].secret_json).unwrap()["api_key"],
+            "sk-dupe"
+        );
+    }
+
     /// User keys are generated server-side: the bare key appears ONCE in the
     /// create response (and matches the stored digest), never on reads, and a
     /// caller-supplied api_key is rejected outright.

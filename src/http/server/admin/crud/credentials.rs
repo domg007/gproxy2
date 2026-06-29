@@ -8,11 +8,11 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
 use super::{internal, upsert_err};
+use crate::admin::credential_upsert::{CredentialUpsertPlan, plan_credential_upsert};
 use crate::admin::invalidate;
 use crate::api::credentials::{CredentialUpsert, CredentialView};
 use crate::api::error::ApiError;
 use crate::app::AppState;
-use crate::store::persistence::records::CredentialInput;
 
 /// `GET /admin/providers/{provider_id}/credentials` — redacted list.
 pub async fn list(
@@ -54,48 +54,18 @@ pub async fn upsert(
     Path(provider_id): Path<i64>,
     Json(body): Json<CredentialUpsert>,
 ) -> Result<Json<CredentialView>, ApiError> {
-    // Resolve the sealed secret to store.
-    let secret_json = match (&body.secret_json, body.id) {
-        // New plaintext supplied → seal it.
-        (Some(plain), _) => state.cipher.seal(plain).map_err(internal)?,
-        // No secret on update → keep the existing (already sealed) value.
-        (None, Some(id)) => {
-            let existing = state
+    let cred = match plan_credential_upsert(&state, provider_id, body).await? {
+        CredentialUpsertPlan::Existing(cred) => cred,
+        CredentialUpsertPlan::Upsert(input) => {
+            let cred = state
                 .persistence
-                .get_credential(id)
+                .upsert_credential(input)
                 .await
-                .map_err(internal)?
-                .filter(|c| c.provider_id == provider_id)
-                .ok_or_else(|| ApiError::NotFound("not found".into()))?;
-            existing.secret_json
-        }
-        // No secret on create → reject.
-        (None, None) => {
-            return Err(ApiError::BadRequest(
-                "secret_json required on create".into(),
-            ));
+                .map_err(upsert_err)?;
+            invalidate(&state).await;
+            cred
         }
     };
-
-    let input = CredentialInput {
-        id: body.id,
-        provider_id,
-        name: body.label,
-        kind: body.kind,
-        secret_json,
-        weight: body.weight,
-        rpm_limit: body.rpm_limit,
-        tpm_limit: body.tpm_limit,
-        proxy_url: body.proxy_url,
-        tls_fingerprint: body.tls_fingerprint,
-        enabled: body.enabled,
-    };
-    let cred = state
-        .persistence
-        .upsert_credential(input)
-        .await
-        .map_err(upsert_err)?;
-    invalidate(&state).await;
     Ok(Json(CredentialView::from(cred)))
 }
 

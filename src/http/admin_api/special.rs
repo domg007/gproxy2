@@ -27,6 +27,7 @@ use bytes::Bytes;
 use http::Method;
 use http::request::Parts;
 
+use crate::admin::credential_upsert::{CredentialUpsertPlan, plan_credential_upsert};
 use crate::admin::guard::guard_admin;
 use crate::admin::invalidate;
 use crate::api::credentials::{CredentialUpsert, CredentialView};
@@ -35,7 +36,7 @@ use crate::api::user_keys::{UserKeyUpsert, UserKeyView};
 use crate::api::users::{UserUpsert, UserView};
 use crate::app::AppState;
 use crate::pipeline::auth::key_digest;
-use crate::store::persistence::records::{CredentialInput, UserInput, UserKeyInput};
+use crate::store::persistence::records::{UserInput, UserKeyInput};
 
 use super::{Resp, internal, json_body, parse_i64, segments};
 
@@ -348,48 +349,18 @@ pub(super) async fn dispatch_credentials(
                 let provider_id = parse_i64(provider_id)?;
                 let body: CredentialUpsert = json_body(body)?;
 
-                // Resolve the sealed secret — mirrors native credentials.rs exactly.
-                let secret_json = match (&body.secret_json, body.id) {
-                    // New plaintext supplied → seal it.
-                    (Some(plain), _) => state.cipher.seal(plain).map_err(internal)?,
-                    // No secret on update → keep the existing (already sealed) value.
-                    (None, Some(id)) => {
-                        let existing = state
+                let cred = match plan_credential_upsert(state, provider_id, body).await? {
+                    CredentialUpsertPlan::Existing(cred) => cred,
+                    CredentialUpsertPlan::Upsert(input) => {
+                        let cred = state
                             .persistence
-                            .get_credential(id)
+                            .upsert_credential(input)
                             .await
-                            .map_err(internal)?
-                            .filter(|c| c.provider_id == provider_id)
-                            .ok_or_else(|| ApiError::NotFound("not found".into()))?;
-                        existing.secret_json
-                    }
-                    // No secret on create → reject.
-                    (None, None) => {
-                        return Err(ApiError::BadRequest(
-                            "secret_json required on create".into(),
-                        ));
+                            .map_err(ApiError::from_upsert)?;
+                        invalidate(state).await;
+                        cred
                     }
                 };
-
-                let input = CredentialInput {
-                    id: body.id,
-                    provider_id,
-                    name: body.label,
-                    kind: body.kind,
-                    secret_json,
-                    weight: body.weight,
-                    rpm_limit: body.rpm_limit,
-                    tpm_limit: body.tpm_limit,
-                    proxy_url: body.proxy_url,
-                    tls_fingerprint: body.tls_fingerprint,
-                    enabled: body.enabled,
-                };
-                let cred = state
-                    .persistence
-                    .upsert_credential(input)
-                    .await
-                    .map_err(ApiError::from_upsert)?;
-                invalidate(state).await;
                 Resp::json(200, &CredentialView::from(cred))
             }
             .await,
