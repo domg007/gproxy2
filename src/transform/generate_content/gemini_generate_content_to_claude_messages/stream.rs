@@ -12,10 +12,13 @@ pub fn stream_event(
 }
 
 fn gemini_chunk_to_claude(input: gemini::GenerateContentResponse) -> claude::StreamEvent {
-    let usage = input
-        .usage_metadata
-        .map(common::gemini_usage_to_completion)
-        .map(|usage| common::completion_usage_to_claude(Some(usage)));
+    let usage = input.usage_metadata.map(|usage| {
+        let service_tier = common::gemini_usage_service_tier_to_claude(usage.service_tier.clone());
+        let mut usage =
+            common::completion_usage_to_claude(Some(common::gemini_usage_to_completion(usage)));
+        usage.service_tier = service_tier;
+        usage
+    });
     let blocked = input
         .prompt_feedback
         .as_ref()

@@ -39,6 +39,7 @@ pub enum CommandTool {
     CodeExecution20250522(CodeExecutionTool20250522),
     CodeExecution20250825(CodeExecutionTool20250825),
     CodeExecution20260120(CodeExecutionTool20260120),
+    CodeExecution20260521(CodeExecutionTool20260521),
     Memory20250818(MemoryTool20250818),
     ToolSearchBm25(ToolSearchBm25Tool),
     ToolSearchRegex(ToolSearchRegexTool),
@@ -85,6 +86,15 @@ pub struct CodeExecutionTool20260120 {
     pub name: CodeExecutionToolName,
     #[serde(rename = "type")]
     pub type_: CodeExecutionTool20260120Type,
+    #[serde(flatten)]
+    pub common: ToolCommonWithoutInputExamples,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodeExecutionTool20260521 {
+    pub name: CodeExecutionToolName,
+    #[serde(rename = "type")]
+    pub type_: CodeExecutionTool20260521Type,
     #[serde(flatten)]
     pub common: ToolCommonWithoutInputExamples,
 }
@@ -344,6 +354,7 @@ single_wire_enum!(CodeExecutionToolName { CodeExecution => "code_execution" });
 single_wire_enum!(CodeExecutionTool20250522Type { CodeExecution20250522 => "code_execution_20250522" });
 single_wire_enum!(CodeExecutionTool20250825Type { CodeExecution20250825 => "code_execution_20250825" });
 single_wire_enum!(CodeExecutionTool20260120Type { CodeExecution20260120 => "code_execution_20260120" });
+single_wire_enum!(CodeExecutionTool20260521Type { CodeExecution20260521 => "code_execution_20260521" });
 single_wire_enum!(MemoryToolName { Memory => "memory" });
 single_wire_enum!(MemoryTool20250818Type { Memory20250818 => "memory_20250818" });
 single_wire_enum!(ToolSearchBm25ToolName { ToolSearchBm25 => "tool_search_tool_bm25" });

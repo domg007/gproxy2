@@ -17,6 +17,27 @@ pub struct EmbedContentRequest {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_dimensionality: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embed_content_config: Option<EmbedContentConfig>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
+    pub extra: ExtraFields,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedContentConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<TaskType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_truncate: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_dimensionality: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_ocr: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_track_extraction: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }
@@ -67,9 +88,13 @@ pub struct ContentEmbedding {
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingUsageMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_token_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_token_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_token_count: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompt_token_details: Vec<ModalityTokenCount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub prompt_tokens_details: Vec<ModalityTokenCount>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]

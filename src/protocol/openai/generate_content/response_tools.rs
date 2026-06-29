@@ -86,6 +86,8 @@ pub enum ResponseTool {
         server_description: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         server_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tunnel_id: Option<String>,
         #[serde(default, flatten, skip_serializing_if = "BTreeMap::is_empty")]
         extra: Extra,
     },

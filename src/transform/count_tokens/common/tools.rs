@@ -158,7 +158,8 @@ pub(in crate::transform::count_tokens) fn claude_tools_to_gemini(
             claude::Tool::Command(
                 claude::CommandTool::CodeExecution20250522(_)
                 | claude::CommandTool::CodeExecution20250825(_)
-                | claude::CommandTool::CodeExecution20260120(_),
+                | claude::CommandTool::CodeExecution20260120(_)
+                | claude::CommandTool::CodeExecution20260521(_),
             ) => gemini_tools.push(gemini::Tool {
                 code_execution: Some(gemini::CodeExecution::default()),
                 ..Default::default()
@@ -246,7 +247,8 @@ pub(in crate::transform::count_tokens) fn claude_tools_to_openai(
             claude::Tool::Command(
                 claude::CommandTool::CodeExecution20250522(_)
                 | claude::CommandTool::CodeExecution20250825(_)
-                | claude::CommandTool::CodeExecution20260120(_),
+                | claude::CommandTool::CodeExecution20260120(_)
+                | claude::CommandTool::CodeExecution20260521(_),
             ) => output.push(openai::ResponseTool::CodeInterpreter {
                 container: openai::CodeInterpreterContainer::Auto(
                     openai::CodeInterpreterAutoContainer {
@@ -270,6 +272,7 @@ pub(in crate::transform::count_tokens) fn claude_tools_to_openai(
                 require_approval: None,
                 server_description: None,
                 server_url: None,
+                tunnel_id: None,
                 extra: Default::default(),
             }),
             _ => {}
@@ -290,6 +293,7 @@ pub(in crate::transform::count_tokens) fn claude_tools_to_openai(
             require_approval: None,
             server_description: None,
             server_url: Some(server.url),
+            tunnel_id: None,
             extra: Default::default(),
         }
     }));
@@ -368,6 +372,7 @@ pub(in crate::transform::count_tokens) fn gemini_tools_to_openai(
                 require_approval: None,
                 server_description: None,
                 server_url: transport.and_then(|transport| transport.url),
+                tunnel_id: None,
                 extra: Default::default(),
             }
         }));

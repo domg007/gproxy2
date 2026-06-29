@@ -16,7 +16,11 @@ fn gemini_chunk_to_chat(input: gemini::StreamGenerateContentChunk) -> openai::Ch
         .model_version
         .unwrap_or_else(|| common::DEFAULT_OPENAI_MODEL.to_owned())
         .into();
-    let usage = input.usage_metadata.map(common::gemini_usage_to_completion);
+    let usage_metadata = input.usage_metadata;
+    let service_tier = usage_metadata
+        .as_ref()
+        .and_then(|usage| common::gemini_service_tier_to_openai(usage.service_tier.clone()));
+    let usage = usage_metadata.map(common::gemini_usage_to_completion);
     let blocked = input
         .prompt_feedback
         .as_ref()
@@ -54,7 +58,7 @@ fn gemini_chunk_to_chat(input: gemini::StreamGenerateContentChunk) -> openai::Ch
         created: 0,
         model,
         object: openai::ChatCompletionChunkObjectType::ChatCompletionChunk,
-        service_tier: None,
+        service_tier,
         system_fingerprint: None,
         usage,
         extra: Default::default(),

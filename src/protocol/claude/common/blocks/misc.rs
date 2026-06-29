@@ -57,6 +57,8 @@ pub struct FallbackBlock {
     pub to: FallbackInfo,
     #[serde(rename = "type")]
     pub type_: FallbackBlockType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

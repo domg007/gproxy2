@@ -124,6 +124,8 @@ pub struct UsageMetadata {
     pub candidates_tokens_details: Vec<ModalityTokenCount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_use_prompt_tokens_details: Vec<ModalityTokenCount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }

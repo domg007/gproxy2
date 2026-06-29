@@ -43,7 +43,11 @@ fn gemini_chunk_to_response_events(
         .model_version
         .unwrap_or_else(|| common::DEFAULT_OPENAI_MODEL.to_owned())
         .into();
-    let usage = input.usage_metadata.map(common::gemini_usage_to_completion);
+    let usage_metadata = input.usage_metadata;
+    let service_tier = usage_metadata
+        .as_ref()
+        .and_then(|usage| common::gemini_service_tier_to_openai(usage.service_tier.clone()));
+    let usage = usage_metadata.map(common::gemini_usage_to_completion);
     let blocked = input
         .prompt_feedback
         .as_ref()
@@ -56,6 +60,7 @@ fn gemini_chunk_to_response_events(
                 id,
                 model,
                 usage,
+                service_tier,
                 openai::ResponseStatus::Incomplete,
                 Some(openai::IncompleteDetails {
                     reason: Some(openai::IncompleteReason::ContentFilter),
@@ -63,7 +68,14 @@ fn gemini_chunk_to_response_events(
                 }),
             )
         } else {
-            response_lifecycle_event(id, model, usage, openai::ResponseStatus::InProgress, None)
+            response_lifecycle_event(
+                id,
+                model,
+                usage,
+                service_tier,
+                openai::ResponseStatus::InProgress,
+                None,
+            )
         }];
     }
 
@@ -84,6 +96,7 @@ fn gemini_chunk_to_response_events(
                 id.clone(),
                 model.clone(),
                 usage.clone(),
+                service_tier.clone(),
                 status,
                 incomplete_details,
             ));
@@ -95,6 +108,7 @@ fn gemini_chunk_to_response_events(
             id,
             model,
             usage,
+            service_tier,
             openai::ResponseStatus::InProgress,
             None,
         ));
@@ -190,6 +204,7 @@ fn response_lifecycle_event(
     id: String,
     model: openai::OpenAiModelId,
     usage: Option<openai::CompletionUsage>,
+    service_tier: Option<openai::ServiceTier>,
     status: openai::ResponseStatus,
     incomplete_details: Option<openai::IncompleteDetails>,
 ) -> openai::ResponseStreamEvent {
@@ -218,7 +233,7 @@ fn response_lifecycle_event(
         previous_response_id: None,
         reasoning: None,
         safety_identifier: None,
-        service_tier: None,
+        service_tier,
         status: Some(status),
         store: None,
         temperature: None,
@@ -302,6 +317,7 @@ fn default_response_in_progress() -> openai::ResponseStreamEvent {
     response_lifecycle_event(
         String::new(),
         common::default_openai_model(),
+        None,
         None,
         openai::ResponseStatus::InProgress,
         None,

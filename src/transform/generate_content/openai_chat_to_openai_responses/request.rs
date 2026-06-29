@@ -46,6 +46,7 @@ pub fn request(
         reasoning: input
             .reasoning_effort
             .map(|effort| openai::ReasoningConfig {
+                context: None,
                 effort: Some(effort),
                 summary: None,
                 generate_summary: None,

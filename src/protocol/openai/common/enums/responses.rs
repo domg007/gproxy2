@@ -94,6 +94,12 @@ strict_string_enum!(ResponseMcpCallStatus {
     Failed => "failed",
 });
 
+extensible_string_enum!(ReasoningContext, ReasoningContextKnown {
+    Auto => "auto",
+    CurrentTurn => "current_turn",
+    AllTurns => "all_turns",
+});
+
 strict_string_enum!(ResponsePhase {
     Commentary => "commentary",
     FinalAnswer => "final_answer",

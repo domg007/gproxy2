@@ -17,6 +17,7 @@ pub(super) fn openai_usage_to_gemini(input: openai::ImageUsage) -> gemini::Usage
             .map(openai_token_details_to_gemini)
             .unwrap_or_default(),
         tool_use_prompt_tokens_details: Vec::new(),
+        service_tier: None,
         extra: Default::default(),
     }
 }

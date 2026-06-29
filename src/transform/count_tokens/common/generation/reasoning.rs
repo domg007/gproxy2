@@ -26,6 +26,7 @@ pub(in crate::transform::count_tokens) fn claude_generation_to_openai_reasoning(
         .or_else(|| thinking.map(claude_thinking_to_openai_effort));
 
     effort.map(|effort| openai::ReasoningConfig {
+        context: None,
         effort: Some(effort),
         summary: None,
         generate_summary: None,
@@ -47,6 +48,7 @@ pub(in crate::transform::count_tokens) fn gemini_generation_to_openai_reasoning(
             .unwrap_or(openai::ReasoningEffort::Medium)
     };
     Some(openai::ReasoningConfig {
+        context: None,
         effort: Some(effort),
         summary: None,
         generate_summary: None,

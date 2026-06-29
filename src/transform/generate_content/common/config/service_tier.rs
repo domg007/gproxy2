@@ -89,3 +89,24 @@ pub(in crate::transform::generate_content) fn gemini_service_tier_to_claude(
     };
     Some(claude::RequestServiceTier::Known(tier))
 }
+
+pub(in crate::transform::generate_content) fn gemini_usage_service_tier_to_claude(
+    service_tier: Option<gemini::ServiceTier>,
+) -> Option<claude::UsageServiceTier> {
+    let tier = match service_tier? {
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Standard) => {
+            claude::UsageServiceTier::Known(claude::UsageServiceTierKnown::Standard)
+        }
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Priority) => {
+            claude::UsageServiceTier::Known(claude::UsageServiceTierKnown::Priority)
+        }
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Flex) => {
+            claude::UsageServiceTier::Unknown("flex".to_string())
+        }
+        gemini::ServiceTier::Known(gemini::ServiceTierKnown::Unspecified) => {
+            claude::UsageServiceTier::Unknown("unspecified".to_string())
+        }
+        gemini::ServiceTier::Unknown(value) => claude::UsageServiceTier::Unknown(value),
+    };
+    Some(tier)
+}

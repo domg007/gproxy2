@@ -8,6 +8,7 @@ pub enum Caller {
     Direct(DirectCaller),
     ServerTool(ServerToolCaller),
     ServerTool20260120(ServerToolCaller20260120),
+    ServerTool20260521(ServerToolCaller20260521),
     Unknown(TypedObject),
 }
 
@@ -53,4 +54,19 @@ pub struct ServerToolCaller20260120 {
 pub enum ServerToolCaller20260120Type {
     #[serde(rename = "code_execution_20260120")]
     CodeExecution20260120,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerToolCaller20260521 {
+    pub tool_id: String,
+    #[serde(rename = "type")]
+    pub type_: ServerToolCaller20260521Type,
+    #[serde(default, flatten, skip_serializing_if = "JsonObject::is_empty")]
+    pub extra: JsonObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerToolCaller20260521Type {
+    #[serde(rename = "code_execution_20260521")]
+    CodeExecution20260521,
 }

@@ -77,6 +77,8 @@ pub enum PromptVariableInputContentPart {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReasoningConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ReasoningContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<ReasoningEffort>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<ReasoningSummary>,

@@ -12,7 +12,12 @@ pub(in crate::transform::embeddings) fn openai_to_gemini_requests(
     input: openai::EmbeddingRequest,
 ) -> Vec<gemini::EmbedContentRequest> {
     let model = model_name(&input.model);
-    let output_dimensionality = input.dimensions.map(u32_to_i32);
+    let embed_content_config = input
+        .dimensions
+        .map(|dimensions| gemini::EmbedContentConfig {
+            output_dimensionality: Some(u32_to_i32(dimensions)),
+            ..Default::default()
+        });
 
     input
         .input
@@ -23,7 +28,8 @@ pub(in crate::transform::embeddings) fn openai_to_gemini_requests(
             content: Some(text_content(text)),
             task_type: None,
             title: None,
-            output_dimensionality,
+            output_dimensionality: None,
+            embed_content_config: embed_content_config.clone(),
             extra: Default::default(),
         })
         .collect()
@@ -47,8 +53,10 @@ pub(in crate::transform::embeddings) fn openai_to_gemini_usage(
     input: openai::EmbeddingUsage,
 ) -> gemini::EmbeddingUsageMetadata {
     gemini::EmbeddingUsageMetadata {
+        prompt_token_count: Some(u32_to_i32(input.prompt_tokens)),
         total_token_count: Some(u32_to_i32(input.total_tokens)),
         input_token_count: Some(u32_to_i32(input.prompt_tokens)),
+        prompt_token_details: Vec::new(),
         prompt_tokens_details: Vec::new(),
         extra: Default::default(),
     }
@@ -57,10 +65,17 @@ pub(in crate::transform::embeddings) fn openai_to_gemini_usage(
 pub(in crate::transform::embeddings) fn gemini_request_parts(
     input: gemini::EmbedContentRequest,
 ) -> ConvertedGeminiRequest {
+    let dimensions = input
+        .embed_content_config
+        .as_ref()
+        .and_then(|config| config.output_dimensionality)
+        .or(input.output_dimensionality)
+        .map(i32_to_u32);
+
     ConvertedGeminiRequest {
         text: content_text(input.content),
         model: input.model,
-        dimensions: input.output_dimensionality.map(i32_to_u32),
+        dimensions,
     }
 }
 
@@ -122,9 +137,12 @@ pub(in crate::transform::embeddings) fn gemini_to_openai_usage(
         };
     };
 
+    let prompt_tokens = input.prompt_token_count.or(input.input_token_count);
+    let total_tokens = input.total_token_count.or(prompt_tokens);
+
     openai::EmbeddingUsage {
-        prompt_tokens: input.input_token_count.map(i32_to_u32).unwrap_or_default(),
-        total_tokens: input.total_token_count.map(i32_to_u32).unwrap_or_default(),
+        prompt_tokens: prompt_tokens.map(i32_to_u32).unwrap_or_default(),
+        total_tokens: total_tokens.map(i32_to_u32).unwrap_or_default(),
         extra: Default::default(),
     }
 }

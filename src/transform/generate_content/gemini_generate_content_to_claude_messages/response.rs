@@ -1,6 +1,7 @@
 use crate::protocol::{claude, gemini};
 use crate::transform::{TransformContext, TransformError};
 
+use super::super::common;
 use super::content::gemini_content_to_claude_response_blocks;
 
 pub fn response(
@@ -76,6 +77,8 @@ fn gemini_finish_reason_to_claude(reason: gemini::FinishReason) -> claude::StopR
 }
 
 fn gemini_usage_to_claude(usage: gemini::UsageMetadata) -> claude::Usage {
+    let service_tier = common::gemini_usage_service_tier_to_claude(usage.service_tier.clone());
+
     claude::Usage {
         input_tokens: usage.prompt_token_count.map(i32_to_u64),
         output_tokens: usage.candidates_token_count.map(i32_to_u64),
@@ -91,7 +94,7 @@ fn gemini_usage_to_claude(usage: gemini::UsageMetadata) -> claude::Usage {
         server_tool_use: None,
         iterations: None,
         inference_geo: None,
-        service_tier: None,
+        service_tier,
         speed: None,
         extra: Default::default(),
     }

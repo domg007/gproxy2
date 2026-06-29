@@ -265,6 +265,7 @@ pub(in crate::transform::generate_content) fn completion_usage_to_gemini(
         cache_tokens_details: Vec::new(),
         candidates_tokens_details: Vec::new(),
         tool_use_prompt_tokens_details: Vec::new(),
+        service_tier: None,
         extra: Default::default(),
     })
 }

@@ -60,4 +60,6 @@ pub enum ToolCaller {
     CodeExecution20250825,
     #[serde(rename = "code_execution_20260120")]
     CodeExecution20260120,
+    #[serde(rename = "code_execution_20260521")]
+    CodeExecution20260521,
 }

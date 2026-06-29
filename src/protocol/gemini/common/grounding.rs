@@ -92,6 +92,8 @@ pub struct RetrievedContext {
     pub title: Option<String>,
     pub text: Option<String>,
     pub file_search_store: Option<String>,
+    pub page_number: Option<i32>,
+    pub media_id: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty", flatten)]
     pub extra: ExtraFields,
 }

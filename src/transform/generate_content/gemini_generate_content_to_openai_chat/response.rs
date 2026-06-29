@@ -8,6 +8,11 @@ pub fn response(
     input: gemini::GenerateContentResponse,
     _: &TransformContext,
 ) -> Result<openai::ChatCompletionResponse, TransformError> {
+    let usage_metadata = input.usage_metadata;
+    let service_tier = usage_metadata
+        .as_ref()
+        .and_then(|usage| common::gemini_service_tier_to_openai(usage.service_tier.clone()));
+
     Ok(openai::ChatCompletionResponse {
         id: input.response_id.unwrap_or_default(),
         choices: input
@@ -38,9 +43,9 @@ pub fn response(
             .into(),
         object: openai::ChatCompletionObjectType::ChatCompletion,
         moderation: None,
-        service_tier: None,
+        service_tier,
         system_fingerprint: None,
-        usage: input.usage_metadata.map(gemini_usage_to_completion),
+        usage: usage_metadata.map(gemini_usage_to_completion),
         extra: Default::default(),
     })
 }

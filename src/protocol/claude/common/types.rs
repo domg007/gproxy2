@@ -95,7 +95,8 @@ extensible_string_enum!(ServerToolUseName, ServerToolUseNameKnown {
 extensible_string_enum!(ToolType, ToolTypeKnown {
     Custom => "custom", Bash20241022 => "bash_20241022", Bash20250124 => "bash_20250124",
     CodeExecution20250522 => "code_execution_20250522", CodeExecution20250825 => "code_execution_20250825",
-    CodeExecution20260120 => "code_execution_20260120", Computer20241022 => "computer_20241022",
+    CodeExecution20260120 => "code_execution_20260120", CodeExecution20260521 => "code_execution_20260521",
+    Computer20241022 => "computer_20241022",
     Computer20250124 => "computer_20250124", Computer20251124 => "computer_20251124",
     Memory20250818 => "memory_20250818", TextEditor20241022 => "text_editor_20241022",
     TextEditor20250124 => "text_editor_20250124", TextEditor20250429 => "text_editor_20250429",
