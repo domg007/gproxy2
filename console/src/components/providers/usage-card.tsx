@@ -17,7 +17,11 @@ function windowPercent(w: UsageWindow): number | undefined {
 
 function windowReset(w: UsageWindow): string | undefined {
   if (w.resets_at_unix !== undefined) return new Date(w.resets_at_unix * 1000).toLocaleString();
-  return w.resets_at;
+  if (!w.resets_at) return undefined;
+
+  const resetAt = new Date(w.resets_at);
+  if (Number.isNaN(resetAt.getTime())) return w.resets_at;
+  return resetAt.toLocaleString();
 }
 
 export function UsageCard({ credentialId }: { credentialId: number }) {
