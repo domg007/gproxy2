@@ -84,7 +84,7 @@ pub fn cost(u: &NormalizedUsage, p: &Pricing) -> Decimal {
     (Decimal::from(u.input) * p.input
         + Decimal::from(u.output) * p.output
         + Decimal::from(u.cache_read) * p.cache_read
-        + Decimal::from(u.cache_creation) * p.cache_creation)
+        + Decimal::from(u.cache_creation()) * p.cache_creation)
         / million
 }
 
@@ -138,7 +138,8 @@ mod tests {
             input: 1500,
             output: 2000,
             cache_read: 10_000,
-            cache_creation: 500,
+            cache_creation_5m: 200,
+            cache_creation_1h: 300,
             reasoning: 0,
         };
         let expected: Decimal = "0.0345".parse().unwrap(); // 0.0045 + 2000*15/1e6

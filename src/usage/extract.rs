@@ -80,21 +80,24 @@ fn field(value: &Value, key: &str) -> u64 {
 }
 
 /// Claude `usage` object. `input_tokens` already excludes cache parts (claude
-/// separates natively). `cache_creation` prefers the 5m/1h breakdown object
-/// (fields summed) over the legacy aggregate `cache_creation_input_tokens`.
+/// separates natively). `cache_creation` preserves the 5m/1h breakdown when
+/// present; the legacy aggregate `cache_creation_input_tokens` is recorded as
+/// 5m because older Claude responses did not expose a TTL split.
 fn claude_usage(usage: &Value) -> NormalizedUsage {
-    let cache_creation = match usage.get("cache_creation").filter(|v| v.is_object()) {
-        Some(breakdown) => {
-            field(breakdown, "ephemeral_5m_input_tokens")
-                + field(breakdown, "ephemeral_1h_input_tokens")
-        }
-        None => field(usage, "cache_creation_input_tokens"),
-    };
+    let (cache_creation_5m, cache_creation_1h) =
+        match usage.get("cache_creation").filter(|v| v.is_object()) {
+            Some(breakdown) => (
+                field(breakdown, "ephemeral_5m_input_tokens"),
+                field(breakdown, "ephemeral_1h_input_tokens"),
+            ),
+            None => (field(usage, "cache_creation_input_tokens"), 0),
+        };
     NormalizedUsage {
         input: field(usage, "input_tokens"),
         output: field(usage, "output_tokens"),
         cache_read: field(usage, "cache_read_input_tokens"),
-        cache_creation,
+        cache_creation_5m,
+        cache_creation_1h,
         reasoning: 0,
     }
 }
@@ -124,8 +127,8 @@ fn openai_chat_usage(usage: &Value) -> NormalizedUsage {
         input: prompt.saturating_sub(cached),
         output: field(usage, "completion_tokens"),
         cache_read: cached,
-        cache_creation: 0,
         reasoning,
+        ..Default::default()
     }
 }
 
@@ -142,8 +145,8 @@ fn openai_responses_usage(usage: &Value) -> NormalizedUsage {
         input: input.saturating_sub(cached),
         output: field(usage, "output_tokens"),
         cache_read: cached,
-        cache_creation: 0,
         reasoning,
+        ..Default::default()
     }
 }
 
@@ -163,8 +166,8 @@ fn gemini_usage(meta: &Value) -> NormalizedUsage {
         input: prompt.saturating_sub(cached),
         output: candidates + thoughts,
         cache_read: cached,
-        cache_creation: 0,
         reasoning: thoughts,
+        ..Default::default()
     }
 }
 
@@ -227,8 +230,26 @@ mod tests {
         assert_eq!(u.input, 100);
         assert_eq!(u.output, 40);
         assert_eq!(u.cache_read, 300);
-        assert_eq!(u.cache_creation, 70);
+        assert_eq!(u.cache_creation_5m, 50);
+        assert_eq!(u.cache_creation_1h, 20);
+        assert_eq!(u.cache_creation(), 70);
         assert_eq!(u.total(), 510);
+    }
+
+    #[test]
+    fn claude_response_with_legacy_cache_creation() {
+        let body = json!({
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 4,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 123
+            }
+        });
+        let u = from_response(Provider::Claude, &body).unwrap();
+        assert_eq!(u.cache_creation_5m, 123);
+        assert_eq!(u.cache_creation_1h, 0);
+        assert_eq!(u.cache_creation(), 123);
     }
 
     #[test]
@@ -246,7 +267,7 @@ mod tests {
         assert_eq!(u.cache_read, 600);
         assert_eq!(u.output, 200);
         assert_eq!(u.reasoning, 80);
-        assert_eq!(u.cache_creation, 0);
+        assert_eq!(u.cache_creation(), 0);
 
         // Missing details → cache 0, full input.
         let plain = json!({"usage": {"prompt_tokens": 1000, "completion_tokens": 200}});

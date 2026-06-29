@@ -15,14 +15,19 @@ pub struct NormalizedUsage {
     pub input: u64,
     pub output: u64,
     pub cache_read: u64,
-    pub cache_creation: u64,
+    pub cache_creation_5m: u64,
+    pub cache_creation_1h: u64,
     /// Informational subset of `output` (already billed there).
     pub reasoning: u64,
 }
 
 impl NormalizedUsage {
+    pub fn cache_creation(&self) -> u64 {
+        self.cache_creation_5m + self.cache_creation_1h
+    }
+
     pub fn total(&self) -> u64 {
-        self.input + self.output + self.cache_read + self.cache_creation
+        self.input + self.output + self.cache_read + self.cache_creation()
     }
 }
 

@@ -74,10 +74,8 @@ pub async fn record_success(
         input_tokens: tok(rec.usage.input),
         output_tokens: tok(rec.usage.output),
         cache_read_tokens: tok(rec.usage.cache_read),
-        // NormalizedUsage carries the summed cache-creation total; the 5m/1h
-        // split is not preserved post-normalization — record under 5m.
-        cache_creation_5m_tokens: tok(rec.usage.cache_creation),
-        cache_creation_1h_tokens: 0,
+        cache_creation_5m_tokens: tok(rec.usage.cache_creation_5m),
+        cache_creation_1h_tokens: tok(rec.usage.cache_creation_1h),
         cost: rec.cost,
         latency_ms: rec.latency_ms,
         usage_source: rec.source.as_str().to_owned(),
@@ -100,7 +98,7 @@ pub async fn record_success(
             requests: 1,
             input_tokens: tok(rec.usage.input),
             output_tokens: tok(rec.usage.output),
-            cache_write_tokens: tok(rec.usage.cache_creation),
+            cache_write_tokens: tok(rec.usage.cache_creation()),
             cache_read_tokens: tok(rec.usage.cache_read),
             cost: rec.cost,
         })
@@ -145,6 +143,8 @@ mod tests {
         let usage = NormalizedUsage {
             input: 1500,
             output: 100,
+            cache_creation_5m: 200,
+            cache_creation_1h: 300,
             ..Default::default()
         };
         let rec = || UsageRecord {
@@ -174,6 +174,8 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].usage_source, "upstream");
         assert_eq!(rows[0].ended, "complete");
+        assert_eq!(rows[0].cache_creation_5m_tokens, 200);
+        assert_eq!(rows[0].cache_creation_1h_tokens, 300);
 
         // Rollups counted exactly once per granularity.
         for gran in ["hour", "day"] {
@@ -184,6 +186,7 @@ mod tests {
             assert_eq!(rollups.len(), 1, "{gran}");
             assert_eq!(rollups[0].requests, 1, "{gran}");
             assert_eq!(rollups[0].input_tokens, 1500, "{gran}");
+            assert_eq!(rollups[0].cache_write_tokens, 500, "{gran}");
         }
     }
 }
