@@ -29,7 +29,7 @@ use crate::pipeline::local_ops;
 use crate::pipeline::outcome::{ExecOutcome, ResponseBody};
 use crate::pipeline::settle;
 use crate::pipeline::transform::{self as transform_step, AttemptMemo, TransformPlan};
-use crate::protocol::Operation;
+use crate::protocol::{Operation, OperationKind};
 
 /// Iterate candidates until one succeeds or returns a permanent error. The
 /// channel AND the transform plan are resolved PER candidate (a route's members
@@ -259,8 +259,7 @@ pub async fn run_failover(
             let latency_ms = send_ms.map(|ms| ms as i64).unwrap_or(0);
             // §8-D upstream response capture is gated here; the guard/return
             // value carries it. `materialize` runs BEFORE `log_upstream` so the
-            // non-streaming upstream body can be folded into the same INSERT,
-            // and BEFORE `settle::capture` (which moves `sent_body`).
+            // non-streaming upstream body can be folded into the same INSERT.
             let up_cap = {
                 let ls = state.cp().log_settings.clone();
                 (ls.enable_upstream_log && ls.enable_upstream_log_body).then(|| {
@@ -282,7 +281,36 @@ pub async fn run_failover(
                 rules: rules.as_slice(),
                 model: rule_filter_model.as_str(),
             });
-            let mat = materialize(&channel, source, &plan, ctx, status, response_rules, up_cap);
+            let usage_kind = match plan.shape_op(ctx).kind {
+                OperationKind::ContentGeneration(k) => Some(k),
+                OperationKind::Provider(_) => None,
+            };
+            let settle_ctx = status
+                .is_success()
+                .then(|| {
+                    usage_kind.and_then(|kind| {
+                        settle::SettleCtx::capture(
+                            state,
+                            ctx,
+                            cand,
+                            &channel,
+                            kind,
+                            sent_body.clone(),
+                            latency_ms,
+                        )
+                    })
+                })
+                .flatten();
+            let mat = materialize(
+                &channel,
+                source,
+                &plan,
+                ctx,
+                status,
+                response_rules,
+                up_cap,
+                settle_ctx,
+            );
             // §8-D upstream capture: the attempt actually returned to the
             // client (success or relayed permanent 4xx). Failed-over attempts
             // were audited above; gating happens inside `capture`. `resp_body`
@@ -307,13 +335,10 @@ pub async fn run_failover(
                 )
                 .await;
             }
-            let Materialized { body, .. } = mat?;
-            let settle_ctx = status
-                .is_success()
-                .then(|| {
-                    settle::SettleCtx::capture(state, ctx, cand, &channel, sent_body, latency_ms)
-                })
-                .flatten();
+            let Materialized { body, settle, .. } = mat?;
+            if let Some(settle) = settle {
+                settle::settle_body(settle.ctx, &settle.body, settle.stream).await;
+            }
             if plan.is_transform() {
                 // converted bytes no longer match the upstream framing
                 headers.remove(http::header::CONTENT_LENGTH);
@@ -332,9 +357,17 @@ pub async fn run_failover(
                 }
                 (_, body) => body,
             };
-            // §17: streams get the relay buffer + Drop guard; full bodies
-            // settle inline (`Complete`).
-            let body = settle::attach(settle_ctx, body, ctx.stream).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            let body = match (status.is_success(), ctx.op.map(|op| op.kind), body) {
+                (
+                    true,
+                    Some(OperationKind::ContentGeneration(inbound)),
+                    ResponseBody::Stream(s),
+                ) => ResponseBody::Stream(crate::pipeline::stream::instrument_error_frame(
+                    s, inbound,
+                )),
+                (_, _, body) => body,
+            };
             // §17: embeddings / image generation are provider-shaped (not
             // content-generation) so `capture` skipped them — settle them inline
             // from the buffered JSON (a no-op for every other op).

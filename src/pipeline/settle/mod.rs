@@ -25,7 +25,6 @@ use crate::app::AppState;
 use crate::billing::{self, UsageRecord};
 use crate::channel::Channel;
 use crate::pipeline::context::{Candidate, RequestCtx};
-use crate::pipeline::outcome::ResponseBody;
 use crate::protocol::{ContentGenerationKind, OperationKind, Provider as Family};
 use crate::store::persistence::records::{Credential, Provider as ProviderRecord, Scope};
 use crate::usage::{Ended, NormalizedUsage, UsageSource, extract};
@@ -47,9 +46,9 @@ pub struct SettleCtx {
     kind: String,
     /// Upstream member model (`cand.upstream_model_id`).
     model: String,
-    /// Inbound wire kind — the relayed bytes are inbound-shaped by the time
-    /// they reach the buffer (post response-transform).
-    inbound: ContentGenerationKind,
+    /// Provider-native wire kind seen after channel shaping and before any
+    /// response transform. Usage extraction is anchored to this shape.
+    usage_kind: ContentGenerationKind,
     /// Channel's native family — drives the upstream-count ladder rung.
     /// (wasm: ladder is local-only, so this and `channel` are unread there.)
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -82,11 +81,12 @@ impl SettleCtx {
         ctx: &RequestCtx,
         cand: &Candidate,
         channel: &Arc<dyn Channel>,
+        usage_kind: ContentGenerationKind,
         request_body: Bytes,
         latency_ms: i64,
     ) -> Option<Self> {
         let op = ctx.op?;
-        let OperationKind::ContentGeneration(inbound) = op.kind else {
+        let OperationKind::ContentGeneration(_) = op.kind else {
             return None; // models/count/etc. are never billed (§17)
         };
         let identity = ctx.identity.as_deref();
@@ -121,7 +121,7 @@ impl SettleCtx {
             operation: enum_str(&op.operation),
             kind: enum_str(&op.kind),
             model: cand.upstream_model_id.clone(),
-            inbound,
+            usage_kind,
             upstream_family: channel.provider_family(),
             request_body,
             pricing,
@@ -136,20 +136,10 @@ impl SettleCtx {
     }
 }
 
-/// Wire settlement onto a materialized body: streams get the relay
-/// buffer + Drop guard; full bodies settle inline (`Complete`).
-pub async fn attach(ctx: Option<SettleCtx>, body: ResponseBody, stream: bool) -> ResponseBody {
-    let Some(ctx) = ctx else { return body };
-    match body {
-        ResponseBody::Full(b) => {
-            settle_full(ctx, &b, stream).await;
-            ResponseBody::Full(b)
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        ResponseBody::Stream(s) => ResponseBody::Stream(
-            crate::pipeline::stream::instrument_stream(s, StreamGuard::new(ctx)),
-        ),
-    }
+/// Settle a fully-buffered provider-native response body. `stream` means the
+/// body is an SSE transcript that should be decoded as stream frames.
+pub async fn settle_body(ctx: SettleCtx, body: &Bytes, stream: bool) {
+    settle_full(ctx, body, stream).await;
 }
 
 /// Inline settle for a fully-buffered body (non-streaming, or wasm's buffered
@@ -157,17 +147,17 @@ pub async fn attach(ctx: Option<SettleCtx>, body: ResponseBody, stream: bool) ->
 /// ladder (spawned on native so the response isn't delayed).
 async fn settle_full(ctx: SettleCtx, body: &Bytes, stream: bool) {
     let extracted = if stream {
-        extract::from_stream_frames(ctx.inbound, &frames::decode(body))
+        extract::from_stream_frames(ctx.usage_kind, &frames::decode(body))
     } else {
         serde_json::from_slice::<Value>(body)
             .ok()
-            .and_then(|v| extract::from_response(ctx.inbound.provider(), &v))
+            .and_then(|v| extract::from_response(ctx.usage_kind.provider(), &v))
     };
     match extracted {
         Some(u) => record(&ctx, u, UsageSource::Upstream, Ended::Complete).await,
         None => {
             let text = if stream {
-                frames::produced_text(ctx.inbound, &frames::decode(body))
+                frames::produced_text(ctx.usage_kind, &frames::decode(body))
             } else {
                 crate::tokenize::harvest(body).0.join("\n")
             };
@@ -276,10 +266,6 @@ impl StreamGuard {
         }
     }
 
-    pub fn inbound_kind(&self) -> Option<ContentGenerationKind> {
-        self.inner.as_ref().map(|(c, _)| c.inbound)
-    }
-
     /// Explicit normal end — settles `Complete`.
     pub fn finish(mut self) {
         self.complete(Ended::Complete);
@@ -320,12 +306,12 @@ async fn settle_stream(ctx: SettleCtx, buf: RelayBuffer, ended: Ended) {
     let frames = frames::decode(&bytes);
     let (usage, source) = match ended {
         // normal end: trust the upstream-reported final usage when present
-        Ended::Complete => match extract::from_stream_frames(ctx.inbound, &frames) {
+        Ended::Complete => match extract::from_stream_frames(ctx.usage_kind, &frames) {
             Some(u) => (u, UsageSource::Upstream),
-            None => ladder(&ctx, &frames::produced_text(ctx.inbound, &frames)).await,
+            None => ladder(&ctx, &frames::produced_text(ctx.usage_kind, &frames)).await,
         },
         // abnormal end: bill the PRODUCED part via the counting ladder (§17)
-        Ended::Interrupted => ladder(&ctx, &frames::produced_text(ctx.inbound, &frames)).await,
+        Ended::Interrupted => ladder(&ctx, &frames::produced_text(ctx.usage_kind, &frames)).await,
     };
     record(&ctx, usage, source, ended).await;
     // §8-D: backfill the captured downstream response body (the row was

@@ -82,6 +82,71 @@ async fn normal_stream_settles_upstream_usage() {
 }
 
 #[tokio::test]
+async fn transformed_buffered_settles_provider_usage_before_response_conversion() {
+    let chat_response = json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "gpt-test",
+        "choices": [{ "index": 0, "message": { "role": "assistant", "content": "ok" }, "finish_reason": "stop" }],
+        "usage": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+            "total_tokens": 1500,
+            "prompt_tokens_details": { "cached_tokens": 600 }
+        }
+    });
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::from(serde_json::to_vec(&chat_response).unwrap()),
+        vec![],
+    ));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let outcome = crate::pipeline::execute(&state, claude_ctx("claude-test", false))
+        .await
+        .expect("pipeline ok");
+    let ResponseBody::Full(body) = outcome.body else {
+        panic!("expected Full")
+    };
+    let returned: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(returned["usage"]["input_tokens"], 1000);
+    assert_eq!(returned["usage"]["cache_read_input_tokens"], 600);
+
+    let row = wait_usage(&state).await;
+    assert_eq!(row.usage_source, "upstream");
+    assert_eq!(row.input_tokens, 400);
+    assert_eq!(row.cache_read_tokens, 600);
+    assert_eq!(row.output_tokens, 500);
+}
+
+#[tokio::test]
+async fn transformed_stream_settles_provider_usage_before_response_conversion() {
+    let chunk = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}"#;
+    let usage_chunk = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500,"prompt_tokens_details":{"cached_tokens":600}}}"#;
+    let fake = Arc::new(FakeUpstream::new(
+        Bytes::new(),
+        vec![
+            Bytes::from(format!("{chunk}\n\n")),
+            Bytes::from(format!("{usage_chunk}\n\ndata: [DONE]\n\n")),
+        ],
+    ));
+    let (state, _dir) = state_with(Arc::clone(&fake)).await;
+
+    let outcome = crate::pipeline::execute(&state, claude_ctx("claude-test", true))
+        .await
+        .expect("pipeline ok");
+    let ResponseBody::Stream(s) = outcome.body else {
+        panic!("expected Stream")
+    };
+    use futures_util::StreamExt;
+    let relayed: Vec<Bytes> = s.map(|r| r.expect("chunk ok")).collect().await;
+    assert!(!relayed.is_empty());
+
+    let row = wait_usage(&state).await;
+    assert_eq!(row.usage_source, "upstream");
+    assert_eq!(row.input_tokens, 400);
+    assert_eq!(row.cache_read_tokens, 600);
+    assert_eq!(row.output_tokens, 500);
+}
+
+#[tokio::test]
 async fn client_drop_settles_estimated() {
     let chunk = r#"data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"partial output text"},"finish_reason":null}]}"#;
     let fake = Arc::new(FakeUpstream::new(

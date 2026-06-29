@@ -109,12 +109,10 @@ pub fn channel_decode_stream(s: RespStream, decoder: Box<dyn ChannelStreamDecode
     ))
 }
 
-/// Wrap an already-materialized body stream with §17 settlement: every relayed
-/// chunk is pushed (refcounted) into the guard's bounded buffer; upstream EOF
-/// settles `Complete`; a mid-stream upstream error emits ONE protocol-shaped
-/// error frame (不裸断) and the dropped guard settles `Interrupted`; a client
-/// drop anywhere also settles `Interrupted` via the guard's Drop.
-pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
+/// Tee provider-native chunks into the §17 settlement guard while passing them
+/// through unchanged. This is spliced after channel shaping/response rules and
+/// before any protocol transform, so usage is extracted from upstream semantics.
+pub fn instrument_settle_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
     use futures_util::StreamExt;
 
     struct State {
@@ -138,14 +136,9 @@ pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
                 }
                 Some(Err(e)) => {
                     st.inner = None;
-                    let kind = st.guard.as_ref().and_then(StreamGuard::inbound_kind);
                     tracing::warn!(error = %e, "upstream stream failed");
-                    // dropping the guard settles Interrupted (after the frame)
-                    drop(st.guard.take());
-                    match kind {
-                        Some(k) => Some((Ok(crate::pipeline::settle::frames::error_frame(k)), st)),
-                        None => Some((Err(e), st)),
-                    }
+                    drop(st.guard.take()); // Drop settles Interrupted
+                    Some((Err(e), st))
                 }
                 None => {
                     st.inner = None;
@@ -154,6 +147,43 @@ pub fn instrument_stream(s: ByteStream, guard: StreamGuard) -> ByteStream {
                     }
                     None
                 }
+            }
+        },
+    ))
+}
+
+/// Convert a mid-stream transport error into one protocol-shaped downstream
+/// error frame. Usage settlement is handled earlier on the provider-native
+/// stream by [`instrument_settle_stream`].
+pub fn instrument_error_frame(
+    s: ByteStream,
+    kind: crate::protocol::ContentGenerationKind,
+) -> ByteStream {
+    use futures_util::StreamExt;
+
+    struct State {
+        inner: Option<ByteStream>,
+        kind: crate::protocol::ContentGenerationKind,
+    }
+
+    Box::pin(futures_util::stream::unfold(
+        State {
+            inner: Some(s),
+            kind,
+        },
+        |mut st| async move {
+            let inner = st.inner.as_mut()?;
+            match inner.next().await {
+                Some(Ok(chunk)) => Some((Ok(chunk), st)),
+                Some(Err(e)) => {
+                    st.inner = None;
+                    tracing::warn!(error = %e, "upstream stream failed");
+                    Some((
+                        Ok(crate::pipeline::settle::frames::error_frame(st.kind)),
+                        st,
+                    ))
+                }
+                None => None,
             }
         },
     ))

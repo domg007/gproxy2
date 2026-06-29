@@ -322,6 +322,13 @@ pub(super) fn refresh_failed(
 pub(super) struct Materialized {
     pub body: ResponseBody,
     pub upstream_raw: Option<Bytes>,
+    pub settle: Option<BufferedSettle>,
+}
+
+pub(super) struct BufferedSettle {
+    pub ctx: settle::SettleCtx,
+    pub body: Bytes,
+    pub stream: bool,
 }
 
 /// What [`materialize`] needs to capture a streaming upstream response body.
@@ -351,6 +358,7 @@ pub(super) fn materialize(
     status: StatusCode,
     response_rules: Option<ResponseRuleCtx<'_>>,
     upstream: Option<UpstreamRespCapture>,
+    settle_ctx: Option<settle::SettleCtx>,
 ) -> Result<Materialized, PipelineError> {
     match source {
         BodySource::Buffered(b) => {
@@ -387,8 +395,18 @@ pub(super) fn materialize(
                     b.clone()
                 }
             });
+            let settle_stream = ctx.stream || plan.is_aggregate_stream();
+            let settle = settle_ctx.map(|settle_ctx| BufferedSettle {
+                ctx: settle_ctx,
+                body: b.clone(),
+                stream: settle_stream,
+            });
             let body = materialize_buffered(channel, plan, ctx, status, b)?;
-            Ok(Materialized { body, upstream_raw })
+            Ok(Materialized {
+                body,
+                upstream_raw,
+                settle,
+            })
         }
         #[cfg(not(target_arch = "wasm32"))]
         BodySource::Streaming(st) => {
@@ -397,6 +415,7 @@ pub(super) fn materialize(
                 return Ok(Materialized {
                     body: ResponseBody::Stream(crate::pipeline::stream::into_byte_stream(st)),
                     upstream_raw: None,
+                    settle: None,
                 });
             }
             // Order: raw upstream → channel decoder (envelope/binary → canonical
@@ -422,6 +441,13 @@ pub(super) fn materialize(
                 Some(dec) => crate::pipeline::stream::channel_decode_stream(st, dec),
                 None => st,
             };
+            let st = match settle_ctx {
+                Some(ctx) => crate::pipeline::stream::instrument_settle_stream(
+                    st,
+                    settle::StreamGuard::new(ctx),
+                ),
+                None => st,
+            };
             // Tee the post-decode (provider-native) bytes for upstream logging
             // BEFORE any cross-protocol transform.
             let st = match upstream {
@@ -440,6 +466,7 @@ pub(super) fn materialize(
             Ok(Materialized {
                 body,
                 upstream_raw: None,
+                settle: None,
             })
         }
     }
