@@ -44,6 +44,11 @@ if [ "$channel" = "staging" ]; then
   version="${VERSION:-staging}"
 elif [ "$channel" = "releases" ]; then
   version="${VERSION:-${TAG#v}}"
+  version="${version#v}"
+  if ! [[ "$version" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+    echo "release manifest version must be semver, got '$version'" >&2
+    exit 1
+  fi
 else
   echo "unknown CHANNEL '$channel' (expected 'releases' or 'staging')" >&2
   exit 1

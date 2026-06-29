@@ -346,7 +346,7 @@ jobs:
           CHANNEL: ${{ env.PUBLISH_CHANNEL }}
           # Releases derive `version` from the tag; staging is sha256-keyed, so its
           # `version` is advisory — carry the commit sha for a human-readable id.
-          VERSION: ${{ github.event_name == 'release' && '' || github.sha }}
+          VERSION: ${{ github.event_name != 'release' && github.sha || github.event.release.tag_name }}
           REPO: ${{ github.repository }}
           NOTES_URL: ${{ github.event.release.html_url }}
           ASSETS_DIR: dl
