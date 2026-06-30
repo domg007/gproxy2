@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 
+const UNSUPPORTED_USAGE_MESSAGE = "channel exposes no usage endpoint";
+
 function windowPercent(w: UsageWindow): number | undefined {
   if (w.used_percent !== undefined) return Math.min(100, Math.max(0, w.used_percent));
   if (w.used !== undefined && w.limit !== undefined && w.limit > 0) {
@@ -28,6 +30,13 @@ export function UsageCard({ credentialId }: { credentialId: number }) {
   const { t } = useTranslation("providers");
   const query = useQuery(credentialUsageQuery(credentialId));
   const snapshot = query.data;
+  const errorText = query.isError
+    ? query.error instanceof ApiError
+      ? query.error.message === UNSUPPORTED_USAGE_MESSAGE
+        ? t("usage.unsupported")
+        : query.error.message
+      : String(query.error)
+    : undefined;
 
   return (
     <div className="grid gap-4">
@@ -39,13 +48,7 @@ export function UsageCard({ credentialId }: { credentialId: number }) {
         </Button>
       </div>
 
-      {query.isError && (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError && query.error.status === 400
-            ? t("usage.unsupported")
-            : query.error instanceof ApiError ? query.error.message : String(query.error)}
-        </p>
-      )}
+      {errorText && <p className="text-sm text-destructive">{errorText}</p>}
 
       {snapshot && (
         <div className="grid gap-3">
